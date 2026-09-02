@@ -641,6 +641,16 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
 JNI(void, nativeSetInput)(JNIEnv *env, jclass cls, jint mask)
 { (void)env; (void)cls; g_input = mask; }
 
+/* 헤드리스 구동 — GL 없이 코어만 n 프레임 돌린다. cb_video 가 g_fb(CPU 버퍼)를
+   채우므로 nativeFrameBuffer 로 화면을 읽을 수 있다. 런처 썸네일 캡처용:
+   롬을 몰래 부팅해 타이틀을 찍는다. 오디오는 호출 전에 nativeAudioPause 로 끌 것. */
+JNI(void, nativeRunFrames)(JNIEnv *env, jclass cls, jint n)
+{
+   (void)env; (void)cls;
+   if (!g_loaded) return;
+   for (jint i = 0; i < n; i++) c_run();
+}
+
 /* 백그라운드에서 오디오 장치를 놓았다가 복귀 때 새로 연다 —
    물고 있으면 다른 앱 재생 뒤 스트림이 죽은 채 돌아오는 무음 사고가 난다. */
 JNI(void, nativeAudioPause)(JNIEnv *env, jclass cls)

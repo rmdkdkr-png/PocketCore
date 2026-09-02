@@ -29,4 +29,5 @@ public final class Emu {
     public static native void nativeSaveSram();
     public static native void nativeAudioPause();   /* 백그라운드 — 오디오 장치를 놓는다 */
     public static native void nativeAudioResume();  /* 복귀 — 새 스트림으로 다시 연다 */
+    public static native void nativeRunFrames(int n); /* GL 없이 n프레임 — 썸네일 캡처용 */
 }

@@ -57,8 +57,21 @@ public final class Updater {
             }
             /* 앱이 최신일 때만 컨텐츠 동기화 — 새 앱을 설치하러 떠나는 중이면 다음에 받는다.
                앱(APK)은 앱이 바뀔 때만 갈고, 코어·음성팩·한글패치는 여기서 따로 받는다. */
-            if (idle) { syncCores(act, base); syncPatches(act, base); showNews(act, base); }
+            if (idle) { syncCores(act, base); syncPatches(act, base);
+                        syncDesign(base); showNews(act, base); }
         }}).start();
+    }
+
+    /** 디자인 메타데이터(런처 정보줄) — 작은 파일이라 판 비교 없이 그냥 덮는다. */
+    private static void syncDesign(String base) {
+        try {
+            byte[] jb = fetch(base + "/design.json", 4000);
+            new JSONObject(new String(jb, "UTF-8"));      /* JSON 인지 확인만 */
+            File dir = new File(MainActivity.root(), "design");
+            dir.mkdirs();
+            FileOutputStream fo = new FileOutputStream(new File(dir, "design.json"));
+            fo.write(jb); fo.close();
+        } catch (Exception ignored) { /* 장식 — 없어도 런처는 뜬다 */ }
     }
 
     /** 소식 창 — 릴리즈의 news.json(배포 때마다 자동으로 쌓인다)을 그대로 보여 준다.

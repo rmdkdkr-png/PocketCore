@@ -113,33 +113,60 @@ public class MainActivity extends Activity {
         col.setOrientation(LinearLayout.VERTICAL);
         col.setBackgroundColor(0xff101014);
 
-        TextView t = new TextView(this);
-        t.setPadding(40, 60, 40, 30);
-        t.setTextColor(0xffdddddd);
-        t.setTextSize(15);
-        t.setText(roms.isEmpty()
-                ? "롬이 없습니다.\n\n" + romsDir().getAbsolutePath() + "\n위 폴더에 롬 파일을 넣고 앱을 다시 여세요."
-                : "롬 선택 (한 번만 — 다음부터는 바로 실행됩니다)");
-        col.addView(t);
+        if (roms.isEmpty()) {
+            TextView t = new TextView(this);
+            t.setPadding(40, 60, 40, 30);
+            t.setTextColor(0xffdddddd);
+            t.setTextSize(15);
+            t.setText("롬이 없습니다.\n\n" + romsDir().getAbsolutePath()
+                    + "\n위 폴더에 롬 파일을 넣고 앱을 다시 여세요.");
+            col.addView(t, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        } else {
+            /* 레트로 런처 — NGPC 해상도 캔버스에 카트리지 캐러셀.
+               썸네일은 롬당 1회 몰래 부팅해 캡처(Thumbs), 그다음부터는 캐시. */
+            final LauncherView lv = new LauncherView(this);
+            final List<LauncherView.Item> items = new ArrayList<>();
+            java.util.Map<String, String> meta = designMeta();
+            for (File r : roms) {
+                Games.Game g = Games.identify(r.getPath());
+                String nm = (g != null) ? g.ko : stripExt(r.getName());
+                LauncherView.Item it = new LauncherView.Item(r, nm);
+                if (g != null) {
+                    it.sp  = "svc".equals(g.id);
+                    it.dub = g.voice != null && new File(sysDir(), g.voice).exists();
+                    it.pat = new File(new File(root(), "patch"), g.id + "_ko.ips").exists()
+                          || assetExists("patch/" + g.id + "_ko.ips");
+                    String sub = meta.get(g.id);
+                    if (sub != null) it.sub = sub;
+                }
+                File tf = Thumbs.of(r);
+                if (tf.exists())
+                    it.thumb = android.graphics.BitmapFactory.decodeFile(tf.getPath());
+                items.add(it);
+            }
+            lv.setItems(items);
+            lv.setListener(new LauncherView.Listener() {
+                @Override public void onLaunch(File rom) { launch(rom.getAbsolutePath()); }
+            });
+            col.addView(lv, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        ListView lv = new ListView(this);
-        List<String> names = new ArrayList<>();
-        for (File r : roms) names.add(r.getName());
-        lv.setAdapter(new ArrayAdapter<String>(this,
-                android.R.layout.simple_list_item_1, names) {
-            @Override public View getView(int pos, View cv, ViewGroup parent) {
-                TextView v = (TextView) super.getView(pos, cv, parent);
-                v.setTextColor(0xffeeeeee);
-                return v;
-            }
-        });
-        lv.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-            @Override public void onItemClick(AdapterView<?> a, View v, int pos, long id) {
-                launch(roms.get(pos).getAbsolutePath());
-            }
-        });
-        col.addView(lv, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+            /* 빠진 썸네일을 뒤에서 하나씩 굽는다 — 다 되는 대로 즉시 반영.
+               실행(launch)이 stop 을 세우면 현재 것만 마치고 그만둔다. */
+            Thumbs.stop = false;
+            new Thread(new Runnable() { @Override public void run() {
+                for (LauncherView.Item it : items) {
+                    if (Thumbs.stop) break;
+                    if (it.thumb != null) continue;
+                    if (Thumbs.ensure(MainActivity.this, it.rom)) {
+                        it.thumb = android.graphics.BitmapFactory
+                                .decodeFile(Thumbs.of(it.rom).getPath());
+                        lv.thumbReady();
+                    }
+                }
+            }}).start();
+        }
 
         /* 하단 바: 설정 + 업데이트. 오버레이(아래+옵션)는 게임 안에서만 열리고 코어가 정한
            항목만 나오므로, 언어처럼 앱이 다루는 설정은 여기 아니면 갈 데가 없다.
@@ -179,6 +206,10 @@ public class MainActivity extends Activity {
     }
 
     private void launch(String romPath) {
+        /* 백그라운드 썸네일 캡처와 코어 전역 상태가 겹치면 안 된다 —
+           멈추라고 표시하고, 진행 중인 한 개가 끝나기를 잠깐 기다린다. */
+        Thumbs.stop = true;
+        synchronized (Thumbs.LOCK) { }
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST, romPath).apply();
         Intent i = new Intent(this, EmuActivity.class);
         i.putExtra("rom", romPath);
@@ -224,5 +255,43 @@ public class MainActivity extends Activity {
     /** EmuActivity calls this when the user asks for a different ROM. */
     public static void forgetLast(Activity a) {
         a.getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_LAST).apply();
+    }
+
+    /* ── 런처 보조 ──────────────────────────────────────────────── */
+
+    private static String stripExt(String n) {
+        int d = n.lastIndexOf('.');
+        return d > 0 ? n.substring(0, d) : n;
+    }
+
+    private boolean assetExists(String path) {
+        try (java.io.InputStream in = getAssets().open(path)) { return true; }
+        catch (Exception e) { return false; }
+    }
+
+    /** 디자인 메타데이터 — 릴리즈의 design.json 을 「업데이트 확인」이 받아 둔다.
+     *  게임 id → 정보줄(연도·장르). 없으면 그냥 배지만 나온다. */
+    private java.util.Map<String, String> designMeta() {
+        java.util.Map<String, String> m = new java.util.HashMap<>();
+        try {
+            File f = new File(new File(root(), "design"), "design.json");
+            byte[] b = new byte[(int) f.length()];
+            try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+                int n = 0;
+                while (n < b.length) {
+                    int r = in.read(b, n, b.length - n);
+                    if (r < 0) break;
+                    n += r;
+                }
+            }
+            org.json.JSONObject g = new org.json.JSONObject(new String(b, "UTF-8"))
+                    .getJSONObject("games");
+            java.util.Iterator<String> it = g.keys();
+            while (it.hasNext()) {
+                String id = it.next();
+                m.put(id, g.getJSONObject(id).optString("sub", ""));
+            }
+        } catch (Exception ignored) { }
+        return m;
     }
 }
