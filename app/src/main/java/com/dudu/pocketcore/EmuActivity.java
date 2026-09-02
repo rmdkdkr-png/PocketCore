@@ -88,6 +88,14 @@ public class EmuActivity extends Activity {
             @Override public void onDrawFrame(GL10 g) {
                 Emu.nativeSetInput(padMask | keyMask);
                 Emu.nativeFrame();
+                /* 프레임 크기가 바뀌면(기둥·띠 토글) 화면 상자를 다시 잡는다 */
+                int fw = Emu.nativeFrameWidth(), fh = Emu.nativeFrameHeight();
+                if (fw > 0 && (fw != lastFW || fh != lastFH)) {
+                    lastFW = fw; lastFH = fh;
+                    runOnUiThread(new Runnable() { @Override public void run() {
+                        placeScreen();
+                    }});
+                }
             }
         });
         gl.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
@@ -165,13 +173,21 @@ public class EmuActivity extends Activity {
     }
 
     private int scrPct = 100, scrX = 50, scrY = 50;
+    private int lastFW = 0, lastFH = 0;   /* 프레임 크기 변화 감지 (기둥·띠 토글) */
 
-    /** 현재 scrPct/scrX/scrY 로 게임 화면을 놓고, 편집 상자에도 알려 준다 */
+    /** 현재 scrPct/scrX/scrY 로 게임 화면을 놓고, 편집 상자에도 알려 준다.
+     *  상자는 **게임 프레임의 실제 종횡비**로 잡는다 — 기둥 아트(폭 288)를 켜면
+     *  프레임이 넓어지는데, 예전엔 상자가 160 기준 그대로라 화면이 쪼그라들었다(제보). */
     private void placeScreen() {
         if (root == null || gl == null) return;
         int w = root.getWidth(), hgt = root.getHeight();
         if (w <= 0 || hgt <= 0) return;
-        int gw = w * scrPct / 100, gh = hgt * scrPct / 100;
+        int fw = Emu.nativeFrameWidth(), fh = Emu.nativeFrameHeight();
+        if (fw <= 0 || fh <= 0) { fw = 160; fh = 152; }
+        int gw = w * scrPct / 100;
+        int gh = gw * fh / fw;
+        int capH = hgt * scrPct / 100;
+        if (gh > capH) { gh = capH; gw = gh * fw / fh; }
         int mx = (w - gw) * clamp(scrX, 0, 100) / 100;
         int my = (hgt - gh) * clamp(scrY, 0, 100) / 100;
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(gw, gh,

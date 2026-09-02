@@ -52,6 +52,9 @@ public class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if (!started && hasStorage()) setup();
+        if (bgm != null) {
+            try { bgm.start(); } catch (Exception ignored) { }
+        }
     }
 
     private boolean hasStorage() {
@@ -86,7 +89,8 @@ public class MainActivity extends Activity {
         /* 게임에서 「롬 바꾸기」로 온 경우엔 목록을 **반드시** 보여 준다.
            안 그러면 롬이 하나뿐일 때 그 롬으로 바로 되돌아가서 목록도 설정도 영영 못 본다. */
         if (getIntent() != null && getIntent().getBooleanExtra("menu", false)) {
-            playBoot(); playTheme();
+            if (!bootedOnce) playBoot();
+            playTheme();
             showList(listRoms());
             return;
         }
@@ -97,7 +101,8 @@ public class MainActivity extends Activity {
 
         List<File> roms = listRoms();
         if (roms.size() == 1) { launch(roms.get(0).getAbsolutePath()); return; }
-        playBoot(); playTheme();
+        if (!bootedOnce) playBoot();
+        playTheme();
         showList(roms);
     }
 
@@ -116,8 +121,11 @@ public class MainActivity extends Activity {
         return out;
     }
 
-    /* ── 런처 소리 — 부팅음 1회 + 테마 루프. 게임에 들어가면 멈춘다 ── */
+    /* ── 런처 소리 — 부팅음·인트로는 **프로세스당 1회**, 테마는 끊기지 않게:
+       홈 왕복은 일시정지/재개, 게임 왕복은 재생 위치를 승계한다 (제보: 「끊기는 게 싫다」) ── */
     private android.media.MediaPlayer bgm;
+    private static int themePos = 0;          /* 액티비티가 죽어도 위치는 남는다 */
+    static boolean bootedOnce = false;        /* 부팅 연출·부팅음 1회 게이트 */
 
     private boolean sndOn() {
         /* android.provider.Settings 와 이름이 겹쳐 FQN — askStorage 가 그쪽을 쓴다 */
@@ -162,6 +170,9 @@ public class MainActivity extends Activity {
             mp.setLooping(true);
             mp.setVolume(0.55f, 0.55f);
             mp.prepare();
+            if (themePos > 0) {
+                try { mp.seekTo(themePos); } catch (Exception ignored) { }
+            }
             mp.start();
             bgm = mp;
         } catch (Exception ignored) { }
@@ -169,6 +180,7 @@ public class MainActivity extends Activity {
 
     private void stopTheme() {
         if (bgm != null) {
+            try { themePos = bgm.getCurrentPosition(); } catch (Exception ignored) { }
             try { bgm.stop(); bgm.release(); } catch (Exception ignored) { }
             bgm = null;
         }
@@ -176,6 +188,15 @@ public class MainActivity extends Activity {
 
     @Override protected void onPause() {
         super.onPause();
+        /* 홈으로 잠깐 나간 것 — 죽이지 말고 멈췄다가 돌아오면 그 자리부터 */
+        if (bgm != null) {
+            try { themePos = bgm.getCurrentPosition(); bgm.pause(); }
+            catch (Exception ignored) { }
+        }
+    }
+
+    @Override protected void onDestroy() {
+        super.onDestroy();
         stopTheme();
     }
 
@@ -217,7 +238,10 @@ public class MainActivity extends Activity {
                 items.add(it);
             }
             lv.setItems(items);
-            lv.startIntro();               /* 스마일 볼 부팅 연출 — 부팅음과 같이 */
+            if (!bootedOnce) {             /* 스마일 볼 연출은 프로세스당 1회 — 복귀 땐 조용히 */
+                lv.startIntro();
+                bootedOnce = true;
+            }
             lv.setListener(new LauncherView.Listener() {
                 @Override public void onLaunch(File rom) { launch(rom.getAbsolutePath()); }
                 @Override public void onSettings() {
