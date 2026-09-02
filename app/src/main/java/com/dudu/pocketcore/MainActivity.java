@@ -144,10 +144,15 @@ public class MainActivity extends Activity {
     private void playTheme() {
         if (!sndOn() || bgm != null) return;
         try {
-            /* 유저 교체 경로 우선 — system/theme.wav 를 넣으면 그 곡이 흐른다 */
-            File user = new File(sysDir(), "theme.wav");
+            /* 유저 교체 경로 우선 — system/theme.{wav,mp3,ogg} 를 넣으면 그 곡이 흐른다
+               (Suno 등에서 받은 mp3 그대로 됨) */
+            File user = null;
+            for (String ext : new String[]{ "wav", "mp3", "ogg" }) {
+                File f = new File(sysDir(), "theme." + ext);
+                if (f.exists()) { user = f; break; }
+            }
             android.media.MediaPlayer mp = new android.media.MediaPlayer();
-            if (user.exists()) {
+            if (user != null) {
                 mp.setDataSource(user.getPath());
             } else {
                 android.content.res.AssetFileDescriptor fd = getAssets().openFd("theme.wav");
@@ -212,6 +217,7 @@ public class MainActivity extends Activity {
                 items.add(it);
             }
             lv.setItems(items);
+            lv.startIntro();               /* 스마일 볼 부팅 연출 — 부팅음과 같이 */
             lv.setListener(new LauncherView.Listener() {
                 @Override public void onLaunch(File rom) { launch(rom.getAbsolutePath()); }
                 @Override public void onSettings() {
