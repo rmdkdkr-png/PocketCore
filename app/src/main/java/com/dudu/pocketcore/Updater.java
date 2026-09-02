@@ -44,42 +44,191 @@ public final class Updater {
     public static void check(final Activity act) {
         toast(act, "업데이트 확인 중…");
         new Thread(new Runnable() { @Override public void run() {
+            String base = baseUrl();
+            boolean idle;                      /* 앱이 최신이라 설치 흐름으로 안 빠졌나 */
             try {
-                String base = baseUrl();
-                byte[] jb = fetch(base + "/version.json", 4000);
-                JSONObject j = new JSONObject(new String(jb, "UTF-8"));
-                int rc = j.getInt("versionCode");
-                String rn = j.optString("versionName", "?");
-                String apk = j.getString("apk");
-                int my;
-                try { my = (int) act.getPackageManager()
-                        .getPackageInfo(act.getPackageName(), 0).getLongVersionCode(); }
-                catch (Throwable t) { my = act.getPackageManager()
-                        .getPackageInfo(act.getPackageName(), 0).versionCode; }
-                if (rc <= my) { toast(act, "최신 버전입니다 (v" + rn + ")"); return; }
-                toast(act, "v" + rn + " 다운로드 중…");
-                byte[] ab = fetch(base + "/" + Uri.encode(apk), 60000);
-                File out = new File(act.getCacheDir(), "update.apk");
-                FileOutputStream fo = new FileOutputStream(out);
-                fo.write(ab); fo.close();
-                if (!act.getPackageManager().canRequestPackageInstalls()) {
-                    toast(act, "「이 출처 허용」을 켠 뒤 다시 눌러 주세요 (최초 1회)");
-                    Intent p = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                            Uri.parse("package:" + act.getPackageName()));
-                    p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    act.startActivity(p);
-                    return;
-                }
-                Intent i = new Intent(Intent.ACTION_VIEW);
-                i.setDataAndType(Uri.parse("content://com.dudu.pocketcore.apk/update.apk"),
-                        "application/vnd.android.package-archive");
-                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-                act.startActivity(i);
+                idle = checkApk(act, base);
             } catch (Exception e) {
                 toast(act, "업데이트 실패: " + e.getClass().getSimpleName()
-                        + " — PC 서버가 켜져 있고 같은 와이파이인지 확인");
+                        + " — 인터넷 연결을 확인해 주세요");
+                return;                        /* 릴리즈에 못 닿으면 한패도 못 받는다 */
             }
+            /* 앱이 최신일 때만 컨텐츠 동기화 — 새 앱을 설치하러 떠나는 중이면 다음에 받는다.
+               앱(APK)은 앱이 바뀔 때만 갈고, 코어·음성팩·한글패치는 여기서 따로 받는다. */
+            if (idle) { syncCores(act, base); syncPatches(act, base); }
         }}).start();
+    }
+
+    /** 코어·음성팩 동기화 — cores.json 을 보고 기기 ABI 에 맞는 코어를 **앱 내부
+     *  저장소**(files/cores/)에 받는다. sdcard 는 실행권이 없어(noexec) dlopen 이
+     *  안 되는 기기가 많다 — 그래서 내부다. 음성팩은 데이터라 PocketCore/system/ 에 둔다.
+     *  덕분에 코어만 바뀐 날은 APK 재설치(옆설치 경고) 없이 여기서 끝난다. */
+    private static void syncCores(Activity act, String base) {
+        try {
+            byte[] jb = fetch(base + "/cores.json", 4000);
+            JSONObject root = new JSONObject(new String(jb, "UTF-8"));
+            StringBuilder got = new StringBuilder();
+
+            JSONObject cores = root.optJSONObject("cores");
+            if (cores != null) {
+                String abi = android.os.Build.SUPPORTED_ABIS[0];
+                File dir = new File(act.getFilesDir(), "cores");
+                dir.mkdirs();
+                java.util.Iterator<String> it = cores.keys();
+                while (it.hasNext()) {
+                    String id = it.next();
+                    JSONObject e = cores.getJSONObject(id);
+                    String ver = e.getString("ver");
+                    JSONObject abis = e.getJSONObject("abis");
+                    if (!abis.has(abi)) continue;
+                    File so = new File(dir, id + ".so");
+                    File verf = new File(dir, id + ".ver");
+                    if (so.exists() && ver.equals(readSmall(verf))) continue;
+                    File tmp = new File(dir, id + ".part");
+                    fetchToFile(abis.getString(abi), tmp, 60000);
+                    if (!looksLike(tmp, 0x7f, 'E', 'L', 'F')) { tmp.delete(); continue; }
+                    so.delete();
+                    if (!tmp.renameTo(so)) continue;
+                    writeSmall(verf, ver);
+                    if (got.length() > 0) got.append(" · ");
+                    got.append(e.optString("ko", id)).append(' ').append(ver);
+                }
+            }
+
+            JSONObject packs = root.optJSONObject("packs");
+            if (packs != null) {
+                java.util.Iterator<String> it = packs.keys();
+                while (it.hasNext()) {
+                    JSONObject e = packs.getJSONObject(it.next());
+                    String ver = e.getString("ver");
+                    File dst = new File(MainActivity.sysDir(), e.getString("file"));
+                    File verf = new File(dst.getPath() + ".ver");
+                    if (dst.exists() && ver.equals(readSmall(verf))) continue;
+                    long mb = e.optLong("size", 0) >> 20;
+                    toast(act, e.optString("ko", "팩") + " " + ver + " 내려받는 중…"
+                            + (mb > 0 ? " (" + mb + "MB)" : ""));
+                    File tmp = new File(dst.getPath() + ".part");
+                    fetchToFile(e.getString("url"), tmp, 600000);
+                    long want = e.optLong("size", 0);
+                    if (want > 0 && tmp.length() != want) { tmp.delete(); continue; }
+                    dst.delete();
+                    if (!tmp.renameTo(dst)) continue;
+                    writeSmall(verf, ver);
+                    if (got.length() > 0) got.append(" · ");
+                    got.append(e.optString("ko", "팩")).append(' ').append(ver);
+                }
+            }
+
+            if (got.length() > 0)
+                toast(act, "새로 받음: " + got + " — 게임을 다시 열면 적용됩니다");
+        } catch (Exception e) {
+            toast(act, "코어 확인 실패: " + e.getClass().getSimpleName());
+        }
+    }
+
+    /** 파일 머리 몇 바이트 대조 — 오류 페이지를 코어라고 저장하는 사고 방지. */
+    private static boolean looksLike(File f, int... magic) {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            for (int m : magic) if (in.read() != (m & 0xff)) return false;
+            return true;
+        } catch (Exception e) { return false; }
+    }
+
+    /** 큰 파일용 스트리밍 다운로드 — 통째로 메모리에 안 올린다(음성팩은 수백 MB). */
+    private static void fetchToFile(String url, File out, int timeoutMs) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        c.setConnectTimeout(15000); c.setReadTimeout(timeoutMs);
+        InputStream in = new BufferedInputStream(c.getInputStream());
+        FileOutputStream fo = new FileOutputStream(out);
+        byte[] buf = new byte[262144];
+        int n;
+        while ((n = in.read(buf)) > 0) fo.write(buf, 0, n);
+        fo.close(); in.close(); c.disconnect();
+    }
+
+    /** 앱 새 판 확인. 설치·설정 화면으로 넘어가면 false, 이미 최신이면 true. */
+    private static boolean checkApk(Activity act, String base) throws Exception {
+        byte[] jb = fetch(base + "/version.json", 4000);
+        JSONObject j = new JSONObject(new String(jb, "UTF-8"));
+        int rc = j.getInt("versionCode");
+        String rn = j.optString("versionName", "?");
+        String apk = j.getString("apk");
+        int my;
+        try { my = (int) act.getPackageManager()
+                .getPackageInfo(act.getPackageName(), 0).getLongVersionCode(); }
+        catch (Throwable t) { my = act.getPackageManager()
+                .getPackageInfo(act.getPackageName(), 0).versionCode; }
+        if (rc <= my) { toast(act, "앱은 최신 버전입니다 (v" + rn + ")"); return true; }
+        toast(act, "v" + rn + " 다운로드 중…");
+        byte[] ab = fetch(base + "/" + Uri.encode(apk), 60000);
+        File out = new File(act.getCacheDir(), "update.apk");
+        FileOutputStream fo = new FileOutputStream(out);
+        fo.write(ab); fo.close();
+        if (!act.getPackageManager().canRequestPackageInstalls()) {
+            toast(act, "「이 출처 허용」을 켠 뒤 다시 눌러 주세요 (최초 1회)");
+            Intent p = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + act.getPackageName()));
+            p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            act.startActivity(p);
+            return false;
+        }
+        Intent i = new Intent(Intent.ACTION_VIEW);
+        i.setDataAndType(Uri.parse("content://com.dudu.pocketcore.apk/update.apk"),
+                "application/vnd.android.package-archive");
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        act.startActivity(i);
+        return false;
+    }
+
+    /** 한글패치 동기화 — 릴리즈의 patches.json(게임 id → 최신 IPS 주소·판)을 보고
+     *  PocketCore/patch/ 에 내려받는다. Patcher 는 이 폴더를 동봉 assets 보다 먼저 본다.
+     *  판 비교는 .ver 파일 내용으로 한다 — 크기 비교는 「번역만 바뀐 같은 크기 판」을
+     *  건너뛴 전력이 있어(배포처 관례) 판 문자열로만 가른다. */
+    private static void syncPatches(Activity act, String base) {
+        try {
+            byte[] jb = fetch(base + "/patches.json", 4000);
+            JSONObject j = new JSONObject(new String(jb, "UTF-8")).getJSONObject("patches");
+            File dir = new File(MainActivity.root(), "patch");
+            dir.mkdirs();
+            StringBuilder got = new StringBuilder();
+            java.util.Iterator<String> it = j.keys();
+            while (it.hasNext()) {
+                String id = it.next();
+                JSONObject e = j.getJSONObject(id);
+                String ver = e.getString("ver");
+                File ips = new File(dir, id + "_ko.ips");
+                File verf = new File(dir, id + "_ko.ver");
+                if (ips.exists() && ver.equals(readSmall(verf))) continue;
+                byte[] b = fetch(e.getString("url"), 30000);
+                /* IPS 서명 확인 — 오류 페이지를 패치로 저장하는 사고 방지 */
+                if (b.length < 8 || b[0] != 'P' || b[1] != 'A' || b[2] != 'T'
+                                 || b[3] != 'C' || b[4] != 'H') continue;
+                FileOutputStream fo = new FileOutputStream(ips);
+                fo.write(b); fo.close();
+                writeSmall(verf, ver);
+                if (got.length() > 0) got.append(" · ");
+                got.append(e.optString("ko", id)).append(' ').append(ver);
+            }
+            toast(act, got.length() > 0
+                    ? "한글패치 새 판: " + got + " — 게임을 다시 열면 적용됩니다"
+                    : "한글패치도 모두 최신입니다");
+        } catch (Exception e) {
+            toast(act, "한글패치 확인 실패: " + e.getClass().getSimpleName());
+        }
+    }
+
+    private static String readSmall(File f) {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            byte[] b = new byte[128];
+            int n = in.read(b);
+            return n > 0 ? new String(b, 0, n, "UTF-8").trim() : null;
+        } catch (Exception e) { return null; }
+    }
+
+    private static void writeSmall(File f, String s) {
+        try (FileOutputStream fo = new FileOutputStream(f)) {
+            fo.write(s.getBytes("UTF-8"));
+        } catch (Exception ignored) { }
     }
 
     private static byte[] fetch(String url, int timeoutMs) throws Exception {

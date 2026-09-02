@@ -97,6 +97,18 @@ public class EmuActivity extends Activity {
             @Override public void onMask(int mask) { padMask = mask; }
             @Override public void onAction(int action) { handleAction(action); }
             @Override public void onTurbo(boolean on) { Emu.nativeSetTurbo(on); }
+            @Override public void onScreenDrag(float dxFrac, float dyFrac) {
+                int w = root.getWidth(), hgt = root.getHeight();
+                int gw = w * scrPct / 100, gh = hgt * scrPct / 100;
+                if (w > gw)  scrX = clamp(scrX + Math.round(dxFrac * w * 100f / (w - gw)), 0, 100);
+                if (hgt > gh) scrY = clamp(scrY + Math.round(dyFrac * hgt * 100f / (hgt - gh)), 0, 100);
+                placeScreen();
+            }
+            @Override public void onScreenScale(int dPct) {
+                scrPct = clamp(scrPct + dPct, 20, 100);
+                placeScreen(); persistScreen();
+            }
+            @Override public void onScreenDrop() { persistScreen(); }
         });
 
         root = new FrameLayout(this);
@@ -134,17 +146,39 @@ public class EmuActivity extends Activity {
             return;
         }
         java.util.Map<String, String> m = Settings.load();
-        int pct = clamp(intOf(m.get("pocketcore_screen_size"), 100), 20, 100);
+        scrPct = clamp(intOf(m.get("pocketcore_screen_size"), 100), 20, 100);
+        /* 자리: x·y 퍼센트(남는 공간 대비 0~100). 없으면 옛 top/center 계열에서 변환.
+           「키」 편집에서 화면 상자를 끌면 이 값이 갱신·저장된다. */
         String v = or(m.get("pocketcore_screen_v"), "center");
         String h = or(m.get("pocketcore_screen_h"), "center");
-        int gravity = ("top".equals(v)    ? android.view.Gravity.TOP
-                     : "bottom".equals(v) ? android.view.Gravity.BOTTOM
-                                          : android.view.Gravity.CENTER_VERTICAL)
-                    | ("left".equals(h)   ? android.view.Gravity.LEFT
-                     : "right".equals(h)  ? android.view.Gravity.RIGHT
-                                          : android.view.Gravity.CENTER_HORIZONTAL);
-        gl.setLayoutParams(new FrameLayout.LayoutParams(
-                w * pct / 100, hgt * pct / 100, gravity));
+        scrX = intOf(m.get("pocketcore_screen_x"),
+                "left".equals(h) ? 0 : "right".equals(h) ? 100 : 50);
+        scrY = intOf(m.get("pocketcore_screen_y"),
+                "top".equals(v) ? 0 : "bottom".equals(v) ? 100 : 50);
+        placeScreen();
+    }
+
+    private int scrPct = 100, scrX = 50, scrY = 50;
+
+    /** 현재 scrPct/scrX/scrY 로 게임 화면을 놓고, 편집 상자에도 알려 준다 */
+    private void placeScreen() {
+        if (root == null || gl == null) return;
+        int w = root.getWidth(), hgt = root.getHeight();
+        if (w <= 0 || hgt <= 0) return;
+        int gw = w * scrPct / 100, gh = hgt * scrPct / 100;
+        int mx = (w - gw) * clamp(scrX, 0, 100) / 100;
+        int my = (hgt - gh) * clamp(scrY, 0, 100) / 100;
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(gw, gh,
+                android.view.Gravity.TOP | android.view.Gravity.LEFT);
+        lp.leftMargin = mx; lp.topMargin = my;
+        gl.setLayoutParams(lp);
+        if (pad != null) pad.setScreenBox(mx, my, mx + gw, my + gh);
+    }
+
+    private void persistScreen() {
+        Settings.put("pocketcore_screen_size", String.valueOf(scrPct));
+        Settings.put("pocketcore_screen_x", String.valueOf(scrX));
+        Settings.put("pocketcore_screen_y", String.valueOf(scrY));
     }
 
     private static int intOf(String s, int def) {
@@ -168,6 +202,10 @@ public class EmuActivity extends Activity {
      *  (아무 파일이나 두면 모든 게임이 그 코어로 돌아 「롤백된 느낌」 사고가 났다.) */
     private String corePath() {
         String want = "ss2".equals(romType) ? "ss2" : "svc";
+        String suffix = "";
+        for (int i = 0; i < Games.LANGS.length; i++)
+            if (Games.LANGS[i].equals(lang)) suffix += " · " + Games.LANGS_KO[i];
+        if (patched) suffix += " 패치";
         File[] f = new File(MainActivity.root(), "cores").listFiles();
         if (f != null) for (File x : f) {
             String n = x.getName().toLowerCase();
@@ -176,11 +214,24 @@ public class EmuActivity extends Activity {
                 return x.getAbsolutePath();
             }
         }
+        /* 「업데이트 확인」이 받아 둔 코어 — 앱 **내부** 저장소. sdcard 는 실행권이
+           없어(noexec) dlopen 이 안 되는 기기가 많아 내부에 둔다. 동봉 코어보다 새것. */
+        File dir = new File(getFilesDir(), "cores");
+        File auto = new File(dir, want + ".so");
+        if (auto.exists()) {
+            String v = null;
+            try (java.io.FileInputStream in =
+                         new java.io.FileInputStream(new File(dir, want + ".ver"))) {
+                byte[] b = new byte[64];
+                int n2 = in.read(b);
+                if (n2 > 0) v = new String(b, 0, n2, "UTF-8").trim();
+            } catch (Exception ignored) { }
+            coreLabel = ((game != null) ? game.ko : "순정 NGPC")
+                      + ((v != null) ? " · 코어 " + v : "") + suffix;
+            return auto.getAbsolutePath();
+        }
         String lib = (game != null) ? game.core : Games.fallbackCore();
-        coreLabel = (game != null) ? game.ko : "순정 NGPC";
-        for (int i = 0; i < Games.LANGS.length; i++)
-            if (Games.LANGS[i].equals(lang)) coreLabel += " · " + Games.LANGS_KO[i];
-        if (patched) coreLabel += " 패치";
+        coreLabel = ((game != null) ? game.ko : "순정 NGPC") + suffix;
         return getApplicationInfo().nativeLibraryDir + "/" + lib;
     }
 

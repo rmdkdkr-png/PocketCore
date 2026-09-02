@@ -66,6 +66,11 @@ public final class Games {
                  "libretro_svc.so", true, "japanese", null),
         new Game("lb",  "ngpc", "LASTBLADE",    "월화의 검사 특별편",
                  "libretro_svc.so", true, "japanese", null),
+        /* 아래 둘의 표식은 롬셋 헤더에서 실측 — R2 는 뒤가 공백 패딩이라 앞 일치로 충분. */
+        new Game("kofr2", "ngpc", "KOF R2",       "더 킹 오브 파이터즈 R-2",
+                 "libretro_svc.so", true, "japanese", null),
+        new Game("ffc",   "ngpc", "RB_F_CONTACT", "아랑전설 퍼스트 컨택트",
+                 "libretro_svc.so", true, "japanese", null),
     };
 
     /** 고를 수 있는 언어.

@@ -22,6 +22,19 @@ public class PadView extends View {
         void onMask(int mask);
         void onAction(int action);
         void onTurbo(boolean on);
+        /* 편집 모드에서 게임 화면을 끌고(전체 폭/높이 대비 이동분) 크기를 바꾼다 */
+        void onScreenDrag(float dxFrac, float dyFrac);
+        void onScreenScale(int dPct);
+        void onScreenDrop();
+    }
+
+    /* 게임 화면의 현재 자리 — EmuActivity 가 배치 때마다 알려 준다 (편집 상자용) */
+    private final RectF screenBox = new RectF();
+    private boolean selScreen = false, dragScreen = false;
+    private float lastSX, lastSY;
+    public void setScreenBox(float l, float t, float r, float b) {
+        screenBox.set(l, t, r, b);
+        if (edit) invalidate();
     }
 
     public static final int ACT_SAVE = 1, ACT_LOAD = 2, ACT_SHOT = 3, ACT_RESET = 4, ACT_PICK = 5, ACT_SLOT = 6, ACT_SPK = 7,
@@ -144,7 +157,7 @@ public class PadView extends View {
         float padH = h * 0.44f;
         dpadR = Math.min(w * 0.17f, padH * 0.36f);
         btnR = Math.min(w * 0.082f, padH * 0.17f);
-        float uw = w * 0.099f, uh = h * 0.042f, gap = w * 0.008f;   /* 9칸이 되며 조금 좁혔다 */
+        float uw = w * 0.104f, uh = h * 0.056f, gap = w * 0.006f;   /* 너무 작다는 제보 — 키움 */
         float total = uw * util.length + gap * (util.length - 1), x = (w - total) / 2f, y = h * 0.012f;
         for (int i = 0; i < util.length; i++) { util[i].set(x, y, x + uw, y + uh); x += uw + gap; }
         barHandle.set(w * 0.46f, 0, w * 0.54f, h * 0.030f);
@@ -163,24 +176,15 @@ public class PadView extends View {
     @Override protected void onDraw(Canvas c) {
         int w = getWidth(), h = getHeight();
 
-        /* SVC — 기둥 아트·해설 자리 (지금은 틀만, 콘텐츠는 다음 단계) */
-        if (svcPlaceholders) {
-            line.setColor(0x33ffcc44);
-            fill.setColor(0x14ffffff);
-            float top = h * 0.075f, bot = h * 0.50f, pw = w * 0.105f;
-            RectF lp = new RectF(w * 0.005f, top, w * 0.005f + pw, bot);
-            RectF rp = new RectF(w * 0.995f - pw, top, w * 0.995f, bot);
-            c.drawRoundRect(lp, 8, 8, fill); c.drawRoundRect(lp, 8, 8, line);
-            c.drawRoundRect(rp, 8, 8, fill); c.drawRoundRect(rp, 8, 8, line);
-            text.setTextSize(h * 0.013f);
-            c.drawText("기둥", lp.centerX(), lp.centerY(), text);
-            c.drawText("아트", lp.centerX(), lp.centerY() + h * 0.016f, text);
-            c.drawText("기둥", rp.centerX(), rp.centerY(), text);
-            c.drawText("아트", rp.centerX(), rp.centerY() + h * 0.016f, text);
-            RectF band = new RectF(w * 0.005f, h * 0.056f, w * 0.995f, h * 0.073f);
-            c.drawRoundRect(band, 6, 6, fill); c.drawRoundRect(band, 6, 6, line);
-            text.setTextSize(band.height() * 0.62f);
-            c.drawText("해설 자리", band.centerX(), band.centerY() + band.height() * 0.22f, text);
+        /* (기둥 아트 틀은 뺐다 — 콘텐츠 없이 자리만 차지한다는 제보. 화면은 「키」 편집에서
+           직접 끌어 옮기고 크기를 조절한다) */
+
+        if (edit && !screenBox.isEmpty()) {   /* 편집 모드: 게임 화면 상자 — 끌어서 이동 */
+            line.setColor(selScreen ? 0xccffcc44 : 0x8844ccff);
+            c.drawRect(screenBox, line);
+            text.setTextSize(h * 0.020f);
+            c.drawText("화면" + (selScreen ? " (선택됨 — [－][＋]로 크기)" : ""),
+                    screenBox.centerX(), screenBox.top + h * 0.028f, text);
         }
 
         int btnColorIdx = 0;
@@ -243,7 +247,7 @@ public class PadView extends View {
 
         if (edit) {
             text.setTextSize(getHeight() * 0.019f);
-            c.drawText("편집: 끌어서 이동 · 버튼 잡고 [－][＋]로 크기 · 「키」로 저장",
+            c.drawText("편집: 버튼·게임화면 끌어서 이동 · 잡고 [－][＋]로 크기 · 「키」로 저장",
                     w / 2f, util[0].bottom + getHeight() * 0.032f, text);
             float bw = w * 0.10f, bh = getHeight() * 0.038f, byy = util[0].bottom + getHeight() * 0.042f;
             minus.set(w * 0.30f, byy, w * 0.30f + bw, byy + bh);
@@ -366,14 +370,24 @@ public class PadView extends View {
                 return true;
             }
             if (edit) {
-                if (selIdx >= 0 && minus.contains(x, y)) {
-                    sc[selIdx] = Math.max(0.6f, sc[selIdx] - 0.1f); invalidate(); return true;
+                if (minus.contains(x, y)) {
+                    if (selScreen) { if (listener != null) listener.onScreenScale(-5); }
+                    else if (selIdx >= 0) sc[selIdx] = Math.max(0.6f, sc[selIdx] - 0.1f);
+                    invalidate(); return true;
                 }
-                if (selIdx >= 0 && plus.contains(x, y)) {
-                    sc[selIdx] = Math.min(1.8f, sc[selIdx] + 0.1f); invalidate(); return true;
+                if (plus.contains(x, y)) {
+                    if (selScreen) { if (listener != null) listener.onScreenScale(+5); }
+                    else if (selIdx >= 0) sc[selIdx] = Math.min(1.8f, sc[selIdx] + 0.1f);
+                    invalidate(); return true;
                 }
                 int ci = nearestControl(x, y);
-                if (ci >= 0) { dragIdx = ci; selIdx = ci; dragPid = e.getPointerId(idx); invalidate(); }
+                if (ci >= 0) {
+                    dragIdx = ci; selIdx = ci; selScreen = false;
+                    dragPid = e.getPointerId(idx); invalidate();
+                } else if (screenBox.contains(x, y)) {   /* 화면 상자 잡기 */
+                    selScreen = true; selIdx = -1; dragScreen = true;
+                    dragPid = e.getPointerId(idx); lastSX = x; lastSY = y; invalidate();
+                }
                 return true;
             }
             if (barOpen) {
@@ -412,11 +426,21 @@ public class PadView extends View {
                     fy[dragIdx] = Math.max(0.08f, Math.min(0.985f, e.getY(i) / getHeight()));
                     invalidate();
                 }
+            } else if (act == MotionEvent.ACTION_MOVE && dragScreen) {
+                for (int i = 0; i < e.getPointerCount(); i++) {
+                    if (e.getPointerId(i) != dragPid) continue;
+                    float x = e.getX(i), y = e.getY(i);
+                    if (listener != null)
+                        listener.onScreenDrag((x - lastSX) / getWidth(), (y - lastSY) / getHeight());
+                    lastSX = x; lastSY = y;
+                }
             } else if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) {
                 dragIdx = -1;
+                if (dragScreen) { dragScreen = false; if (listener != null) listener.onScreenDrop(); }
             } else if (act == MotionEvent.ACTION_POINTER_UP
                     && e.getPointerId(e.getActionIndex()) == dragPid) {
                 dragIdx = -1;
+                if (dragScreen) { dragScreen = false; if (listener != null) listener.onScreenDrop(); }
             }
             return true;
         }

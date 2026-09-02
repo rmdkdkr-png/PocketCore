@@ -43,7 +43,22 @@ public final class Patcher {
                      ? readAsset(ctx, "patch/svc_faststrong.ips") : null;
         if (name == null && extra == null) return romPath;
         try {
-            byte[] ips = (name != null) ? readAsset(ctx, "patch/" + name) : null;
+            /* 번역 IPS 는 **내려받은 것 우선** — 「업데이트 확인」이 PocketCore/patch/ 에
+               최신판을 받아 둔다. 없으면 앱에 동봉된 assets/patch/ 것을 쓴다.
+               (동봉이 아예 없는 게임 — R-2, 아랑전설 — 은 내려받아야만 한패가 붙는다.) */
+            byte[] ips = null;
+            String pver = "";                                 /* 도장용 패치판 표시 */
+            if (name != null) {
+                File dl = new File(new File(MainActivity.root(), "patch"), name);
+                ips = readFile(dl);
+                if (ips != null) {
+                    String v = readText(new File(dl.getPath()
+                            .substring(0, dl.getPath().length() - 4) + ".ver"));
+                    pver = (v != null) ? v : "dl";
+                } else {
+                    ips = readAsset(ctx, "patch/" + name);
+                }
+            }
             if (ips == null && extra == null) return romPath; /* 쓸 패치가 하나도 없다 */
 
             /* 사본 이름은 원본과 같게 둔다 — 상태저장 파일 이름이 롬 이름에서 나오므로,
@@ -54,7 +69,8 @@ public final class Patcher {
             File stamp = new File(out.getPath() + ".stamp");
             String want = lang + ":" + rom.length() + ":" + rom.lastModified() + ":"
                         + (ips != null ? ips.length : 0)
-                        + ":F" + (extra != null ? extra.length : 0);
+                        + ":F" + (extra != null ? extra.length : 0)
+                        + ":P" + pver;                        /* 새 판 받으면 다시 입힌다 */
 
             if (out.exists() && want.equals(readText(stamp))) return out.getPath();
 
