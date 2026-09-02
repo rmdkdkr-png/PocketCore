@@ -71,6 +71,10 @@ public final class Games {
                  "libretro_svc.so", true, "japanese", null),
         new Game("ffc",   "ngpc", "RB_F_CONTACT", "아랑전설 퍼스트 컨택트",
                  "libretro_svc.so", true, "japanese", null),
+        new Game("ms1",   "ngpc", "METALSLUG1ST", "메탈슬러그 1st 미션",
+                 "libretro_svc.so", true, "japanese", null),
+        new Game("ms2",   "ngpc", "METALSLUG2ND", "메탈슬러그 2nd 미션",
+                 "libretro_svc.so", true, "japanese", null),
     };
 
     /** 고를 수 있는 언어.

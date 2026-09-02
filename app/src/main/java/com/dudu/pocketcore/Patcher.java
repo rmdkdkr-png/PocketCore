@@ -37,19 +37,30 @@ public final class Patcher {
      *  문턱−1 로 맞추므로 병용해도 안전하다(실측). */
     public static String resolve(Context ctx, String romPath, Games.Game game, String lang,
                                  boolean fastRom) {
-        if (game == null) return romPath;
-        String name = game.patchFor(lang);
-        byte[] extra = (fastRom && "svc".equals(game.id))
+        String name = (game != null) ? game.patchFor(lang) : null;
+        byte[] extra = (fastRom && game != null && "svc".equals(game.id))
                      ? readAsset(ctx, "patch/svc_faststrong.ips") : null;
-        if (name == null && extra == null) return romPath;
         try {
-            /* 번역 IPS 는 **내려받은 것 우선** — 「업데이트 확인」이 PocketCore/patch/ 에
-               최신판을 받아 둔다. 없으면 앱에 동봉된 assets/patch/ 것을 쓴다.
-               (동봉이 아예 없는 게임 — R-2, 아랑전설 — 은 내려받아야만 한패가 붙는다.) */
+            File rom = new File(romPath);
+            File pdir = new File(MainActivity.root(), "patch");
+
+            /* 패치 고르기 — 우선순위:
+               ① 수동: patch/<롬파일명(확장자 뺌)>.ips — 게임 표에 없는 롬도 입힌다.
+                  유저가 아무 IPS 나 직접 넣는 자리다. 언어 설정과 무관하게 항상.
+               ② 내려받은 것: patch/<게임id>_ko.ips — 「업데이트 확인」이 받아 둔 최신판.
+               ③ 동봉: assets/patch/<게임id>_ko.ips. */
             byte[] ips = null;
             String pver = "";                                 /* 도장용 패치판 표시 */
-            if (name != null) {
-                File dl = new File(new File(MainActivity.root(), "patch"), name);
+            String base = rom.getName();
+            int dot = base.lastIndexOf('.');
+            if (dot > 0) base = base.substring(0, dot);
+            File manual = new File(pdir, base + ".ips");
+            byte[] mb = readFile(manual);
+            if (mb != null) {
+                ips = mb;
+                pver = "m" + manual.length() + "." + manual.lastModified();
+            } else if (name != null) {
+                File dl = new File(pdir, name);
                 ips = readFile(dl);
                 if (ips != null) {
                     String v = readText(new File(dl.getPath()
@@ -64,7 +75,6 @@ public final class Patcher {
             /* 사본 이름은 원본과 같게 둔다 — 상태저장 파일 이름이 롬 이름에서 나오므로,
                이름이 바뀌면 언어를 바꿀 때마다 세이브가 갈라진다.
                대신 도장에 언어·문턱 여부를 적어 둔다. 어느 쪽이 바뀌어도 다시 만든다. */
-            File rom = new File(romPath);
             File out = new File(new File(MainActivity.root(), DIR), rom.getName());
             File stamp = new File(out.getPath() + ".stamp");
             String want = lang + ":" + rom.length() + ":" + rom.lastModified() + ":"

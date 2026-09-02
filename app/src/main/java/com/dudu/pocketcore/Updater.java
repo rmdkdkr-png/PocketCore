@@ -25,11 +25,13 @@ public final class Updater {
     static String baseUrl() {
         String v = null;
         try { v = Settings2.readOpt("pocketcore_update_url"); } catch (Throwable ignored) { }
-        /* 기본은 KrPatch 고정 태그 릴리즈 — 어디서든(모바일 데이터 포함), 받은 사람 전부 된다.
-           개발 중 집 와이파이가 더 빠르면 options.txt 에
+        /* 기본은 PocketCore 저장소의 고정 태그 app — 앱은 앱 레포에서 받는다
+           (한패 IPS 는 KrPatch, 코어·음성팩은 ss2-sp-core 릴리즈를 색인이 가리킨다).
+           v3.48 이하는 KrPatch 의 옛 태그를 보지만, 앱 확인이 먼저라 새 APK 로
+           갈아탄 뒤 여기로 온다. 개발 중 집 와이파이가 더 빠르면 options.txt 에
            pocketcore_update_url=http://192.168.1.68:8765 를 적어 갈아탈 수 있다. */
         return (v != null && !v.isEmpty()) ? v
-                : "https://github.com/rmdkdkr-png/KrPatch/releases/download/pocketcore";
+                : "https://github.com/rmdkdkr-png/PocketCore/releases/download/app";
     }
 
     /* Settings.load() 는 앱 Settings 클래스지만 이름이 android.provider.Settings 와 겹쳐
@@ -55,8 +57,33 @@ public final class Updater {
             }
             /* 앱이 최신일 때만 컨텐츠 동기화 — 새 앱을 설치하러 떠나는 중이면 다음에 받는다.
                앱(APK)은 앱이 바뀔 때만 갈고, 코어·음성팩·한글패치는 여기서 따로 받는다. */
-            if (idle) { syncCores(act, base); syncPatches(act, base); }
+            if (idle) { syncCores(act, base); syncPatches(act, base); showNews(act, base); }
         }}).start();
+    }
+
+    /** 소식 창 — 릴리즈의 news.json(배포 때마다 자동으로 쌓인다)을 그대로 보여 준다.
+     *  앱·코어·한패·음성팩이 각자 따로 갱신되니, 뭐가 언제 바뀌었는지 한 자리에. */
+    private static void showNews(final Activity act, String base) {
+        try {
+            byte[] jb = fetch(base + "/news.json", 4000);
+            org.json.JSONArray items = new JSONObject(new String(jb, "UTF-8"))
+                    .getJSONArray("items");
+            final StringBuilder sb = new StringBuilder();
+            int n = Math.min(items.length(), 12);
+            for (int i = 0; i < n; i++) {
+                org.json.JSONObject e = items.getJSONObject(i);
+                sb.append(e.optString("date", "")).append("  ")
+                  .append(e.optString("text", "")).append('\n');
+            }
+            if (sb.length() == 0) return;
+            act.runOnUiThread(new Runnable() { @Override public void run() {
+                new android.app.AlertDialog.Builder(act)
+                        .setTitle("최근 업데이트")
+                        .setMessage(sb.toString())
+                        .setPositiveButton("확인", null)
+                        .show();
+            }});
+        } catch (Exception ignored) { /* 소식은 부가 정보 — 실패해도 조용히 */ }
     }
 
     /** 코어·음성팩 동기화 — cores.json 을 보고 기기 ABI 에 맞는 코어를 **앱 내부

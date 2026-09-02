@@ -37,6 +37,7 @@ public class EmuActivity extends Activity {
     private boolean patched = false;  /* 번역 패치 사본을 실행 중인가 */
     private String lang = "ko";       /* ko=번역 패치 / ja·en=롬에 원래 든 언어 */
     private int slot = 1;
+    private boolean autoSave = true;  /* 나갈 때 자동 저장, 열 때 이어하기 */
     private int spkIdx = 0;   /* 해설자 — options.txt 의 ngp_ss2sp_comm_spk 와 동기 */
     /* v4 로스터 11인 — 재캐스팅 아웃(샤를로트/소게츠/모로즈미/유가) 제외 */
     private static final String[] SPK_KEY = {
@@ -65,6 +66,7 @@ public class EmuActivity extends Activity {
             persistOption("ngp_language", Games.ngpLanguage(game, lang));
         }
         spkIdx = readSpkIdx();
+        autoSave = "enabled".equals(readOpt("pocketcore_autosave", "enabled"));
         try {   /* 판독 오버레이 — 코어가 뜰 때 getenv 로 한 번 읽으므로 **로드 전에** 심는다.
                    화면 왼쪽 위에 「내 동작번호|상대반응」을 상시 표시 — 영상만 찍어도
                    무슨 기술이 실제로 나갔는지(약/강 포함) 게임이 직접 말해 준다. */
@@ -91,8 +93,12 @@ public class EmuActivity extends Activity {
         gl.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
 
         pad = new PadView(this);
-        /* 패드 배치는 두 벌뿐이다 — SS2 전용과 그 밖의 NGPC */
-        pad.setProfile("ss2".equals(romType) ? "ss2" : "svc");
+        /* 패드는 세 벌 — SS2 전용, SvC(원버튼 6키), 순정 NGPC(A·B 만).
+           원버튼 엔진은 SvC 롬에서만 도니, 다른 게임에 기술·강약 버튼을 두면
+           안 나가는 버튼이 화면만 차지한다. 배치 파일은 **게임마다** 따로다. */
+        String profile = "ss2".equals(romType) ? "ss2"
+                       : (game != null && "svc".equals(game.id)) ? "svc" : "ngp";
+        pad.setProfile(profile, (game != null) ? game.id : "ngp");
         pad.setListener(new PadView.Listener() {
             @Override public void onMask(int mask) { padMask = mask; }
             @Override public void onAction(int action) { handleAction(action); }
@@ -253,6 +259,10 @@ public class EmuActivity extends Activity {
         loaded = rc == 0;
         romMtime = new File(romPath).lastModified();
         toast(loaded ? coreLabel : "코어/롬 로드 실패 (code " + rc + ")");
+        /* 이어하기 — 나갈 때 자동 저장해 둔 자리에서 계속. 로드와 같은 스레드라 안전하다. */
+        if (loaded && autoSave && autoStatePath().exists()
+                && Emu.nativeLoadState(autoStatePath().getAbsolutePath()) == 0)
+            toast("이어하기");
     }
 
     /** ROM hacking convenience: rebuild the ROM and the emulator picks it up by itself. */
@@ -278,6 +288,11 @@ public class EmuActivity extends Activity {
     private File statePath() {
         String suffix = slot == 1 ? ".state" : ".state" + slot;
         return new File(MainActivity.saveDir(), new File(romPath).getName() + suffix);
+    }
+
+    /** 오토세이브 자리 — 수동 슬롯(1~3)과 절대 안 겹치는 별도 파일. */
+    private File autoStatePath() {
+        return new File(MainActivity.saveDir(), new File(romPath).getName() + ".state.auto");
     }
 
     private void handleAction(int action) {
@@ -459,12 +474,21 @@ public class EmuActivity extends Activity {
 
     @Override protected void onPause() {
         super.onPause();
-        if (loaded) Emu.nativeSaveSram();
+        if (loaded) {
+            Emu.nativeSaveSram();
+            /* 오토세이브 — SRAM 저장과 같은 자리·같은 방식(UI 스레드 직접 호출 전례).
+               gl.onPause() 전이어야 한다. */
+            if (autoSave) Emu.nativeSaveState(autoStatePath().getAbsolutePath());
+        }
+        /* 오디오 장치를 놓는다 — 백그라운드에서 물고 있으면 다른 앱 재생 뒤
+           스트림이 죽은 채 돌아오는 무음 사고가 난다. 복귀 때 새로 연다. */
+        Emu.nativeAudioPause();
         gl.onPause();
     }
 
     @Override protected void onResume() {
         super.onResume(); immersive(); gl.onResume();
+        if (loaded) Emu.nativeAudioResume();
         applyScreenLayout();      /* 설정에서 돌아온 경우 바로 반영 */
     }
 

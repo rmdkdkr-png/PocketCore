@@ -304,15 +304,30 @@ static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
    return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
+/* 스트림이 죽었다는 표시 — 다른 앱이 장치를 가져가거나 라우팅이 바뀌면
+   AAudio 가 에러 콜백으로 알려 준다. 콜백 안에서는 그 스트림을 닫으면 안 되므로
+   표시만 남기고, 프레임 루프(GL 스레드)가 새 스트림으로 다시 연다. */
+static volatile int g_audio_dead = 0;
+static int g_audio_rate = 44100;
+
+static void audio_err_cb(AAudioStream *s, void *ud, aaudio_result_t err)
+{
+   (void)s; (void)ud;
+   if (err == AAUDIO_ERROR_DISCONNECTED) g_audio_dead = 1;
+}
+
 static void audio_start(int rate)
 {
    AAudioStreamBuilder *b = NULL;
+   g_audio_rate = rate;
+   g_audio_dead = 0;
    if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) return;
    AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_I16);
    AAudioStreamBuilder_setChannelCount(b, 2);
    AAudioStreamBuilder_setSampleRate(b, rate);
    AAudioStreamBuilder_setPerformanceMode(b, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
    AAudioStreamBuilder_setDataCallback(b, audio_cb, NULL);
+   AAudioStreamBuilder_setErrorCallback(b, audio_err_cb, NULL);
    if (AAudioStreamBuilder_openStream(b, &g_stream) == AAUDIO_OK)
       AAudioStream_requestStart(g_stream);
    AAudioStreamBuilder_delete(b);
@@ -600,6 +615,13 @@ static double now_s(void)
 JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
 {
    (void)env; (void)cls;
+   /* 죽은 오디오 스트림 재생성 — 에러 콜백은 표시만 남긴다(그 안에서 닫으면 안 됨).
+      여기는 GL 스레드라 안전하다. */
+   if (g_audio_dead) {
+      g_audio_dead = 0;
+      audio_stop();
+      audio_start(g_audio_rate);
+   }
    /* 화면 vsync(60/120Hz)마다 불리지만, 코어는 게임 fps 로만 돌린다 —
       120Hz 폰에서 두 배속으로 돌던 문제의 수정. 밀리면 최대 2프레임까지 따라잡고
       그 이상 밀린 시계는 버린다(일시정지·백그라운드 복귀 폭주 방지). */
@@ -618,6 +640,14 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
 
 JNI(void, nativeSetInput)(JNIEnv *env, jclass cls, jint mask)
 { (void)env; (void)cls; g_input = mask; }
+
+/* 백그라운드에서 오디오 장치를 놓았다가 복귀 때 새로 연다 —
+   물고 있으면 다른 앱 재생 뒤 스트림이 죽은 채 돌아오는 무음 사고가 난다. */
+JNI(void, nativeAudioPause)(JNIEnv *env, jclass cls)
+{ (void)env; (void)cls; audio_stop(); }
+
+JNI(void, nativeAudioResume)(JNIEnv *env, jclass cls)
+{ (void)env; (void)cls; if (g_loaded && !g_stream) audio_start(g_audio_rate); }
 
 JNI(void, nativeReset)(JNIEnv *env, jclass cls)
 { (void)env; (void)cls; if (g_loaded) c_reset(); }

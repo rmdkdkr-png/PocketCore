@@ -46,6 +46,10 @@ public final class Settings {
     public static final LinkedHashMap<String, Item[]> GROUPS = new LinkedHashMap<>();
     static {
         GROUPS.put("게임", new Item[]{
+            new Item("pocketcore_autosave", "오토세이브",
+                "게임을 벗어날 때(홈·롬 바꾸기) 자동으로 상태를 저장하고, 같은 롬을 다시 열면"
+                + " 그 자리에서 이어합니다. 수동 슬롯(1~3)과는 별개의 자리를 씁니다.",
+                ONOFF, ONOFF_K, "enabled"),
             new Item("pocketcore_lang", "언어",
                 "일본어·영어는 롬에 원래 들어 있어 설정만 바뀝니다. 한국어는 번역 패치를 롬 사본에 입힙니다"
                 + " — 원본 롬은 건드리지 않습니다. 패치가 어느 쪽 표를 덮었는지는 게임마다 달라서 바탕을 고릅니다.",

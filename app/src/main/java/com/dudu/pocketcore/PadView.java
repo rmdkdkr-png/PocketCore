@@ -68,6 +68,15 @@ public class PadView extends View {
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
         { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
     };
+    /* 순정 NGPC — 원버튼 엔진이 없는 게임(메탈슬러그 등). NGP 실기 그대로 A·B 두 개만.
+       기술·강약 버튼을 여기 두면 안 나가는 버튼이 화면만 차지한다는 제보로 분리했다. */
+    private static final Object[][] P_NGP = {
+        { "DPAD", "",     -1, 0.22f, 0.76f, 1.00f },
+        { "A",    "A",     0, 0.68f, 0.80f, 1.15f },
+        { "B",    "B",     8, 0.88f, 0.70f, 1.15f },
+        { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
+        { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
+    };
     private static final int[] BTN_COL_ON  = { 0x8866aaff, 0x88ff5566, 0x884477cc, 0x88cc3344, 0x88ffcc44, 0x8899eeaa };
     private static final int[] BTN_COL_OFF = { 0x4466aaff, 0x44ff5566, 0x444477cc, 0x44cc3344, 0x44ffcc44, 0x4499eeaa };
 
@@ -110,10 +119,14 @@ public class PadView extends View {
     public void setListener(Listener l) { listener = l; }
     public void setSlotLabel(int n) { utilLabel[0] = "슬롯" + n; invalidate(); }
 
-    /** "ss2" 또는 "svc" — 롬 헤더로 EmuActivity 가 정한다 */
-    public void setProfile(String name) {
-        profName = name;
-        prof = "ss2".equals(name) ? P_SS2 : P_SVC;
+    /** "ss2"·"svc"·"ngp" — 롬 헤더로 EmuActivity 가 정한다 */
+    public void setProfile(String name) { setProfile(name, name); }
+
+    /** gameKey 는 배치 파일 이름 (pad_<gameKey>.txt) — **게임마다** 따로 저장한다.
+     *  프로필(버튼 구성)은 세 벌뿐이지만 자리는 게임별로 달리 두고 싶다는 제보로 분리. */
+    public void setProfile(String name, String gameKey) {
+        profName = gameKey;
+        prof = "ss2".equals(name) ? P_SS2 : "svc".equals(name) ? P_SVC : P_NGP;
         svcPlaceholders = !"ss2".equals(name);
         nC = prof.length;
         fx = new float[nC]; fy = new float[nC]; sc = new float[nC];
