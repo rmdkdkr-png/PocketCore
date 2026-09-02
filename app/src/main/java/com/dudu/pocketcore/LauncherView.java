@@ -53,6 +53,41 @@ public final class LauncherView extends View {
     private long introAt = 0;               /* 부팅 연출 시작 시각 (0 = 안 함) */
     private static final long INTRO_MS = 950;
 
+    /* ── 첨화면 아트: 「포켓 진열장」 ──
+       위쪽 하늘엔 도트 별밭(정적 — 좌표는 해시로 고정), 화면 전체엔 진열 조명 비네트,
+       포커스 카드 밑엔 선반 잔광 두 줄. 실기 부트 화면의 「밤하늘에 기기 하나」 감성. */
+    private Paint vigP; private int vigW, vigH;   /* 비네트는 크기 바뀔 때만 다시 만든다 */
+
+    private Paint vignette(float w, float h) {
+        if (vigP == null || vigW != (int) w || vigH != (int) h) {
+            vigP = new Paint();
+            vigP.setShader(new android.graphics.RadialGradient(
+                    w * 0.5f, h * 0.34f, Math.max(w, h) * 0.72f,
+                    new int[]{ 0xff15151d, 0xff0e0e12, 0xff09090c },
+                    new float[]{ 0f, 0.55f, 1f },
+                    android.graphics.Shader.TileMode.CLAMP));
+            vigW = (int) w; vigH = (int) h;
+        }
+        return vigP;
+    }
+
+    private void drawBackdrop(Canvas c, float w, float h, float introT) {
+        c.drawRect(0, 0, w, h, vignette(w, h));
+        /* 도트 별 — 의사난수(정수 해시)로 좌표·크기·밝기를 고정. 매 프레임 같은 하늘. */
+        float d = Math.max(1f, w / 360f);             /* 도트 한 알의 화면 크기 */
+        int fade = (int) (255 * Math.min(1f, introT * 1.6f));
+        for (int i = 0; i < 34; i++) {
+            int hsh = i * 0x9E3779B1;
+            float sx2 = ((hsh >>> 8) % 1000) / 1000f * w;
+            float sy2 = ((hsh >>> 18) % 560) / 1000f * h;   /* 위 56% 에만 */
+            int tier = (hsh >>> 4) & 3;                      /* 0~3 밝기 층 */
+            int a = (18 + tier * 14) * fade / 255;
+            px.setColor((a << 24) | (tier == 3 ? 0xd9cba4 : 0x9aa0b8));
+            float s2 = d * (tier == 3 ? 2f : 1f);
+            c.drawRect(sx2, sy2, sx2 + s2, sy2 + s2, px);
+        }
+    }
+
     public LauncherView(Context c) {
         super(c);
         px.setAntiAlias(false);
@@ -76,6 +111,7 @@ public final class LauncherView extends View {
             if (t >= 1f) { t = 1f; introAt = 0; }
             else postInvalidateOnAnimation();
         }
+        drawBackdrop(cv, w, h, introAt > 0 ? t : 1f);
 
         /* 로고 — 좌상단. 인트로 중에는 스마일 볼이 굴러와 심볼 자리에 안착한다 */
         Bitmap logo = Logo.get(getContext());
@@ -99,13 +135,41 @@ public final class LauncherView extends View {
         }
         if (introAt > 0) {                                 /* 스마일 볼 굴리기 */
             float r = logoH * 0.55f;
+            /* 잔상 — 조금 전 위치에 흐린 볼을 겹쳐 「구른다」가 눈에 남게 */
+            for (int k = 3; k >= 1; k--) {
+                float tk = t - k * 0.055f;
+                if (tk <= 0) continue;
+                float pk = Math.min(1f, tk / 0.75f);
+                float ek = 1 - (1 - pk) * (1 - pk);
+                float sxk = -2 * r + (lx + 6 * ls + 2 * r) * ek;
+                float syk = ly + logoH * 0.5f
+                          + (tk > 0.75f ? 0 : (h * 0.015f) * (float) Math.abs(Math.sin(tk * 18)));
+                tp.setColor(((36 - k * 9) << 24) | 0x00d9a441);
+                cv.drawCircle(sxk, syk, r * (1 - k * 0.10f), tp);
+            }
             float p2 = Math.min(1f, t / 0.75f);
             float e = 1 - (1 - p2) * (1 - p2);             /* ease-out */
-            float bx = -r + (lx + r * 0.9f + r) * e + (w * 0.55f) * (1 - e) * 0f;
             float sx = -2 * r + (lx + 6 * ls + 2 * r) * e; /* 왼쪽 밖 → 심볼 자리 */
             float sy = ly + logoH * 0.5f
                      + (t > 0.75f ? 0 : (h * 0.015f) * (float) Math.abs(Math.sin(t * 18)));
             drawSmile(cv, sx, sy, r, t * 720f);
+            /* 안착 — 링 파동 + 스파클 넷. 부팅음 마지막 박에 맞춘 「철컥」 */
+            if (t > 0.78f) {
+                float q = (t - 0.78f) / 0.22f;
+                float cx2 = lx + 6 * ls, cy3 = ly + logoH * 0.5f;
+                tp.setStyle(Paint.Style.STROKE);
+                tp.setStrokeWidth(Math.max(2f, r * 0.10f * (1 - q)));
+                tp.setColor(((int) (150 * (1 - q)) << 24) | 0x00d9a441);
+                cv.drawCircle(cx2, cy3, r * (1.05f + q * 2.4f), tp);
+                tp.setStyle(Paint.Style.FILL);
+                int sa = (int) (220 * (1 - q));
+                tp.setColor((sa << 24) | 0x00ffe9b0);
+                float sd = r * (1.25f + q * 1.6f), ss = Math.max(2f, r * 0.10f);
+                cv.drawRect(cx2 - sd - ss, cy3 - ss, cx2 - sd + ss, cy3 + ss, tp);
+                cv.drawRect(cx2 + sd - ss, cy3 - ss, cx2 + sd + ss, cy3 + ss, tp);
+                cv.drawRect(cx2 - ss, cy3 - sd - ss, cx2 + ss, cy3 - sd + ss, tp);
+                cv.drawRect(cx2 - ss, cy3 + sd - ss, cx2 + ss, cy3 + sd + ss, tp);
+            }
         }
 
         int n = (items == null) ? 0 : items.size();
@@ -225,6 +289,12 @@ public final class LauncherView extends View {
         c.drawRect(l - 4, t2 - 4, l + dw + 4, t2 + dh + 4, px);
         px.setStyle(Paint.Style.FILL);
         px.setStrokeWidth(1);
+        if (focus) {                       /* 선반 잔광 — 진열장 유리에 비친 골드 */
+            px.setColor(withA(0xffd9a441, alpha * 0x2e / 255));
+            c.drawRect(l - 4, t2 + dh + 9, l + dw + 4, t2 + dh + 11, px);
+            px.setColor(withA(0xffd9a441, alpha * 0x14 / 255));
+            c.drawRect(l + dw / 6f, t2 + dh + 14, l + dw - dw / 6f, t2 + dh + 15, px);
+        }
     }
 
     /* ── 패드식 컨트롤 — A(실행)=안쪽 아래 · B(업뎃)=바깥 위 ── */

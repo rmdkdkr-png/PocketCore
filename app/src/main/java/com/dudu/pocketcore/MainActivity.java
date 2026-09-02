@@ -259,6 +259,9 @@ public class MainActivity extends Activity {
                           || assetExists("patch/" + g.id + "_ko.ips");
                     String sub = meta.get(g.id);
                     if (sub != null) it.sub = sub;
+                    /* 한패가 못 붙는 판본은 그 사실을 카드에 바로 적는다 —
+                       「왜 한글이 안 나오지」가 앱 고장으로 읽히지 않게 */
+                    if ("lbj".equals(g.id)) it.sub = "일본판 롬 — 한글패치는 UE(영문)판 전용";
                 }
                 File tf = thumbFor(r, g);
                 if (tf != null)

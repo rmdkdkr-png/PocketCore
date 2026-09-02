@@ -92,7 +92,10 @@ public class PadView extends View {
     private float dpadR, btnR;
     private final RectF opt = new RectF();
     private final RectF[] util = new RectF[9];
-    private final String[] utilLabel = { "슬롯1", "저장", "로드", "샷", "리셋", "롬", "해설", "설정", "키" };
+    /* 「종료」= 게임을 닫고 고르는 창으로 (제보: 「롬」은 사실 종료 버튼인데 이름이 달랐다).
+       「해설」은 사무쇼2 에만 있는 기능이라 그 프로필에서만 칸이 생긴다.
+       「배치」= 버튼 자리·크기 + 게임 화면 상자까지 한꺼번에 편집(제보: 「키」란 이름이 좁았다). */
+    private final String[] utilLabel = { "슬롯1", "저장", "로드", "샷", "리셋", "종료", "해설", "설정", "배치" };
     private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_SHOT, ACT_RESET, ACT_PICK, ACT_SPK, ACT_CFG, 0 };
     private static final int UTIL_EDIT = 8;   /* 마지막 칸 「키」 = 배치 편집 토글 (액션이 아니다) */
     private final RectF minus = new RectF(), plus = new RectF();
@@ -139,7 +142,13 @@ public class PadView extends View {
             sc[i] = (Float) prof[i][5];
         }
         load();
+        if (getWidth() > 0) layoutBar(getWidth(), getHeight());   /* 해설 칸 유무가 바뀐다 */
         invalidate();
+    }
+
+    /** 이 프로필에서 상단바 i번 칸이 존재하는가 — 해설(SPK)은 사무쇼2 전용. */
+    private boolean utilVisible(int i) {
+        return utilAct[i] != ACT_SPK || prof == P_SS2;
     }
 
     private File cfg() { return new File(MainActivity.root(), "pad_" + profName + ".txt"); }
@@ -173,10 +182,21 @@ public class PadView extends View {
         float padH = h * 0.44f;
         dpadR = Math.min(w * 0.17f, padH * 0.36f);
         btnR = Math.min(w * 0.082f, padH * 0.17f);
+        layoutBar(w, h);
+    }
+
+    private void layoutBar(int w, int h) {
         float uw = w * 0.104f, uh = h * 0.056f, gap = w * 0.006f;   /* 너무 작다는 제보 — 키움 */
-        float total = uw * util.length + gap * (util.length - 1), x = (w - total) / 2f, y = h * 0.012f;
-        for (int i = 0; i < util.length; i++) { util[i].set(x, y, x + uw, y + uh); x += uw + gap; }
-        barHandle.set(w * 0.46f, 0, w * 0.54f, h * 0.030f);
+        int vis = 0;
+        for (int i = 0; i < util.length; i++) if (utilVisible(i)) vis++;
+        /* 바는 「메뉴」 버튼 바로 아래 — 버튼이 커지면서 겹치던 것을 층으로 분리 */
+        float total = uw * vis + gap * (vis - 1), x = (w - total) / 2f, y = h * 0.052f;
+        for (int i = 0; i < util.length; i++) {
+            if (!utilVisible(i)) { util[i].setEmpty(); continue; }   /* 빈 칸 = 히트도 없다 */
+            util[i].set(x, y, x + uw, y + uh); x += uw + gap;
+        }
+        /* 메뉴 버튼 — [≡] 실핸들이 너무 작다는 제보. 항상 보이는 알약 버튼으로. */
+        barHandle.set(w * 0.42f, 0, w * 0.58f, h * 0.046f);
     }
 
     private boolean bit(int b) { return b >= 0 && (mask & (1 << b)) != 0; }
@@ -251,14 +271,16 @@ public class PadView extends View {
             }
         }
 
-        fill.setColor(barOpen || edit ? 0x44ffffff : 0x1effffff);
-        c.drawRoundRect(barHandle, 8, 8, fill);
-        text.setTextSize(barHandle.height() * 0.75f);
-        c.drawText("\u2261", barHandle.centerX(), barHandle.bottom - barHandle.height() * 0.22f, text);
+        fill.setColor(barOpen || edit ? 0x55ffffff : 0x30ffffff);
+        c.drawRoundRect(barHandle, 14, 14, fill);
+        text.setTextSize(barHandle.height() * 0.52f);
+        c.drawText(barOpen || edit ? "\uba54\ub274 \u25b4" : "\uba54\ub274 \u25be",
+                barHandle.centerX(), barHandle.bottom - barHandle.height() * 0.30f, text);
         if (barOpen || edit) {
             fill.setColor(0x22ffffff);
             text.setTextSize(util[0].height() * 0.5f);
             for (int i = 0; i < util.length; i++) {
+                if (util[i].isEmpty()) continue;                     /* 이 프로필에 없는 기능 */
                 if (i == UTIL_EDIT && edit) fill.setColor(0x66ffcc44);
                 c.drawRoundRect(util[i], 10, 10, fill);
                 if (i == UTIL_EDIT && edit) fill.setColor(0x22ffffff);

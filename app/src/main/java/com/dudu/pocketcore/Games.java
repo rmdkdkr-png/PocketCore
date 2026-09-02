@@ -66,6 +66,11 @@ public final class Games {
                  "libretro_svc.so", true, "japanese", null),
         new Game("lb",  "ngpc", "LASTBLADE",    "월화의 검사 특별편",
                  "libretro_svc.so", true, "japanese", null),
+        /* 월화 일본판 — UE판과 84% 다른 별개 빌드(GEKKA v1.1, 실측 2026-09-03)라 한패를
+           못 바른다. 그래도 표에 있어야 「정체불명 카드」가 아니라 「아는데 미지원」으로
+           보인다 — 조용한 부재는 늘 버그로 읽힌다(이식소 제보). 게임 자체는 순정으로 돈다. */
+        new Game("lbj", "ngpc", "GEKKA",        "월화의 검사 특별편 (일본판)",
+                 "libretro_svc.so", false, "japanese", null),
         /* 아래 둘의 표식은 롬셋 헤더에서 실측 — R2 는 뒤가 공백 패딩이라 앞 일치로 충분. */
         new Game("kofr2", "ngpc", "KOF R2",       "더 킹 오브 파이터즈 R-2",
                  "libretro_svc.so", true, "japanese", null),
