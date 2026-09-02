@@ -84,6 +84,36 @@ public class SettingsActivity extends Activity {
             }
         }
 
+        /* ── 롬 가져오기 — 설정에서도 언제든 (빈 화면에만 있으면 나중에 추가할 길이 없다) ── */
+        TextView romSec = new TextView(this);
+        romSec.setText("롬 가져오기");
+        romSec.setTextColor(GOLD); romSec.setTextSize(12);
+        romSec.setLetterSpacing(0.12f);
+        romSec.setTypeface(romSec.getTypeface(), android.graphics.Typeface.BOLD);
+        romSec.setPadding(dp(4), dp(14), 0, dp(6));
+        col.addView(romSec);
+
+        LinearLayout romCard = new LinearLayout(this);
+        romCard.setOrientation(LinearLayout.VERTICAL);
+        romCard.setBackgroundColor(CARD);
+        col.addView(romCard, lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, dp(6)));
+        romCard.addView(actionRow("롬 폴더 주소 복사",
+                "PC 연결이나 파일 앱에서 붙여넣어 찾아가기", new View.OnClickListener() {
+            @Override public void onClick(View v) { RomImport.copyPath(SettingsActivity.this); }
+        }));
+        romCard.addView(divider());
+        romCard.addView(actionRow("파일 골라 가져오기",
+                "파일 선택기에서 롬을 고르면 앱 폴더로 복사합니다 (여러 개 가능)",
+                new View.OnClickListener() {
+            @Override public void onClick(View v) { RomImport.pick(SettingsActivity.this); }
+        }));
+        romCard.addView(divider());
+        romCard.addView(actionRow("저장소에서 롬 스캔",
+                "기기 저장소를 훑어 .ngc/.ngp 를 찾아 모아옵니다", new View.OnClickListener() {
+            @Override public void onClick(View v) { RomImport.scan(SettingsActivity.this); }
+        }));
+
         TextView foot = new TextView(this);
         foot.setText("파일로도 고칠 수 있습니다\n" + MainActivity.optsFile().getAbsolutePath()
                 + "\n\n롬 폴더: " + MainActivity.romsDir().getAbsolutePath()
@@ -104,6 +134,31 @@ public class SettingsActivity extends Activity {
         View v = new View(this);
         v.setBackgroundColor(LINE);
         return v;
+    }
+
+    /** 행동 한 줄 — 값 순환이 아니라 즉시 실행. */
+    private View actionRow(String label, String help, View.OnClickListener l) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(dp(14), dp(12), dp(14), dp(12));
+        TextView name = new TextView(this);
+        name.setText(label);
+        name.setTextColor(TXT); name.setTextSize(16);
+        row.addView(name);
+        TextView h2 = new TextView(this);
+        h2.setText(help);
+        h2.setTextColor(DIM); h2.setTextSize(12);
+        h2.setPadding(0, dp(4), dp(40), 0);
+        row.addView(h2);
+        row.setClickable(true);
+        row.setOnClickListener(l);
+        return row;
+    }
+
+    @Override protected void onActivityResult(int rc, int res, android.content.Intent data) {
+        super.onActivityResult(rc, res, data);
+        if (rc == RomImport.REQ_PICK && res == RESULT_OK)
+            RomImport.onPicked(this, data);     /* 목록 갱신은 돌아간 런처의 onResume 몫 */
     }
 
     /** 한 줄 — 누르면 다음 값으로 넘어간다. 값이 둘이면 토글, 여럿이면 순환. */

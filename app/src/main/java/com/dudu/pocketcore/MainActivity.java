@@ -53,6 +53,10 @@ public class MainActivity extends Activity {
         super.onResume();
         fg = true;
         if (!started && hasStorage()) setup();
+        else if (RomImport.changed) {           /* 설정 화면에서 롬을 가져왔다 — 다시 그린다 */
+            RomImport.changed = false;
+            showList(listRoms());
+        }
         if (bgm != null) {
             try { bgm.start(); } catch (Exception ignored) { }
         } else if (bootMp != null) {
@@ -234,13 +238,50 @@ public class MainActivity extends Activity {
         col.setBackgroundColor(0xff101014);
 
         if (roms.isEmpty()) {
+            /* 첫 손님 화면 — 경로를 알려주는 것으로 끝내지 않는다: 복사·선택·스캔 세 길
+               (제보: 「하나는 해라 전부 다 하던지」) */
+            LinearLayout empty = new LinearLayout(this);
+            empty.setOrientation(LinearLayout.VERTICAL);
+            empty.setPadding(48, 70, 48, 30);
+
             TextView t = new TextView(this);
-            t.setPadding(40, 60, 40, 30);
             t.setTextColor(0xffdddddd);
-            t.setTextSize(15);
-            t.setText("롬이 없습니다.\n\n" + romsDir().getAbsolutePath()
-                    + "\n위 폴더에 롬 파일을 넣고 앱을 다시 여세요.");
-            col.addView(t, new LinearLayout.LayoutParams(
+            t.setTextSize(16);
+            t.setText("롬이 없습니다. 세 가지 중 편한 길로:");
+            empty.addView(t);
+
+            TextView path = new TextView(this);
+            path.setTypeface(android.graphics.Typeface.MONOSPACE);
+            path.setTextColor(0xffd9a441);
+            path.setTextSize(13);
+            path.setPadding(0, 24, 0, 24);
+            path.setText(romsDir().getAbsolutePath());
+            empty.addView(path);
+
+            empty.addView(emptyBtn("① 폴더 주소 복사 — PC·파일 앱에서 붙여넣기",
+                    0xff23262f, new View.OnClickListener() {
+                @Override public void onClick(View v) { RomImport.copyPath(MainActivity.this); }
+            }));
+            empty.addView(emptyBtn("② 파일 골라 가져오기 — 다운로드 폴더 등에서 선택",
+                    0xff1f2b22, new View.OnClickListener() {
+                @Override public void onClick(View v) { RomImport.pick(MainActivity.this); }
+            }));
+            empty.addView(emptyBtn("③ 저장소 스캔 — 기기 안의 롬을 찾아 모아오기",
+                    0xff2b2418, new View.OnClickListener() {
+                @Override public void onClick(View v) { RomImport.scan(MainActivity.this); }
+            }));
+
+            TextView hint = new TextView(this);
+            hint.setTextColor(0xff8b93a6);
+            hint.setTextSize(12);
+            hint.setPadding(0, 24, 0, 0);
+            hint.setText("넣는 롬은 한글패치 전 순정 롬(.ngc/.ngp)이면 됩니다 —\n"
+                    + "실행할 때 최신 한글패치를 받아 사본에 입힙니다.");
+            empty.addView(hint);
+
+            android.widget.ScrollView sv = new android.widget.ScrollView(this);
+            sv.addView(empty);
+            col.addView(sv, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         } else {
             /* 레트로 런처 — NGPC 해상도 캔버스에 카트리지 캐러셀.
@@ -388,6 +429,31 @@ public class MainActivity extends Activity {
     /** EmuActivity calls this when the user asks for a different ROM. */
     public static void forgetLast(Activity a) {
         a.getSharedPreferences(PREFS, MODE_PRIVATE).edit().remove(KEY_LAST).apply();
+    }
+
+    /** 빈 화면 버튼 — 하단바와 같은 톤의 큼직한 줄 버튼. */
+    private TextView emptyBtn(String label, int bgCol, View.OnClickListener l) {
+        TextView b = new TextView(this);
+        b.setText(label);
+        b.setTextColor(0xffe6e8ee);
+        b.setTextSize(15);
+        b.setPadding(36, 40, 36, 40);
+        b.setBackgroundColor(bgCol);
+        b.setClickable(true);
+        b.setOnClickListener(l);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.setMargins(0, 0, 0, 18);
+        b.setLayoutParams(p);
+        return b;
+    }
+
+    @Override protected void onActivityResult(int rc, int res, Intent data) {
+        super.onActivityResult(rc, res, data);
+        if (rc == RomImport.REQ_PICK && res == RESULT_OK) {
+            RomImport.onPicked(this, data);
+            if (RomImport.changed) { RomImport.changed = false; showList(listRoms()); }
+        }
     }
 
     /* ── 런처 보조 ──────────────────────────────────────────────── */
