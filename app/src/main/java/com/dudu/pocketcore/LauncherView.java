@@ -30,7 +30,11 @@ public final class LauncherView extends View {
         public Item(File rom, String title) { this.rom = rom; this.title = title; }
     }
 
-    public interface Listener { void onLaunch(File rom); }
+    public interface Listener {
+        void onLaunch(File rom);
+        void onSettings();   /* OPTION — 콘솔 관례대로 메뉴(설정) */
+        void onUpdate();     /* B — 업데이트 확인 */
+    }
 
     private static final int W = 160, H = 152;   /* NGPC 그대로 */
     private final Bitmap fb = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888);
@@ -60,12 +64,62 @@ public final class LauncherView extends View {
 
     @Override protected void onDraw(Canvas cv) {
         drawFB();
-        int s = Math.max(1, Math.min(getWidth() / W, getHeight() / H));
+        int s = Math.max(1, Math.min(getWidth() / W, (int) (getHeight() * 0.62f) / H));
         int dw = W * s, dh = H * s;
-        int x0 = (getWidth() - dw) / 2, y0 = (getHeight() - dh) / 2;
+        int x0 = (getWidth() - dw) / 2, y0 = (int) (getHeight() * 0.03f);
         srcR.set(0, 0, W, H);
         dstR.set(x0, y0, x0 + dw, y0 + dh);
         cv.drawBitmap(fb, srcR, dstR, p);
+        drawPad(cv);
+    }
+
+    /* ── 패드식 컨트롤 — 게임 패드(PadView)와 같은 룩·같은 자리 감각.
+       십자(좌우만 유효)=고르기 · A=실행 · B=업데이트 · OPTION=설정 */
+    private float dcx, dcy, dR, aX, aY, aR, bX, bY, bR;
+    private final android.graphics.RectF optR = new android.graphics.RectF();
+
+    private void drawPad(Canvas c) {
+        float w = getWidth(), h = getHeight();
+        dcx = w * 0.20f; dcy = h * 0.80f; dR = Math.min(w, h) * 0.13f;
+        aX = w * 0.88f; aY = h * 0.76f; aR = Math.min(w, h) * 0.062f;
+        bX = w * 0.72f; bY = h * 0.84f; bR = Math.min(w, h) * 0.055f;
+        float arm = dR * 0.42f;
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0x22ffffff);
+        c.drawRect(dcx - arm, dcy - dR, dcx + arm, dcy - arm, p);   /* 위(비활성) */
+        c.drawRect(dcx - arm, dcy + arm, dcx + arm, dcy + dR, p);   /* 아래(비활성) */
+        p.setColor(0x3cffffff);
+        c.drawRect(dcx - dR, dcy - arm, dcx - arm, dcy + arm, p);   /* ◀ */
+        c.drawRect(dcx + arm, dcy - arm, dcx + dR, dcy + arm, p);   /* ▶ */
+        p.setColor(0x22ffffff);
+        c.drawRect(dcx - arm, dcy - arm, dcx + arm, dcy + arm, p);
+
+        p.setColor(0x38ffffff);
+        c.drawCircle(aX, aY, aR, p);
+        c.drawCircle(bX, bY, bR, p);
+        optR.set(w * 0.5f - w * 0.10f, h * 0.955f - h * 0.021f,
+                 w * 0.5f + w * 0.10f, h * 0.955f + h * 0.021f);
+        p.setColor(0x2affffff);
+        c.drawRoundRect(optR, 12, 12, p);
+
+        p.setColor(0xffdddddd);
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setTextSize(aR * 0.7f);
+        c.drawText("A", aX, aY + aR * 0.25f, p);
+        p.setTextSize(bR * 0.7f);
+        c.drawText("B", bX, bY + bR * 0.25f, p);
+        p.setTextSize(optR.height() * 0.5f);
+        c.drawText("OPTION", optR.centerX(), optR.centerY() + optR.height() * 0.18f, p);
+        p.setTextSize(aR * 0.42f);
+        p.setColor(0x88ffffff);
+        c.drawText("실행", aX, aY - aR - 6, p);
+        c.drawText("업뎃", bX, bY + bR + bR * 0.55f + 8, p);
+        p.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private static float dist(float x, float y, float cx2, float cy2) {
+        float dx = x - cx2, dy = y - cy2;
+        return (float) Math.sqrt(dx * dx + dy * dy);
     }
 
     private void drawFB() {
@@ -84,15 +138,16 @@ public final class LauncherView extends View {
         /* 정보줄 */
         String t = cur.title;
         if (tw(t, 10) > 152) t = cut(t, 152, 10);
-        text(t, (W - tw(t, 10)) / 2, 92, 10, 0xffffffff, true);
+        text(t, (W - tw(t, 10)) / 2, 88, 10, 0xffffffff, true);
         int bx = badgesX(cur);
-        if (cur.pat) bx = badge("한패", bx, 100, 0xff2e7d32);
-        if (cur.sp)  bx = badge("SP",   bx, 100, 0xffb26500);
-        if (cur.dub) bx = badge("더빙", bx, 100, 0xff5e35b1);
+        if (cur.pat) bx = badge("한패", bx, 94, 0xff2e7d32);
+        if (cur.sp)  bx = badge("SP",   bx, 94, 0xffb26500);
+        if (cur.dub) bx = badge("더빙", bx, 94, 0xff5e35b1);
         if (!cur.sub.isEmpty())
-            text(cur.sub, (W - tw(cur.sub, 8)) / 2, 122, 8, 0xff9999aa, false);
-        text("◀ ▶ 고르기 · 화면 눌러 실행", (W - tw("◀ ▶ 고르기 · 화면 눌러 실행", 8)) / 2,
-             146, 8, 0xff777788, false);
+            text(cur.sub, (W - tw(cur.sub, 8)) / 2, 116, 8, 0xff9999aa, false);
+        text("◀▶ 고르기 · A 실행 · B 업뎃 · OPT 설정",
+             (W - tw("◀▶ 고르기 · A 실행 · B 업뎃 · OPT 설정", 8)) / 2, 146, 8,
+             0xff777788, false);
     }
 
     private int badgesX(Item it) {
@@ -157,18 +212,42 @@ public final class LauncherView extends View {
 
     @Override public boolean onTouchEvent(MotionEvent e) {
         if (items == null || items.isEmpty()) return true;
+        float x = e.getX(), y = e.getY(), h = getHeight();
         switch (e.getActionMasked()) {
         case MotionEvent.ACTION_DOWN:
-            downX = e.getX();
+            /* 패드 컨트롤 — 게임과 같은 감각으로 누르는 즉시 반응 */
+            if (dist(x, y, dcx, dcy) < dR * 1.35f) {
+                if (x < dcx - dR * 0.2f) move(-1);
+                else if (x > dcx + dR * 0.2f) move(1);
+                downX = -1;
+                return true;
+            }
+            if (dist(x, y, aX, aY) < aR * 1.35f) {
+                if (listener != null) listener.onLaunch(items.get(sel).rom);
+                downX = -1;
+                return true;
+            }
+            if (dist(x, y, bX, bY) < bR * 1.35f) {
+                if (listener != null) listener.onUpdate();
+                downX = -1;
+                return true;
+            }
+            if (optR.contains(x, y)) {
+                if (listener != null) listener.onSettings();
+                downX = -1;
+                return true;
+            }
+            downX = x;
             return true;
         case MotionEvent.ACTION_UP:
-            float dx = e.getX() - downX;
+            if (downX < 0) return true;
+            float dx = x - downX;
             if (Math.abs(dx) > getWidth() / 8f) {           /* 스와이프 */
                 move(dx < 0 ? 1 : -1);
-            } else {
-                float fx = e.getX() / getWidth();
-                if (fx < 0.33f) move(-1);
-                else if (fx > 0.67f) move(1);
+            } else if (y < h * 0.62f) {                     /* 캐러셀 영역 탭 */
+                float fx2 = x / getWidth();
+                if (fx2 < 0.33f) move(-1);
+                else if (fx2 > 0.67f) move(1);
                 else if (listener != null) listener.onLaunch(items.get(sel).rom);
             }
             return true;

@@ -148,6 +148,10 @@ public class MainActivity extends Activity {
             lv.setItems(items);
             lv.setListener(new LauncherView.Listener() {
                 @Override public void onLaunch(File rom) { launch(rom.getAbsolutePath()); }
+                @Override public void onSettings() {
+                    startActivity(new Intent(MainActivity.this, SettingsActivity.class));
+                }
+                @Override public void onUpdate() { Updater.check(MainActivity.this); }
             });
             col.addView(lv, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));

@@ -58,6 +58,7 @@ public class PadView extends View {
         { "AB",   "A+B", 10, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
         { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
+        { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
     };
     private static final Object[][] P_SS2 = {
         { "DPAD", "",     -1, 0.22f, 0.76f, 1.00f },
@@ -67,6 +68,7 @@ public class PadView extends View {
         { "AB",   "A+B",   1, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
         { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
+        { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
     };
     /* 순정 NGPC — 원버튼 엔진이 없는 게임(메탈슬러그 등). NGP 실기 그대로 A·B 두 개만.
        기술·강약 버튼을 여기 두면 안 나가는 버튼이 화면만 차지한다는 제보로 분리했다. */
@@ -76,6 +78,7 @@ public class PadView extends View {
         { "B",    "B",     8, 0.88f, 0.70f, 1.15f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
         { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
+        { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
     };
     private static final int[] BTN_COL_ON  = { 0x8866aaff, 0x88ff5566, 0x884477cc, 0x88cc3344, 0x88ffcc44, 0x8899eeaa };
     private static final int[] BTN_COL_OFF = { 0x4466aaff, 0x44ff5566, 0x444477cc, 0x44cc3344, 0x44ffcc44, 0x4499eeaa };
@@ -228,6 +231,12 @@ public class PadView extends View {
                 c.drawCircle(cx(i), cy(i), r, fill);
                 text.setTextSize(r * 0.55f);
                 c.drawText((String) prof[i][1], cx(i), cy(i) + r * 0.20f, text);
+            } else if (b == -4) {                            /* 목록으로 나가기 */
+                float r = radOf(i);
+                fill.setColor(0x33ffffff);
+                c.drawCircle(cx(i), cy(i), r, fill);
+                text.setTextSize(r * 0.42f);
+                c.drawText((String) prof[i][1], cx(i), cy(i) + r * 0.16f, text);
             } else {                                         /* 게임 버튼 */
                 float r = radOf(i);
                 int ci = btnColorIdx % BTN_COL_ON.length; btnColorIdx++;
@@ -301,6 +310,11 @@ public class PadView extends View {
 
     private int dpadIndex() {
         for (int i = 0; i < nC; i++) if (bitOf(i) == -1) return i;
+        return -1;
+    }
+
+    private int exitIndex() {
+        for (int i = 0; i < nC; i++) if (bitOf(i) == -4) return i;
         return -1;
     }
 
@@ -420,6 +434,13 @@ public class PadView extends View {
                 ffDown = true; ffPid = e.getPointerId(idx);
                 if (listener != null) listener.onTurbo(true);
                 invalidate();
+                return true;
+            }
+            /* 「목록」 키 — 고르는 창으로 나간다. 나갈 때 오토세이브가 걸리므로
+               잘못 눌러도 이어하기로 바로 복귀된다. */
+            int xi = exitIndex();
+            if (xi >= 0 && dist(x, y, cx(xi), cy(xi)) < radOf(xi) * 1.3f) {
+                if (listener != null) listener.onAction(ACT_PICK);
                 return true;
             }
             /* 십자 잡기 — 시작점이 십자 근방(1.35R)이면 이 손가락이 십자를 소유한다 */
