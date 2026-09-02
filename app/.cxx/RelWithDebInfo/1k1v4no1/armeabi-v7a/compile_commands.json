@@ -1,7 +1,0 @@
-[
-{
-  "directory": "/home/dudu/ss2/repo/pocketcore/pocketcore/app/.cxx/RelWithDebInfo/1k1v4no1/armeabi-v7a",
-  "command": "/home/dudu/android-tools/sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/bin/clang --target=armv7-none-linux-androideabi26 --sysroot=/home/dudu/android-tools/sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/sysroot -Dpocketcore_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -march=armv7-a -mthumb -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -O2 -Wall -o CMakeFiles/pocketcore.dir/native.c.o -c /home/dudu/ss2/repo/pocketcore/pocketcore/app/src/main/cpp/native.c",
-  "file": "/home/dudu/ss2/repo/pocketcore/pocketcore/app/src/main/cpp/native.c"
-}
-]

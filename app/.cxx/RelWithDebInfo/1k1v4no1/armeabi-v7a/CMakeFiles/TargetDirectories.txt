@@ -1,3 +1,0 @@
-/home/dudu/ss2/repo/pocketcore/pocketcore/app/.cxx/RelWithDebInfo/1k1v4no1/armeabi-v7a/CMakeFiles/pocketcore.dir
-/home/dudu/ss2/repo/pocketcore/pocketcore/app/.cxx/RelWithDebInfo/1k1v4no1/armeabi-v7a/CMakeFiles/edit_cache.dir
-/home/dudu/ss2/repo/pocketcore/pocketcore/app/.cxx/RelWithDebInfo/1k1v4no1/armeabi-v7a/CMakeFiles/rebuild_cache.dir

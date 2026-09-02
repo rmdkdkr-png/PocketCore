@@ -1,1 +1,0 @@
-/home/dudu/ss2/repo/pocketcore/pocketcore/app/build/intermediates/cxx/RelWithDebInfo/1k1v4no1/obj/x86_64

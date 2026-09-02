@@ -1,1 +1,0 @@
-/home/dudu/ss2/repo/pocketcore/pocketcore/app/src/main/cpp/CMakeLists.txt
