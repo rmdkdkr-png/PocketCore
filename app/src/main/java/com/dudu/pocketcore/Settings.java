@@ -86,6 +86,9 @@ public final class Settings {
                 new String[]{ "위 띠", "화면 안 아래", "끔" }, "above"),
         });
         GROUPS.put("소리", new Item[]{
+            new Item("pocketcore_launcher_snd", "런처 소리",
+                "롬 고르는 화면의 부팅음과 테마곡. 게임에 들어가면 멈춥니다.",
+                ONOFF, ONOFF_K, "enabled"),
             new Item("ngp_ss2sp_dub", "해설 음성",
                 "system/ss2_voice_<언어>.pak 이 있어야 납니다. 없으면 자막만 나옵니다.",
                 ONOFF, ONOFF_K, "enabled"),
@@ -109,6 +112,11 @@ public final class Settings {
                 ONOFF, ONOFF_K, "enabled"),
             new Item("ngp_svcsp_toast", "기술명 표시",
                 "원버튼으로 기술이 나갈 때 이름을 띄웁니다.",
+                ONOFF, ONOFF_K, "enabled"),
+            new Item("ngp_svcsp_basics", "SVC 강약 버튼 구분",
+                "켬 = 약P·약K·강P·강K 4버튼(약은 짧게 고정, 강은 즉발). 끔 = 순정 2버튼"
+                + "(A·B 탭=약/꾹=강, 게임 원판정) — 단 강P·강K 버튼은 끔에서도 즉발 강으로"
+                + " 살아 있습니다. 게임을 다시 열면 적용됩니다.",
                 ONOFF, ONOFF_K, "enabled"),
             new Item("pocketcore_svc_actshow", "판독 오버레이 (동작번호)",
                 "SvC 전용. 화면 왼쪽 위에 「내 동작번호|상대반응」을 상시 표시합니다."

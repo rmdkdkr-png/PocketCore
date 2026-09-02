@@ -65,7 +65,7 @@ public final class Updater {
     /** 디자인 메타데이터(런처 정보줄 + 배포 썸네일) — 정보는 덮고, 썸은 판 비교로 받는다. */
     private static void syncDesign(String base) {
         try {
-            byte[] jb = fetch(base + "/design.json", 4000);
+            byte[] jb = fetch(base + "/design.json", 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
             JSONObject j = new JSONObject(new String(jb, "UTF-8"));
             File dir = new File(MainActivity.root(), "design");
             dir.mkdirs();
@@ -100,7 +100,7 @@ public final class Updater {
      *  앱·코어·한패·음성팩이 각자 따로 갱신되니, 뭐가 언제 바뀌었는지 한 자리에. */
     private static void showNews(final Activity act, String base) {
         try {
-            byte[] jb = fetch(base + "/news.json", 4000);
+            byte[] jb = fetch(base + "/news.json", 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
             org.json.JSONArray items = new JSONObject(new String(jb, "UTF-8"))
                     .getJSONArray("items");
             final StringBuilder sb = new StringBuilder();
@@ -127,7 +127,7 @@ public final class Updater {
      *  덕분에 코어만 바뀐 날은 APK 재설치(옆설치 경고) 없이 여기서 끝난다. */
     private static void syncCores(Activity act, String base) {
         try {
-            byte[] jb = fetch(base + "/cores.json", 4000);
+            byte[] jb = fetch(base + "/cores.json", 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
             JSONObject root = new JSONObject(new String(jb, "UTF-8"));
             StringBuilder got = new StringBuilder();
 
@@ -210,7 +210,7 @@ public final class Updater {
 
     /** 앱 새 판 확인. 설치·설정 화면으로 넘어가면 false, 이미 최신이면 true. */
     private static boolean checkApk(Activity act, String base) throws Exception {
-        byte[] jb = fetch(base + "/version.json", 4000);
+        byte[] jb = fetch(base + "/version.json", 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
         JSONObject j = new JSONObject(new String(jb, "UTF-8"));
         int rc = j.getInt("versionCode");
         String rn = j.optString("versionName", "?");
@@ -248,7 +248,7 @@ public final class Updater {
      *  건너뛴 전력이 있어(배포처 관례) 판 문자열로만 가른다. */
     private static void syncPatches(Activity act, String base) {
         try {
-            byte[] jb = fetch(base + "/patches.json", 4000);
+            byte[] jb = fetch(base + "/patches.json", 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
             JSONObject j = new JSONObject(new String(jb, "UTF-8")).getJSONObject("patches");
             File dir = new File(MainActivity.root(), "patch");
             dir.mkdirs();

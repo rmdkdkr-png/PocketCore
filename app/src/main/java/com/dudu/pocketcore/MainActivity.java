@@ -86,6 +86,7 @@ public class MainActivity extends Activity {
         /* 게임에서 「롬 바꾸기」로 온 경우엔 목록을 **반드시** 보여 준다.
            안 그러면 롬이 하나뿐일 때 그 롬으로 바로 되돌아가서 목록도 설정도 영영 못 본다. */
         if (getIntent() != null && getIntent().getBooleanExtra("menu", false)) {
+            playBoot(); playTheme();
             showList(listRoms());
             return;
         }
@@ -96,6 +97,7 @@ public class MainActivity extends Activity {
 
         List<File> roms = listRoms();
         if (roms.size() == 1) { launch(roms.get(0).getAbsolutePath()); return; }
+        playBoot(); playTheme();
         showList(roms);
     }
 
@@ -104,8 +106,72 @@ public class MainActivity extends Activity {
         List<File> out = new ArrayList<>();
         if (f == null) return out;
         Arrays.sort(f);
-        for (File x : f) if (x.isFile() && !x.getName().startsWith(".")) out.add(x);
+        for (File x : f) {
+            if (!x.isFile() || x.getName().startsWith(".")) continue;
+            String n = x.getName().toLowerCase();
+            /* 롬만 — 아무 파일이나 목록에 들어가 흰 카드가 생기던 제보(「roms」) */
+            if (n.endsWith(".ngc") || n.endsWith(".ngp") || n.endsWith(".npc"))
+                out.add(x);
+        }
         return out;
+    }
+
+    /* ── 런처 소리 — 부팅음 1회 + 테마 루프. 게임에 들어가면 멈춘다 ── */
+    private android.media.MediaPlayer bgm;
+
+    private boolean sndOn() {
+        /* android.provider.Settings 와 이름이 겹쳐 FQN — askStorage 가 그쪽을 쓴다 */
+        java.util.Map<String, String> m = com.dudu.pocketcore.Settings.load();
+        String v = m.get("pocketcore_launcher_snd");
+        return v == null || !v.equals("disabled");
+    }
+
+    private void playBoot() {
+        if (!sndOn()) return;
+        try {
+            android.content.res.AssetFileDescriptor fd = getAssets().openFd("boot.wav");
+            final android.media.MediaPlayer mp = new android.media.MediaPlayer();
+            mp.setDataSource(fd.getFileDescriptor(), fd.getStartOffset(), fd.getLength());
+            fd.close();
+            mp.setOnCompletionListener(new android.media.MediaPlayer.OnCompletionListener() {
+                @Override public void onCompletion(android.media.MediaPlayer m2) { m2.release(); }
+            });
+            mp.prepare();
+            mp.start();
+        } catch (Exception ignored) { }
+    }
+
+    private void playTheme() {
+        if (!sndOn() || bgm != null) return;
+        try {
+            /* 유저 교체 경로 우선 — system/theme.wav 를 넣으면 그 곡이 흐른다 */
+            File user = new File(sysDir(), "theme.wav");
+            android.media.MediaPlayer mp = new android.media.MediaPlayer();
+            if (user.exists()) {
+                mp.setDataSource(user.getPath());
+            } else {
+                android.content.res.AssetFileDescriptor fd = getAssets().openFd("theme.wav");
+                mp.setDataSource(fd.getFileDescriptor(), fd.getStartOffset(), fd.getLength());
+                fd.close();
+            }
+            mp.setLooping(true);
+            mp.setVolume(0.55f, 0.55f);
+            mp.prepare();
+            mp.start();
+            bgm = mp;
+        } catch (Exception ignored) { }
+    }
+
+    private void stopTheme() {
+        if (bgm != null) {
+            try { bgm.stop(); bgm.release(); } catch (Exception ignored) { }
+            bgm = null;
+        }
+    }
+
+    @Override protected void onPause() {
+        super.onPause();
+        stopTheme();
     }
 
     private void showList(final List<File> roms) {
@@ -210,6 +276,7 @@ public class MainActivity extends Activity {
     }
 
     private void launch(String romPath) {
+        stopTheme();
         /* 백그라운드 썸네일 캡처와 코어 전역 상태가 겹치면 안 된다 —
            멈추라고 표시하고, 진행 중인 한 개가 끝나기를 잠깐 기다린다. */
         Thumbs.stop = true;
