@@ -70,6 +70,20 @@ public class PadView extends View {
         { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
         { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
     };
+    /* KOF R-2 — SP 엔진(설정 「KOF 원버튼」 켬): R(비트11)=SP, 탭=약/홀드=강(문턱 6프레임,
+       코어가 잰다 — SVC 의 12 와 다르다, 이식소 실측). L(비트10)=A+B. 슬롯은 잡은 방향:
+       방향없음=장풍 · 앞=대공 · 앞아래=초필살기 · 공중 가능. 엔진을 끄면 코어가 R 을
+       A+B 로 도로 접으므로 버튼이 놀지 않는다. */
+    private static final Object[][] P_KOF = {
+        { "DPAD", "",     -1, 0.22f, 0.76f, 1.00f },
+        { "A",    "A",     0, 0.66f, 0.80f, 1.10f },
+        { "B",    "B",     8, 0.88f, 0.72f, 1.10f },
+        { "SP",   "SP",   11, 0.90f, 0.56f, 1.20f },
+        { "AB",   "A+B",  10, 0.10f, 0.59f, 0.95f },
+        { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
+        { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
+        { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
+    };
     /* 순정 NGPC — 원버튼 엔진이 없는 게임(메탈슬러그 등). NGP 실기 그대로 A·B 두 개만.
        기술·강약 버튼을 여기 두면 안 나가는 버튼이 화면만 차지한다는 제보로 분리했다. */
     private static final Object[][] P_NGP = {
@@ -132,7 +146,8 @@ public class PadView extends View {
      *  프로필(버튼 구성)은 세 벌뿐이지만 자리는 게임별로 달리 두고 싶다는 제보로 분리. */
     public void setProfile(String name, String gameKey) {
         profName = gameKey;
-        prof = "ss2".equals(name) ? P_SS2 : "svc".equals(name) ? P_SVC : P_NGP;
+        prof = "ss2".equals(name) ? P_SS2 : "svc".equals(name) ? P_SVC
+             : "kof".equals(name) ? P_KOF : P_NGP;
         svcPlaceholders = !"ss2".equals(name);
         nC = prof.length;
         fx = new float[nC]; fy = new float[nC]; sc = new float[nC];

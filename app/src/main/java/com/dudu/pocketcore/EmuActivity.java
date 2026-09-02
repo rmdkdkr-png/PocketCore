@@ -101,11 +101,12 @@ public class EmuActivity extends Activity {
         gl.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
 
         pad = new PadView(this);
-        /* 패드는 세 벌 — SS2 전용, SvC(원버튼 6키), 순정 NGPC(A·B 만).
-           원버튼 엔진은 SvC 롬에서만 도니, 다른 게임에 기술·강약 버튼을 두면
-           안 나가는 버튼이 화면만 차지한다. 배치 파일은 **게임마다** 따로다. */
+        /* 패드는 네 벌 — SS2 전용, SvC(원버튼 6키), KOF R-2(R=SP 4키), 순정 NGPC(A·B 만).
+           엔진 없는 게임에 기술·강약 버튼을 두면 안 나가는 버튼이 화면만 차지한다.
+           배치 파일은 **게임마다** 따로다. */
         String profile = "ss2".equals(romType) ? "ss2"
-                       : (game != null && "svc".equals(game.id)) ? "svc" : "ngp";
+                       : (game != null && "svc".equals(game.id)) ? "svc"
+                       : (game != null && "kofr2".equals(game.id)) ? "kof" : "ngp";
         pad.setProfile(profile, (game != null) ? game.id : "ngp");
         pad.setListener(new PadView.Listener() {
             @Override public void onMask(int mask) { padMask = mask; }

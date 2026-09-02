@@ -414,6 +414,8 @@ public class MainActivity extends Activity {
                 + "ngp_ss2sp_comm_lang=ko\n"
                 + "ngp_language=japanese\n"
                 + "ngp_svcsp_engine=enabled\n"
+                + "# KOF R-2 원버튼(R=SP, 탭 약/꾹 강). 기본 꺼짐 — 켜면 R 이 A+B 대신 SP.\n"
+                + "ngp_kofsp_engine=disabled\n"
                 + "ngp_svcsp_toast=enabled\n"
                 + "ngp_ss2sp=enabled\n"
                 + "ngp_ss2sp_comm=enabled\n"

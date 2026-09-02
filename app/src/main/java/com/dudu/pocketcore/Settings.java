@@ -110,6 +110,12 @@ public final class Settings {
             new Item("ngp_svcsp_engine", "원버튼 필살기",
                 "SvC 전용. 기술키 하나로 커맨드를 대신 넣습니다. 방향에 따라 다른 기술이 나갑니다.",
                 ONOFF, ONOFF_K, "enabled"),
+            new Item("ngp_kofsp_engine", "KOF 원버튼 필살기",
+                "KOF R-2 전용. SP 버튼(패드의 R) 하나로 커맨드를 대신 넣습니다 —"
+                + " 방향없음=장풍 · 앞=대공 · 앞아래=초필살기 · 공중에서도 나갑니다."
+                + " 탭=약 / 꾹=강. 끄면 SP 버튼은 순정처럼 A+B 로 동작합니다.",
+                new String[]{ "disabled", "enabled" },
+                new String[]{ "끔", "켬" }, "disabled"),
             new Item("ngp_svcsp_toast", "기술명 표시",
                 "원버튼으로 기술이 나갈 때 이름을 띄웁니다.",
                 ONOFF, ONOFF_K, "enabled"),
