@@ -432,13 +432,41 @@ public class EmuActivity extends Activity {
                 + new SimpleDateFormat("MMdd_HHmmss", Locale.US).format(new Date()) + ".png";
         File out = new File(new File(MainActivity.root(), "shots"), name);
         out.getParentFile().mkdirs();
+        boolean ok = false;
         try (FileOutputStream fo = new FileOutputStream(out)) {
             bm.compress(Bitmap.CompressFormat.PNG, 100, fo);
             toast("스크린샷: shots/" + name);
+            ok = true;
         } catch (Exception e) {
             toast("스크린샷 실패");
         }
         bm.recycle();
+        if (!ok) return;
+        /* 썸네일 지정툴 — 찍는 순간이 곧 지정하고 싶은 순간이다. 지정하면 런처가
+           이 장면을 쓴다 (내 지정 > 배포 지정 > 자동 캡처 순서라 항상 이긴다). */
+        final File shot = out;
+        final String romName = new File(romPath).getName();
+        runOnUiThread(new Runnable() { @Override public void run() {
+            new android.app.AlertDialog.Builder(EmuActivity.this)
+                .setMessage("이 장면을 런처 썸네일로 지정할까요?")
+                .setPositiveButton("지정", new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int w2) {
+                        File dst = new File(new File(MainActivity.root(),
+                                "design/thumbs/pick"), romName + ".png");
+                        dst.getParentFile().mkdirs();
+                        try (java.io.FileInputStream in = new java.io.FileInputStream(shot);
+                             FileOutputStream fo = new FileOutputStream(dst)) {
+                            byte[] b = new byte[65536];
+                            int n;
+                            while ((n = in.read(b)) > 0) fo.write(b, 0, n);
+                            toast("썸네일 지정됨");
+                        } catch (Exception e) {
+                            toast("지정 실패");
+                        }
+                    }})
+                .setNegativeButton("아니오", null)
+                .show();
+        }});
     }
 
     /* ---- physical gamepad ---- */

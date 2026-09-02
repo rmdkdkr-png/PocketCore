@@ -140,8 +140,8 @@ public class MainActivity extends Activity {
                     String sub = meta.get(g.id);
                     if (sub != null) it.sub = sub;
                 }
-                File tf = Thumbs.of(r);
-                if (tf.exists())
+                File tf = thumbFor(r, g);
+                if (tf != null)
                     it.thumb = android.graphics.BitmapFactory.decodeFile(tf.getPath());
                 items.add(it);
             }
@@ -258,6 +258,20 @@ public class MainActivity extends Activity {
     }
 
     /* ── 런처 보조 ──────────────────────────────────────────────── */
+
+    /** 썸네일 우선순위: 내 지정(게임 중 샷→지정) > 배포 지정(업데이트로 받은 것) >
+     *  자동 캡처. 없으면 null — 백그라운드 캡처가 채운다. */
+    private static File thumbFor(File rom, Games.Game g) {
+        File base = new File(root(), "design/thumbs");
+        File f = new File(new File(base, "pick"), rom.getName() + ".png");
+        if (f.exists()) return f;
+        if (g != null) {
+            f = new File(new File(base, "byid"), g.id + ".png");
+            if (f.exists()) return f;
+        }
+        f = new File(base, rom.getName() + ".png");
+        return f.exists() ? f : null;
+    }
 
     private static String stripExt(String n) {
         int d = n.lastIndexOf('.');

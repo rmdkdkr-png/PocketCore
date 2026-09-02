@@ -62,15 +62,37 @@ public final class Updater {
         }}).start();
     }
 
-    /** 디자인 메타데이터(런처 정보줄) — 작은 파일이라 판 비교 없이 그냥 덮는다. */
+    /** 디자인 메타데이터(런처 정보줄 + 배포 썸네일) — 정보는 덮고, 썸은 판 비교로 받는다. */
     private static void syncDesign(String base) {
         try {
             byte[] jb = fetch(base + "/design.json", 4000);
-            new JSONObject(new String(jb, "UTF-8"));      /* JSON 인지 확인만 */
+            JSONObject j = new JSONObject(new String(jb, "UTF-8"));
             File dir = new File(MainActivity.root(), "design");
             dir.mkdirs();
             FileOutputStream fo = new FileOutputStream(new File(dir, "design.json"));
             fo.write(jb); fo.close();
+
+            /* 배포 지정 썸네일 — PC 지정툴(thumbtool)이 고른 장면. 런처 우선순위는
+               내 지정 > 이것 > 자동 캡처. 판(ver=파일 md5)이 바뀐 것만 받는다. */
+            JSONObject th = j.optJSONObject("thumbs");
+            if (th == null) return;
+            File td = new File(dir, "thumbs/byid");
+            td.mkdirs();
+            java.util.Iterator<String> it = th.keys();
+            while (it.hasNext()) {
+                String id = it.next();
+                JSONObject e = th.getJSONObject(id);
+                String ver = e.getString("ver");
+                File png = new File(td, id + ".png");
+                File verf = new File(td, id + ".ver");
+                if (png.exists() && ver.equals(readSmall(verf))) continue;
+                byte[] b = fetch(e.getString("url"), 15000);
+                if (b.length < 8 || b[0] != (byte) 0x89 || b[1] != 'P'
+                                 || b[2] != 'N' || b[3] != 'G') continue;
+                FileOutputStream po = new FileOutputStream(png);
+                po.write(b); po.close();
+                writeSmall(verf, ver);
+            }
         } catch (Exception ignored) { /* 장식 — 없어도 런처는 뜬다 */ }
     }
 
