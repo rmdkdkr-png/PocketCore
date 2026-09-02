@@ -13,9 +13,16 @@
 
 <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_svc.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ss2.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ss1.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_lb.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_kofr2.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ffc.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ms1.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ms2.png" width="11%">
 
-<img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/shot1.png" width="31%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/shot2.png" width="31%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/shot3.png" width="31%">
-
 </div>
+
+## 이렇게 생겼다
+
+| | | |
+|---|---|---|
+| <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/ui1_launcher.png" width="230"> | <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/ui2_firstrun.png" width="230"> | <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/ui3_scan.png" width="230"> |
+| 진열장 런처 — 실화면 썸네일 카드 | 첫 화면 — 롬 가져오는 세 가지 길 | 저장소 스캔 — 찾아서 골라 담기 |
+| <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/ui4_layout.png" width="230"> | <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/ui5_patch.png" width="230"> |
+| 배치 편집 — 버튼도 게임 화면도 끌어서 | 실행하면 한글패치 자동 적용 |
 
 ## 이런 앱이다
 
@@ -41,7 +48,7 @@
 | 더 킹 오브 파이터즈 R-2 | v0.2.1 |  |
 | 아랑전설 퍼스트 컨택트 | v0.1a |  |
 | 메탈슬러그 1st 미션 | v0.1 |  |
-| 메탈슬러그 2nd 미션 | v0.1 |  |
+| 메탈슬러그 2nd 미션 | v0.2 |  |
 
 표에 없는 네오지오 포켓(컬러) 롬도 순정 그대로 돌아간다. 직접 구한 IPS 가 있으면
 `PocketCore/patch/<롬파일명>.ips` 로 넣어 어느 롬에든 입힐 수 있다.
