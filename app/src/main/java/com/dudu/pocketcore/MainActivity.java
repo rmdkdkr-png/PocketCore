@@ -51,9 +51,12 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        fg = true;
         if (!started && hasStorage()) setup();
         if (bgm != null) {
             try { bgm.start(); } catch (Exception ignored) { }
+        } else if (bootMp != null) {
+            try { bootMp.start(); } catch (Exception ignored) { }
         }
     }
 
@@ -122,6 +125,8 @@ public class MainActivity extends Activity {
     /* ── 런처 소리 — 부팅음·인트로는 **프로세스당 1회**, 테마는 끊기지 않게:
        홈 왕복은 일시정지/재개, 게임 왕복은 재생 위치를 승계한다 (제보: 「끊기는 게 싫다」) ── */
     private android.media.MediaPlayer bgm;
+    private android.media.MediaPlayer bootMp; /* 부팅송 — 게임 진입 시 반드시 죽인다 */
+    private boolean fg = false;               /* 화면에 떠 있는가 (onResume~onPause) */
     private static int themePos = 0;          /* 액티비티가 죽어도 위치는 남는다 */
     static boolean bootedOnce = false;        /* 부팅 연출·부팅음 1회 게이트 */
 
@@ -132,7 +137,10 @@ public class MainActivity extends Activity {
         return v == null || !v.equals("disabled");
     }
 
-    /** 부팅송(내장 boot.mp3, ~7초) — 끝나면 테마곡으로 이어진다(겹치지 않게 체이닝). */
+    /** 부팅송(내장 boot.mp3, ~7초) — 끝나면 테마곡으로 이어진다.
+     *  ★ 플레이어를 필드로 들고 있는다 — 로컬로 두면 부팅송이 도는 7초 안에
+     *  게임을 켰을 때 멈출 방법이 없고, 완료 리스너가 **게임 중에** 테마를
+     *  틀어 버린다(제보: 「게임 중에 테마송이 나와」). */
     private void playBoot() {
         if (!sndOn()) { playTheme(); return; }
         try {
@@ -144,13 +152,23 @@ public class MainActivity extends Activity {
             mp.setOnCompletionListener(new android.media.MediaPlayer.OnCompletionListener() {
                 @Override public void onCompletion(android.media.MediaPlayer m2) {
                     m2.release();
-                    playTheme();
+                    if (bootMp == m2) bootMp = null;
+                    /* 그 사이 게임으로 떠났거나 화면 밖이면 테마를 시작하지 않는다 */
+                    if (fg && !isFinishing()) playTheme();
                 }
             });
             mp.prepare();
             mp.start();
+            bootMp = mp;
         } catch (Exception e) {
             playTheme();                    /* 부팅송이 없거나 실패해도 테마는 흐른다 */
+        }
+    }
+
+    private void stopBoot() {
+        if (bootMp != null) {
+            try { bootMp.stop(); bootMp.release(); } catch (Exception ignored) { }
+            bootMp = null;
         }
     }
 
@@ -193,15 +211,20 @@ public class MainActivity extends Activity {
 
     @Override protected void onPause() {
         super.onPause();
+        fg = false;
         /* 홈으로 잠깐 나간 것 — 죽이지 말고 멈췄다가 돌아오면 그 자리부터 */
         if (bgm != null) {
             try { themePos = bgm.getCurrentPosition(); bgm.pause(); }
             catch (Exception ignored) { }
         }
+        if (bootMp != null) {
+            try { bootMp.pause(); } catch (Exception ignored) { }
+        }
     }
 
     @Override protected void onDestroy() {
         super.onDestroy();
+        stopBoot();
         stopTheme();
     }
 
@@ -311,6 +334,7 @@ public class MainActivity extends Activity {
     }
 
     private void launch(String romPath) {
+        stopBoot();      /* 부팅송이 도는 7초 안에 게임을 켜도 확실히 끊는다 */
         stopTheme();
         /* 백그라운드 썸네일 캡처와 코어 전역 상태가 겹치면 안 된다 —
            멈추라고 표시하고, 진행 중인 한 개가 끝나기를 잠깐 기다린다. */

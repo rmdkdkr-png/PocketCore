@@ -349,17 +349,27 @@ public class EmuActivity extends Activity {
             startActivity(new Intent(this, SettingsActivity.class));
             break;
         case PadView.ACT_PICK:
-            MainActivity.forgetLast(this);
-            Emu.nativeUnload();
-            {   /* menu 를 달아야 목록이 뜬다 — 롬이 하나뿐이면 바로 그 롬으로 되돌아가서
-                   설정에 닿을 길이 없어진다 */
-                Intent i2 = new Intent(this, MainActivity.class);
-                i2.putExtra("menu", true);
-                startActivity(i2);
-            }
-            finish();
+            goList();
             break;
         }
+    }
+
+    /** 목록으로 — 「목록」키·뒤로가기 공용. 오토세이브는 onPause 가 챙긴다. */
+    private void goList() {
+        MainActivity.forgetLast(this);
+        Emu.nativeUnload();
+        /* menu 를 달아야 목록이 뜬다 — 롬이 하나뿐이면 바로 그 롬으로 되돌아가서
+           설정에 닿을 길이 없어진다 */
+        Intent i2 = new Intent(this, MainActivity.class);
+        i2.putExtra("menu", true);
+        startActivity(i2);
+        finish();
+    }
+
+    /** 뒤로가기 = 목록으로 — 예전엔 앱이 그냥 닫혀서 「게임을 닫으면 테마가 다시
+     *  나와야 한다」는 흐름 자체가 없었다(제보). */
+    @Override public void onBackPressed() {
+        goList();
     }
 
     /* options.txt 에 키를 갈아 끼워 재시작 후에도 유지 */
