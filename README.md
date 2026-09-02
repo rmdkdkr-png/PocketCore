@@ -4,10 +4,12 @@
 
 **네오지오 포켓 컬러, 한국어로.**
 
-롬을 넣으면 게임을 알아보고 · 한글패치를 입히고 · 해설을 더빙하고 · 필살기를 대신 넣어 주는
-안드로이드 에뮬레이터 앱. 메뉴 숲 없이 — **켜면 바로 게임.**
+한글패치 **전** 순정 롬을 넣으면 — 게임을 알아보고, 제작한 한글패치를 GitHub 에서 받아
+실행할 때 입혀 주는 안드로이드 에뮬레이터 앱. 메뉴 숲 없이 — **켜면 바로 게임.**
 
 **[⬇ 최신 APK 받기](https://github.com/rmdkdkr-png/PocketCore/releases/tag/app)**
+
+*아직 프로토타입입니다 — 미숙한 구석이 있고, 지원하는 롬도 아래 표의 일부(네오지오 포켓)뿐입니다.*
 
 <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_svc.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ss2.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ss1.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_lb.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_kofr2.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ffc.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ms1.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ms2.png" width="11%">
 
@@ -19,9 +21,9 @@
 
 | | |
 |---|---|
-| 🈶 **한글패치 자동 적용** | 롬 헤더로 게임을 알아보고 [KrPatch](https://github.com/rmdkdkr-png/KrPatch) 최신 IPS 를 받아 **사본**에 입힌다 — 원본 롬은 절대 안 건드린다 |
-| 🎙 **사무쇼2 해설·더빙** | 대전 해설 자막 + 한국어 음성. 음성팩은 업데이트 버튼이 알아서 받는다 |
-| ⚡ **원버튼 필살기 (SvC)** | 기술키 하나로 커맨드 대행 — 잡은 방향에 따라 다른 기술, 누르는 길이로 약/강 |
+| 🈶 **한글패치 자동 적용** | 롬 헤더로 게임을 알아보고 [KrPatch](https://github.com/rmdkdkr-png/KrPatch) 최신 IPS 를 받아 **사본**에 입힌다 — 원본 롬은 절대 안 건드린다. 썸네일·SP 버튼 같은 아트·조작 자산도 같은 방식으로 배달된다 |
+| 🎙 **해설·더빙 — 사무쇼2 전용** | 대전 해설 자막 + 한국어 음성. 음성팩은 업데이트 버튼이 알아서 받는다 |
+| ⚡ **원버튼 필살기 — 정상결전(SvC) 전용** | 기술키 하나로 커맨드 대행 — 잡은 방향에 따라 다른 기술, 누르는 길이로 약/강. 추가 기능 패치는 지금 이 두 게임 정도다 |
 | 🔄 **업데이트 버튼 하나** | 앱·코어·음성팩·한글패치를 전부 확인하고 새 소식을 보여 준다. APK 재설치는 앱이 바뀐 날만 |
 | 💾 **오토세이브** | 나갈 때 저장, 열면 「이어하기」. 수동 슬롯 3개는 따로 |
 | 🎛 **내 마음대로 배치** | 게임별 가상 패드 배치·크기, 게임 화면 위치·크기까지 「배치」 편집으로 끌어서 조정 |
@@ -53,6 +55,13 @@
 
 이후는 앱이 알아서 한다 — 목록에서 **「업데이트 확인」** 을 한 번 누르면 한글패치·코어·음성팩이
 차례로 내려와 다음 실행부터 적용된다.
+
+## 조작 — 게임 안에서
+
+- 화면 위 **「메뉴 ▾」** — 저장·로드·샷·리셋·종료·배치(버튼과 게임 화면을 끌어서 배치)
+- **아래(↓) + OPTION 동시** — 빠른 설정 오버레이. 항목은 코어가 정한다 — 게임에 없는
+  기능은 아예 안 나온다 (순정 게임이면 오버레이 자체가 없다)
+- 롬 가져오기 — 첫 화면(롬이 없을 때)이나 설정에서: 폴더 주소 복사 · 파일 골라 오기 · 저장소 스캔
 
 ## 취향대로
 
