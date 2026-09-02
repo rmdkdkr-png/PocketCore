@@ -89,8 +89,7 @@ public class MainActivity extends Activity {
         /* 게임에서 「롬 바꾸기」로 온 경우엔 목록을 **반드시** 보여 준다.
            안 그러면 롬이 하나뿐일 때 그 롬으로 바로 되돌아가서 목록도 설정도 영영 못 본다. */
         if (getIntent() != null && getIntent().getBooleanExtra("menu", false)) {
-            if (!bootedOnce) playBoot();
-            playTheme();
+            if (!bootedOnce) playBoot(); else playTheme();   /* 부팅송 → 테마 체이닝 */
             showList(listRoms());
             return;
         }
@@ -101,8 +100,7 @@ public class MainActivity extends Activity {
 
         List<File> roms = listRoms();
         if (roms.size() == 1) { launch(roms.get(0).getAbsolutePath()); return; }
-        if (!bootedOnce) playBoot();
-        playTheme();
+        if (!bootedOnce) playBoot(); else playTheme();       /* 부팅송 → 테마 체이닝 */
         showList(roms);
     }
 
@@ -134,19 +132,26 @@ public class MainActivity extends Activity {
         return v == null || !v.equals("disabled");
     }
 
+    /** 부팅송(내장 boot.mp3, ~7초) — 끝나면 테마곡으로 이어진다(겹치지 않게 체이닝). */
     private void playBoot() {
-        if (!sndOn()) return;
+        if (!sndOn()) { playTheme(); return; }
         try {
-            android.content.res.AssetFileDescriptor fd = getAssets().openFd("boot.wav");
+            android.content.res.AssetFileDescriptor fd = getAssets().openFd("boot.mp3");
             final android.media.MediaPlayer mp = new android.media.MediaPlayer();
             mp.setDataSource(fd.getFileDescriptor(), fd.getStartOffset(), fd.getLength());
             fd.close();
+            mp.setVolume(0.8f, 0.8f);
             mp.setOnCompletionListener(new android.media.MediaPlayer.OnCompletionListener() {
-                @Override public void onCompletion(android.media.MediaPlayer m2) { m2.release(); }
+                @Override public void onCompletion(android.media.MediaPlayer m2) {
+                    m2.release();
+                    playTheme();
+                }
             });
             mp.prepare();
             mp.start();
-        } catch (Exception ignored) { }
+        } catch (Exception e) {
+            playTheme();                    /* 부팅송이 없거나 실패해도 테마는 흐른다 */
+        }
     }
 
     private void playTheme() {
