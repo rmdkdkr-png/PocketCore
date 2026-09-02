@@ -1,0 +1,39 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.dudu.pocketcore'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.dudu.pocketcore"
+        minSdk 26            // AAudio
+        targetSdk 34
+        versionCode 67
+        versionName "3.45"
+        // 세 갈래면 요즘 폰(arm64)·구형 32비트(armv7)·에뮬레이터와 크롬북(x86_64)이 다 덮인다.
+        // x86(32비트)와 riscv64 는 뺀다 — 전자는 사실상 죽었고 후자는 쓸 단말이 없다.
+        ndk { abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64' }
+        externalNativeBuild { cmake { arguments "-DANDROID_STL=none" } }
+    }
+
+    // 갈래를 나누지 않는다. 한패는 넣어 두고 **앱에서 언어를 고르게** 했으므로
+    // (pocketcore_lang = ko-ja / ko-en / ja / en) 배포본을 둘로 유지할 이유가 없다.
+    // 일어·영어는 롬에 원래 들어 있어 패치 없이 설정만으로 바뀐다.
+
+    externalNativeBuild {
+        cmake { path "src/main/cpp/CMakeLists.txt"; version "3.22.1" }
+    }
+
+    // keep the core .so on disk so dlopen(nativeLibraryDir + "/...") works
+    packagingOptions { jniLibs { useLegacyPackaging true } }
+
+    buildTypes {
+        release { minifyEnabled false }
+        debug   { debuggable true }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

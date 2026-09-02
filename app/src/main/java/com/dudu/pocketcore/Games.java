@@ -1,0 +1,115 @@
+package com.dudu.pocketcore;
+
+import java.io.File;
+import java.io.FileInputStream;
+
+/**
+ * PocketCore 가 아우르는 게임 표.
+ *
+ * 게임을 늘리는 일 = 여기 한 줄 늘리는 일. 코어 이름·한패·음성팩이 한 자리에 모여 있어야
+ * 「어느 코어가 어느 롬에 붙는지」를 코드 여기저기서 따로 판단하는 사고가 안 난다.
+ * (실제로 그 사고가 났다 — 코어 파일 이름이 libretro_core.so 라는 일반명이라
+ *  SVC 코어인 줄 모르고 SS2 만 빌드해 놓고 「갱신됐겠지」 한 적이 있다. 그래서 이름을 바꿨다.)
+ *
+ * 지금은 네오지오 포켓뿐이지만 표에 플랫폼이 있는 이유는, 이 앱이 원래 libretro 프론트엔드라
+ * 코어만 갈아 끼우면 다른 기기 게임(예: 환세취호전 — DOS)도 같은 틀로 받을 수 있어서다.
+ */
+public final class Games {
+
+    /** 롬 헤더에서 표식을 읽는 위치·길이 (네오지오 포켓 규약). */
+    private static final int TAG_OFF = 0x24, TAG_LEN = 12;
+
+    public static final class Game {
+        public final String id;        /** 파일 이름에 쓰는 짧은 이름 */
+        public final String platform;  /** "ngpc" — 나중에 "dos" 등이 붙을 자리 */
+        public final String tag;       /** 롬 헤더 표식. 앞부분만 맞으면 된다 */
+        public final String ko;        /** 사람에게 보일 이름 */
+        public final String core;      /** 동봉 코어 파일명 (nativeLibraryDir 안) */
+        public final boolean patchable;/** assets/patch 에 이 게임 패치가 있을 수 있는가 */
+        public final String baseLang;  /** 번역 패치가 **덮는** 원래 언어 (ngp_language 값) */
+        public final String voice;     /** 해설 음성팩 파일명. 없으면 null */
+
+        Game(String id, String platform, String tag, String ko,
+             String core, boolean patchable, String baseLang, String voice) {
+            this.id = id; this.platform = platform; this.tag = tag; this.ko = ko;
+            this.core = core; this.patchable = patchable;
+            this.baseLang = baseLang; this.voice = voice;
+        }
+
+        /** 그 언어의 번역 패치 파일 이름. 원어(일·영)는 패치가 필요 없으므로 null.
+         *  ko-ja / ko-en 은 **같은 한글 패치**를 쓰고 바탕 언어만 다르다. */
+        public String patchFor(String lang) {
+            if (!patchable || lang == null || !lang.startsWith("ko")) return null;
+            return id + "_ko.ips";
+        }
+    }
+
+    /* 코어 두 벌만 동봉한다.
+     *   libretro_ss2.so — SS2 전용. 해설·더빙이 들어 있어 크다.
+     *   libretro_svc.so — SVC 원버튼 엔진. 다른 NGPC 롬도 그냥 돈다(엔진은 롬 표식을 보고 잔다).
+     * 표식이 더 구체적인 것을 앞에 둔다 — SAMURAI2 가 SAMURAI 보다 먼저 걸려야 한다.
+     *
+     * baseLang 은 **번역 패치가 덮는 원래 언어**다. 네오지오 포켓 롬은 일어와 영어를 함께
+     * 담고 BIOS 설정(ngp_language)으로 고른다. 번역 패치는 그중 한쪽만 덮으므로,
+     * 패치를 쓸 때는 그 언어로 맞춰 줘야 번역이 보인다. 반대로 덮지 않은 쪽은 **원문 그대로**라
+     * 같은 롬 하나로 한국어·일본어·영어가 다 나온다.
+     *
+     * SvC 는 실측으로 확정했다 — 패치본과 순정을 같은 프레임에서 화소 비교했더니
+     * 일어에선 12613 화소가 다르고 영어에선 **0 화소**, 즉 영어는 손대지 않았다.
+     * 나머지는 같은 방식으로 확인하기 전까지 일어로 둔다(대부분의 한패가 그렇다). */
+    private static final Game[] ALL = {
+        new Game("ss2", "ngpc", "SAMURAI2",     "사무라이 스피리츠! 2",
+                 "libretro_ss2.so", true, "japanese", "ss2_voice_ko.pak"),
+        new Game("svc", "ngpc", "SNKvsCAPCOM1", "정상결전 최강 파이터즈",
+                 "libretro_svc.so", true, "japanese", null),   /* 실측 확정 */
+        new Game("ss1", "ngpc", "SAMURAI",      "사무라이 스피리츠!",
+                 "libretro_svc.so", true, "japanese", null),
+        new Game("lb",  "ngpc", "LASTBLADE",    "월화의 검사 특별편",
+                 "libretro_svc.so", true, "japanese", null),
+    };
+
+    /** 고를 수 있는 언어.
+     *  네오지오 포켓 롬은 일어와 영어를 **함께** 담고 BIOS 설정으로 고른다.
+     *  한글 패치는 그중 한쪽 표만 덮으므로, 덮인 쪽으로 맞춰야 한글이 보인다.
+     *  어느 쪽을 덮었는지는 **게임마다 다르다** — 그래서 바탕을 손으로 고를 수 있게 둔다.
+     *  (SvC 는 실측으로 일어 쪽이 확정됐다. 영어 화면은 패치 전후가 0 화소 차이였다.) */
+    public static final String[] LANGS    = { "ko-ja", "ko-en", "ja", "en" };
+    public static final String[] LANGS_KO = { "한국어(일어 바탕)", "한국어(영어 바탕)",
+                                              "일본어", "English" };
+
+    /** 그 언어를 내려면 코어의 ngp_language 를 무엇으로 둬야 하나. */
+    public static String ngpLanguage(Game g, String lang) {
+        if ("en".equals(lang) || "ko-en".equals(lang)) return "english";
+        if ("ja".equals(lang) || "ko-ja".equals(lang)) return "japanese";
+        return (g != null) ? g.baseLang : "japanese";
+    }
+
+    /** 어느 게임인지 롬 헤더로 가른다. 모르는 롬이면 null — 그래도 순정 코어로 돌아간다. */
+    public static Game identify(String romPath) {
+        String tag = readTag(romPath);
+        if (tag == null) return null;
+        for (Game g : ALL) if (tag.startsWith(g.tag)) return g;
+        return null;
+    }
+
+    /** 표에 없는 롬이 쓸 코어. 원버튼 엔진은 롬 표식을 보고 스스로 자므로 안전하다. */
+    public static String fallbackCore() { return "libretro_svc.so"; }
+
+    private static String readTag(String path) {
+        try (FileInputStream in = new FileInputStream(path)) {
+            byte[] h = new byte[TAG_OFF + TAG_LEN];
+            int n = 0;
+            while (n < h.length) {
+                int r = in.read(h, n, h.length - n);
+                if (r < 0) break;
+                n += r;
+            }
+            if (n < h.length) return null;
+            return new String(h, TAG_OFF, TAG_LEN, "US-ASCII");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Games() { }
+}

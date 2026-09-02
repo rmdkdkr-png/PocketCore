@@ -1,0 +1,9 @@
+# ninja log v5
+0	121	1787996721916635405	CMakeFiles/pocketcore.dir/native.c.o	6dbb3fd3d80f1f78
+121	211	1787996722004635390	/home/dudu/ss2/repo/pocketcore/pocketcore/app/build/intermediates/cxx/RelWithDebInfo/1k1v4no1/obj/arm64-v8a/libpocketcore.so	86301e965dd5be63
+7	219	1787997363221258700	CMakeFiles/pocketcore.dir/native.c.o	6dbb3fd3d80f1f78
+219	357	1787997363361258698	/home/dudu/ss2/repo/pocketcore/pocketcore/app/build/intermediates/cxx/RelWithDebInfo/1k1v4no1/obj/arm64-v8a/libpocketcore.so	86301e965dd5be63
+6	224	1788003442264349510	CMakeFiles/pocketcore.dir/native.c.o	6dbb3fd3d80f1f78
+224	361	1788003442404349486	/home/dudu/ss2/repo/pocketcore/pocketcore/app/build/intermediates/cxx/RelWithDebInfo/1k1v4no1/obj/arm64-v8a/libpocketcore.so	86301e965dd5be63
+0	209	1788043040413914665	CMakeFiles/pocketcore.dir/native.c.o	6dbb3fd3d80f1f78
+209	350	1788043040561914641	/home/dudu/ss2/repo/pocketcore/pocketcore/app/build/intermediates/cxx/RelWithDebInfo/1k1v4no1/obj/arm64-v8a/libpocketcore.so	86301e965dd5be63
