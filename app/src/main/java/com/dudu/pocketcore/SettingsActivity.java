@@ -30,11 +30,42 @@ public class SettingsActivity extends Activity {
     private static final int TXT = 0xffe6e8ee, DIM = 0xff8b93a6, GOLD = 0xffd9a441;
 
     private Map<String, String> vals;
+    /** 어느 게임의 설정인가. 게임 안에서 열면 그 롬(인텐트 "rom"), 런처에서 열면 null.
+     *  게임이 있으면 그 게임 features 에 해당하는 항목만 보이고, 없으면 범용 항목 + 게임별 소절. */
+    private Games.Game game;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         vals = Settings.load();
+        String rom = getIntent().getStringExtra("rom");
+        game = (rom != null) ? Games.identify(rom) : null;
         setContentView(build());
+    }
+
+    /** 이 항목을 지금 화면에 보일까 — 범용(feature==null)은 늘, 나머지는 현재 게임이 그 기능을 쓸 때만. */
+    private boolean shows(Settings.Item it) {
+        if (it.feature == null) return true;
+        return game != null && game.has(it.feature);
+    }
+
+    private void section(LinearLayout col, String title, java.util.List<Settings.Item> items) {
+        if (items.isEmpty()) return;
+        TextView sec = new TextView(this);
+        sec.setText(title);
+        sec.setTextColor(GOLD); sec.setTextSize(12);
+        sec.setLetterSpacing(0.12f);
+        sec.setTypeface(sec.getTypeface(), android.graphics.Typeface.BOLD);
+        sec.setPadding(dp(4), dp(14), 0, dp(6));
+        col.addView(sec);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackgroundColor(CARD);
+        col.addView(card, lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, dp(6)));
+        for (int i = 0; i < items.size(); i++) {
+            if (i > 0) card.addView(divider());
+            card.addView(row(items.get(i)));
+        }
     }
 
     private int dp(int v) {
@@ -51,7 +82,7 @@ public class SettingsActivity extends Activity {
         sv.addView(col);
 
         TextView h = new TextView(this);
-        h.setText("설정");
+        h.setText(game != null ? "설정 — " + game.ko : "설정");
         h.setTextColor(TXT); h.setTextSize(22);
         h.setTypeface(h.getTypeface(), android.graphics.Typeface.BOLD);
         h.setPadding(dp(4), 0, 0, dp(4));
@@ -63,24 +94,27 @@ public class SettingsActivity extends Activity {
         note.setPadding(dp(4), 0, dp(4), dp(18));
         col.addView(note);
 
-        for (Map.Entry<String, Settings.Item[]> g : Settings.GROUPS.entrySet()) {
-            TextView sec = new TextView(this);
-            sec.setText(g.getKey());
-            sec.setTextColor(GOLD); sec.setTextSize(12);
-            sec.setLetterSpacing(0.12f);
-            sec.setTypeface(sec.getTypeface(), android.graphics.Typeface.BOLD);
-            sec.setPadding(dp(4), dp(14), 0, dp(6));
-            col.addView(sec);
-
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setBackgroundColor(CARD);
-            col.addView(card, lp(ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, dp(6)));
-
-            for (int i = 0; i < g.getValue().length; i++) {
-                if (i > 0) card.addView(divider());
-                card.addView(row(g.getValue()[i]));
+        if (game != null) {
+            /* 게임 안: 그 게임이 쓰는 항목만. 빈 묶음은 아예 안 그린다. */
+            for (Map.Entry<String, Settings.Item[]> g : Settings.GROUPS.entrySet()) {
+                java.util.List<Settings.Item> its = new java.util.ArrayList<>();
+                for (Settings.Item it : g.getValue()) if (shows(it)) its.add(it);
+                section(col, g.getKey(), its);
+            }
+        } else {
+            /* 런처: 범용 항목을 묶음대로 → 그 아래 게임별 소절(그 게임 전용 항목만).
+               숨기지 않는다 — 설정에 닿을 길이 없어지면 안 된다. 전용 항목이 없는 게임은 소절 없음. */
+            for (Map.Entry<String, Settings.Item[]> g : Settings.GROUPS.entrySet()) {
+                java.util.List<Settings.Item> its = new java.util.ArrayList<>();
+                for (Settings.Item it : g.getValue()) if (it.feature == null) its.add(it);
+                section(col, g.getKey(), its);
+            }
+            for (Games.Game gm : Games.displayOrder()) {   /* 표시 순서 = Games.DISPLAY_ORDER */
+                java.util.List<Settings.Item> its = new java.util.ArrayList<>();
+                for (Settings.Item[] arr : Settings.GROUPS.values())
+                    for (Settings.Item it : arr)
+                        if (it.feature != null && gm.has(it.feature)) its.add(it);
+                section(col, gm.ko, its);
             }
         }
 

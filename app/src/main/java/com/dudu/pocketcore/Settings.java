@@ -25,10 +25,14 @@ public final class Settings {
         public final String key, label, help;
         public final String[] vals, names;
         public final String def;
+        /** 이 항목이 붙는 기능 토큰(Games.F_*). null = 범용(모든 게임). 설정 화면이 현재
+         *  게임의 features 로 거를 때 쓴다. key 는 그대로라 options.txt 는 안 바뀐다. */
+        public String feature;
         Item(String key, String label, String help, String[] vals, String[] names, String def) {
             this.key = key; this.label = label; this.help = help;
             this.vals = vals; this.names = names; this.def = def;
         }
+        Item f(String feature) { this.feature = feature; return this; }
         public int indexOf(String v) {
             for (int i = 0; i < vals.length; i++) if (vals[i].equals(v)) return i;
             return indexOf0();
@@ -75,15 +79,15 @@ public final class Settings {
                 new String[]{ "왼쪽","가운데","오른쪽" }, "center"),
             new Item("ngp_ss2sp_sides", "기둥 아트",
                 "게임 양옆에 64px 기둥을 세웁니다. 폭이 160 → 288 이 됩니다.",
-                ONOFF, ONOFF_K, "enabled"),
+                ONOFF, ONOFF_K, "enabled").f(Games.F_SIDES),
             new Item("ngp_svcsp_band", "기술명 띠",
                 "기술 이름을 화면 **밖** 띠에 띄웁니다. 끄면 게임 그림 위에 겹칩니다."
                 + " 세로가 32px 늘어납니다. SS2 는 해설 띠가 이미 그 자리를 씁니다.",
-                ONOFF, ONOFF_K, "enabled"),
+                ONOFF, ONOFF_K, "enabled").f(Games.F_BAND),
             new Item("ngp_ss2sp_comm_draw", "해설창 자리",
                 "SS2 해설 자막을 어디에 그릴지. 「위 띠」가 게임 그림을 안 가립니다.",
                 new String[]{ "above", "inside_bottom", "disabled" },
-                new String[]{ "위 띠", "화면 안 아래", "끔" }, "above"),
+                new String[]{ "위 띠", "화면 안 아래", "끔" }, "above").f(Games.F_COMM),
         });
         GROUPS.put("소리", new Item[]{
             new Item("pocketcore_launcher_snd", "런처 소리",
@@ -91,52 +95,64 @@ public final class Settings {
                 ONOFF, ONOFF_K, "enabled"),
             new Item("ngp_ss2sp_dub", "해설 음성",
                 "system/ss2_voice_<언어>.pak 이 있어야 납니다. 없으면 자막만 나옵니다.",
-                ONOFF, ONOFF_K, "enabled"),
+                ONOFF, ONOFF_K, "enabled").f(Games.F_COMM),
             new Item("ngp_ss2sp_comm_vol", "해설 크기",
                 "게임 소리는 안 줄입니다. 해설만 이 값만큼 얹습니다.",
                 new String[]{ "0","50","80","100","120","150" },
-                new String[]{ "끔","50%","80%","100%","120%","150%" }, "100"),
+                new String[]{ "끔","50%","80%","100%","120%","150%" }, "100").f(Games.F_COMM),
             new Item("ngp_ss2sp_comm_lang", "해설 언어",
                 "음성팩 이름과 짝입니다 — system/ss2_voice_<이 값>.pak 을 읽습니다."
                 + " 재생 키가 문장 해시라 표와 팩의 판이 어긋나면 그냥 조용해집니다.",
-                new String[]{ "ko" }, new String[]{ "한국어" }, "ko"),
+                new String[]{ "ko" }, new String[]{ "한국어" }, "ko").f(Games.F_COMM),
         });
         GROUPS.put("해설", new Item[]{
             new Item("ngp_ss2sp_comm", "캐릭터 해설",
                 "SS2 전용. 경기 중 캐릭터가 상황에 맞춰 말합니다.",
-                ONOFF, ONOFF_K, "enabled"),
+                ONOFF, ONOFF_K, "enabled").f(Games.F_COMM),
         });
         GROUPS.put("조작", new Item[]{
             new Item("ngp_svcsp_engine", "원버튼 필살기",
                 "SvC 전용. 기술키 하나로 커맨드를 대신 넣습니다. 방향에 따라 다른 기술이 나갑니다.",
-                ONOFF, ONOFF_K, "enabled"),
+                ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC),
             new Item("ngp_kofsp_engine", "KOF 원버튼 필살기",
                 "KOF R-2 전용. SP 버튼(패드의 R) 하나로 커맨드를 대신 넣습니다 —"
                 + " 방향없음=장풍 · 앞=대공 · 앞아래=초필살기 · 공중에서도 나갑니다."
                 + " 탭=약 / 꾹=강. 끄면 SP 버튼은 순정처럼 A+B 로 동작합니다.",
                 new String[]{ "disabled", "enabled" },
-                new String[]{ "끔", "켬" }, "disabled"),
+                new String[]{ "끔", "켬" }, "disabled").f(Games.F_SP_KOF),
             new Item("ngp_svcsp_toast", "기술명 표시",
                 "원버튼으로 기술이 나갈 때 이름을 띄웁니다.",
-                ONOFF, ONOFF_K, "enabled"),
+                ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC),
             new Item("ngp_svcsp_basics", "SVC 강약 버튼 구분",
                 "켬 = 약P·약K·강P·강K 4버튼(약은 짧게 고정, 강은 즉발). 끔 = 순정 2버튼"
                 + "(A·B 탭=약/꾹=강, 게임 원판정) — 단 강P·강K 버튼은 끔에서도 즉발 강으로"
                 + " 살아 있습니다. 게임을 다시 열면 적용됩니다.",
-                ONOFF, ONOFF_K, "enabled"),
+                ONOFF, ONOFF_K, "enabled").f(Games.F_BASICS),
             new Item("pocketcore_svc_actshow", "판독 오버레이 (동작번호)",
                 "SvC 전용. 화면 왼쪽 위에 「내 동작번호|상대반응」을 상시 표시합니다."
                 + " 영상만 찍어도 무슨 기술이 나갔는지(약·강 구분 포함) 확정할 수 있는"
                 + " 검증용 표시입니다. 바꾸면 게임을 다시 시작해야 적용됩니다.",
-                ONOFF, ONOFF_K, "disabled"),
-            new Item("pocketcore_svc_fastrom", "강공격 롬 패치 (부작용 있음)",
-                "SvC 전용. 강 문턱을 낮추는 롬 패치 — ⚠️ 공중 강공격이 안 나가게 됩니다"
-                + " (값과 무관, 실측). 지상 강은 코어가 이미 즉발로 처리하므로 켤 이유가"
-                + " 없습니다. 실기 연구용.",
-                ONOFF, ONOFF_K, "disabled"),
+                ONOFF, ONOFF_K, "disabled").f(Games.F_ACTSHOW),
+            new Item("pocketcore_svc_fastcd", "SvC 빠른 기본기 (FastCD)",
+                "SvC 전용 롬 패치. 서서 강펀·강킥이 늘어진 캐릭터(쿄 등 20기술)의 발동을"
+                + " 당겨, 버튼을 누르고 히트까지 걸리는 시간을 원래 모션 길이에 맞춥니다."
+                + " 아케이드는 강이 별도 버튼이라 안 내는 만큼을, 이 기종은 '길게 누르나 보자'로"
+                + " 기다리며 냅니다 — 그만큼만 돌려준 것이고 누르는 길이로 약/강 가르는 방식은"
+                + " 그대로입니다. 캐릭터별 차이는 보존(취향이라 안 켜도 됩니다). 게임을 다시 열면 적용.",
+                ONOFF, ONOFF_K, "disabled").f(Games.F_FASTCD_SVC),
+            new Item("pocketcore_kofr2_fastcd", "R-2 빠른 기본기 (FastCD)",
+                "KOF R-2 전용 롬 패치. 서서 강펀·강킥(14명)의 발동을 당겨, 누르고 히트까지"
+                + " 걸리는 시간을 원래 모션 길이에 맞춥니다. 이 기종이 '길게 누르나 보자'로 기다리며"
+                + " 내는 손해만 돌려준 것 — 누르는 길이로 약/강 가르는 방식은 순정 그대로입니다."
+                + " 캐릭터별 차이는 보존(취향이라 안 켜도 됩니다). 게임을 다시 열면 적용.",
+                ONOFF, ONOFF_K, "disabled").f(Games.F_FASTCD_KOF),
+            /* faststrong(pocketcore_svc_fastrom)은 문턱을 낮추는 연구용 패치로 부작용
+               (공중 강공격 불발)이 있어 메뉴에서 뺐다 — 빠른 기본기는 이제 FastCD 가
+               부작용 없이 대신한다. 배관(EmuActivity·Patcher)은 남겨 두어 연구 시
+               options.txt 에 pocketcore_svc_fastrom=enabled 로 손수 켤 수 있다. */
             new Item("ngp_ss2sp", "SS2 원버튼",
                 "SS2 전용. 이쪽은 게임에 원래 간이입력(ABLE)이 있어 기본은 그것을 씁니다.",
-                ONOFF, ONOFF_K, "enabled"),
+                ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SS2),
         });
     }
 

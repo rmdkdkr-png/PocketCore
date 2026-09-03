@@ -294,7 +294,7 @@ public class MainActivity extends Activity {
                 String nm = (g != null) ? g.ko : stripExt(r.getName());
                 LauncherView.Item it = new LauncherView.Item(r, nm);
                 if (g != null) {
-                    it.sp  = "svc".equals(g.id);
+                    it.sp  = g.has(Games.F_SP_SVC);   /* 게임 표의 features 가 단일 출처 */
                     it.dub = g.voice != null && new File(sysDir(), g.voice).exists();
                     it.pat = new File(new File(root(), "patch"), g.id + "_ko.ips").exists()
                           || assetExists("patch/" + g.id + "_ko.ips");

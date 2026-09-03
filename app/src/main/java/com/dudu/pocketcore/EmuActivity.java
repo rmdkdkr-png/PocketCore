@@ -60,7 +60,9 @@ public class EmuActivity extends Activity {
                언어로 코어를 맞춘다. 일본어·영어는 롬에 원래 든 것이라 패치가 필요 없고
                코어 설정만 바꾸면 된다. ngp_language 는 코어가 뜰 때 읽으므로 **로드 전에** 써야 한다. */
             String p = Patcher.resolve(this, romPath, game, lang,
-                    "enabled".equals(readOpt("pocketcore_svc_fastrom", "disabled")));
+                    "enabled".equals(readOpt("pocketcore_svc_fastrom", "disabled")),
+                    game != null && "enabled".equals(
+                            readOpt("pocketcore_" + game.id + "_fastcd", "disabled")));
             patched = !p.equals(romPath);
             romPath = p;
             persistOption("ngp_language", Games.ngpLanguage(game, lang));
@@ -104,9 +106,9 @@ public class EmuActivity extends Activity {
         /* 패드는 네 벌 — SS2 전용, SvC(원버튼 6키), KOF R-2(R=SP 4키), 순정 NGPC(A·B 만).
            엔진 없는 게임에 기술·강약 버튼을 두면 안 나가는 버튼이 화면만 차지한다.
            배치 파일은 **게임마다** 따로다. */
-        String profile = "ss2".equals(romType) ? "ss2"
-                       : (game != null && "svc".equals(game.id)) ? "svc"
-                       : (game != null && "kofr2".equals(game.id)) ? "kof" : "ngp";
+        String profile = (game != null && game.has(Games.F_SP_SS2)) ? "ss2"   /* 게임 표의 features 가 단일 출처 */
+                       : (game != null && game.has(Games.F_SP_SVC)) ? "svc"
+                       : (game != null && game.has(Games.F_SP_KOF)) ? "kof" : "ngp";
         pad.setProfile(profile, (game != null) ? game.id : "ngp");
         pad.setListener(new PadView.Listener() {
             @Override public void onMask(int mask) { padMask = mask; }
@@ -347,7 +349,8 @@ public class EmuActivity extends Activity {
             break;
         case PadView.ACT_CFG:
             /* 게임을 켠 채로 설정을 연다. 돌아오면 onResume 이 화면 설정을 다시 읽는다. */
-            startActivity(new Intent(this, SettingsActivity.class));
+            startActivity(new Intent(this, SettingsActivity.class)
+                    .putExtra("rom", getIntent().getStringExtra("rom")));  /* 이 게임 설정만 */
             break;
         case PadView.ACT_PICK:
             goList();
