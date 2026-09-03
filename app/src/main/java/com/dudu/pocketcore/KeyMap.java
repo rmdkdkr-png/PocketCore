@@ -19,10 +19,10 @@ final class KeyMap {
         { "right",  "오른쪽",        Emu.RIGHT },
         { "b",      "A (펀치 / 약P)", Emu.B },        /* NGP A = 레트로패드 B */
         { "a",      "B (킥 / 약K)",   Emu.A },        /* NGP B = 레트로패드 A */
-        { "y",      "강P (SvC 즉발 강)", Emu.Y },
-        { "x",      "강K (SvC 즉발 강)", Emu.X },
-        { "r",      "SP / 기술키",    Emu.R },
-        { "l",      "A+B",           Emu.L },
+        { "y",      "강P (SvC) / A+B (SS2)", Emu.Y },
+        { "x",      "강K (SvC) / SP (SS2)",  Emu.X },
+        { "r",      "SP·기술키 (SvC·KOF)",   Emu.R },
+        { "l",      "A+B (SvC·KOF)",         Emu.L },
         { "start",  "OPTION",        Emu.START },
         { "select", "SELECT",        Emu.SELECT },
         { "menu",   "앱 메뉴 열기",   -1 },           /* 앱 기능 — 게임 비트 아님 */
@@ -63,7 +63,12 @@ final class KeyMap {
     }
 
     int codeOf(String id) { Integer c = map.get(id); return c == null ? 0 : c; }
-    void set(String id, int code) { map.put(id, code); }
+    /** 같은 키가 딴 기능에 있으면 그쪽을 비운다(이동 의미) — 조용한 죽은 매핑 방지(리뷰 F13). */
+    void set(String id, int code) {
+        if (code != 0) for (Map.Entry<String, Integer> e : map.entrySet())
+            if (e.getValue() == code && !e.getKey().equals(id)) e.setValue(0);
+        map.put(id, code);
+    }
     void reset() { map.clear(); map.putAll(DEF); }
 
     /** 키코드 → 기능 id (없으면 null). 같은 키를 두 기능에 두면 먼저 나온 기능이 이긴다. */
@@ -91,6 +96,7 @@ final class KeyMap {
     static int axisMask(MotionEvent e) {
         if ((e.getSource() & InputDevice.SOURCE_JOYSTICK) == 0
          && (e.getSource() & InputDevice.SOURCE_GAMEPAD) == 0) return -1;
+        if (e.getActionMasked() == MotionEvent.ACTION_CANCEL) return 0;   /* 포커스 상실·장치 제거 시 합성 CANCEL = 전부 뗌(리뷰 F1) */
         float x = e.getAxisValue(MotionEvent.AXIS_HAT_X), y = e.getAxisValue(MotionEvent.AXIS_HAT_Y);
         if (Math.abs(x) < 0.5f && Math.abs(y) < 0.5f) {
             x = e.getAxisValue(MotionEvent.AXIS_X); y = e.getAxisValue(MotionEvent.AXIS_Y);
@@ -102,10 +108,12 @@ final class KeyMap {
     }
 
     static boolean isGamepad(KeyEvent e) {
-        int s = e.getSource();
+        int s = e.getSource(), c = e.getKeyCode();
         return (s & InputDevice.SOURCE_GAMEPAD) != 0 || (s & InputDevice.SOURCE_DPAD) != 0
-            || (s & InputDevice.SOURCE_JOYSTICK) != 0;
+            || (s & InputDevice.SOURCE_JOYSTICK) != 0
+            || (c >= KeyEvent.KEYCODE_BUTTON_A && c <= KeyEvent.KEYCODE_BUTTON_16);   /* 출처 표기가 이상한 패드도(리뷰 F19) */
     }
+    static boolean isPadButton(int c) { return c >= KeyEvent.KEYCODE_BUTTON_A && c <= KeyEvent.KEYCODE_BUTTON_16; }
 
     /** 실제(가상 아닌) 게임패드·조이스틱이 연결돼 있나 — 터치 패드 자동 숨김 판단. */
     static boolean physicalPresent() {

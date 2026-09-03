@@ -52,6 +52,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        Orient.apply(this);   /* 런처는 재생성이 안 되니 설정 변경을 여기서도(리뷰 F18) */
         fg = true;
         if (!started && hasStorage()) setup();
         else if (RomImport.changed) {           /* 설정 화면에서 롬을 가져왔다 — 다시 그린다 */

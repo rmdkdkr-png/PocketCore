@@ -187,7 +187,11 @@ public class PadView extends View {
     public void setPhysicalMode(boolean on) {
         if (physical == on) return;
         physical = on;
-        if (on) { mask = 0; dpadPid = -1; dpadMask = 0; dpadLast = 0; if (listener != null) listener.onMask(0); }
+        if (on) {
+            mask = 0; dpadPid = -1; dpadMask = 0; dpadLast = 0;
+            if (ffDown) { ffDown = false; ffPid = -1; if (listener != null) listener.onTurbo(false); }   /* 배속 고착 방지(리뷰 F2) */
+            if (listener != null) listener.onMask(0);
+        }
         invalidate();
     }
     public void toggleBar() { barOpen = !barOpen; invalidate(); }
@@ -220,7 +224,9 @@ public class PadView extends View {
     @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
         boolean l = w > h;
         if (l != land) {                          /* 회전 — 그 방향의 배치 파일/기본값으로 */
+            if (edit && fx != null) save();       /* 편집 중이던 배치는 지금 방향 파일에 먼저 적는다(리뷰 F7) */
             land = l;
+            selIdx = -1; dragIdx = -1; dragPid = -1; selScreen = false; dragScreen = false;
             if (fx != null) { applyDefaults(); load(); }
         }
         float padH = h * 0.44f;
@@ -230,17 +236,19 @@ public class PadView extends View {
     }
 
     private void layoutBar(int w, int h) {
-        float uw = w * 0.104f, uh = h * 0.056f, gap = w * 0.006f;   /* 너무 작다는 제보 — 키움 */
+        float base = Math.min(w, h);              /* 가로에서도 짧은 변 기준 — 알약·유틸 칸이 반토막 나지 않게(리뷰 F12) */
+        float uw = w * 0.104f, uh = base * 0.056f, gap = w * 0.006f;   /* 너무 작다는 제보 — 키움 */
+        if (w > h) uw = base * 0.15f;
         int vis = 0;
         for (int i = 0; i < util.length; i++) if (utilVisible(i)) vis++;
         /* 바는 「메뉴」 버튼 바로 아래 — 버튼이 커지면서 겹치던 것을 층으로 분리 */
-        float total = uw * vis + gap * (vis - 1), x = (w - total) / 2f, y = h * 0.052f;
+        float total = uw * vis + gap * (vis - 1), x = (w - total) / 2f, y = base * 0.052f;
         for (int i = 0; i < util.length; i++) {
             if (!utilVisible(i)) { util[i].setEmpty(); continue; }   /* 빈 칸 = 히트도 없다 */
             util[i].set(x, y, x + uw, y + uh); x += uw + gap;
         }
         /* 메뉴 버튼 — [≡] 실핸들이 너무 작다는 제보. 항상 보이는 알약 버튼으로. */
-        barHandle.set(w * 0.42f, 0, w * 0.58f, h * 0.046f);
+        barHandle.set(w * 0.5f - base * 0.08f, 0, w * 0.5f + base * 0.08f, base * 0.046f);
     }
 
     private boolean bit(int b) { return b >= 0 && (mask & (1 << b)) != 0; }
@@ -283,7 +291,8 @@ public class PadView extends View {
                 fill.setColor(0x22ffffff);
                 c.drawRect(dcx - arm, dcy - arm, dcx + arm, dcy + arm, fill);
             } else if (b == -2) {                            /* OPTION */
-                float ow2 = getWidth() * 0.10f * sc[i], oh2 = getHeight() * 0.021f * sc[i];
+                float base = Math.min(getWidth(), getHeight());
+                float ow2 = base * 0.10f * sc[i], oh2 = base * 0.021f * sc[i];
                 opt.set(cx(i) - ow2, cy(i) - oh2, cx(i) + ow2, cy(i) + oh2);
                 fill.setColor(bit(Emu.START) ? 0x66ffffff : 0x2affffff);
                 c.drawRoundRect(opt, 12, 12, fill);

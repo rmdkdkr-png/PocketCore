@@ -193,7 +193,7 @@ public class EmuActivity extends Activity {
     private final android.hardware.input.InputManager.InputDeviceListener devListener =
             new android.hardware.input.InputManager.InputDeviceListener() {
         @Override public void onInputDeviceAdded(int id)   { applyScreenLayout(); }
-        @Override public void onInputDeviceRemoved(int id) { applyScreenLayout(); }
+        @Override public void onInputDeviceRemoved(int id) { axisByDev.delete(id); releasePhysical(); applyScreenLayout(); }
         @Override public void onInputDeviceChanged(int id) { }
     };
     @Override public void onConfigurationChanged(android.content.res.Configuration c) {
@@ -203,7 +203,14 @@ public class EmuActivity extends Activity {
 
     private int scrPct = 100, scrX = 50, scrY = 50;
     private KeyMap keymap;                 /* 물리 패드 매핑 표 */
-    private int axisMask;                  /* 스틱·HAT 십자 → 방향 비트 (KeyMap.axisMask) */
+    private volatile int axisMask;         /* 스틱·HAT 십자 → 방향 비트 (장치별 합, 리뷰 F3) */
+    private final android.util.SparseIntArray axisByDev = new android.util.SparseIntArray();
+    /** 물리 입력 상태 전부 놓기 — 포커스 상실·패드 제거·일시정지 때(리뷰 F1/F9/F16). */
+    private void releasePhysical() { keyMask = 0; axisByDev.clear(); axisMask = 0; Emu.nativeSetTurbo(false); }
+    @Override public void onWindowFocusChanged(boolean has) {
+        super.onWindowFocusChanged(has);
+        if (has) immersive(); else releasePhysical();
+    }
     private int lastFW = 0, lastFH = 0;   /* 프레임 크기 변화 감지 (기둥·띠 토글) */
 
     /** 현재 scrPct/scrX/scrY 로 게임 화면을 놓고, 편집 상자에도 알려 준다.
@@ -557,18 +564,25 @@ public class EmuActivity extends Activity {
             else if (e.getAction() == KeyEvent.ACTION_UP) keyMask &= ~bit;
             return true;
         }
+        /* 안 배정된 패드 버튼은 삼킨다 — 안 그러면 시스템이 BACK 으로 폴백해 게임이 목록으로 튕긴다(리뷰 F11) */
+        if (gamepad && KeyMap.isPadButton(e.getKeyCode())) return true;
         return super.dispatchKeyEvent(e);
     }
 
     /** 스틱·HAT 십자 — 많은 패드가 십자를 키가 아니라 축으로 보낸다. */
     @Override public boolean onGenericMotionEvent(android.view.MotionEvent e) {
         int m = KeyMap.axisMask(e);
-        if (m >= 0) { axisMask = m; return true; }
-        return super.onGenericMotionEvent(e);
+        if (m < 0) return super.onGenericMotionEvent(e);
+        if (m == 0) axisByDev.delete(e.getDeviceId()); else axisByDev.put(e.getDeviceId(), m);
+        int all = 0;
+        for (int i = 0; i < axisByDev.size(); i++) all |= axisByDev.valueAt(i);
+        axisMask = all;                        /* 장치별로 들고 OR — 두 번째 장치의 중립이 첫 장치의 방향을 지우지 않게 */
+        return true;
     }
 
     @Override protected void onPause() {
         super.onPause();
+        releasePhysical();
         try { ((android.hardware.input.InputManager) getSystemService(INPUT_SERVICE))
                 .unregisterInputDeviceListener(devListener); } catch (Exception ignored) { }
         if (loaded) {

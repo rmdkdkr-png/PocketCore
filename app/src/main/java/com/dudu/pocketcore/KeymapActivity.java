@@ -44,7 +44,7 @@ public class KeymapActivity extends Activity {
         col.addView(title);
         TextView help = new TextView(this);
         help.setText("줄을 누른 뒤 패드 버튼을 누르면 배정됩니다. 십자키는 스틱·HAT 로도 자동 인식됩니다.\n"
-                   + "같은 버튼을 두 기능에 두면 위쪽 기능이 이깁니다. 「앱 메뉴 열기」는 게임 중 터치 메뉴 알약을 여닫습니다.");
+                   + "이미 다른 기능에 있던 버튼을 배정하면 그쪽은 비워집니다. 줄을 길게 누르면 비움. 「앱 메뉴 열기」는 게임 중 터치 메뉴 알약을 여닫습니다.");
         help.setTextColor(DIM); help.setTextSize(12);
         help.setPadding(0, dp(6), 0, dp(12));
         col.addView(help);
@@ -67,6 +67,9 @@ public class KeymapActivity extends Activity {
             row.addView(val);
             row.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) { setWaiting(id); }
+            });
+            row.setOnLongClickListener(new View.OnLongClickListener() {   /* 길게 누르면 비움 */
+                @Override public boolean onLongClick(View v) { km.set(id, 0); km.save(); waiting = null; refresh(); return true; }
             });
             card.addView(row);
             View line = new View(this); line.setBackgroundColor(0xff262d36);
@@ -118,11 +121,16 @@ public class KeymapActivity extends Activity {
         }
     }
 
+    @Override public boolean onGenericMotionEvent(android.view.MotionEvent e) {
+        return KeyMap.axisMask(e) >= 0 || super.onGenericMotionEvent(e);   /* 스틱은 자동 인식 — 합성 DPAD 키를 만들지 않게 삼킨다 */
+    }
+
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
+        if ((e.getFlags() & KeyEvent.FLAG_FALLBACK) != 0) return true;   /* 스틱→DPAD 합성 키는 게임 화면에선 안 오므로 배우지 않는다(리뷰 F4) */
         if (waiting != null && e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
             int code = e.getKeyCode();
             if (code == KeyEvent.KEYCODE_BACK) { waiting = null; refresh(); return true; }
-            if (KeyMap.isGamepad(e) || code >= KeyEvent.KEYCODE_BUTTON_A) {
+            if (KeyMap.isGamepad(e)) {
                 km.set(waiting, code); km.save();
                 waiting = null; refresh();
                 return true;
