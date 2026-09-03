@@ -36,6 +36,7 @@ public class SettingsActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Orient.apply(this);
         vals = Settings.load();
         String rom = getIntent().getStringExtra("rom");
         game = (rom != null) ? Games.identify(rom) : null;
@@ -134,6 +135,27 @@ public class SettingsActivity extends Activity {
             if (allMods.isEmpty())
                 note(col, "조작 패치(빠른 기본기·콤보 등) 목록은 「업데이트 확인」을 누르면 받아집니다.");
         }
+
+        /* ── 물리 패드 — 매핑 화면 진입 ── */
+        TextView padSec = new TextView(this);
+        padSec.setText("물리 패드");
+        padSec.setTextColor(GOLD); padSec.setTextSize(12);
+        padSec.setLetterSpacing(0.12f);
+        padSec.setTypeface(padSec.getTypeface(), android.graphics.Typeface.BOLD);
+        padSec.setPadding(dp(4), dp(14), 0, dp(6));
+        col.addView(padSec);
+        LinearLayout padCard = new LinearLayout(this);
+        padCard.setOrientation(LinearLayout.VERTICAL);
+        padCard.setBackgroundColor(CARD);
+        col.addView(padCard, lp(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, dp(6)));
+        padCard.addView(actionRow("물리 패드 매핑",
+                "게임기·블루투스 패드의 버튼을 기능(약P·강P·SP·OPTION·메뉴 …)에 배정합니다",
+                new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                startActivity(new android.content.Intent(SettingsActivity.this, KeymapActivity.class));
+            }
+        }));
 
         /* ── 롬 가져오기 — 설정에서도 언제든 (빈 화면에만 있으면 나중에 추가할 길이 없다) ── */
         TextView romSec = new TextView(this);

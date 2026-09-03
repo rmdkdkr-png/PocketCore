@@ -80,6 +80,10 @@ public final class Settings {
                 "줄인 화면을 왼쪽·가운데·오른쪽 중 어디에 붙일지.",
                 new String[]{ "left","center","right" },
                 new String[]{ "왼쪽","가운데","오른쪽" }, "center"),
+            new Item("pocketcore_orientation", "화면 방향",
+                "자동은 기기 회전을 따릅니다. 가로는 게임기·거치 플레이용 — 기둥 아트도 양옆에 다 들어갑니다.",
+                new String[]{ "auto", "portrait", "landscape" },
+                new String[]{ "자동", "세로", "가로" }, "auto"),
             new Item("ngp_ss2sp_sides", "기둥 아트",
                 "게임 양옆에 64px 기둥을 세웁니다. 폭이 160 → 288 이 됩니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SIDES),
@@ -122,6 +126,10 @@ public final class Settings {
                 ONOFF, ONOFF_K, "enabled").f(Games.F_COMM),
         });
         GROUPS.put("조작", new Item[]{
+            new Item("pocketcore_touchpad", "터치 패드",
+                "자동은 물리 게임패드가 연결되면 터치 버튼을 숨기고 메뉴 알약만 남깁니다. 버튼 배정은 설정 아래 「물리 패드 매핑」.",
+                new String[]{ "auto", "on", "off" },
+                new String[]{ "자동", "항상 표시", "숨김" }, "auto"),
             new Item("ngp_svcsp_engine", "원버튼 필살기",
                 "SvC 전용. 기술키 하나로 커맨드를 대신 넣습니다. 방향에 따라 다른 기술이 나갑니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC),

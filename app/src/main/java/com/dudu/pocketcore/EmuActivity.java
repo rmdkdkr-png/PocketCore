@@ -74,6 +74,8 @@ public class EmuActivity extends Activity {
             android.system.Os.setenv("SVCSP_ACTSHOW",
                     "enabled".equals(readOpt("pocketcore_svc_actshow", "disabled")) ? "1" : "0", true);
         } catch (Exception ignored) { }
+        Orient.apply(this);                       /* 화면 방향 설정(자동/세로/가로) — 게임기 가로 화면 */
+        keymap = KeyMap.load();                   /* 물리 패드 매핑 */
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         immersive();
 
@@ -87,7 +89,7 @@ public class EmuActivity extends Activity {
                 Emu.nativeResize(w, hgt);
             }
             @Override public void onDrawFrame(GL10 g) {
-                Emu.nativeSetInput(padMask | keyMask);
+                Emu.nativeSetInput(padMask | keyMask | axisMask);
                 Emu.nativeFrame();
                 /* 프레임 크기가 바뀌면(기둥·띠 토글) 화면 상자를 다시 잡는다 */
                 int fw = Emu.nativeFrameWidth(), fh = Emu.nativeFrameHeight();
@@ -172,9 +174,29 @@ public class EmuActivity extends Activity {
         scrY = intOf(m.get("pocketcore_screen_y"),
                 "top".equals(v) ? 0 : "bottom".equals(v) ? 100 : 50);
         placeScreen();
+        applyPadMode(m);
+    }
+
+    /** 터치 패드 표시 — auto: 실제 게임패드가 붙어 있으면 숨기고 메뉴 알약만 남긴다(게임기 용). */
+    private void applyPadMode(java.util.Map<String, String> m) {
+        String v = or(m.get("pocketcore_touchpad"), "auto");
+        boolean hide = "off".equals(v) || ("auto".equals(v) && KeyMap.physicalPresent());
+        if (pad != null) pad.setPhysicalMode(hide);
+    }
+    private final android.hardware.input.InputManager.InputDeviceListener devListener =
+            new android.hardware.input.InputManager.InputDeviceListener() {
+        @Override public void onInputDeviceAdded(int id)   { applyScreenLayout(); }
+        @Override public void onInputDeviceRemoved(int id) { applyScreenLayout(); }
+        @Override public void onInputDeviceChanged(int id) { }
+    };
+    @Override public void onConfigurationChanged(android.content.res.Configuration c) {
+        super.onConfigurationChanged(c);
+        immersive(); applyScreenLayout();     /* 회전 — 액티비티 재생성 없이 자리만 다시 잡는다 */
     }
 
     private int scrPct = 100, scrX = 50, scrY = 50;
+    private KeyMap keymap;                 /* 물리 패드 매핑 표 */
+    private int axisMask;                  /* 스틱·HAT 십자 → 방향 비트 (KeyMap.axisMask) */
     private int lastFW = 0, lastFH = 0;   /* 프레임 크기 변화 감지 (기둥·띠 토글) */
 
     /** 현재 scrPct/scrX/scrY 로 게임 화면을 놓고, 편집 상자에도 알려 준다.
@@ -504,27 +526,23 @@ public class EmuActivity extends Activity {
     }
 
     /* ---- physical gamepad ---- */
-    private int mapKey(int code) {
-        switch (code) {
-        case KeyEvent.KEYCODE_DPAD_UP:    return 1 << Emu.UP;
-        case KeyEvent.KEYCODE_DPAD_DOWN:  return 1 << Emu.DOWN;
-        case KeyEvent.KEYCODE_DPAD_LEFT:  return 1 << Emu.LEFT;
-        case KeyEvent.KEYCODE_DPAD_RIGHT: return 1 << Emu.RIGHT;
-        case KeyEvent.KEYCODE_BUTTON_A:   return 1 << Emu.A;
-        case KeyEvent.KEYCODE_BUTTON_B:   return 1 << Emu.B;
-        case KeyEvent.KEYCODE_BUTTON_X:   return 1 << Emu.X;
-        case KeyEvent.KEYCODE_BUTTON_Y:   return 1 << Emu.Y;
-        case KeyEvent.KEYCODE_BUTTON_START: return 1 << Emu.START;
-        case KeyEvent.KEYCODE_BUTTON_SELECT: return 1 << Emu.SELECT;
-        case KeyEvent.KEYCODE_BUTTON_L1:  return 1 << Emu.L;
-        case KeyEvent.KEYCODE_BUTTON_R1:  return 1 << Emu.R;
-        default: return 0;
-        }
-    }
+    /* 매핑표(KeyMap, 설정 pocketcore_keymap)로 푼다 — 예전 고정 switch 는 KeyMap 의 기본값으로 옮겼다. */
+    private int mapKey(int code) { return keymap != null ? keymap.bitOf(code) : 0; }
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
-        boolean gamepad = (e.getSource() & InputDevice.SOURCE_GAMEPAD) != 0
-                       || (e.getSource() & InputDevice.SOURCE_DPAD) != 0;
+        boolean gamepad = KeyMap.isGamepad(e);
+        if (gamepad && keymap != null) {
+            String f = keymap.funcOf(e.getKeyCode());
+            if ("menu".equals(f)) {                       /* 앱 메뉴 알약 여닫기 — 터치 패드가 숨겨진 게임기에서의 입구 */
+                if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) pad.toggleBar();
+                return true;
+            }
+            if ("turbo".equals(f)) {                      /* 배속 — 누르는 동안 */
+                if (e.getAction() == KeyEvent.ACTION_DOWN) Emu.nativeSetTurbo(true);
+                else if (e.getAction() == KeyEvent.ACTION_UP) Emu.nativeSetTurbo(false);
+                return true;
+            }
+        }
         int bit = mapKey(e.getKeyCode());
         if (gamepad && bit != 0) {
             if (e.getAction() == KeyEvent.ACTION_DOWN) keyMask |= bit;
@@ -534,8 +552,17 @@ public class EmuActivity extends Activity {
         return super.dispatchKeyEvent(e);
     }
 
+    /** 스틱·HAT 십자 — 많은 패드가 십자를 키가 아니라 축으로 보낸다. */
+    @Override public boolean onGenericMotionEvent(android.view.MotionEvent e) {
+        int m = KeyMap.axisMask(e);
+        if (m >= 0) { axisMask = m; return true; }
+        return super.onGenericMotionEvent(e);
+    }
+
     @Override protected void onPause() {
         super.onPause();
+        try { ((android.hardware.input.InputManager) getSystemService(INPUT_SERVICE))
+                .unregisterInputDeviceListener(devListener); } catch (Exception ignored) { }
         if (loaded) {
             Emu.nativeSaveSram();
             /* 오토세이브 — SRAM 저장과 같은 자리·같은 방식(UI 스레드 직접 호출 전례).
@@ -549,9 +576,12 @@ public class EmuActivity extends Activity {
     }
 
     @Override protected void onResume() {
-        super.onResume(); immersive(); gl.onResume();
+        super.onResume(); Orient.apply(this); immersive(); gl.onResume();
         if (loaded) Emu.nativeAudioResume();
-        applyScreenLayout();      /* 설정에서 돌아온 경우 바로 반영 */
+        keymap = KeyMap.load();   /* 매핑 화면에서 돌아온 경우 */
+        applyScreenLayout();      /* 설정에서 돌아온 경우 바로 반영 (터치 패드 모드 포함) */
+        try { ((android.hardware.input.InputManager) getSystemService(INPUT_SERVICE))
+                .registerInputDeviceListener(devListener, h); } catch (Exception ignored) { }
     }
 
     @Override protected void onDestroy() {

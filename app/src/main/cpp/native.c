@@ -416,6 +416,7 @@ static void gl_draw(void)
    }
    {  /* 위로 붙인다(유틸 줄 여백만 남김) — 가운데 두면 패드에 깔린다(제보) */
       int y0 = g_vh - dh - (int)(g_vh * 0.07f);
+      if (g_vw > g_vh) y0 = (g_vh - dh) / 2;   /* 가로 화면(게임기)에선 세로 가운데 */
       if (y0 < 0) y0 = 0;
       glViewport((g_vw - dw) / 2, y0, dw, dh);
    }

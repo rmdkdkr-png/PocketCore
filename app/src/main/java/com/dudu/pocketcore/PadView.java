@@ -118,6 +118,15 @@ public class PadView extends View {
 
     private int mask = 0;
     private boolean edit = false;
+    private boolean land = false;      /* 가로 화면 — 배치 파일과 기본 좌표가 따로다 */
+    private boolean physical = false;  /* 물리 패드 모드 — 게임 버튼을 숨기고 메뉴 알약만 남긴다 */
+    /* 가로 기본 좌표(이름별). 십자는 왼쪽 아래, 버튼 무리는 오른쪽 아래, 유틸은 양 위 구석. */
+    private static final Object[][] LAND = {
+        { "DPAD", 0.13f, 0.64f }, { "WP", 0.74f, 0.80f }, { "WK", 0.86f, 0.66f }, { "SP_P", 0.63f, 0.66f },
+        { "SP_K", 0.75f, 0.52f }, { "TECH", 0.92f, 0.40f }, { "AB", 0.06f, 0.38f }, { "A", 0.68f, 0.78f },
+        { "B", 0.86f, 0.62f }, { "SP", 0.92f, 0.38f }, { "OPT", 0.50f, 0.93f }, { "FF", 0.965f, 0.10f },
+        { "EXIT", 0.035f, 0.10f },
+    };
     private int dragIdx = -1, dragPid = -1, selIdx = -1;
     private boolean ffDown = false;
     private int ffPid = -1;
@@ -151,11 +160,7 @@ public class PadView extends View {
         svcPlaceholders = !"ss2".equals(name);
         nC = prof.length;
         fx = new float[nC]; fy = new float[nC]; sc = new float[nC];
-        for (int i = 0; i < nC; i++) {
-            fx[i] = (Float) prof[i][3];
-            fy[i] = (Float) prof[i][4];
-            sc[i] = (Float) prof[i][5];
-        }
+        applyDefaults();
         load();
         if (getWidth() > 0) layoutBar(getWidth(), getHeight());   /* 해설 칸 유무가 바뀐다 */
         invalidate();
@@ -166,7 +171,25 @@ public class PadView extends View {
         return utilAct[i] != ACT_SPK || prof == P_SS2;
     }
 
-    private File cfg() { return new File(MainActivity.root(), "pad_" + profName + ".txt"); }
+    /** 배치 파일 — 세로 pad_<게임>.txt / 가로 pad_<게임>_land.txt 로 따로 둔다. */
+    private File cfg() { return new File(MainActivity.root(), "pad_" + profName + (land ? "_land" : "") + ".txt"); }
+
+    private void applyDefaults() {
+        for (int i = 0; i < nC; i++) {
+            fx[i] = (Float) prof[i][3]; fy[i] = (Float) prof[i][4]; sc[i] = (Float) prof[i][5];
+            if (land) for (Object[] l : LAND)
+                if (l[0].equals(prof[i][0])) { fx[i] = (Float) l[1]; fy[i] = (Float) l[2]; }
+        }
+    }
+
+    /** 물리 패드 모드 — 게임 버튼·십자를 그리지도 받지도 않는다. 메뉴 알약과 유틸 바만 남는다. */
+    public void setPhysicalMode(boolean on) {
+        if (physical == on) return;
+        physical = on;
+        if (on) { mask = 0; dpadPid = -1; dpadMask = 0; dpadLast = 0; if (listener != null) listener.onMask(0); }
+        invalidate();
+    }
+    public void toggleBar() { barOpen = !barOpen; invalidate(); }
 
     private void load() {
         try (Scanner s = new Scanner(cfg(), "UTF-8")) {
@@ -194,6 +217,11 @@ public class PadView extends View {
     }
 
     @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
+        boolean l = w > h;
+        if (l != land) {                          /* 회전 — 그 방향의 배치 파일/기본값으로 */
+            land = l;
+            if (fx != null) { applyDefaults(); load(); }
+        }
         float padH = h * 0.44f;
         dpadR = Math.min(w * 0.17f, padH * 0.36f);
         btnR = Math.min(w * 0.082f, padH * 0.17f);
@@ -239,7 +267,7 @@ public class PadView extends View {
         }
 
         int btnColorIdx = 0;
-        for (int i = 0; i < nC; i++) {
+        if (!physical || edit) for (int i = 0; i < nC; i++) {
             int b = bitOf(i);
             if (b == -1) {                                   /* 십자 */
                 float dcx = cx(i), dcy = cy(i), R = radOf(i), arm = R * 0.42f;
@@ -415,6 +443,9 @@ public class PadView extends View {
 
     @Override public boolean onTouchEvent(MotionEvent e) {
         int act = e.getActionMasked();
+        /* 물리 패드 모드: 눌림(DOWN)만 메뉴 알약·유틸 바용으로 받고 나머지 터치는 버린다 */
+        if (physical && !edit && act != MotionEvent.ACTION_DOWN && act != MotionEvent.ACTION_POINTER_DOWN)
+            return true;
 
         if (act == MotionEvent.ACTION_DOWN || act == MotionEvent.ACTION_POINTER_DOWN) {
             int idx = e.getActionIndex();
@@ -466,6 +497,7 @@ public class PadView extends View {
                     }
                 }
             }
+            if (physical && !edit) return true;       /* 버튼이 안 보이니 게임 입력도 안 받는다 */
             int fi = ffIndex();
             if (fi >= 0 && dist(x, y, cx(fi), cy(fi)) < radOf(fi) * 1.3f) {
                 ffDown = true; ffPid = e.getPointerId(idx);

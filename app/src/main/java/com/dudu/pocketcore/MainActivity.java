@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Orient.apply(this);
         if (!hasStorage()) { askStorage(); return; }
         setup();
     }
@@ -435,6 +436,9 @@ public class MainActivity extends Activity {
                 + "ngp_svcsp_toast=enabled\n"
                 + "ngp_ss2sp=enabled\n"
                 + "ngp_ss2sp_comm=enabled\n"
+                + "# 화면 방향(auto/portrait/landscape)·터치 패드(auto/on/off) — 게임기(가로·물리 패드)용.\n"
+                + "pocketcore_orientation=auto\n"
+                + "pocketcore_touchpad=auto\n"
                 + "# 캐릭터 챗은 기본 끔, 심판(쿠로코)은 켬 — 둘은 따로 논다(유저 지시 2026-09-03).\n"
                 + "ngp_ss2sp_chat=disabled\n"
                 + "ngp_ss2sp_ref=enabled\n"
