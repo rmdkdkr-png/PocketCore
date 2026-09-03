@@ -80,6 +80,10 @@ readme = """<div align="center">
 
 *SvC 쿄 서서 강펀 — 위: 원본(누름→판정 14프레임), 아래: FastCD(8프레임). 2프레임 간격 필름.*
 
+%(kof)s
+
+*KOF R-2 쿄 서서 강펀 — 위: 원본(모션 16프레임), 아래: FastCD v1.1(10프레임). 2프레임 간격 필름 (이식소 제작).*
+
 - SvC v1.3: 16기술 단축(하오마루 강펀 26→18, 레오나 강킥 18→10, 쿄 강펀 14→8·강킥 14→12 …), 22바이트.
 - KOF R-2 v1.1: 8기술 단축(쿄 강펀 16→10, 레오나 강킥 20→14, 셰르미 강펀 16→12 …), 11바이트 — 이식소 제작.
 - 검증: 전 기술 에뮬레이터 실측(패치 후 재측정) — 발동 프레임·피해·동작 흐름·**강<약 역전 없음** 확인.
@@ -120,6 +124,7 @@ readme = """<div align="center">
            hero=img('svc_kyo_hp_orig_vs_fastcd.png','SvC 쿄 강펀 원본 vs FastCD',900),
            svc=img('svc_kyo_hp_orig_vs_fastcd.png','SvC 쿄 강펀 원본 vs FastCD',900),
            ss2=img('ss2_asura_combo_orig_vs_t3.png','SS2 아수라 콤보 원본 vs t3',900),
+           kof=img('kof_kyo_hp_orig_vs_fastcd.png','KOF R-2 쿄 강펀 원본 vs FastCD v1.1',900),
            shots=' '.join(img(n,n,300) for n in imgs if n.startswith('app_')))
 if os.environ.get('DRY'): print(text); print(readme); sys.exit(0)
 
