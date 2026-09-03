@@ -74,7 +74,7 @@ public final class Games {
          F_SP_SVC  원버튼 필살기(SvC)  = ngp_svcsp_engine · ngp_svcsp_toast · ngp_svcsp_land
          F_SP_KOF  원버튼 필살기(R-2)  = ngp_kofsp_engine
          F_SP_SS2  SS2 간이입력(ABLE) = ngp_ss2sp
-         F_BASICS  강약 4버튼 구분      = ngp_svcsp_basics
+         F_BASICS  강약 4버튼 구분      = ngp_svcsp_basics · ngp_svcsp_holdsync
          F_ACTSHOW 판독 오버레이        = pocketcore_svc_actshow
          F_BAND    기술명 띠            = ngp_svcsp_band
          F_FASTCD_SVC / F_FASTCD_KOF   빠른 기본기 = pocketcore_<id>_fastcd

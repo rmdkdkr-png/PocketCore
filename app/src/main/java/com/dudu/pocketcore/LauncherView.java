@@ -100,6 +100,9 @@ public final class LauncherView extends View {
     public void setListener(Listener l) { listener = l; }
     public void startIntro() { introAt = System.currentTimeMillis(); invalidate(); }
     public void thumbReady() { postInvalidate(); }
+    /** 물리 패드용 — 카드 이동 / 지금 고른 카드 (없으면 null). */
+    public void moveSel(int d) { if (items != null) move(d); }
+    public Item selected() { return (items == null || items.isEmpty()) ? null : items.get(sel); }
 
     /* ── 그리기 ─────────────────────────────────────────────────── */
 

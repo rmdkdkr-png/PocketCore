@@ -459,19 +459,11 @@ public class EmuActivity extends Activity {
     }
 
     private String readLang() {
-        try {
-            java.util.Scanner sc = new java.util.Scanner(MainActivity.optsFile(), "UTF-8");
-            while (sc.hasNextLine()) {
-                String ln = sc.nextLine().trim();
-                if (!ln.startsWith("pocketcore_lang=")) continue;
-                String v = ln.substring(ln.indexOf('=') + 1).trim();
-                sc.close();
-                for (String k : Games.LANGS) if (k.equals(v)) return v;
-                if ("ko".equals(v)) return "ko-ja";      /* 예전 표기 */
-                return "ko-ja";
-            }
-            sc.close();
-        } catch (Exception ignored) { }
+        /* 실행 전 선택창이 게임별로 고른 한글패치(pocketcore_lang_<id>)가 있으면 그것, 없으면 전역 pocketcore_lang. */
+        java.util.Map<String, String> m = Settings.load();
+        String v = (game != null) ? m.get("pocketcore_lang_" + game.id) : null;
+        if (v == null) v = m.get("pocketcore_lang");
+        if (v != null) for (String k : Games.LANGS) if (k.equals(v)) return v;
         return "ko-ja";
     }
 

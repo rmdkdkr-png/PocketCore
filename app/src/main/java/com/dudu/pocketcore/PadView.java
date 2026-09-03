@@ -375,14 +375,17 @@ public class PadView extends View {
 
         if (edit) {
             text.setTextSize(getHeight() * 0.019f);
-            c.drawText("편집: 버튼·게임화면 끌어서 이동 · 잡고 [－][＋]로 크기 · 「키」로 저장",
+            c.drawText("편집: 버튼·게임화면 끌어서 이동 · [－][＋]는 고른 것(없으면 게임 화면) 크기 · 「배치」로 저장",
                     w / 2f, util[0].bottom + getHeight() * 0.032f, text);
             float bw = w * 0.10f, bh = getHeight() * 0.038f, byy = util[0].bottom + getHeight() * 0.042f;
             minus.set(w * 0.30f, byy, w * 0.30f + bw, byy + bh);
             plus.set(w * 0.60f, byy, w * 0.60f + bw, byy + bh);
-            fill.setColor(0x44ffffff);
+            fill.setColor(0xe0202020);                       /* 불투명 — 게임 화면 위에서도 버튼으로 보이게 */
             c.drawRoundRect(minus, 10, 10, fill);
             c.drawRoundRect(plus, 10, 10, fill);
+            line.setColor(0xccffffff);
+            c.drawRoundRect(minus, 10, 10, line);
+            c.drawRoundRect(plus, 10, 10, line);
             text.setTextSize(bh * 0.6f);
             c.drawText("－", minus.centerX(), minus.centerY() + bh * 0.2f, text);
             c.drawText("＋", plus.centerX(), plus.centerY() + bh * 0.2f, text);
@@ -506,14 +509,14 @@ public class PadView extends View {
                 return true;
             }
             if (edit) {
-                if (minus.contains(x, y)) {
-                    if (selScreen) { if (listener != null) listener.onScreenScale(-5); }
-                    else if (selIdx >= 0) sc[selIdx] = Math.max(0.6f, sc[selIdx] - 0.1f);
-                    invalidate(); return true;
-                }
-                if (plus.contains(x, y)) {
-                    if (selScreen) { if (listener != null) listener.onScreenScale(+5); }
-                    else if (selIdx >= 0) sc[selIdx] = Math.min(1.8f, sc[selIdx] + 0.1f);
+                if (minus.contains(x, y) || plus.contains(x, y)) {
+                    /* 아무것도 안 골랐으면 게임 화면이 대상 — 전엔 눌러도 조용히 먹기만 해서 「＋－가 안 된다」로 보였다
+                       (이식소 진단 2026-09-04). 상자를 고르려다 ＋－를 먼저 누르는 순환도 이걸로 끊긴다. */
+                    if (!selScreen && selIdx < 0) selScreen = true;
+                    int d = minus.contains(x, y) ? -1 : +1;
+                    if (selScreen) { if (listener != null) listener.onScreenScale(5 * d); }
+                    else sc[selIdx] = d < 0 ? Math.max(0.6f, sc[selIdx] - 0.1f) : Math.min(1.8f, sc[selIdx] + 0.1f);
+                    performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
                     invalidate(); return true;
                 }
                 int ci = nearestControl(x, y);

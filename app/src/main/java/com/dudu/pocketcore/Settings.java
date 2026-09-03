@@ -30,12 +30,15 @@ public final class Settings {
         public String feature;
         /** 게임 id 스코프(조작 패치처럼 특정 게임에만 뜨는 항목). null = 스코프 없음. */
         public String game;
+        /** 실행 전 선택창(LaunchSheet)에도 보이는 항목인가 — 그 게임에 「적용할 것」으로 고를 만한 토글만. */
+        public boolean launch;
         Item(String key, String label, String help, String[] vals, String[] names, String def) {
             this.key = key; this.label = label; this.help = help;
             this.vals = vals; this.names = names; this.def = def;
         }
         Item f(String feature) { this.feature = feature; return this; }
         Item g(String game) { this.game = game; return this; }
+        Item l() { this.launch = true; return this; }
         public int indexOf(String v) {
             for (int i = 0; i < vals.length; i++) if (vals[i].equals(v)) return i;
             return indexOf0();
@@ -117,10 +120,10 @@ public final class Settings {
                스위치(ngp_ss2sp_comm)를 끄면 둘 다 죽으므로 따로 난 키 두 개를 쓴다. */
             new Item("ngp_ss2sp_chat", "캐릭터 챗",
                 "SS2 전용. 해설 캐릭터가 경기 상황·관계 대사·메뉴 잡담을 합니다. 꺼도 심판(쿠로코)은 남습니다.",
-                ONOFF, ONOFF_K, "disabled").f(Games.F_COMM),
+                ONOFF, ONOFF_K, "disabled").f(Games.F_COMM).l(),
             new Item("ngp_ss2sp_ref", "심판 (쿠로코)",
                 "SS2 전용. 대진 호명·라운드 개시·판정. 음성팩이 있으면 목소리도 납니다. 캐릭터 챗과 따로 켜고 끕니다.",
-                ONOFF, ONOFF_K, "enabled").f(Games.F_COMM),
+                ONOFF, ONOFF_K, "enabled").f(Games.F_COMM).l(),
             new Item("ngp_ss2sp_comm", "해설 전체 스위치",
                 "끄면 캐릭터 챗·심판·자막창이 모두 꺼집니다. 보통은 켜 두고 위 두 항목으로 고릅니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_COMM),
@@ -132,13 +135,13 @@ public final class Settings {
                 new String[]{ "자동", "항상 표시", "숨김" }, "auto"),
             new Item("ngp_svcsp_engine", "원버튼 필살기",
                 "SvC 전용. 기술키 하나로 커맨드를 대신 넣습니다. 방향에 따라 다른 기술이 나갑니다.",
-                ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC),
+                ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC).l(),
             new Item("ngp_kofsp_engine", "KOF 원버튼 필살기",
                 "KOF R-2 전용. SP 버튼(패드의 R) 하나로 커맨드를 대신 넣습니다 —"
                 + " 방향없음=장풍 · 앞=대공 · 앞아래=초필살기 · 공중에서도 나갑니다."
                 + " 탭=약 / 꾹=강. 끄면 SP 버튼은 순정처럼 A+B 로 동작합니다.",
                 new String[]{ "disabled", "enabled" },
-                new String[]{ "끔", "켬" }, "disabled").f(Games.F_SP_KOF),
+                new String[]{ "끔", "켬" }, "disabled").f(Games.F_SP_KOF).l(),
             new Item("ngp_svcsp_toast", "기술명 표시",
                 "원버튼으로 기술이 나갈 때 이름을 띄웁니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC),
@@ -146,13 +149,19 @@ public final class Settings {
                 "켬 = 약P·약K·강P·강K 4버튼(약은 짧게 고정, 강은 즉발). 끔 = 순정 2버튼"
                 + "(A·B 탭=약/꾹=강, 게임 원판정) — 단 강P·강K 버튼은 끔에서도 즉발 강으로"
                 + " 살아 있습니다. 게임을 다시 열면 적용됩니다.",
-                ONOFF, ONOFF_K, "enabled").f(Games.F_BASICS),
+                ONOFF, ONOFF_K, "enabled").f(Games.F_BASICS).l(),
+            new Item("ngp_svcsp_holdsync", "SVC 강 발동 맞춤",
+                "강약 구분 끔(2버튼)일 때. 중간 = 강P·강K 즉발을 2프레임 늦추고 A·B 꾹 강을 4프레임 당겨"
+                + " 둘 다 같은 프레임에 명중합니다 — 대신 약으로 남는 탭이 6프레임에서 4프레임(약 67ms)으로 줍니다."
+                + " 순정 = 즉발 18·꾹 24 그대로. 게임을 다시 열면 적용됩니다.",
+                new String[]{ "mid", "off" }, new String[]{ "중간(맞춤)", "순정" }, "mid").f(Games.F_BASICS).l(),
             new Item("ngp_svcsp_land", "SVC 착지 선입력",
                 "점프 공격 뒤 착지 직전에 누른 기본기를 엔진이 기억했다가 착지하는 순간 대신"
-                + " 눌러 줍니다 — 버튼을 쥔 채 착지하면 강, 탭이면 약. 끔(기본) = 순정 그대로,"
+                + " 눌러 줍니다 — 강P·강K 는 강으로, A·B 는 강약 구분이 끔일 때 쥔 채 착지하면 강·탭이면 약"
+                + "(켬이면 A·B 는 약 고정). 끔(기본) = 순정 그대로,"
                 + " 공중에서 누른 건 공중기로만 쓰이고 지상기는 착지 뒤 다시 눌러야 나갑니다."
                 + " 게임을 다시 열면 적용됩니다.",
-                ONOFF, ONOFF_K, "disabled").f(Games.F_SP_SVC),
+                ONOFF, ONOFF_K, "disabled").f(Games.F_SP_SVC).l(),
             new Item("pocketcore_svc_actshow", "판독 오버레이 (동작번호)",
                 "SvC 전용. 화면 왼쪽 위에 「내 동작번호|상대반응」을 상시 표시합니다."
                 + " 영상만 찍어도 무슨 기술이 나갔는지(약·강 구분 포함) 확정할 수 있는"

@@ -42,6 +42,8 @@ public class MainActivity extends Activity {
     public static File optsFile(){ return new File(root(), "options.txt"); }
 
     private boolean started = false;
+    private LauncherView curLv;            /* 지금 떠 있는 런처(패드 키용). 빈 화면이면 null */
+    private LaunchSheet curSheet;          /* 떠 있는 실행 전 선택창 — 패드 키를 이쪽으로 넘긴다 */
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -305,6 +307,7 @@ public class MainActivity extends Activity {
             /* 레트로 런처 — NGPC 해상도 캔버스에 카트리지 캐러셀.
                썸네일은 롬당 1회 몰래 부팅해 캡처(Thumbs), 그다음부터는 캐시. */
             final LauncherView lv = new LauncherView(this);
+            curLv = lv;
             final List<LauncherView.Item> items = new ArrayList<>();
             java.util.Map<String, String> meta = designMeta();
             for (File r : roms) {
@@ -333,7 +336,7 @@ public class MainActivity extends Activity {
                 bootedOnce = true;
             }
             lv.setListener(new LauncherView.Listener() {
-                @Override public void onLaunch(File rom) { launch(rom.getAbsolutePath()); }
+                @Override public void onLaunch(File rom) { openSheet(rom); }   /* 실행 전 패치 선택창 */
                 @Override public void onSettings() {
                     startActivity(new Intent(MainActivity.this, SettingsActivity.class));
                 }
@@ -395,6 +398,46 @@ public class MainActivity extends Activity {
         setContentView(col);
     }
 
+    /** 실행 전 패치 선택창 — 카드를 누르면 바로 실행하지 않고 그 게임에 적용할 것을 고른 뒤 「시작」. */
+    private void openSheet(final File rom) {
+        Games.Game g = Games.identify(rom.getPath());
+        String title = (g != null) ? g.ko : stripExt(rom.getName());
+        android.graphics.Bitmap thumb = null;
+        if (curLv != null) {
+            LauncherView.Item it = curLv.selected();
+            if (it != null && it.rom.equals(rom)) thumb = it.thumb;
+        }
+        if (curSheet != null && curSheet.isShowing()) return;   /* 이미 떠 있으면 또 안 연다(확인 연타) */
+        curSheet = LaunchSheet.show(this, rom, g, thumb, title, new Runnable() {
+            @Override public void run() { launch(rom.getAbsolutePath()); }
+        });
+    }
+
+    /** 런처 패드 키 — 좌우 = 카드, A(펀치 자리)·DPAD_CENTER·ENTER·START = 선택창. 선택창이 떠 있으면 그쪽 창이 받는다. */
+    @Override public boolean dispatchKeyEvent(android.view.KeyEvent e) {
+        if (curLv == null) return super.dispatchKeyEvent(e);
+        if (curSheet != null && curSheet.isShowing()) {          /* 선택창이 떠 있으면 키는 창의 몫 */
+            if (curSheet.handleKey(e)) return true;
+            return super.dispatchKeyEvent(e);
+        }
+        int code = e.getKeyCode();
+        String f = null;
+        try { if (KeyMap.isGamepad(e)) f = KeyMap.load().funcOf(code); } catch (Exception ignored) { }
+        boolean padBtn = KeyMap.isPadButton(code);                /* 패드 버튼은 기능(b=확인)으로만 — LaunchSheet 와 같은 규칙 */
+        boolean left  = "left".equals(f)  || (!padBtn && code == android.view.KeyEvent.KEYCODE_DPAD_LEFT);
+        boolean right = "right".equals(f) || (!padBtn && code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT);
+        boolean ok    = "b".equals(f) || "start".equals(f)
+                     || (!padBtn && (code == android.view.KeyEvent.KEYCODE_DPAD_CENTER || code == android.view.KeyEvent.KEYCODE_ENTER))
+                     || (f == null && code == android.view.KeyEvent.KEYCODE_BUTTON_START);
+        if (!(left || right || ok)) return super.dispatchKeyEvent(e);
+        if (e.getAction() == android.view.KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+            if (left) curLv.moveSel(-1);
+            else if (right) curLv.moveSel(1);
+            else { LauncherView.Item it = curLv.selected(); if (it != null) openSheet(it.rom); }
+        }
+        return true;
+    }
+
     private void launch(String romPath) {
         stopBoot();      /* 부팅송이 도는 7초 안에 게임을 켜도 확실히 끊는다 */
         stopTheme();
@@ -437,6 +480,8 @@ public class MainActivity extends Activity {
                 + "ngp_svcsp_toast=enabled\n"
                 + "# 착지 선입력(점프기→착지기 보정). 기본 꺼짐 — 순정 감각 우선(유저 결정).\n"
                 + "ngp_svcsp_land=disabled\n"
+                + "# 강 발동 맞춤(2버튼 모드): mid=즉발·꾹 강을 같은 프레임에(약 탭 4f) / off=순정(즉발 18·꾹 24).\n"
+                + "ngp_svcsp_holdsync=mid\n"
                 + "ngp_ss2sp=enabled\n"
                 + "ngp_ss2sp_comm=enabled\n"
                 + "# 화면 방향(auto/portrait/landscape)·터치 패드(auto/on/off) — 게임기(가로·물리 패드)용.\n"
