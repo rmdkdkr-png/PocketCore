@@ -40,7 +40,7 @@ for m in cat['mods']:
     b=open(os.path.join(REPO,'mods',m['file']),'rb').read(); assert b[:5]==b'PATCH' and b.endswith(b'EOF'), m['file']
     idx['mods'].append({'id':m['id'],'game':m['game'],'gameKo':G[m['game']]['ko'],'ko':m['ko'],'ver':m['ver'],
         'url':DL+'/'+m['file'],'file':m['file'],'md5':hashlib.md5(b).hexdigest(),'size':len(b),
-        'default':m.get('default','disabled'),'help':m['help']})
+        'default':m.get('default','disabled'),'help':m['help'],'tag':m.get('tag','')})
 text=json.dumps(idx,ensure_ascii=False,indent=1)
 
 # ── README ────────────────────────────────────────────────────
@@ -53,15 +53,15 @@ def fig(name, alt, caption, width=None):
     """그림 + 설명 한 줄. 파일이 없으면 통째로 생략(설명만 남는 일 없음)."""
     t=img(name,alt,width)
     return (t+'\n\n*'+caption+'*\n') if t else ''
-rows='\n'.join('| %s | %s | %s | [받기](%s) |'%(x['gameKo'],x['ko'],x['ver'],x['url']) for x in idx['mods'])
+TAG_OF={m['id']:m.get('tag',m['id']) for m in cat['mods']}
+rows='\n'.join('| %s | %s | %s | [받기](https://github.com/%s/releases/tag/%s) |'%(x['gameKo'],x['ko'],x['ver'],IP,TAG_OF[x['id']]) for x in idx['mods'])
 readme = """<div align="center">
 
 # 🎮 InputPatch
 
 **네오지오 포켓 컬러 격투게임의 「손맛」 패치 모음** — 발동 프레임·후경직 같은 **입력 체감**을 고치는 IPS.
 
-한글패치([KrPatch](https://github.com/%(KR)s))가 *글*을 고친다면, 여기는 *손*을 고칩니다.
-[**PocketCore 앱**](https://github.com/%(PC)s/releases/tag/app)이면 「업데이트 확인」 한 번 → 설정 토글 한 번.
+한글패치([KrPatch](https://github.com/%(KR)s))가 *글*을 고친다면, 여기는 *손*을 고칩니다. IPS 차분만 배포하며 롬은 없습니다.
 
 %(hero)s
 
@@ -77,12 +77,6 @@ md5·크기는 [릴리즈 `mods`](https://github.com/%(IP)s/releases/tag/mods) �
 
 ## 적용법
 
-**A. PocketCore 앱 (안드로이드) — 권장, 파일 손댈 일 없음**
-1. 롬 목록 화면에서 **「업데이트 확인」** → 이 저장소의 색인과 IPS 를 받습니다.
-2. 게임을 열고 **메뉴 ▾ → 설정** → 「조작 패치」 소절에서 원하는 패치를 **켬**.
-3. 게임을 **다시 열면** 적용됩니다. 원본 롬은 그대로 두고 사본(`PocketCore/.patched/`)에 한글패치 위로 얹습니다. 끄면 원래대로.
-
-**B. 직접 입히기 (다른 에뮬레이터 · 실기 플래시 카트)**
 1. 위 표에서 IPS 를 받습니다. 대상 롬은 **순정 롬**이든 **이미 한글패치한 롬**이든 됩니다 — 한글패치와 겹치는 바이트가 없어 순서도 무관합니다.
 2. 패치 도구로 IPS 를 롬에 적용합니다.
    - PC: [Floating IPS](https://www.romhacking.net/utilities/1040/) 또는 [Lunar IPS](https://www.romhacking.net/utilities/240/)
@@ -91,7 +85,7 @@ md5·크기는 [릴리즈 `mods`](https://github.com/%(IP)s/releases/tag/mods) �
 3. 결과 롬을 에뮬레이터나 카트에 넣습니다. 확장자(.ngc)는 그대로.
 4. 되돌리기 = 원본 롬을 다시 쓰면 됩니다. 한글패치와 인풋패치를 둘 다 원하면 **한글패치 IPS → 인풋패치 IPS** 순으로 두 번 적용하세요.
 
-주의: 같은 게임의 패치 두 개가 **같은 바이트**를 고치는 경우(사무라이 스피리츠! 2 「보통」·「넉넉」)는 하나만 고르세요. 앱에서는 둘 다 켜면 나중 것이 이깁니다.
+주의: 같은 게임의 패치 두 개가 **같은 바이트**를 고치는 경우(사무라이 스피리츠! 2 「보통」·「넉넉」)는 하나만 고르세요.
 받은 IPS 가 최신인지는 릴리즈의 md5 로 확인합니다(IPS 파일 자체의 md5 — 결과 롬 해시는 원본 덤프 종류마다 달라서 적지 않습니다).
 
 ## 왜 필요한가
@@ -118,16 +112,6 @@ md5·크기는 [릴리즈 `mods`](https://github.com/%(IP)s/releases/tag/mods) �
 아직 **캐릭터 1명·기술 1개** 실증이라 `[검수용]` 입니다.
 
 %(ss2)s
-
-## PocketCore 에서 쓰기
-
-%(shots)s
-
-1. 롬 목록 화면 **「업데이트 확인」** — 이 저장소의 색인과 IPS 를 받습니다.
-2. **설정** — 게임 안에서 열면 그 게임 것만 보입니다. 토글을 켭니다.
-3. 게임을 다시 열면 원본은 그대로 두고 **사본**에 한글패치 위로 얹혀 실행됩니다.
-
-직접 입히려면 IPS 를 순정 롬(또는 한글패치 롬 — 겹치는 바이트가 없어 어느 쪽이든)에 Lunar IPS 등으로 적용하세요.
 
 ## 더 보기
 
@@ -158,7 +142,7 @@ except Exception as e: print('원격 이미지 목록 실패(무시):',e)
 put_file('README.md', readme.encode('utf-8'), '소개글 갱신 (자동 — pub_inputpatch.py)')
 print('트리 커밋: patches %d · 이미지 %d · README'%(len(cat['mods']),len(imgs)))
 # ── 릴리즈 ────────────────────────────────────────────────────
-body="## 조작 패치 색인 (PocketCore 앱이 보는 자리)\n\n앱은 이 릴리즈의 `mods.json` 과 IPS 를 받습니다. 사람이 읽을 소개·전후 비교는 [README](https://github.com/%s) 에.\n\n### 적용법 (요약)\n- **PocketCore 앱**: 롬 목록 「업데이트 확인」 → 게임 안 메뉴 ▾ → 설정 → 「조작 패치」 켬 → 게임 다시 열기. 원본 롬은 안 건드립니다.\n- **직접**: 아래 IPS 를 순정 롬(또는 한글패치 롬)에 Floating IPS / Lunar IPS(PC), ROM Patcher JS(웹), UniPatcher(안드로이드)로 적용. 한글패치와 겹치지 않아 순서 무관. 되돌리기는 원본 롬.\n- 같은 게임의 「보통」·「넉넉」처럼 같은 바이트를 고치는 패치는 하나만.\n\n| 게임 | 패치 | 판 | md5 |\n|---|---|---|---|\n%s\n"%(IP,'\n'.join('| %s | %s | %s | `%s` |'%(x['gameKo'],x['ko'],x['ver'],x['md5']) for x in idx['mods']))
+body="## 조작 패치 IPS 색인\n\n소개·적용법·전후 비교는 [README](https://github.com/%s) 에. 아래 IPS 를 받아 롬에 입힙니다(롬은 배포하지 않습니다).\n\n### 적용법 (요약)\n- IPS 를 순정 롬(또는 한글패치 롬)에 Floating IPS / Lunar IPS(PC), ROM Patcher JS(웹), UniPatcher(안드로이드)로 적용. 한글패치와 겹치지 않아 순서 무관. 되돌리기는 원본 롬.\n- 같은 게임의 「보통」·「넉넉」처럼 같은 바이트를 고치는 패치는 하나만.\n\n| 게임 | 패치 | 판 | md5 |\n|---|---|---|---|\n%s\n"%(IP,'\n'.join('| %s | %s | %s | `%s` |'%(x['gameKo'],x['ko'],x['ver'],x['md5']) for x in idx['mods']))
 try:
     rel=api('/repos/%s/releases/tags/%s'%(IP,TAG)); api('/repos/%s/releases/%d'%(IP,rel['id']),json.dumps({'name':'조작 패치 색인 (앱용)','body':body}).encode(),'PATCH')
 except Exception:
@@ -170,6 +154,31 @@ for x in idx['mods']:
     api('https://uploads.github.com/repos/%s/releases/%d/assets?name=%s'%(IP,rel['id'],x['file']),open(os.path.join(REPO,'mods',x['file']),'rb').read(),'POST','application/octet-stream')
 api('https://uploads.github.com/repos/%s/releases/%d/assets?name=mods.json'%(IP,rel['id']),text.encode('utf-8'),'POST','application/json')
 print('릴리즈 %s: IPS %d + mods.json'%(TAG,len(idx['mods'])))
+# ── PER-TAG: 패치별 릴리즈(사람이 받는 자리 — 디시 링크용). mods 태그는 앱 색인으로 유지 ──
+HOWTO=("### 적용법\n1. 아래 IPS 를 받습니다. 대상 롬은 순정 롬이든 이미 한글패치한 롬이든 됩니다(한글패치와 겹치는 바이트가 없어 순서 무관).\n"
+       "2. [Floating IPS](https://www.romhacking.net/utilities/1040/) / [Lunar IPS](https://www.romhacking.net/utilities/240/)(PC), "
+       "[ROM Patcher JS](https://www.marcrobledo.com/RomPatcher.js/)(웹, 설치 없음), UniPatcher(안드로이드)로 IPS 를 롬에 적용합니다.\n"
+       "3. 결과 롬(.ngc)을 에뮬레이터나 실기 플래시 카트에 넣습니다. 되돌리기 = 원본 롬.\n")
+groups={}
+for x in idx['mods']: groups.setdefault(x['tag'],[]).append(x)
+for tag,xs in groups.items():
+    g=xs[0]['gameKo']; title='%s — %s'%(g, ' / '.join(dict.fromkeys(x['ko'].split(' — ')[0] for x in xs)))
+    lines=['## %s'%title,'']
+    for x in xs: lines+=['**%s %s** — %s'%(x['ko'],x['ver'],x['help']),'']
+    if len(xs)>1: lines+=['같은 바이트를 고치는 판들이라 **하나만** 입히세요.','']
+    lines+=[HOWTO,'| 파일 | 판 | md5 |','|---|---|---|']+['| %s | %s | `%s` |'%(x['file'],x['ver'],x['md5']) for x in xs]
+    lines+=['','롬은 배포하지 않습니다(차분만). 전체 목록·전후 비교는 [README](https://github.com/%s).'%IP]
+    body_t='\n'.join(lines)
+    try:
+        rel_t=api('/repos/%s/releases/tags/%s'%(IP,tag)); api('/repos/%s/releases/%d'%(IP,rel_t['id']),json.dumps({'name':title,'body':body_t}).encode(),'PATCH')
+    except Exception:
+        rel_t=api('/repos/%s/releases'%IP,json.dumps({'tag_name':tag,'name':title,'body':body_t}).encode(),'POST')
+    keep={x['file'] for x in xs}
+    for a_ in api('/repos/%s/releases/%d/assets'%(IP,rel_t['id'])):
+        if a_['name'] in keep or a_['name'].endswith('.ips'): api('/repos/%s/releases/assets/%d'%(IP,a_['id']),method='DELETE')
+    for x in xs:
+        api('https://uploads.github.com/repos/%s/releases/%d/assets?name=%s'%(IP,rel_t['id'],x['file']),open(os.path.join(REPO,'mods',x['file']),'rb').read(),'POST','application/octet-stream')
+    print('릴리즈 %s: %s'%(tag,[x['file'] for x in xs]))
 # ── 앱 스냅샷·소식 ────────────────────────────────────────────
 open(os.path.join(REPO,'app','src','main','assets','mods.json'),'w',encoding='utf-8',newline='\n').write(text)
 NEWS=os.path.expanduser('~/ss2/release/news.json')
