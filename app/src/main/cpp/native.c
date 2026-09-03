@@ -395,19 +395,24 @@ static void gl_draw(void)
       g_fb_dirty = 0;
    }
 
-   /* aspect-correct, integer-scaled viewport */
+   /* aspect-correct, integer-scaled viewport.
+      기둥(사이드 아트) 프레임은 288폭이지만 **게임 몫은 160** — 크기는 게임 160폭으로 정하고 기둥은
+      남는 옆자리에만 그린다(넘치면 잘린다). 288 전체를 화면 폭에 맞추면 게임이 반토막 나고 아래가
+      텅 빈다는 제보(유저: 「양쪽에 붙이면 될 걸 표시영역을 아래로 늘리지 마라」). */
    float ar = g_av.geometry.aspect_ratio > 0.f
             ? g_av.geometry.aspect_ratio : (float)g_fb_w / (float)g_fb_h;
+   int game_w = (g_fb_w > 160 && g_fb_w <= 320) ? 160 : (int)g_fb_w;   /* NGP 게임 화면은 늘 160 */
    int dw, dh;
    if (g_integer_scale) {
-      int s = g_vw / (int)g_fb_w;
+      int s = g_vw / game_w;
       int sy = g_vh / (int)g_fb_h;
       if (sy < s) s = sy;
       if (s < 1) s = 1;
       dw = (int)g_fb_w * s; dh = (int)g_fb_h * s;
    } else {
       dh = g_vh; dw = (int)(g_vh * ar);
-      if (dw > g_vw) { dw = g_vw; dh = (int)(g_vw / ar); }
+      int game_dw = dh * game_w / (int)g_fb_h;
+      if (game_dw > g_vw) { dh = g_vw * (int)g_fb_h / game_w; dw = (int)(dh * ar); }
    }
    {  /* 위로 붙인다(유틸 줄 여백만 남김) — 가운데 두면 패드에 깔린다(제보) */
       int y0 = g_vh - dh - (int)(g_vh * 0.07f);

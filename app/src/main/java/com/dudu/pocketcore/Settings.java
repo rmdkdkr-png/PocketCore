@@ -109,8 +109,16 @@ public final class Settings {
                 new String[]{ "ko" }, new String[]{ "한국어" }, "ko").f(Games.F_COMM),
         });
         GROUPS.put("해설", new Item[]{
-            new Item("ngp_ss2sp_comm", "캐릭터 해설",
-                "SS2 전용. 경기 중 캐릭터가 상황에 맞춰 말합니다.",
+            /* 유저 지시(2026-09-03): 캐릭터 챗은 기본 끔, 심판(쿠로코) 목소리는 남긴다 — 코어의 마스터
+               스위치(ngp_ss2sp_comm)를 끄면 둘 다 죽으므로 따로 난 키 두 개를 쓴다. */
+            new Item("ngp_ss2sp_chat", "캐릭터 챗",
+                "SS2 전용. 해설 캐릭터가 경기 상황·관계 대사·메뉴 잡담을 합니다. 꺼도 심판(쿠로코)은 남습니다.",
+                ONOFF, ONOFF_K, "disabled").f(Games.F_COMM),
+            new Item("ngp_ss2sp_ref", "심판 (쿠로코)",
+                "SS2 전용. 대진 호명·라운드 개시·판정. 음성팩이 있으면 목소리도 납니다. 캐릭터 챗과 따로 켜고 끕니다.",
+                ONOFF, ONOFF_K, "enabled").f(Games.F_COMM),
+            new Item("ngp_ss2sp_comm", "해설 전체 스위치",
+                "끄면 캐릭터 챗·심판·자막창이 모두 꺼집니다. 보통은 켜 두고 위 두 항목으로 고릅니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_COMM),
         });
         GROUPS.put("조작", new Item[]{

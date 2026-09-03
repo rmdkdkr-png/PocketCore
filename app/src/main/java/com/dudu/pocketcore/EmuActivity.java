@@ -186,10 +186,15 @@ public class EmuActivity extends Activity {
         if (w <= 0 || hgt <= 0) return;
         int fw = Emu.nativeFrameWidth(), fh = Emu.nativeFrameHeight();
         if (fw <= 0 || fh <= 0) { fw = 160; fh = 152; }
+        /* 기둥(288폭) 프레임: 화면 상자 크기는 **게임 160폭** 기준으로 잡고, 기둥은 남는 옆자리에만
+           보이게 상자 폭을 화면 전체로 편다(넘치는 기둥은 잘린다). 288 전체를 폭에 맞추면 게임이
+           작아지고 아래가 비는 제보(유저 2026-09-03). native.c gl_draw 도 같은 규칙. */
+        int gameW = (fw > 160 && fw <= 320) ? 160 : fw;
         int gw = w * scrPct / 100;
-        int gh = gw * fh / fw;
+        int gh = gw * fh / gameW;
         int capH = hgt * scrPct / 100;
-        if (gh > capH) { gh = capH; gw = gh * fw / fh; }
+        if (gh > capH) { gh = capH; gw = gh * gameW / fh; }
+        if (gameW != fw) gw = w;
         int mx = (w - gw) * clamp(scrX, 0, 100) / 100;
         int my = (hgt - gh) * clamp(scrY, 0, 100) / 100;
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(gw, gh,
