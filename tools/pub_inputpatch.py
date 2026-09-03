@@ -5,7 +5,8 @@
    ② 고정 릴리즈 태그 `mods`: 모든 IPS + mods.json (앱이 보는 색인)
    ③ 앱 동봉 스냅샷 assets/mods.json 갱신, news.json 소식.
    실행: python3 tools/pub_inputpatch.py [이미지 폴더]   (DRY=1 이면 README/색인만 출력)
-   이미지: 전후 비교는 anim.py 가 만든 작은 애니메이션 WebP(원본|패치 나란히, 프레임 번호) — 긴 필름 대신."""
+   이미지: 전후 비교는 static_cmp.py 가 만든 **정지컷 한 장**(같은 프레임의 원본|패치, 한글 라벨·캡션 내장).
+   유저 판정: 긴 필름도, 나란히 도는 영상도 「기괴」 — 잘 고른 스샷 한 장이 답."""
 import base64, json, os, re, subprocess, sys, time, urllib.request, hashlib, glob
 HERE=os.path.dirname(os.path.abspath(__file__)); REPO=os.path.dirname(HERE)
 IP='rmdkdkr-png/InputPatch'; PC='rmdkdkr-png/PocketCore'; KR='rmdkdkr-png/KrPatch'; TAG='mods'
@@ -63,6 +64,7 @@ readme = """<div align="center">
 [**PocketCore 앱**](https://github.com/%(PC)s/releases/tag/app)이면 「업데이트 확인」 한 번 → 설정 토글 한 번.
 
 %(hero)s
+
 </div>
 
 ## 목록
@@ -85,6 +87,7 @@ md5·크기는 [릴리즈 `mods`](https://github.com/%(IP)s/releases/tag/mods) �
 캐릭터별 차이 보존, 원본이 이미 빠르면 손대지 않음. 여백은 두 게임 다 **펀치 +4 · 킥 +6**(원본 약→강 차이의 중앙값).
 
 %(kof)s
+
 - SvC v1.4 — 11기술, 16바이트. 누름→명중 기준 하오마루 강펀 26→18, 레오나 강킥 18→12, 쿄 강펀 14→8 ….
 - KOF R-2 v1.1 — 8기술, 11바이트. 이식소 제작. 기술 모션 기준 쿄 강펀 16→10·레오나 강킥 20→14 …(누름→명중으로는 쿄 23→17).
 - 전 기술 에뮬레이터 실측(패치 후 재측정): 발동·피해·동작 흐름·강<약 역전 없음 확인.
@@ -96,6 +99,7 @@ md5·크기는 [릴리즈 `mods`](https://github.com/%(IP)s/releases/tag/mods) �
 아직 **캐릭터 1명·기술 1개** 실증이라 `[검수용]` 입니다.
 
 %(ss2)s
+
 ## PocketCore 에서 쓰기
 
 %(shots)s
@@ -115,12 +119,9 @@ md5·크기는 [릴리즈 `mods`](https://github.com/%(IP)s/releases/tag/mods) �
 게임과 그 그림·음악·이름의 권리는 **SNK 등 원 권리자**의 것입니다. 비영리 팬 패치이며 **롬을 배포하지 않습니다**(차분만).
 있는 그대로 제공되며 사용에 따른 문제의 책임은 사용자에게 있습니다. 권리자 요청 시 즉시 내립니다.
 """ % dict(KR=KR, PC=PC, IP=IP, rows=rows,
-           hero=fig('svc_kyo_hp_orig_vs_fastcd.webp','SvC 쿄 강펀 원본 vs FastCD',
-                    'SvC 쿄 서서 강펀 — 왼쪽 원본(명중 f14) · 오른쪽 FastCD(f08). 1/5 속도, HIT 는 명중 프레임.'),
-           kof=fig('kof_kyo_hp_orig_vs_fastcd.webp','KOF R-2 쿄 강펀 원본 vs FastCD v1.1',
-                   'KOF R-2 쿄 서서 강펀 — 왼쪽 원본(누름→명중 f23) · 오른쪽 FastCD v1.1(f17). 준비 동작은 같고 명중이 6프레임 빠르다.'),
-           ss2=fig('ss2_asura_combo_orig_vs_t3.webp','SS2 아수라 콤보 원본 vs t3',
-                   '아수라 약베기→약베기 — 왼쪽 원본(2타 전에 상대가 풀림) · 오른쪽 t3(2타가 경직 중 명중). 1/3 속도.'),
+           hero=img('svc_kyo_hp_orig_vs_fastcd.png','SvC 쿄 강펀 — 같은 프레임의 원본 vs FastCD',900),
+           kof=img('kof_kyo_hp_orig_vs_fastcd.png','KOF R-2 쿄 강펀 — 같은 프레임의 원본 vs FastCD v1.1',900),
+           ss2=img('ss2_asura_combo_orig_vs_t3.png','SS2 아수라 약베기 콤보 — 2타 시점의 원본 vs t3',900),
            shots=' '.join(img(n,n,240) for n in imgs if n.startswith('app_')))
 if os.environ.get('DRY'): print(text); print(readme); sys.exit(0)
 
