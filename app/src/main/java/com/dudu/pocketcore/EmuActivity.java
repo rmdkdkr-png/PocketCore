@@ -205,6 +205,7 @@ public class EmuActivity extends Activity {
     private KeyMap keymap;                 /* 물리 패드 매핑 표 */
     private volatile int axisMask;         /* 스틱·HAT 십자 → 방향 비트 (장치별 합, 리뷰 F3) */
     private final android.util.SparseIntArray axisByDev = new android.util.SparseIntArray();
+    private int axisPrev;                  /* 스틱 엣지 검출(바 조작용) */
     /** 물리 입력 상태 전부 놓기 — 포커스 상실·패드 제거·일시정지 때(리뷰 F1/F9/F16). */
     private void releasePhysical() { keyMask = 0; axisByDev.clear(); axisMask = 0; Emu.nativeSetTurbo(false); }
     @Override public void onWindowFocusChanged(boolean has) {
@@ -228,12 +229,14 @@ public class EmuActivity extends Activity {
         int gameW = (fw > 160 && fw <= 320) ? 160 : fw;
         int gw = w * scrPct / 100;
         int gh = gw * fh / gameW;
-        int capH = hgt * scrPct / 100;
+        /* 가로에선 메뉴 알약 띠(짧은 변의 4.6%)를 게임 상자 위에 예약 — 알약이 HUD 를 덮지 않게(리뷰 F14) */
+        int top = (w > hgt) ? Math.round(Math.min(w, hgt) * 0.05f) : 0;
+        int capH = (hgt - top) * scrPct / 100;
         if (gh > capH) { gh = capH; gw = gh * gameW / fh; }
         if (gameW != fw) gw = w;
         android.util.Log.i("PocketCore", "placeScreen root " + w + "x" + hgt + " frame " + fw + "x" + fh + " box " + gw + "x" + gh);
         int mx = (w - gw) * clamp(scrX, 0, 100) / 100;
-        int my = (hgt - gh) * clamp(scrY, 0, 100) / 100;
+        int my = top + (hgt - top - gh) * clamp(scrY, 0, 100) / 100;
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(gw, gh,
                 android.view.Gravity.TOP | android.view.Gravity.LEFT);
         lp.leftMargin = mx; lp.topMargin = my;
@@ -552,6 +555,17 @@ public class EmuActivity extends Activity {
                 if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) pad.toggleBar();
                 return true;
             }
+            if (pad.isBarOpen()) {                        /* 바가 열려 있으면 패드는 바를 조작한다 — 게임엔 안 간다(리뷰 F17) */
+                int code = e.getKeyCode();
+                if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+                    if ("left".equals(f)  || code == KeyEvent.KEYCODE_DPAD_LEFT)  pad.barMove(-1);
+                    else if ("right".equals(f) || code == KeyEvent.KEYCODE_DPAD_RIGHT) pad.barMove(+1);
+                    else if ("b".equals(f) || "start".equals(f)) pad.barActivate();   /* A(펀치 자리)·OPTION = 실행 */
+                    else if ("a".equals(f) || code == KeyEvent.KEYCODE_BACK) pad.barClose();   /* B(킥 자리)·BACK = 닫기 */
+                }
+                keyMask = 0;
+                return true;
+            }
             if ("turbo".equals(f)) {                      /* 배속 — 누르는 동안 */
                 if (e.getAction() == KeyEvent.ACTION_DOWN) Emu.nativeSetTurbo(true);
                 else if (e.getAction() == KeyEvent.ACTION_UP) Emu.nativeSetTurbo(false);
@@ -576,6 +590,14 @@ public class EmuActivity extends Activity {
         if (m == 0) axisByDev.delete(e.getDeviceId()); else axisByDev.put(e.getDeviceId(), m);
         int all = 0;
         for (int i = 0; i < axisByDev.size(); i++) all |= axisByDev.valueAt(i);
+        if (pad.isBarOpen()) {                 /* 바가 열려 있으면 스틱 좌우 엣지로 칸 이동, 게임엔 안 간다 */
+            int rise = all & ~axisPrev;
+            if ((rise & (1 << Emu.LEFT)) != 0)  pad.barMove(-1);
+            if ((rise & (1 << Emu.RIGHT)) != 0) pad.barMove(+1);
+            axisPrev = all; axisMask = 0;
+            return true;
+        }
+        axisPrev = all;
         axisMask = all;                        /* 장치별로 들고 OR — 두 번째 장치의 중립이 첫 장치의 방향을 지우지 않게 */
         return true;
     }

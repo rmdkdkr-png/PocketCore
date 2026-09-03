@@ -194,7 +194,37 @@ public class PadView extends View {
         }
         invalidate();
     }
-    public void toggleBar() { barOpen = !barOpen; invalidate(); }
+    public void toggleBar() { barOpen = !barOpen; if (barOpen) barSel = firstVisible(); invalidate(); }
+    public boolean isBarOpen() { return barOpen || edit; }
+
+    /* ── 유틸 바 패드 조작 — 물리 패드만 있는 게임기에서 저장·로드·설정·종료에 닿는 길(리뷰 F17) ── */
+    private int barSel = -1;               /* 패드 커서가 선 칸(-1 = 없음). 터치로 열면 -1 이라 하이라이트가 없다 */
+    private int firstVisible() { for (int i = 0; i < util.length; i++) if (utilVisible(i)) return i; return -1; }
+    /** 좌우 이동 — 보이는 칸만 돌며 끝에서 반대편으로 감는다. */
+    public void barMove(int d) {
+        if (!(barOpen || edit)) return;
+        int n = util.length, i = barSel < 0 ? (d > 0 ? -1 : n) : barSel;
+        for (int k = 0; k < n; k++) {
+            i = ((i + d) % n + n) % n;
+            if (utilVisible(i)) { barSel = i; break; }
+        }
+        invalidate();
+    }
+    /** 선 칸 실행 — 터치로 누른 것과 같은 길(「배치」 칸은 편집 토글). */
+    public void barActivate() {
+        if (!(barOpen || edit) || barSel < 0 || !utilVisible(barSel)) return;
+        if (barSel == UTIL_EDIT) {
+            edit = !edit;
+            if (!edit) save();
+            mask = 0; dragIdx = -1; selIdx = -1; dpadPid = -1; dpadMask = 0; dpadLast = 0;
+            if (listener != null) listener.onMask(0);
+        } else {
+            if (listener != null) listener.onAction(utilAct[barSel]);
+            if (utilAct[barSel] == ACT_PICK) barOpen = false;
+        }
+        invalidate();
+    }
+    public void barClose() { barOpen = false; barSel = -1; invalidate(); }
 
     private void load() {
         try (Scanner s = new Scanner(cfg(), "UTF-8")) {
@@ -334,9 +364,10 @@ public class PadView extends View {
             text.setTextSize(util[0].height() * 0.5f);
             for (int i = 0; i < util.length; i++) {
                 if (util[i].isEmpty()) continue;                     /* 이 프로필에 없는 기능 */
-                if (i == UTIL_EDIT && edit) fill.setColor(0x66ffcc44);
+                boolean hl = (i == UTIL_EDIT && edit) || i == barSel;   /* 패드 커서 칸도 같은 강조색 */
+                if (hl) fill.setColor(0x66ffcc44);
                 c.drawRoundRect(util[i], 10, 10, fill);
-                if (i == UTIL_EDIT && edit) fill.setColor(0x22ffffff);
+                if (hl) fill.setColor(0x22ffffff);
                 c.drawText(utilLabel[i], util[i].centerX(),
                         util[i].centerY() + util[i].height() * 0.18f, text);
             }
