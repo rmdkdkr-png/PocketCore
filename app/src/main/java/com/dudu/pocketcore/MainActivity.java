@@ -435,6 +435,8 @@ public class MainActivity extends Activity {
                 + "# KOF R-2 원버튼(R=SP, 탭 약/꾹 강). 기본 꺼짐 — 켜면 R 이 A+B 대신 SP.\n"
                 + "ngp_kofsp_engine=disabled\n"
                 + "ngp_svcsp_toast=enabled\n"
+                + "# 착지 선입력(점프기→착지기 보정). 기본 꺼짐 — 순정 감각 우선(유저 결정).\n"
+                + "ngp_svcsp_land=disabled\n"
                 + "ngp_ss2sp=enabled\n"
                 + "ngp_ss2sp_comm=enabled\n"
                 + "# 화면 방향(auto/portrait/landscape)·터치 패드(auto/on/off) — 게임기(가로·물리 패드)용.\n"

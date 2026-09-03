@@ -8,8 +8,8 @@ android {
         applicationId "com.dudu.pocketcore"
         minSdk 26            // AAudio
         targetSdk 34
-        versionCode 96
-        versionName "3.74"
+        versionCode 97
+        versionName "3.75"
         // 세 갈래면 요즘 폰(arm64)·구형 32비트(armv7)·에뮬레이터와 크롬북(x86_64)이 다 덮인다.
         // x86(32비트)와 riscv64 는 뺀다 — 전자는 사실상 죽었고 후자는 쓸 단말이 없다.
         ndk { abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64' }
