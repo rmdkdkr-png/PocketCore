@@ -92,6 +92,7 @@ public class MainActivity extends Activity {
         started = true;
         romsDir().mkdirs(); saveDir().mkdirs(); sysDir().mkdirs();
         seedOptions();
+        seedMods();
 
         /* 게임에서 「롬 바꾸기」로 온 경우엔 목록을 **반드시** 보여 준다.
            안 그러면 롬이 하나뿐일 때 그 롬으로 바로 되돌아가서 목록도 설정도 영영 못 본다. */
@@ -109,6 +110,21 @@ public class MainActivity extends Activity {
         if (roms.size() == 1) { launch(roms.get(0).getAbsolutePath()); return; }
         if (!bootedOnce) playBoot(); else playTheme();       /* 부팅송 → 테마 체이닝 */
         showList(roms);
+    }
+
+    /** 조작 패치 색인 시드 — 「업데이트 확인」 전에도 동봉 FastCD 토글이 보이게 동봉 스냅샷을 놓아 둔다.
+     *  업데이트가 받은 최신 색인이 있으면 건드리지 않는다. */
+    private void seedMods() {
+        try {
+            File f = new File(com.dudu.pocketcore.Settings.modsDir(), "mods.json");
+            if (f.exists()) return;
+            com.dudu.pocketcore.Settings.modsDir().mkdirs();
+            java.io.InputStream in = getAssets().open("mods.json");
+            java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+            byte[] buf = new byte[8192]; int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            out.close(); in.close();
+        } catch (Exception ignored) { }
     }
 
     private List<File> listRoms() {

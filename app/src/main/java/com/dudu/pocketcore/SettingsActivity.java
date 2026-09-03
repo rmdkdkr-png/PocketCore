@@ -44,8 +44,18 @@ public class SettingsActivity extends Activity {
 
     /** 이 항목을 지금 화면에 보일까 — 범용(feature==null)은 늘, 나머지는 현재 게임이 그 기능을 쓸 때만. */
     private boolean shows(Settings.Item it) {
-        if (it.feature == null) return true;
-        return game != null && game.has(it.feature);
+        if (it.feature == null && it.game == null) return true;        /* 범용 */
+        return game != null && matches(it, game);
+    }
+    /** 항목이 이 게임 것인가 — 기능 토큰(features) 또는 게임 id 스코프(조작 패치). */
+    private static boolean matches(Settings.Item it, Games.Game gm) {
+        return (it.feature != null && gm.has(it.feature)) || (it.game != null && gm.id.equals(it.game));
+    }
+    private void note(LinearLayout col, String text) {
+        TextView t = new TextView(this);
+        t.setText(text); t.setTextColor(DIM); t.setTextSize(12);
+        t.setPadding(dp(18), dp(6), dp(18), dp(10));
+        col.addView(t);
     }
 
     private void section(LinearLayout col, String title, java.util.List<Settings.Item> items) {
@@ -101,21 +111,28 @@ public class SettingsActivity extends Activity {
                 for (Settings.Item it : g.getValue()) if (shows(it)) its.add(it);
                 section(col, g.getKey(), its);
             }
+            java.util.List<Settings.Item> ms = new java.util.ArrayList<>();
+            for (Settings.Item it : Settings.modItems()) if (shows(it)) ms.add(it);
+            section(col, "조작 패치", ms);
         } else {
             /* 런처: 범용 항목을 묶음대로 → 그 아래 게임별 소절(그 게임 전용 항목만).
                숨기지 않는다 — 설정에 닿을 길이 없어지면 안 된다. 전용 항목이 없는 게임은 소절 없음. */
             for (Map.Entry<String, Settings.Item[]> g : Settings.GROUPS.entrySet()) {
                 java.util.List<Settings.Item> its = new java.util.ArrayList<>();
-                for (Settings.Item it : g.getValue()) if (it.feature == null) its.add(it);
+                for (Settings.Item it : g.getValue()) if (it.feature == null && it.game == null) its.add(it);
                 section(col, g.getKey(), its);
             }
+            java.util.List<Settings.Item> allMods = Settings.modItems();
             for (Games.Game gm : Games.displayOrder()) {   /* 표시 순서 = Games.DISPLAY_ORDER */
                 java.util.List<Settings.Item> its = new java.util.ArrayList<>();
                 for (Settings.Item[] arr : Settings.GROUPS.values())
                     for (Settings.Item it : arr)
-                        if (it.feature != null && gm.has(it.feature)) its.add(it);
+                        if (matches(it, gm)) its.add(it);
+                for (Settings.Item it : allMods) if (matches(it, gm)) its.add(it);
                 section(col, gm.ko, its);
             }
+            if (allMods.isEmpty())
+                note(col, "조작 패치(빠른 기본기·콤보 등) 목록은 「업데이트 확인」을 누르면 받아집니다.");
         }
 
         /* ── 롬 가져오기 — 설정에서도 언제든 (빈 화면에만 있으면 나중에 추가할 길이 없다) ── */

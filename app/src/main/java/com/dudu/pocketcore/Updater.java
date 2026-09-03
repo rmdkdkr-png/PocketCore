@@ -57,7 +57,7 @@ public final class Updater {
             }
             /* 앱이 최신일 때만 컨텐츠 동기화 — 새 앱을 설치하러 떠나는 중이면 다음에 받는다.
                앱(APK)은 앱이 바뀔 때만 갈고, 코어·음성팩·한글패치는 여기서 따로 받는다. */
-            if (idle) { syncCores(act, base); syncPatches(act, base);
+            if (idle) { syncCores(act, base); syncPatches(act, base); syncMods(act);
                         syncDesign(base); showNews(act, base); }
         }}).start();
     }
@@ -276,6 +276,41 @@ public final class Updater {
                     : "한글패치도 모두 최신입니다");
         } catch (Exception e) {
             toast(act, "한글패치 확인 실패: " + e.getClass().getSimpleName());
+        }
+    }
+
+    /** 조작 패치 채널 — PocketCore 레포 고정 태그 `mods` 의 mods.json 을 받아 PocketCore/mods/ 에 색인과
+     *  IPS 를 둔다(판 비교는 .ver). 설정 화면이 색인으로 게임별 토글을 만들고, Patcher 가 켜진 것만 얹는다.
+     *  한패(patches.json)와 다른 채널인 이유: 번역이 아닌 게임플레이 개조라 섞으면 「한패가 게임을 바꿨다」로 읽힌다. */
+    static final String MODS = "https://github.com/rmdkdkr-png/InputPatch/releases/download/mods";   /* 인풋패치의 집 */
+    private static void syncMods(Activity act) {
+        try {
+            byte[] jb = fetch(MODS + "/mods.json", 10000);
+            org.json.JSONArray arr = new JSONObject(new String(jb, "UTF-8")).getJSONArray("mods");
+            File dir = com.dudu.pocketcore.Settings.modsDir();
+            dir.mkdirs();
+            StringBuilder got = new StringBuilder();
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject e = arr.getJSONObject(i);
+                String id = e.getString("id"), ver = e.optString("ver", "");
+                if (!id.matches("[A-Za-z0-9_]+")) continue;
+                File ips = new File(dir, id + ".ips");
+                File verf = new File(dir, id + ".ver");
+                if (ips.exists() && ver.equals(readSmall(verf))) continue;
+                byte[] b = fetch(e.getString("url"), 30000);
+                if (b.length < 8 || b[0] != 'P' || b[1] != 'A' || b[2] != 'T' || b[3] != 'C' || b[4] != 'H') continue;
+                FileOutputStream fo = new FileOutputStream(ips);
+                fo.write(b); fo.close();
+                writeSmall(verf, ver);
+                if (got.length() > 0) got.append(" · ");
+                got.append(e.optString("ko", id)).append(' ').append(ver);
+            }
+            FileOutputStream fo = new FileOutputStream(new File(dir, "mods.json"));   /* 색인은 항상 최신으로 */
+            fo.write(jb); fo.close();
+            if (got.length() > 0)
+                toast(act, "조작 패치 새 판: " + got + " — 설정에서 켜고 게임을 다시 열면 적용됩니다");
+        } catch (Exception e) {
+            toast(act, "조작 패치 확인 실패: " + e.getClass().getSimpleName());
         }
     }
 

@@ -36,18 +36,33 @@ public final class Patcher {
      *  입히므로 유저 롬은 안 건드린다. 코어(v3.28+)는 롬의 문턱을 읽어 즉발 주입값을
      *  문턱−1 로 맞추므로 병용해도 안전하다(실측).
      *
-     *  fastCD: 빠른 기본기(assets/patch/<게임id>_fastcd.ips). 서서 강펀·강킥의 애니
+     *  withMods: 조작 패치 채널(mods.json) 중 켜진 것들을 얹는다. 예 — 빠른 기본기(FastCD): 서서 강펀·강킥의 애니
      *  대본 WAIT 를 줄여 「누름→히트」 총 길이를 원래 모션 길이에 맞춘 것(원본−문턱,
      *  대본 물리 바닥까지만 — 차등 보존, 전 항목 실측 검증). 문턱·판정 알고리즘은 안
      *  건드리므로 약/강 구분은 순정 그대로. 한글패치와 겹치는 바이트 없음(실측).
      *  현재 svc(20기술)·kofr2(14명) 에 자산이 있고, 다른 게임은 자산이 없어 자동 무시된다. */
     public static String resolve(Context ctx, String romPath, Games.Game game, String lang,
-                                 boolean fastRom, boolean fastCD) {
+                                 boolean fastRom, boolean withMods) {
         String name = (game != null) ? game.patchFor(lang) : null;
         byte[] extra = (fastRom && game != null && "svc".equals(game.id))
                      ? readAsset(ctx, "patch/svc_faststrong.ips") : null;
-        byte[] extra2 = (fastCD && game != null)
-                     ? readAsset(ctx, "patch/" + game.id + "_fastcd.ips") : null;
+        /* 조작 패치(mods): mods.json 에 있고 옵션 pocketcore_<id>=enabled 인 것만, 색인 순서대로 얹는다.
+           파일은 내려받은 mods/<id>.ips 우선, 없으면 동봉 assets/patch/<id>.ips(svc/kofr2 FastCD 는 동봉). */
+        java.util.List<byte[]> mods = new java.util.ArrayList<>();
+        StringBuilder modSig = new StringBuilder();
+        if (withMods && game != null) {
+            java.util.Map<String, String> opts = Settings.load();
+            for (Settings.Mod md : Settings.mods()) {
+                if (!game.id.equals(md.game)) continue;
+                String v = opts.containsKey("pocketcore_" + md.id) ? opts.get("pocketcore_" + md.id) : md.def;
+                if (!"enabled".equals(v)) continue;
+                byte[] b = readFile(new File(Settings.modsDir(), md.id + ".ips"));
+                if (b == null) b = readAsset(ctx, "patch/" + md.id + ".ips");
+                if (b == null) continue;
+                mods.add(b);
+                modSig.append(md.id).append('=').append(md.ver).append(':').append(b.length).append(';');
+            }
+        }
         try {
             File rom = new File(romPath);
             File pdir = new File(MainActivity.root(), "patch");
@@ -78,7 +93,7 @@ public final class Patcher {
                     ips = readAsset(ctx, "patch/" + name);
                 }
             }
-            if (ips == null && extra == null && extra2 == null)
+            if (ips == null && extra == null && mods.isEmpty())
                 return romPath;                               /* 쓸 패치가 하나도 없다 */
 
             /* 사본 이름은 원본과 같게 둔다 — 상태저장 파일 이름이 롬 이름에서 나오므로,
@@ -89,7 +104,7 @@ public final class Patcher {
             String want = lang + ":" + rom.length() + ":" + rom.lastModified() + ":"
                         + (ips != null ? ips.length : 0)
                         + ":F" + (extra != null ? extra.length : 0)
-                        + ":C" + (extra2 != null ? extra2.length : 0)
+                        + ":M" + modSig
                         + ":P" + pver;                        /* 새 판 받으면 다시 입힌다 */
 
             if (out.exists() && want.equals(readText(stamp))) return out.getPath();
@@ -106,8 +121,8 @@ public final class Patcher {
                 byte[] d2 = apply(done, extra);              /* 한패 위에 겹쳐 입힌다 */
                 if (d2 != null) done = d2;                   /* 문턱 패치 실패는 치명 아님 */
             }
-            if (extra2 != null) {
-                byte[] d3 = apply(done, extra2);             /* 겹치는 바이트 없음 — 순서 무관 */
+            for (byte[] modb : mods) {                       /* 조작 패치 — 한패·서로 간 겹침 없음이 원칙 */
+                byte[] d3 = apply(done, modb);
                 if (d3 != null) done = d3;
             }
             if (java.util.Arrays.equals(done, data)) return romPath;  /* 아무 변화 없음 */

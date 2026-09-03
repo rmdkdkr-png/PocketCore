@@ -61,8 +61,7 @@ public class EmuActivity extends Activity {
                코어 설정만 바꾸면 된다. ngp_language 는 코어가 뜰 때 읽으므로 **로드 전에** 써야 한다. */
             String p = Patcher.resolve(this, romPath, game, lang,
                     "enabled".equals(readOpt("pocketcore_svc_fastrom", "disabled")),
-                    game != null && "enabled".equals(
-                            readOpt("pocketcore_" + game.id + "_fastcd", "disabled")));
+                    true);                                   /* 조작 패치(mods) 중 켜진 것 적용 */
             patched = !p.equals(romPath);
             romPath = p;
             persistOption("ngp_language", Games.ngpLanguage(game, lang));

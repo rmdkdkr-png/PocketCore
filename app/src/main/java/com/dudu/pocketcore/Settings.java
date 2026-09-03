@@ -28,11 +28,14 @@ public final class Settings {
         /** 이 항목이 붙는 기능 토큰(Games.F_*). null = 범용(모든 게임). 설정 화면이 현재
          *  게임의 features 로 거를 때 쓴다. key 는 그대로라 options.txt 는 안 바뀐다. */
         public String feature;
+        /** 게임 id 스코프(조작 패치처럼 특정 게임에만 뜨는 항목). null = 스코프 없음. */
+        public String game;
         Item(String key, String label, String help, String[] vals, String[] names, String def) {
             this.key = key; this.label = label; this.help = help;
             this.vals = vals; this.names = names; this.def = def;
         }
         Item f(String feature) { this.feature = feature; return this; }
+        Item g(String game) { this.game = game; return this; }
         public int indexOf(String v) {
             for (int i = 0; i < vals.length; i++) if (vals[i].equals(v)) return i;
             return indexOf0();
@@ -133,19 +136,6 @@ public final class Settings {
                 + " 영상만 찍어도 무슨 기술이 나갔는지(약·강 구분 포함) 확정할 수 있는"
                 + " 검증용 표시입니다. 바꾸면 게임을 다시 시작해야 적용됩니다.",
                 ONOFF, ONOFF_K, "disabled").f(Games.F_ACTSHOW),
-            new Item("pocketcore_svc_fastcd", "SvC 빠른 기본기 (FastCD)",
-                "SvC 전용 롬 패치. 서서 강펀·강킥이 늘어진 캐릭터(쿄 등 20기술)의 발동을"
-                + " 당겨, 버튼을 누르고 히트까지 걸리는 시간을 원래 모션 길이에 맞춥니다."
-                + " 아케이드는 강이 별도 버튼이라 안 내는 만큼을, 이 기종은 '길게 누르나 보자'로"
-                + " 기다리며 냅니다 — 그만큼만 돌려준 것이고 누르는 길이로 약/강 가르는 방식은"
-                + " 그대로입니다. 캐릭터별 차이는 보존(취향이라 안 켜도 됩니다). 게임을 다시 열면 적용.",
-                ONOFF, ONOFF_K, "disabled").f(Games.F_FASTCD_SVC),
-            new Item("pocketcore_kofr2_fastcd", "R-2 빠른 기본기 (FastCD)",
-                "KOF R-2 전용 롬 패치. 서서 강펀·강킥(14명)의 발동을 당겨, 누르고 히트까지"
-                + " 걸리는 시간을 원래 모션 길이에 맞춥니다. 이 기종이 '길게 누르나 보자'로 기다리며"
-                + " 내는 손해만 돌려준 것 — 누르는 길이로 약/강 가르는 방식은 순정 그대로입니다."
-                + " 캐릭터별 차이는 보존(취향이라 안 켜도 됩니다). 게임을 다시 열면 적용.",
-                ONOFF, ONOFF_K, "disabled").f(Games.F_FASTCD_KOF),
             /* faststrong(pocketcore_svc_fastrom)은 문턱을 낮추는 연구용 패치로 부작용
                (공중 강공격 불발)이 있어 메뉴에서 뺐다 — 빠른 기본기는 이제 FastCD 가
                부작용 없이 대신한다. 배관(EmuActivity·Patcher)은 남겨 두어 연구 시
@@ -154,6 +144,46 @@ public final class Settings {
                 "SS2 전용. 이쪽은 게임에 원래 간이입력(ABLE)이 있어 기본은 그것을 씁니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SS2),
         });
+    }
+
+    /* ── 조작 패치(mods) ──────────────────────────────────────────
+       PocketCore/mods/mods.json(업데이트 확인이 받음; 첫 실행엔 동봉 스냅샷을 시드) 에 적힌 게임플레이 패치들.
+       항목 하나 = 옵션 키 pocketcore_<id> 토글. 켜진 것만 Patcher 가 .patched 사본에 순서대로 얹는다.
+       한패(patches.json)와 분리된 채널 — 「조작 패치는 다른 데」(유저). */
+    public static final class Mod {
+        public final String id, game, ko, ver, help, def;
+        Mod(String id, String game, String ko, String ver, String help, String def) {
+            this.id = id; this.game = game; this.ko = ko; this.ver = ver; this.help = help; this.def = def;
+        }
+    }
+    public static File modsDir()  { return new File(MainActivity.root(), "mods"); }
+    public static List<Mod> mods() {
+        List<Mod> out = new ArrayList<>();
+        File f = new File(modsDir(), "mods.json");
+        if (!f.exists()) return out;
+        try {
+            byte[] b = new byte[(int) f.length()];
+            java.io.FileInputStream in = new java.io.FileInputStream(f);
+            int n = 0; while (n < b.length) { int r = in.read(b, n, b.length - n); if (r < 0) break; n += r; }
+            in.close();
+            org.json.JSONArray arr = new org.json.JSONObject(new String(b, 0, n, "UTF-8")).getJSONArray("mods");
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject m = arr.getJSONObject(i);
+                String id = m.optString("id", ""), game = m.optString("game", "");
+                if (id.isEmpty() || game.isEmpty() || !id.matches("[A-Za-z0-9_]+")) continue;
+                out.add(new Mod(id, game, m.optString("ko", id), m.optString("ver", ""),
+                                m.optString("help", ""), m.optString("default", "disabled")));
+            }
+        } catch (Exception ignored) { }
+        return out;
+    }
+    /** mods → 설정 항목. 라벨에 판을 붙여 무엇이 깔렸는지 보이게 한다. */
+    public static List<Item> modItems() {
+        List<Item> out = new ArrayList<>();
+        for (Mod m : mods())
+            out.add(new Item("pocketcore_" + m.id, m.ko + (m.ver.isEmpty() ? "" : "  " + m.ver), m.help,
+                             ONOFF, ONOFF_K, "enabled".equals(m.def) ? "enabled" : "disabled").g(m.game));
+        return out;
     }
 
     /* ── 파일 ────────────────────────────────────────────────────── */

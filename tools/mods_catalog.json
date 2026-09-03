@@ -1,0 +1,43 @@
+{
+ "_doc": "인풋(조작·게임플레이) 패치 채널의 단일출처. tools/pub_inputpatch.py 가 이걸로 mods.json 색인을 만들어 InputPatch 레포(트리 patches/ + 고정 릴리즈 태그 mods)에 IPS 와 함께 올리고, README 소개글·앱 동봉 스냅샷(assets/mods.json)도 갱신한다. 앱은 mods.json 을 받아 게임별 토글(옵션 키 pocketcore_<id>)을 만들고 켜진 것만 .patched 사본에 순서대로 얹는다. 한패(patches.json)와 겹치는 바이트 없는 것만 올릴 것. id 는 옵션 키·파일명에 쓰이므로 ASCII.",
+ "ver": 1,
+ "tag": "mods",
+ "mods": [
+  {
+   "id": "svc_fastcd",
+   "game": "svc",
+   "ko": "빠른 기본기 (FastCD)",
+   "ver": "v1.3",
+   "file": "svc_fastcd_v1.3.ips",
+   "default": "disabled",
+   "help": "서서 강펀·강킥이 늘어진 캐릭터(쿄 등 16기술)의 발동을 당겨, 누르고 히트까지를 원래 모션 길이에 맞춥니다. 강은 약보다 4프레임 느리게(묵직) 유지, 캐릭터별 차이 보존. 약/강 구분·대미지는 순정 그대로. 게임을 다시 열면 적용."
+  },
+  {
+   "id": "kofr2_fastcd",
+   "game": "kofr2",
+   "ko": "빠른 기본기 (FastCD)",
+   "ver": "v1.1",
+   "file": "kofr2_fastcd_v1.1.ips",
+   "default": "disabled",
+   "help": "서서 강펀·강킥 중 유독 굼뜬 8개 기술의 발동을 당깁니다. 이 기종이 '길게 누르나 보자'로 기다리며 내는 손해만 돌려준 것. 강은 같은 캐릭터의 약보다 반드시 느리게(묵직) 두고(펀치 +4·킥 +6), 캐릭터별 차이도 그대로 남깁니다. 약/강 구분·대미지·경직은 순정 그대로. 게임을 다시 열면 적용."
+  },
+  {
+   "id": "ss2_combo_t3",
+   "game": "ss2",
+   "ko": "평타 콤보 — 보통 [검수용]",
+   "ver": "t3",
+   "file": "ss2_combo_t3.ips",
+   "default": "disabled",
+   "help": "아수라 서서 강베기의 후경직을 8프레임 줄여 「강베기 → 살짝 전진 → 강베기」가 카운터 없이도 콤보로 들어갑니다. 아직 캐릭터 1명·기술 1개짜리 실증판 — 손맛 검수용. 게임을 다시 열면 적용."
+  },
+  {
+   "id": "ss2_combo_t1",
+   "game": "ss2",
+   "ko": "평타 콤보 — 넉넉 [검수용]",
+   "ver": "t1",
+   "file": "ss2_combo_t1.ips",
+   "default": "disabled",
+   "help": "같은 자리를 12프레임 줄인 판(전진 2~6프레임 어디서나 콤보). 「보통」과 같은 바이트를 고치므로 둘 다 켜면 나중 것(이것)이 이깁니다. 검수용."
+  }
+ ]
+}
