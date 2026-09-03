@@ -27,7 +27,7 @@ def panel(img,label,i,hitf):
         d.text((W-tw-4-44,3),'HIT',fill=RED,font=FONT)
         if i<hitf+4:   # flash: thick red frame around the panel for 4 frames after contact
             for k in range(4): d.rectangle((k,BAR+k,W-1-k,H+BAR-1-k),outline=RED)
-            d.text((6,BAR+6),'HIT f%02d'%hitf,fill=RED,font=FONTBIG)
+            d.text((6,BAR+H-40),'HIT f%02d'%hitf,fill=RED,font=FONTBIG)
     return p
 seq=[]; dur=[]
 for i in range(0,n,STRIDE):
