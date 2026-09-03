@@ -34,12 +34,20 @@ public final class Patcher {
      *  fastRom: SvC 강공격 문턱 패치(assets/patch/svc_faststrong.ips, 0x000D4E 04→02).
      *  강 기본기가 버튼 8프레임 → 4프레임에 선다. 한글패치와 같은 방식으로 사본에만
      *  입히므로 유저 롬은 안 건드린다. 코어(v3.28+)는 롬의 문턱을 읽어 즉발 주입값을
-     *  문턱−1 로 맞추므로 병용해도 안전하다(실측). */
+     *  문턱−1 로 맞추므로 병용해도 안전하다(실측).
+     *
+     *  fastCD: 빠른 기본기(assets/patch/<게임id>_fastcd.ips). 서서 강펀·강킥의 애니
+     *  대본 WAIT 를 줄여 「누름→히트」 총 길이를 원래 모션 길이에 맞춘 것(원본−문턱,
+     *  대본 물리 바닥까지만 — 차등 보존, 전 항목 실측 검증). 문턱·판정 알고리즘은 안
+     *  건드리므로 약/강 구분은 순정 그대로. 한글패치와 겹치는 바이트 없음(실측).
+     *  현재 svc(20기술)·kofr2(14명) 에 자산이 있고, 다른 게임은 자산이 없어 자동 무시된다. */
     public static String resolve(Context ctx, String romPath, Games.Game game, String lang,
-                                 boolean fastRom) {
+                                 boolean fastRom, boolean fastCD) {
         String name = (game != null) ? game.patchFor(lang) : null;
         byte[] extra = (fastRom && game != null && "svc".equals(game.id))
                      ? readAsset(ctx, "patch/svc_faststrong.ips") : null;
+        byte[] extra2 = (fastCD && game != null)
+                     ? readAsset(ctx, "patch/" + game.id + "_fastcd.ips") : null;
         try {
             File rom = new File(romPath);
             File pdir = new File(MainActivity.root(), "patch");
@@ -70,7 +78,8 @@ public final class Patcher {
                     ips = readAsset(ctx, "patch/" + name);
                 }
             }
-            if (ips == null && extra == null) return romPath; /* 쓸 패치가 하나도 없다 */
+            if (ips == null && extra == null && extra2 == null)
+                return romPath;                               /* 쓸 패치가 하나도 없다 */
 
             /* 사본 이름은 원본과 같게 둔다 — 상태저장 파일 이름이 롬 이름에서 나오므로,
                이름이 바뀌면 언어를 바꿀 때마다 세이브가 갈라진다.
@@ -80,6 +89,7 @@ public final class Patcher {
             String want = lang + ":" + rom.length() + ":" + rom.lastModified() + ":"
                         + (ips != null ? ips.length : 0)
                         + ":F" + (extra != null ? extra.length : 0)
+                        + ":C" + (extra2 != null ? extra2.length : 0)
                         + ":P" + pver;                        /* 새 판 받으면 다시 입힌다 */
 
             if (out.exists() && want.equals(readText(stamp))) return out.getPath();
@@ -95,6 +105,10 @@ public final class Patcher {
             if (extra != null) {
                 byte[] d2 = apply(done, extra);              /* 한패 위에 겹쳐 입힌다 */
                 if (d2 != null) done = d2;                   /* 문턱 패치 실패는 치명 아님 */
+            }
+            if (extra2 != null) {
+                byte[] d3 = apply(done, extra2);             /* 겹치는 바이트 없음 — 순서 무관 */
+                if (d3 != null) done = d3;
             }
             if (java.util.Arrays.equals(done, data)) return romPath;  /* 아무 변화 없음 */
 

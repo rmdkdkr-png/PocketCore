@@ -51,7 +51,7 @@ public final class Thumbs {
                 String v = m.get("pocketcore_lang");
                 if (v != null && !v.isEmpty()) lang = v;
             } catch (Throwable ignored) { }
-            String romPath = Patcher.resolve(ctx, rom.getPath(), game, lang, false);
+            String romPath = Patcher.resolve(ctx, rom.getPath(), game, lang, false, false);
 
             /* 코어 선택 — EmuActivity 와 같은 순서의 축약판: 내부 자동 → 동봉 */
             String want = (game != null && "ss2".equals(game.id)) ? "ss2" : "svc";
