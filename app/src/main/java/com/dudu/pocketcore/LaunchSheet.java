@@ -89,7 +89,7 @@ public final class LaunchSheet {
             boolean have = new File(new File(MainActivity.root(), "patch"), g.id + "_ko.ips").exists()
                         || assetExists("patch/" + g.id + "_ko.ips");
             o.enabled = have;
-            o.help = have ? "원본 롬은 두고 사본에 입힙니다. 안 함이면 " + ("english".equals(g.baseLang) ? "영어" : "일본어") + " 원판으로 엽니다."
+            o.help = have ? "원본 롬은 두고 사본에 입힙니다. 안 함이면 " + ("en".equals(offLang(m, g)) ? "영어" : "일본어") + " 원판으로 엽니다."
                           : "패치 파일이 아직 없습니다 — 런처의 「업데이트 확인」으로 받으면 켤 수 있습니다.";
             opts.add(o);
         }
@@ -102,9 +102,19 @@ public final class LaunchSheet {
                         opts.add(fromItem(it, m));
         }
     }
+    /** 「안 함」이 실제로 쓰는 언어 값 — 전역이 원어(ja/en)면 그대로, 한국어면 이 게임 바탕의 원어. 도움말과 toggle 이 같이 쓴다. */
+    private static String offLang(Map<String, String> m, Games.Game g) {
+        String global = m.get("pocketcore_lang"); if (global == null) global = "ko-ja";
+        boolean enBase = "english".equals(g.baseLang);
+        return !global.startsWith("ko") ? global : (enBase ? "en" : "ja");
+    }
+    private static String onLang(Map<String, String> m, Games.Game g) {
+        String global = m.get("pocketcore_lang"); if (global == null) global = "ko-ja";
+        return global.startsWith("ko") ? global : ("english".equals(g.baseLang) ? "ko-en" : "ko-ja");
+    }
     private static Opt fromItem(Settings.Item it, Map<String, String> m) {
         Opt o = new Opt(); o.kind = 1; o.key = it.key; o.label = it.label; o.help = it.help;
-        o.vals = it.vals; o.names = it.names; o.cur = Settings.get(m, it);
+        o.vals = it.vals; o.names = it.names; o.cur = it.vals[it.indexOf(Settings.get(m, it))];   /* 미등록 값 → 항목 기본값(설정 화면과 동일) */
         return o;
     }
 
@@ -115,11 +125,7 @@ public final class LaunchSheet {
         o.cur = o.vals[(o.idx() + 1) % o.vals.length];
         if (o.kind == 0) {
             Map<String, String> m = Settings.load();
-            String global = m.get("pocketcore_lang"); if (global == null) global = "ko-ja";
-            boolean enBase = "english".equals(o.g.baseLang);
-            String v = "on".equals(o.cur) ? (global.startsWith("ko") ? global : (enBase ? "ko-en" : "ko-ja"))
-                                          : (!global.startsWith("ko") ? global : (enBase ? "en" : "ja"));
-            Settings.put(o.key, v);
+            Settings.put(o.key, "on".equals(o.cur) ? onLang(m, o.g) : offLang(m, o.g));
         } else Settings.put(o.key, o.cur);
         valViews.get(i).setText(o.name());
         a.getWindow().getDecorView().performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
@@ -184,7 +190,7 @@ public final class LaunchSheet {
         h.setTypeface(h.getTypeface(), android.graphics.Typeface.BOLD);
         tt.addView(h);
         TextView s = new TextView(a);
-        s.setText(opts.isEmpty() ? "이 롬에 붙는 패치가 없습니다 — 그대로 시작합니다."
+        s.setText(opts.isEmpty() ? "이 롬에 붙는 패치가 없습니다 — 「시작」을 누르면 순정 그대로 엽니다."
                                  : "실행 전에 적용할 것을 고르세요. 선택은 이 게임에 저장됩니다.");
         s.setTextColor(DIM); s.setTextSize(12); s.setPadding(0, dp(2), 0, 0);
         tt.addView(s);
@@ -252,8 +258,9 @@ public final class LaunchSheet {
         row.addView(top);
         if (o.help != null && !o.help.isEmpty()) {
             TextView help = new TextView(a);
-            help.setText(o.help); help.setTextColor(DIM); help.setTextSize(12);
-            help.setMaxLines(2); help.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            help.setText(o.help.replace(" 게임을 다시 열면 적용됩니다.", "").replace(" 게임을 다시 열면 적용.", ""));
+            help.setTextColor(DIM); help.setTextSize(12);
+            help.setMaxLines(3); help.setEllipsize(android.text.TextUtils.TruncateAt.END);
             help.setPadding(0, dp(3), dp(24), 0);
             row.addView(help);
         }

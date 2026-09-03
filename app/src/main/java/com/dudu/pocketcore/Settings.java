@@ -62,7 +62,8 @@ public final class Settings {
                 ONOFF, ONOFF_K, "enabled"),
             new Item("pocketcore_lang", "언어",
                 "일본어·영어는 롬에 원래 들어 있어 설정만 바뀝니다. 한국어는 번역 패치를 롬 사본에 입힙니다"
-                + " — 원본 롬은 건드리지 않습니다. 패치가 어느 쪽 표를 덮었는지는 게임마다 달라서 바탕을 고릅니다.",
+                + " — 원본 롬은 건드리지 않습니다. 패치가 어느 쪽 표를 덮었는지는 게임마다 달라서 바탕을 고릅니다."
+                + " 실행 전 선택창에서 게임별로 고른 「한글패치」가 있으면 그쪽이 우선하며, 여기 값을 바꾸면 게임별 선택은 지워집니다.",
                 Games.LANGS, Games.LANGS_KO, "ko-ja"),
         });
         GROUPS.put("화면", new Item[]{
@@ -147,7 +148,7 @@ public final class Settings {
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC),
             new Item("ngp_svcsp_basics", "SVC 강약 버튼 구분",
                 "켬 = 약P·약K·강P·강K 4버튼(약은 짧게 고정, 강은 즉발). 끔 = 순정 2버튼"
-                + "(A·B 탭=약/꾹=강, 게임 원판정) — 단 강P·강K 버튼은 끔에서도 즉발 강으로"
+                + "(A·B 탭=약/꾹=강 — 「강 발동 맞춤」이 순정일 때 게임 원판정, 중간이면 5프레임부터 강) — 단 강P·강K 버튼은 끔에서도 즉발 강으로"
                 + " 살아 있습니다. 게임을 다시 열면 적용됩니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_BASICS).l(),
             new Item("ngp_svcsp_holdsync", "SVC 강 발동 맞춤",
@@ -260,6 +261,27 @@ public final class Settings {
             try (FileOutputStream fo = new FileOutputStream(f)) {
                 fo.write(sb.toString().getBytes("UTF-8"));
             }
+        } catch (Exception ignored) { }
+    }
+
+    /** 접두사로 시작하는 키를 모두 지운다(주석은 살린다). 전역 「언어」를 바꾸면 게임별 선택(pocketcore_lang_<id>)을 지우는 데 쓴다. */
+    public static void removePrefix(String prefix) {
+        File f = MainActivity.optsFile();
+        if (!f.exists()) return;
+        List<String> out = new ArrayList<>();
+        boolean hit = false;
+        try {
+            Scanner sc = new Scanner(f, "UTF-8");
+            while (sc.hasNextLine()) {
+                String ln = sc.nextLine(); String t = ln.trim();
+                if (!t.startsWith("#") && t.startsWith(prefix)) { hit = true; continue; }
+                out.add(ln);
+            }
+            sc.close();
+            if (!hit) return;
+            StringBuilder sb = new StringBuilder();
+            for (String s : out) sb.append(s).append('\n');
+            try (FileOutputStream fo = new FileOutputStream(f)) { fo.write(sb.toString().getBytes("UTF-8")); }
         } catch (Exception ignored) { }
     }
 

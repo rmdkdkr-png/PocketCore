@@ -44,6 +44,7 @@ public class MainActivity extends Activity {
     private boolean started = false;
     private LauncherView curLv;            /* 지금 떠 있는 런처(패드 키용). 빈 화면이면 null */
     private LaunchSheet curSheet;          /* 떠 있는 실행 전 선택창 — 패드 키를 이쪽으로 넘긴다 */
+    private KeyMap padMap;                 /* 런처 패드 매핑 — 키마다 파일을 다시 읽지 않게(리뷰). 매핑 화면에서 돌아오면 onResume 이 다시 읽는다 */
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -55,6 +56,7 @@ public class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         Orient.apply(this);   /* 런처는 재생성이 안 되니 설정 변경을 여기서도(리뷰 F18) */
+        try { padMap = KeyMap.load(); } catch (Exception ignored) { }
         fg = true;
         if (!started && hasStorage()) setup();
         else if (RomImport.changed) {           /* 설정 화면에서 롬을 가져왔다 — 다시 그린다 */
@@ -418,18 +420,24 @@ public class MainActivity extends Activity {
         if (curLv == null) return super.dispatchKeyEvent(e);
         if (curSheet != null && curSheet.isShowing()) {          /* 선택창이 떠 있으면 키는 창의 몫 */
             if (curSheet.handleKey(e)) return true;
+            if (KeyMap.isPadButton(e.getKeyCode())) return true;   /* 배정 없는 패드 버튼은 삼킨다 */
             return super.dispatchKeyEvent(e);
         }
         int code = e.getKeyCode();
         String f = null;
-        try { if (KeyMap.isGamepad(e)) f = KeyMap.load().funcOf(code); } catch (Exception ignored) { }
+        if (padMap == null) { try { padMap = KeyMap.load(); } catch (Exception ignored) { } }
+        if (padMap != null && KeyMap.isGamepad(e)) f = padMap.funcOf(code);
         boolean padBtn = KeyMap.isPadButton(code);                /* 패드 버튼은 기능(b=확인)으로만 — LaunchSheet 와 같은 규칙 */
         boolean left  = "left".equals(f)  || (!padBtn && code == android.view.KeyEvent.KEYCODE_DPAD_LEFT);
         boolean right = "right".equals(f) || (!padBtn && code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT);
         boolean ok    = "b".equals(f) || "start".equals(f)
                      || (!padBtn && (code == android.view.KeyEvent.KEYCODE_DPAD_CENTER || code == android.view.KeyEvent.KEYCODE_ENTER))
                      || (f == null && code == android.view.KeyEvent.KEYCODE_BUTTON_START);
-        if (!(left || right || ok)) return super.dispatchKeyEvent(e);
+        if (!(left || right || ok)) {
+            /* 배정 없는 패드 버튼은 삼킨다 — 안 그러면 시스템 폴백이 Y 를 BACK 으로 바꿔 앱이 꺼진다(리뷰) */
+            if (padBtn) return true;
+            return super.dispatchKeyEvent(e);
+        }
         if (e.getAction() == android.view.KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
             if (left) curLv.moveSel(-1);
             else if (right) curLv.moveSel(1);

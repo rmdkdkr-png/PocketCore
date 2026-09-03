@@ -573,7 +573,9 @@ public class EmuActivity extends Activity {
         }
         int bit = mapKey(e.getKeyCode());
         if (gamepad && bit != 0) {
-            if (e.getAction() == KeyEvent.ACTION_DOWN) keyMask |= bit;
+            /* 반복(repeat) DOWN 은 안 세운다 — 런처에서 확인 버튼을 쥔 채 게임이 뜨면 반복만 넘어와 유령 입력이 되던 것(리뷰).
+               쥐고 있는 키는 첫 DOWN 이 이미 마스크에 있으므로 반복은 정보가 없다. */
+            if (e.getAction() == KeyEvent.ACTION_DOWN) { if (e.getRepeatCount() == 0) keyMask |= bit; }
             else if (e.getAction() == KeyEvent.ACTION_UP) keyMask &= ~bit;
             return true;
         }

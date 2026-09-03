@@ -275,6 +275,11 @@ public class SettingsActivity extends Activity {
                 val.setText(it.names[i]);
                 Settings.put(it.key, cur[0]);
                 vals.put(it.key, cur[0]);
+                if ("pocketcore_lang".equals(it.key)) {   /* 전역 언어를 바꾸면 게임별 선택(실행 전 선택창)은 지운다 — 여기 값이 다시 보이는 값이 되게 */
+                    Settings.removePrefix("pocketcore_lang_");
+                    java.util.Iterator<String> ki = vals.keySet().iterator();
+                    while (ki.hasNext()) if (ki.next().startsWith("pocketcore_lang_")) ki.remove();
+                }
             }
         });
         return row;

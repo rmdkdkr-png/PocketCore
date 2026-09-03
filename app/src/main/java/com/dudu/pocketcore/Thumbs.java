@@ -48,7 +48,9 @@ public final class Thumbs {
             String lang = "ko-ja";
             try {
                 java.util.Map<String, String> m = Settings.load();
-                String v = m.get("pocketcore_lang");
+                /* 선택창의 게임별 선택(pocketcore_lang_<id>)이 있으면 그것 — EmuActivity.readLang 과 같은 우선순위(리뷰) */
+                String v = (game != null) ? m.get("pocketcore_lang_" + game.id) : null;
+                if (v == null) v = m.get("pocketcore_lang");
                 if (v != null && !v.isEmpty()) lang = v;
             } catch (Throwable ignored) { }
             String romPath = Patcher.resolve(ctx, rom.getPath(), game, lang, false, false);
