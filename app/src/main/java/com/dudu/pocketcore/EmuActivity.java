@@ -549,21 +549,28 @@ public class EmuActivity extends Activity {
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
         boolean gamepad = KeyMap.isGamepad(e);
+        {   /* 바가 열려 있으면 입력은 바를 조작한다 — 게임엔 안 간다(리뷰 F17). 방향·BACK·확인 키는 출처와 무관하게 받는다
+               (게임기 내장 십자는 키보드 출처로 올 때가 있다). */
+            int code = e.getKeyCode();
+            boolean navKey = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
+                          || code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_BACK;
+            if (pad != null && pad.isBarOpen() && (gamepad || navKey)) {
+                String f = keymap != null ? keymap.funcOf(code) : null;
+                if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
+                    if ("menu".equals(f)) pad.toggleBar();
+                    else if ("left".equals(f)  || code == KeyEvent.KEYCODE_DPAD_LEFT)  pad.barMove(-1);
+                    else if ("right".equals(f) || code == KeyEvent.KEYCODE_DPAD_RIGHT) pad.barMove(+1);
+                    else if ("b".equals(f) || "start".equals(f) || code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER) pad.barActivate();
+                    else if ("a".equals(f) || code == KeyEvent.KEYCODE_BACK) pad.barClose();
+                }
+                keyMask = 0;
+                return true;
+            }
+        }
         if (gamepad && keymap != null) {
             String f = keymap.funcOf(e.getKeyCode());
             if ("menu".equals(f)) {                       /* 앱 메뉴 알약 여닫기 — 터치 패드가 숨겨진 게임기에서의 입구 */
                 if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) pad.toggleBar();
-                return true;
-            }
-            if (pad.isBarOpen()) {                        /* 바가 열려 있으면 패드는 바를 조작한다 — 게임엔 안 간다(리뷰 F17) */
-                int code = e.getKeyCode();
-                if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
-                    if ("left".equals(f)  || code == KeyEvent.KEYCODE_DPAD_LEFT)  pad.barMove(-1);
-                    else if ("right".equals(f) || code == KeyEvent.KEYCODE_DPAD_RIGHT) pad.barMove(+1);
-                    else if ("b".equals(f) || "start".equals(f)) pad.barActivate();   /* A(펀치 자리)·OPTION = 실행 */
-                    else if ("a".equals(f) || code == KeyEvent.KEYCODE_BACK) pad.barClose();   /* B(킥 자리)·BACK = 닫기 */
-                }
-                keyMask = 0;
                 return true;
             }
             if ("turbo".equals(f)) {                      /* 배속 — 누르는 동안 */
