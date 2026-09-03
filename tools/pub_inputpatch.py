@@ -91,8 +91,8 @@ md5·크기는 [릴리즈 `mods`](https://github.com/%(IP)s/releases/tag/mods) �
 
 ## 평타 콤보 — SS2 (검수용)
 
-사무라이 스피리츠! 2 는 **카운터가 아니면 평타 콤보가 안 들어갑니다** — 강베기 후경직이 상대 경직과 거의 같아서.
-아수라 서서 강베기의 회복 틱을 **7→3(−8프레임)** 으로 줄이면 「강베기 → 살짝 전진 → 강베기」가 2타로 들어갑니다.
+사무라이 스피리츠! 2 는 **카운터가 아니면 평타 콤보가 안 들어갑니다** — 약베기(B 탭) 후경직이 상대 경직과 거의 같아서.
+아수라 서서 약베기의 회복 틱을 **7→3(−8프레임)** 으로 줄이면 「약베기 → 살짝 전진 → 약베기」가 2타로 들어갑니다.
 아직 **캐릭터 1명·기술 1개** 실증이라 `[검수용]` 입니다.
 
 %(ss2)s
@@ -116,11 +116,11 @@ md5·크기는 [릴리즈 `mods`](https://github.com/%(IP)s/releases/tag/mods) �
 있는 그대로 제공되며 사용에 따른 문제의 책임은 사용자에게 있습니다. 권리자 요청 시 즉시 내립니다.
 """ % dict(KR=KR, PC=PC, IP=IP, rows=rows,
            hero=fig('svc_kyo_hp_orig_vs_fastcd.webp','SvC 쿄 강펀 원본 vs FastCD',
-                    'SvC 쿄 서서 강펀 — 왼쪽 원본(판정 f14) · 오른쪽 FastCD(f08). 1/5 속도, HIT 는 판정이 나오는 프레임.'),
+                    'SvC 쿄 서서 강펀 — 왼쪽 원본(명중 f14) · 오른쪽 FastCD(f08). 1/5 속도, HIT 는 명중 프레임.'),
            kof=fig('kof_kyo_hp_orig_vs_fastcd.webp','KOF R-2 쿄 강펀 원본 vs FastCD v1.1',
-                   'KOF R-2 쿄 서서 강펀 — 왼쪽 원본(f16) · 오른쪽 FastCD v1.1(f10).'),
+                   'KOF R-2 쿄 서서 강펀 — 왼쪽 원본 · 오른쪽 FastCD v1.1. 준비 동작은 같고 명중이 6프레임 빠르다(HIT 표시).'),
            ss2=fig('ss2_asura_combo_orig_vs_t3.webp','SS2 아수라 콤보 원본 vs t3',
-                   '아수라 강베기→강베기 — 왼쪽 원본(2타 전에 상대가 풀림) · 오른쪽 t3(2타가 경직 중 명중). 1/3 속도.'),
+                   '아수라 약베기→약베기 — 왼쪽 원본(2타 전에 상대가 풀림) · 오른쪽 t3(2타가 경직 중 명중). 1/3 속도.'),
            shots=' '.join(img(n,n,240) for n in imgs if n.startswith('app_')))
 if os.environ.get('DRY'): print(text); print(readme); sys.exit(0)
 

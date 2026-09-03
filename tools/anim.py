@@ -11,6 +11,7 @@ S=int(opt.get('--scale',2)); DELAY=int(opt.get('--delay',66)); HOLD=int(opt.get(
 hit=[int(v) for v in opt['--hit'].split(',')] if '--hit' in opt else [None,None]
 FONT=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',13)
 FONT2=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf',13)
+FONTBIG=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',26)
 def frames(d):
     fs=sorted(p for p in glob.glob(os.path.join(d,'*.ppm')) if not p.endswith('_end.ppm'))
     return [Image.open(p).convert('RGB').crop((x0,y0,x1,y1)) for p in fs]
@@ -24,6 +25,9 @@ def panel(img,label,i,hitf):
     t='f%02d'%i; tw=d.textlength(t,font=FONT2); d.text((W-tw-4,3),t,fill=FG,font=FONT2)
     if hitf is not None and i>=hitf:
         d.text((W-tw-4-44,3),'HIT',fill=RED,font=FONT)
+        if i<hitf+4:   # flash: thick red frame around the panel for 4 frames after contact
+            for k in range(4): d.rectangle((k,BAR+k,W-1-k,H+BAR-1-k),outline=RED)
+            d.text((6,BAR+6),'HIT f%02d'%hitf,fill=RED,font=FONTBIG)
     return p
 seq=[]; dur=[]
 for i in range(0,n,STRIDE):
