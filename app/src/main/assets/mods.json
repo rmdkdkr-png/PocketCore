@@ -6,13 +6,13 @@
    "game": "svc",
    "gameKo": "정상결전 최강 파이터즈",
    "ko": "빠른 기본기 (FastCD)",
-   "ver": "v1.3",
-   "url": "https://github.com/rmdkdkr-png/InputPatch/releases/download/mods/svc_fastcd_v1.3.ips",
-   "file": "svc_fastcd_v1.3.ips",
-   "md5": "148ae0966230d321f70476d6a3da9823",
-   "size": 140,
+   "ver": "v1.4",
+   "url": "https://github.com/rmdkdkr-png/InputPatch/releases/download/mods/svc_fastcd_v1.4.ips",
+   "file": "svc_fastcd_v1.4.ips",
+   "md5": "45a00d4e11e0ce15c169d4faf857ae00",
+   "size": 104,
    "default": "disabled",
-   "help": "서서 강펀·강킥이 늘어진 캐릭터(쿄 등 16기술)의 발동을 당겨, 누르고 히트까지를 원래 모션 길이에 맞춥니다. 강은 약보다 4프레임 느리게(묵직) 유지, 캐릭터별 차이 보존. 약/강 구분·대미지는 순정 그대로. 게임을 다시 열면 적용."
+   "help": "서서 강펀·강킥 중 유독 늘어진 11개 기술의 발동을 당깁니다(하오마루 강펀 26→18, 레오나 강킥 18→12, 쿄 강펀 14→8 …). 이 기종이 '길게 누르나 보자'로 기다리며 내는 손해만 돌려준 것. 강은 같은 캐릭터의 약보다 반드시 느리게(묵직) 두고(펀치 +4·킥 +6 — 원본 차이의 중앙값), 캐릭터별 차이도 그대로 남깁니다. 약/강 구분·대미지·경직은 순정 그대로. 게임을 다시 열면 적용."
   },
   {
    "id": "kofr2_fastcd",
