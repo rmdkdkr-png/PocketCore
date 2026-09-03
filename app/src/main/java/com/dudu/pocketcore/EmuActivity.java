@@ -132,6 +132,13 @@ public class EmuActivity extends Activity {
         root = new FrameLayout(this);
         root.addView(gl);
         root.addView(pad);
+        /* 회전(가로 모드) — onConfigurationChanged 시점엔 루트가 아직 옛 크기라, 실제 크기가 바뀐 뒤에
+           화면 상자를 다시 잡아야 GL 뷰가 새 크기로 재생성된다(안 그러면 옛 뷰포트로 잘려 보였다). */
+        root.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            @Override public void onLayoutChange(View v, int l, int tp, int r, int btm, int ol, int ot, int orr, int ob) {
+                if ((r - l) != (orr - ol) || (btm - tp) != (ob - ot)) placeScreen();
+            }
+        });
         setContentView(root);
         applyScreenLayout();
 
@@ -217,6 +224,7 @@ public class EmuActivity extends Activity {
         int capH = hgt * scrPct / 100;
         if (gh > capH) { gh = capH; gw = gh * gameW / fh; }
         if (gameW != fw) gw = w;
+        android.util.Log.i("PocketCore", "placeScreen root " + w + "x" + hgt + " frame " + fw + "x" + fh + " box " + gw + "x" + gh);
         int mx = (w - gw) * clamp(scrX, 0, 100) / 100;
         int my = (hgt - gh) * clamp(scrY, 0, 100) / 100;
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(gw, gh,

@@ -418,6 +418,7 @@ static void gl_draw(void)
       int y0 = g_vh - dh - (int)(g_vh * 0.07f);
       if (g_vw > g_vh) y0 = (g_vh - dh) / 2;   /* 가로 화면(게임기)에선 세로 가운데 */
       if (y0 < 0) y0 = 0;
+      { static int ldw=-1, ldh=-1, lvw=-1; if (dw!=ldw||dh!=ldh||g_vw!=lvw) { LOGI("viewport %d x %d in %d x %d (fb %u x %u, game_w %d, int %d)", dw, dh, g_vw, g_vh, g_fb_w, g_fb_h, game_w, g_integer_scale); ldw=dw; ldh=dh; lvw=g_vw; } }
       glViewport((g_vw - dw) / 2, y0, dw, dh);
    }
 
@@ -606,7 +607,7 @@ JNI(void, nativeUnload)(JNIEnv *env, jclass cls)
 JNI(void, nativeSurfaceCreated)(JNIEnv *env, jclass cls) { (void)env; (void)cls; gl_setup(); }
 
 JNI(void, nativeResize)(JNIEnv *env, jclass cls, jint w, jint h)
-{ (void)env; (void)cls; g_vw = w; g_vh = h; }
+{ (void)env; (void)cls; g_vw = w; g_vh = h; LOGI("resize view %d x %d (fb %u x %u)", w, h, g_fb_w, g_fb_h); }
 
 static double g_next_t;   /* 다음 코어 프레임 마감 시각 */
 static int g_turbo = 0;   /* 배속(▶▶) 누르는 동안 4배 */
