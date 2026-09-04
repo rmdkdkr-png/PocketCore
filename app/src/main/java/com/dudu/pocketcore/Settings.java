@@ -66,6 +66,12 @@ public final class Settings {
                 + " 실행 전 선택창에서 게임별로 고른 「한글패치」가 있으면 그쪽이 우선하며, 여기 값을 바꾸면 게임별 선택은 지워집니다.",
                 Games.LANGS, Games.LANGS_KO, "ko-ja"),
         });
+        GROUPS.put("업데이트", new Item[]{
+            new Item("pocketcore_level", "배포 레벨",
+                "정식 = 검증을 거친 판만 받습니다. 시험 = 새 판이 나오는 대로 바로 받습니다(실험 기능 포함, 문제가 있으면"
+                + " 다음 판으로 되돌립니다). 바꾼 뒤 「업데이트 확인」을 누르세요. 앱·코어 모두에 적용됩니다.",
+                new String[]{ "stable", "test" }, new String[]{ "정식", "시험" }, "stable"),
+        });
         GROUPS.put("화면", new Item[]{
             /* 화면 크기·자리 — 손가락 패드가 그림을 가리는 문제 때문에 필요하다.
                코어가 아니라 **앱이** 그리는 자리를 정하는 값이라 options.txt 에만 남고

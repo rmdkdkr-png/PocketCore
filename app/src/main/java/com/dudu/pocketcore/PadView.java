@@ -100,6 +100,11 @@ public class PadView extends View {
     private Object[][] prof = P_SVC;
     private String profName = "svc";
     private boolean svcPlaceholders = true;
+    /* 강약 구분(4버튼) 을 끄면 전용 강P·강K 는 화면에서 뺀다 — 그 모드에선 A·B 를 꾹 눌러 강을 내므로
+       버튼이 자리만 차지한다(유저 2026-09-04 「그 모드 안 쓰는 거면 강K 강P 는 빠져야 돼」).
+       물리 패드의 강 키는 코어가 계속 받는다 — 여기서 빼는 건 화면 버튼뿐이다.
+       배치 파일은 이름(SP_P/SP_K)으로 저장하므로 숨겨도 저장된 자리는 안 깨진다. */
+    private boolean svcStrong = true;
     private float[] fx, fy, sc;
     private int nC;
 
@@ -150,6 +155,21 @@ public class PadView extends View {
     public void setSlotLabel(int n) { utilLabel[0] = "슬롯" + n; invalidate(); }
 
     /** "ss2"·"svc"·"ngp" — 롬 헤더로 EmuActivity 가 정한다 */
+    /** 화면에 전용 강P·강K 버튼을 둘 것인가 — 「SVC 강약 버튼 구분」과 짝(EmuActivity 가 알려 준다). */
+    public void setSvcStrongKeys(boolean on) {
+        if (svcStrong == on) return;
+        svcStrong = on;
+        mask = 0;                       /* 사라지는 버튼이 눌린 채로 남지 않게 */
+        if (listener != null) listener.onMask(0);
+        invalidate();
+    }
+    /** 이 컨트롤을 지금 화면에 두는가. 숨긴 것은 그리지도, 누르지도, 편집에서 잡히지도 않는다. */
+    private boolean ctrlVisible(int i) {
+        if (svcStrong) return true;
+        Object nm = prof[i][0];
+        return !("SP_P".equals(nm) || "SP_K".equals(nm));
+    }
+
     public void setProfile(String name) { setProfile(name, name); }
 
     /** gameKey 는 배치 파일 이름 (pad_<gameKey>.txt) — **게임마다** 따로 저장한다.
@@ -307,6 +327,7 @@ public class PadView extends View {
 
         int btnColorIdx = 0;
         if (!physical || edit) for (int i = 0; i < nC; i++) {
+            if (!ctrlVisible(i)) continue;
             int b = bitOf(i);
             if (b == -1) {                                   /* 십자 */
                 float dcx = cx(i), dcy = cy(i), R = radOf(i), arm = R * 0.42f;
@@ -395,6 +416,7 @@ public class PadView extends View {
     private int nearestControl(float x, float y) {
         int best = -1; float bd = 1e9f;
         for (int i = 0; i < nC; i++) {
+            if (!ctrlVisible(i)) continue;
             float r = radOf(i) * 1.4f + 20f;
             float d = dist(x, y, cx(i), cy(i));
             if (d < r && d < bd) { bd = d; best = i; }
@@ -405,6 +427,7 @@ public class PadView extends View {
     private int hitButtons(float x, float y) {
         int m = 0;
         for (int i = 0; i < nC; i++) {
+            if (!ctrlVisible(i)) continue;
             int b = bitOf(i);
             if (b == -2) {
                 if (opt.contains(x, y)) m |= 1 << Emu.START;

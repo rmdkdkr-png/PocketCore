@@ -43,6 +43,15 @@ public final class Updater {
         }
     }
 
+    /** 배포 레벨 — options.txt 의 pocketcore_level. "test" 면 색인의 시험 항목(version.json "test" / cores[id]["test"])을
+     *  받고, 아니면 정식(최상위 필드 — 옛 앱과 같은 자리)만 본다. 유저 2026-09-04 「릴리즈는 신나게, 배포 레벨만 정하자」. */
+    static boolean testLevel() {
+        String v = null;
+        try { v = Settings2.readOpt("pocketcore_level"); } catch (Throwable ignored) { }
+        return "test".equals(v);
+    }
+    static String levelTag() { return testLevel() ? " (시험)" : ""; }
+
     public static void check(final Activity act) {
         toast(act, "업데이트 확인 중…");
         new Thread(new Runnable() { @Override public void run() {
@@ -140,8 +149,10 @@ public final class Updater {
                 while (it.hasNext()) {
                     String id = it.next();
                     JSONObject e = cores.getJSONObject(id);
-                    String ver = e.getString("ver");
-                    JSONObject abis = e.getJSONObject("abis");
+                    boolean useTest = testLevel() && e.optJSONObject("test") != null;
+                    JSONObject use = useTest ? e.getJSONObject("test") : e;   /* 시험 레벨이면 시험 판 — 없으면 정식 */
+                    String ver = use.getString("ver") + (useTest ? "-test" : "");   /* .ver 표식 — 레벨을 바꾸면 다시 받게 */
+                    JSONObject abis = use.getJSONObject("abis");
                     if (!abis.has(abi)) continue;
                     File so = new File(dir, id + ".so");
                     File verf = new File(dir, id + ".ver");
@@ -153,7 +164,7 @@ public final class Updater {
                     if (!tmp.renameTo(so)) continue;
                     writeSmall(verf, ver);
                     if (got.length() > 0) got.append(" · ");
-                    got.append(e.optString("ko", id)).append(' ').append(ver);
+                    got.append(e.optString("ko", id)).append(' ').append(use.getString("ver")).append(useTest ? " (시험)" : "");
                 }
             }
 
@@ -212,8 +223,10 @@ public final class Updater {
     private static boolean checkApk(Activity act, String base) throws Exception {
         byte[] jb = fetch(base + "/version.json", 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
         JSONObject j = new JSONObject(new String(jb, "UTF-8"));
+        boolean useTest = testLevel() && j.optJSONObject("test") != null;
+        if (useTest) j = j.getJSONObject("test");            /* 시험 레벨이면 시험 항목 — 없으면 정식 */
         int rc = j.getInt("versionCode");
-        String rn = j.optString("versionName", "?");
+        String rn = j.optString("versionName", "?") + (useTest ? " (시험)" : "");
         String apk = j.getString("apk");
         int my;
         try { my = (int) act.getPackageManager()

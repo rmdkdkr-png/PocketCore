@@ -493,6 +493,8 @@ public class MainActivity extends Activity {
                 + "ngp_ss2sp=enabled\n"
                 + "ngp_ss2sp_comm=enabled\n"
                 + "# 화면 방향(auto/portrait/landscape)·터치 패드(auto/on/off) — 게임기(가로·물리 패드)용.\n"
+                + "# 배포 레벨: stable=정식(검증된 판만) / test=시험(나오는 대로). 앱·코어 공통.\n"
+                + "pocketcore_level=stable\n"
                 + "pocketcore_orientation=auto\n"
                 + "pocketcore_touchpad=auto\n"
                 + "# 캐릭터 챗은 기본 끔, 심판(쿠로코)은 켬 — 둘은 따로 논다(유저 지시 2026-09-03).\n"

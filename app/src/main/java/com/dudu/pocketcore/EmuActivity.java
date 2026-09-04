@@ -111,6 +111,9 @@ public class EmuActivity extends Activity {
                        : (game != null && game.has(Games.F_SP_SVC)) ? "svc"
                        : (game != null && game.has(Games.F_SP_KOF)) ? "kof" : "ngp";
         pad.setProfile(profile, (game != null) ? game.id : "ngp");
+        /* 강약 구분이 꺼져 있으면 화면의 전용 강P·강K 는 뺀다 — 그 모드에선 A·B 꾹이 강이다(유저 2026-09-04).
+           「강 발동 맞춤」이 중간이면 꾹 강이 즉발과 같은 프레임이라 전용 버튼이 할 일이 더 없다. */
+        pad.setSvcStrongKeys(!"disabled".equals(readOpt("ngp_svcsp_basics", "enabled")));
         pad.setListener(new PadView.Listener() {
             @Override public void onMask(int mask) { padMask = mask; }
             @Override public void onAction(int action) { handleAction(action); }
