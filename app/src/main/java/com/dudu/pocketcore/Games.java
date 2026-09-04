@@ -72,7 +72,7 @@ public final class Games {
        **거울**이다 — 코어가 어느 롬에 어느 엔진을 붙이는지 바뀌면 여기도 따라야 한다
        (기존 tag 문자열이 코어 헤더매칭을 거울한 것과 같은 성질, 단지 한 곳에 명시).
          F_SP_SVC  원버튼 필살기(SvC)  = ngp_svcsp_engine · ngp_svcsp_toast · ngp_svcsp_land
-         F_SP_KOF  원버튼 필살기(R-2)  = ngp_kofsp_engine
+         F_SP_KOF  원버튼 필살기(R-2)  = ngp_kofsp_engine · ngp_kofsp_toast
          F_SP_SS2  SS2 간이입력(ABLE) = ngp_ss2sp
          F_BASICS  강약 4버튼 구분      = ngp_svcsp_basics · ngp_svcsp_holdsync
          F_ACTSHOW 판독 오버레이        = pocketcore_svc_actshow

@@ -149,6 +149,11 @@ public final class Settings {
                 + " 탭=약 / 꾹=강. 끄면 SP 버튼은 순정처럼 A+B 로 동작합니다.",
                 new String[]{ "disabled", "enabled" },
                 new String[]{ "끔", "켬" }, "disabled").f(Games.F_SP_KOF).l(),
+            new Item("ngp_kofsp_toast", "KOF 기술 표기 표시",
+                "KOF R-2 원버튼으로 기술이 나갈 때 커맨드 표기(↓↘→ + 펀치)를 띄웁니다."
+                + " 같은 슬롯이라도 캐릭터마다 다른 기술이라 이름 대신 표기를 적습니다 —"
+                + " 손으로 치는 법이 그대로 보입니다.",
+                ONOFF, ONOFF_K, "enabled").f(Games.F_SP_KOF).l(),
             new Item("ngp_svcsp_toast", "기술명 표시",
                 "원버튼으로 기술이 나갈 때 이름을 띄웁니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC),
