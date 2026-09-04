@@ -1,5 +1,5 @@
 {
- "_doc": "인풋(조작·게임플레이) 패치 채널의 단일출처. tools/pub_inputpatch.py 가 이걸로 mods.json 색인을 만들어 InputPatch 레포(트리 patches/ + 고정 릴리즈 태그 mods)에 IPS 와 함께 올리고, README 소개글·앱 동봉 스냅샷(assets/mods.json)도 갱신한다. 앱은 mods.json 을 받아 게임별 토글(옵션 키 pocketcore_<id>)을 만들고 켜진 것만 .patched 사본에 순서대로 얹는다. 한패(patches.json)와 겹치는 바이트 없는 것만 올릴 것. id 는 옵션 키·파일명에 쓰이므로 ASCII.",
+ "_doc": "인풋(조작·게임플레이) 패치 채널의 단일출처. tools/pub_inputpatch.py 가 이걸로 mods.json 색인을 만들어 InputPatch 레포(트리 patches/ + 고정 릴리즈 태그 mods)에 IPS 와 함께 올리고, README 소개글·앱 동봉 스냅샷(assets/mods.json)도 갱신한다. 앱은 mods.json 을 받아 게임별 토글(옵션 키 pocketcore_<id>)을 만들고 켜진 것만 .patched 사본에 순서대로 얹는다. 한패(patches.json)와 겹치는 바이트 없는 것만 올릴 것. id 는 옵션 키·파일명에 쓰이므로 ASCII. 같은 자리를 다른 값으로 덮는 배타 패치는 group/group_ko/pick 을 달면 앱이 **한 줄짜리 다이얼**(끔 · 값1 · 값2 …)로 그리고 옵션 키는 pocketcore_<group> 이 된다. group 이 없으면 예전대로 개별 토글.",
  "ver": 1,
  "tag": "mods",
  "mods": [
@@ -31,7 +31,10 @@
    "file": "ss2_combo_t3.ips",
    "default": "disabled",
    "help": "아수라 서서 약베기(B 탭)의 후경직을 8프레임 줄여 「약베기(B 탭) → 살짝 전진 → 약베기(B 탭)」가 카운터 없이도 콤보로 들어갑니다. 아직 캐릭터 1명·기술 1개짜리 실증판 — 손맛 검수용. 게임을 다시 열면 적용.",
-   "tag": "ss2-combo"
+   "tag": "ss2-combo",
+   "group": "ss2_combo",
+   "group_ko": "아수라 약베기 후경직",
+   "pick": "8프레임 줄임"
   },
   {
    "id": "ss2_combo_t1",
@@ -41,7 +44,10 @@
    "file": "ss2_combo_t1.ips",
    "default": "disabled",
    "help": "같은 자리를 12프레임 줄인 판(전진 2~6프레임 어디서나 콤보). 「보통」과 같은 바이트를 고치므로 둘 다 켜면 나중 것(이것)이 이깁니다. 검수용.",
-   "tag": "ss2-combo"
+   "tag": "ss2-combo",
+   "group": "ss2_combo",
+   "group_ko": "아수라 약베기 후경직",
+   "pick": "12프레임 줄임"
   }
  ]
 }

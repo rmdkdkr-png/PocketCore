@@ -40,7 +40,9 @@ for m in cat['mods']:
     b=open(os.path.join(REPO,'mods',m['file']),'rb').read(); assert b[:5]==b'PATCH' and b.endswith(b'EOF'), m['file']
     idx['mods'].append({'id':m['id'],'game':m['game'],'gameKo':G[m['game']]['ko'],'ko':m['ko'],'ver':m['ver'],
         'url':DL+'/'+m['file'],'file':m['file'],'md5':hashlib.md5(b).hexdigest(),'size':len(b),
-        'default':m.get('default','disabled'),'help':m['help'],'tag':m.get('tag','')})
+        'default':m.get('default','disabled'),'help':m['help'],'tag':m.get('tag',''),
+        # 배타 묶음 — 앱이 한 줄짜리 다이얼로 그린다(옵션 키 pocketcore_<group>). 없으면 개별 토글.
+        'group':m.get('group',''),'group_ko':m.get('group_ko',''),'pick':m.get('pick','')})
 text=json.dumps(idx,ensure_ascii=False,indent=1)
 
 # ── README ────────────────────────────────────────────────────

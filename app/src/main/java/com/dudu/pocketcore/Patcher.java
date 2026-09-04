@@ -54,8 +54,19 @@ public final class Patcher {
             java.util.Map<String, String> opts = Settings.load();
             for (Settings.Mod md : Settings.mods()) {
                 if (!game.id.equals(md.game)) continue;
-                String v = opts.containsKey("pocketcore_" + md.id) ? opts.get("pocketcore_" + md.id) : md.def;
-                if (!"enabled".equals(v)) continue;
+                boolean on;
+                if (md.grouped()) {
+                    /* 배타 묶음 — 옵션 하나(pocketcore_<group>)가 어느 패치를 고를지 담는다.
+                       같은 바이트를 덮는 것들이라 하나만 얹혀야 한다(전엔 둘 다 켜면 나중 것이 이겼다). */
+                    String k = "pocketcore_" + md.group;
+                    String v = opts.containsKey(k) ? opts.get(k)
+                             : ("enabled".equals(md.def) ? md.id : "disabled");
+                    on = md.id.equals(v);
+                } else {
+                    String v = opts.containsKey("pocketcore_" + md.id) ? opts.get("pocketcore_" + md.id) : md.def;
+                    on = "enabled".equals(v);
+                }
+                if (!on) continue;
                 byte[] b = readFile(new File(Settings.modsDir(), md.id + ".ips"));
                 if (b == null) b = readAsset(ctx, "patch/" + md.id + ".ips");
                 if (b == null) continue;

@@ -197,9 +197,15 @@ public final class Settings {
        한패(patches.json)와 분리된 채널 — 「조작 패치는 다른 데」(유저). */
     public static final class Mod {
         public final String id, game, ko, ver, help, def;
-        Mod(String id, String game, String ko, String ver, String help, String def) {
+        /** 배타 묶음 — 같은 자리를 다른 값으로 덮는 패치들. 묶이면 한 줄짜리 다이얼이 되고 옵션 키는
+         *  pocketcore_<group> 이며 값이 곧 고른 패치의 id 다. 비어 있으면 예전대로 개별 토글. */
+        public final String group, groupKo, pick;
+        Mod(String id, String game, String ko, String ver, String help, String def,
+            String group, String groupKo, String pick) {
             this.id = id; this.game = game; this.ko = ko; this.ver = ver; this.help = help; this.def = def;
+            this.group = group; this.groupKo = groupKo; this.pick = pick;
         }
+        public boolean grouped() { return group != null && !group.isEmpty(); }
     }
     public static File modsDir()  { return new File(MainActivity.root(), "mods"); }
     public static List<Mod> mods() {
@@ -217,7 +223,8 @@ public final class Settings {
                 String id = m.optString("id", ""), game = m.optString("game", "");
                 if (id.isEmpty() || game.isEmpty() || !id.matches("[A-Za-z0-9_]+")) continue;
                 out.add(new Mod(id, game, m.optString("ko", id), m.optString("ver", ""),
-                                m.optString("help", ""), m.optString("default", "disabled")));
+                                m.optString("help", ""), m.optString("default", "disabled"),
+                                m.optString("group", ""), m.optString("group_ko", ""), m.optString("pick", "")));
             }
         } catch (Exception ignored) { }
         return out;
@@ -225,9 +232,33 @@ public final class Settings {
     /** mods → 설정 항목. 라벨에 판을 붙여 무엇이 깔렸는지 보이게 한다. */
     public static List<Item> modItems() {
         List<Item> out = new ArrayList<>();
-        for (Mod m : mods())
+        LinkedHashMap<String, List<Mod>> groups = new LinkedHashMap<>();
+        for (Mod m : mods()) {
+            if (m.grouped()) {                         /* 배타 묶음 — 아래에서 한 줄로 합친다 */
+                List<Mod> g = groups.get(m.group);
+                if (g == null) { g = new ArrayList<>(); groups.put(m.group, g); }
+                g.add(m);
+                continue;
+            }
             out.add(new Item("pocketcore_" + m.id, m.ko + (m.ver.isEmpty() ? "" : "  " + m.ver), m.help,
                              ONOFF, ONOFF_K, "enabled".equals(m.def) ? "enabled" : "disabled").g(m.game));
+        }
+        for (Map.Entry<String, List<Mod>> e : groups.entrySet()) {
+            List<Mod> g = e.getValue();
+            String[] vals = new String[g.size() + 1], names = new String[g.size() + 1];
+            vals[0] = "disabled"; names[0] = "끔";
+            String def = "disabled";
+            for (int i = 0; i < g.size(); i++) {
+                Mod m = g.get(i);
+                vals[i + 1] = m.id;
+                names[i + 1] = m.pick.isEmpty() ? m.ko : m.pick;
+                if ("enabled".equals(m.def)) def = m.id;      /* 색인이 기본으로 고른 값 */
+            }
+            Mod f = g.get(0);
+            out.add(new Item("pocketcore_" + e.getKey(),
+                             f.groupKo.isEmpty() ? f.ko : f.groupKo, f.help,
+                             vals, names, def).g(f.game));
+        }
         return out;
     }
 
