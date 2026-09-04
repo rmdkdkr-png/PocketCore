@@ -333,6 +333,12 @@ public class MainActivity extends Activity {
                 items.add(it);
             }
             lv.setItems(items);
+            if (Updater.testLevel()) {          /* 시험 레벨이면 런처에 배지 — 정식이면 아무것도 안 붙는다 */
+                String vn = "";
+                try { vn = " v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+                catch (Exception ignored) { }
+                lv.setChannel("시험" + vn);
+            }
             if (!bootedOnce) {             /* 스마일 볼 연출은 프로세스당 1회 — 복귀 땐 조용히 */
                 lv.startIntro();
                 bootedOnce = true;

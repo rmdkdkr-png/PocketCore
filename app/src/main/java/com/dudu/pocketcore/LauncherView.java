@@ -50,6 +50,10 @@ public final class LauncherView extends View {
     private int sel = 0;
     private Listener listener;
     private float downX = -1;
+    /* 배포 레벨 배지 — 시험 판을 쓰는 동안 늘 보이게(유저 2026-09-04 「구분 잘 될지 모르겠다」).
+       정식이면 null 이라 아무것도 안 그린다 — 보통 사람 화면은 그대로. */
+    private String channel;
+    public void setChannel(String s) { channel = s; invalidate(); }
     private long introAt = 0;               /* 부팅 연출 시작 시각 (0 = 안 함) */
     private static final long INTRO_MS = 950;
 
@@ -173,6 +177,24 @@ public final class LauncherView extends View {
                 cv.drawRect(cx2 - ss, cy3 - sd - ss, cx2 + ss, cy3 - sd + ss, tp);
                 cv.drawRect(cx2 - ss, cy3 + sd - ss, cx2 + ss, cy3 + sd + ss, tp);
             }
+        }
+
+        if (channel != null) {          /* 로고 오른쪽 — 「시험 v3.77」 호박색 테두리 알약 */
+            tp.setTextAlign(Paint.Align.LEFT);
+            tp.setTextSize(h * 0.016f);
+            float tw3 = tp.measureText(channel), padx = h * 0.008f, bh3 = h * 0.026f;
+            float bx3 = lx + h * 0.001f, by3 = ly + logoH + h * 0.008f;
+            RectF pill = new RectF(bx3, by3, bx3 + tw3 + padx * 2, by3 + bh3);
+            tp.setStyle(Paint.Style.FILL);
+            tp.setColor(0x33d9a441);
+            cv.drawRoundRect(pill, bh3 * 0.5f, bh3 * 0.5f, tp);
+            tp.setStyle(Paint.Style.STROKE);
+            tp.setStrokeWidth(Math.max(1f, h * 0.0012f));
+            tp.setColor(0xccd9a441);
+            cv.drawRoundRect(pill, bh3 * 0.5f, bh3 * 0.5f, tp);
+            tp.setStyle(Paint.Style.FILL);
+            tp.setColor(0xffe8c477);
+            cv.drawText(channel, bx3 + padx, by3 + bh3 * 0.72f, tp);
         }
 
         int n = (items == null) ? 0 : items.size();

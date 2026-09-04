@@ -51,6 +51,10 @@ public final class Updater {
         return "test".equals(v);
     }
     static String levelTag() { return testLevel() ? " (시험)" : ""; }
+    private static String myName(Activity a) {
+        try { return a.getPackageManager().getPackageInfo(a.getPackageName(), 0).versionName; }
+        catch (Exception e) { return "?"; }
+    }
 
     public static void check(final Activity act) {
         toast(act, "업데이트 확인 중…");
@@ -233,7 +237,16 @@ public final class Updater {
                 .getPackageInfo(act.getPackageName(), 0).getLongVersionCode(); }
         catch (Throwable t) { my = act.getPackageManager()
                 .getPackageInfo(act.getPackageName(), 0).versionCode; }
-        if (rc <= my) { toast(act, "앱은 최신 버전입니다 (v" + rn + ")"); return true; }
+        if (rc <= my) {
+            /* 시험 판을 쓰다 정식으로 되돌린 경우 — 안드로이드는 판번호를 낮추는 설치를 막는다.
+               조용히 「최신입니다」라고만 하면 되돌린 줄 알고 계속 시험 판을 쓰게 된다. */
+            if (!testLevel() && rc < my)
+                toast(act, "지금 깔린 것은 시험 판(v" + myName(act) + ")입니다 — 정식 v" + rn
+                        + " 으로 되돌리려면 앱을 지우고 다시 설치하세요 (저장 파일은 남습니다)");
+            else
+                toast(act, "앱은 최신 " + (testLevel() ? "시험 판" : "정식 판") + "입니다 (v" + rn + ")");
+            return true;
+        }
         toast(act, "v" + rn + " 다운로드 중…");
         byte[] ab = fetch(base + "/" + Uri.encode(apk), 60000);
         File out = new File(act.getCacheDir(), "update.apk");
