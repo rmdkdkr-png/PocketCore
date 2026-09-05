@@ -38,14 +38,7 @@ public class EmuActivity extends Activity {
     private String lang = "ko";       /* ko=번역 패치 / ja·en=롬에 원래 든 언어 */
     private int slot = 1;
     private boolean autoSave = true;  /* 나갈 때 자동 저장, 열 때 이어하기 */
-    private int spkIdx = 0;   /* 해설자 — options.txt 의 ngp_ss2sp_comm_spk 와 동기 */
     /* v4 로스터 11인 — 재캐스팅 아웃(샤를로트/소게츠/모로즈미/유가) 제외 */
-    private static final String[] SPK_KEY = {
-        "haohmaru","nakoruru","hanzo","galford","rimururu","genjuro","ukyo",
-        "jubei","kazuki","asura","shiki" };
-    private static final String[] SPK_KO = {
-        "하오마루","나코루루","한조","갈포드","리무루루","겐주로","우쿄",
-        "쥬베이","카즈키","아수라","시키" };
     private boolean loaded = false;
     private final Handler h = new Handler(Looper.getMainLooper());
 
@@ -66,7 +59,6 @@ public class EmuActivity extends Activity {
             romPath = p;
             persistOption("ngp_language", Games.ngpLanguage(game, lang));
         }
-        spkIdx = readSpkIdx();
         autoSave = "enabled".equals(readOpt("pocketcore_autosave", "enabled"));
         try {   /* 판독 오버레이 — 코어가 뜰 때 getenv 로 한 번 읽으므로 **로드 전에** 심는다.
                    화면 왼쪽 위에 「내 동작번호|상대반응」을 상시 표시 — 영상만 찍어도
@@ -114,6 +106,9 @@ public class EmuActivity extends Activity {
         /* 강약 구분이 꺼져 있으면 화면의 전용 강P·강K 는 뺀다 — 그 모드에선 A·B 꾹이 강이다(유저 2026-09-04).
            「강 발동 맞춤」이 중간이면 꾹 강이 즉발과 같은 프레임이라 전용 버튼이 할 일이 더 없다. */
         pad.setSvcStrongKeys(!"disabled".equals(readOpt("ngp_svcsp_basics", "enabled")));
+        /* 상단바의 게임별 칸 — 코어가 이 게임에서 실제로 쓰는 기능만. 게임 표가 단일 출처다. */
+        pad.setCoreFeatures(game != null && game.has(Games.F_BAND),
+                            game != null && game.has(Games.F_SIDES));
         pad.setListener(new PadView.Listener() {
             @Override public void onMask(int mask) { padMask = mask; }
             @Override public void onAction(int action) { handleAction(action); }
@@ -386,13 +381,11 @@ public class EmuActivity extends Activity {
             pad.setSlotLabel(slot);
             toast("상태 슬롯 " + slot);
             break;
-        case PadView.ACT_SPK:
-            if (!"ss2".equals(romType)) { toast("해설은 SS2 전용"); break; }
-            /* 탭마다 즉시 다음 해설자 — 선택창은 번거롭다는 제보로 폐지 */
-            spkIdx = (spkIdx + 1) % SPK_KEY.length;
-            Emu.nativeSetOption("ngp_ss2sp_comm_spk", SPK_KEY[spkIdx]);
-            persistOption("ngp_ss2sp_comm_spk", SPK_KEY[spkIdx]);
-            toast("해설: " + SPK_KO[spkIdx]);
+        case PadView.ACT_BAND:
+            toggleCoreOpt("ngp_svcsp_band", "기술명 띠");
+            break;
+        case PadView.ACT_SIDES:
+            toggleCoreOpt("ngp_ss2sp_sides", "기둥 아트");
             break;
         case PadView.ACT_CFG:
             /* 게임을 켠 채로 설정을 연다. 돌아오면 onResume 이 화면 설정을 다시 읽는다. */
@@ -403,6 +396,16 @@ public class EmuActivity extends Activity {
             goList();
             break;
         }
+    }
+
+    /** 코어 옵션을 게임 중에 즉시 뒤집는다. 화면 크기가 바뀌는 것(띠·기둥)은
+     *  onDrawFrame 이 프레임 크기 변화를 보고 화면 상자를 다시 잡는다. */
+    private void toggleCoreOpt(String key, String ko) {
+        boolean on = !"disabled".equals(readOpt(key, "enabled"));
+        String v = on ? "disabled" : "enabled";
+        Emu.nativeSetOption(key, v);
+        persistOption(key, v);
+        toast(ko + (on ? " 끔" : " 켬"));
     }
 
     /** 목록으로 — 「목록」키·뒤로가기 공용. 오토세이브는 onPause 가 챙긴다. */
@@ -470,19 +473,6 @@ public class EmuActivity extends Activity {
         return "ko-ja";
     }
 
-    private int readSpkIdx() {
-        try {
-            java.util.Scanner sc = new java.util.Scanner(MainActivity.optsFile(), "UTF-8");
-            while (sc.hasNextLine()) {
-                String ln = sc.nextLine();
-                if (!ln.startsWith("ngp_ss2sp_comm_spk=")) continue;
-                String v = ln.substring(ln.indexOf('=') + 1).trim();
-                for (int i = 0; i < SPK_KEY.length; i++) if (SPK_KEY[i].equals(v)) { sc.close(); return i; }
-            }
-            sc.close();
-        } catch (Exception ignored) { }
-        return 0;
-    }
 
     private void toast(final String s) {
         h.post(new Runnable() { @Override public void run() {
@@ -578,7 +568,13 @@ public class EmuActivity extends Activity {
         if (gamepad && bit != 0) {
             /* 반복(repeat) DOWN 은 안 세운다 — 런처에서 확인 버튼을 쥔 채 게임이 뜨면 반복만 넘어와 유령 입력이 되던 것(리뷰).
                쥐고 있는 키는 첫 DOWN 이 이미 마스크에 있으므로 반복은 정보가 없다. */
-            if (e.getAction() == KeyEvent.ACTION_DOWN) { if (e.getRepeatCount() == 0) keyMask |= bit; }
+            if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                if (e.getRepeatCount() == 0) {
+                    keyMask |= bit;
+                    /* 물리 키 → 기능 → 비트를 한 줄 남긴다 — 「키가 반대다」 같은 제보를 logcat 한 줄로 가르기 위해 */
+                    android.util.Log.i("PocketCore", "key " + e.getKeyCode() + " → " + (keymap != null ? keymap.funcOf(e.getKeyCode()) : "?") + " bit 0x" + Integer.toHexString(bit));
+                }
+            }
             else if (e.getAction() == KeyEvent.ACTION_UP) keyMask &= ~bit;
             return true;
         }

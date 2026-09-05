@@ -1,7 +1,17 @@
 {
- "_doc": "배포 전용 산문(정식명·정보줄·IPS 파일명 규칙·부가기능 문구·코어 소개·소식 별칭). 게임 정체성(id/tag/core/기능)은 games.identity.json(Games.java 에서 생성)이 정본. 둘을 games_data.load() 가 id 로 합친다.",
+ "_doc": "배포 전용 산문(정식명·정보줄·IPS 파일명 규칙·부가기능 문구·코어 소개·소식 별칭). 게임 정체성(id/tag/core/기능)은 games.identity.json(Games.java 에서 생성)이 정본. 둘을 games_data.load() 가 id 로 합친다. games.<id>.rom_md5 = «우리가 아는 원본 롬» md5 목록 — 릴리즈가 이름을 댄 덤프만. patches.json 으로 나가고, 앱의 롬 스캔이 「패치 안 된 순정인가」를 이걸로 가른다. 목록에 없다고 나쁜 롬은 아니다 — «우리가 확인 안 한 판»이라는 뜻이다.",
  "ver": 1,
- "displayOrder": ["svc", "ss2", "ss1", "lb", "kofr2", "ffc", "ms1", "ms2"],
+ "displayOrder": [
+  "svc",
+  "ss2",
+  "ss1",
+  "lb",
+  "kofr2",
+  "ffc",
+  "cfc1",
+  "ms1",
+  "ms2"
+ ],
  "featureLabels": {
   "sp:svc": "원버튼 필살기 엔진",
   "sp:kof": "원버튼 필살기(R-2)",
@@ -15,48 +25,158 @@
   "sides": "기둥 아트"
  },
  "games": {
-  "svc":   {"fullname": "SNK vs. Capcom — 정상결전 최강 파이터즈", "short": "SvC",
-            "sub": "1999 · 대전격투 · SNK vs 캡콤",
-            "patchRe": "^SvC_MotM_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
-            "extra": "원버튼 필살기 엔진",
-            "news": ["SNK vs. Capcom", "정상결전", "SvC"]},
-  "ss2":   {"fullname": "사무라이 스피리츠! 2", "short": "사무쇼2",
-            "sub": "1999 · 대전격투 · 사무라이 스피리츠",
-            "patchRe": "^SS2_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
-            "extra": "캐릭터 해설 + 한국어 더빙(음성팩)",
-            "news": ["사무라이 스피리츠! 2", "사무쇼2"]},
-  "ss1":   {"fullname": "사무라이 스피리츠!", "short": "사무쇼1",
-            "sub": "1998 · 대전격투 · 사무라이 스피리츠",
-            "patchRe": "^SS1_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
-            "news": ["사무라이 스피리츠!", "사무쇼1"]},
-  "lb":    {"fullname": "월화의 검사 특별편", "short": "월화",
-            "sub": "2000 · 대전격투 · 월화의 검사",
-            "patchRe": "^LastBlade_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
-            "news": ["월화의 검사"]},
-  "lbj":   {"fullname": "월화의 검사 특별편 (일본판)", "short": "월화(일)",
-            "sub": "일본판 롬 — 한글패치는 UE(영문)판 전용",
-            "news": ["GEKKA"]},
-  "kofr2": {"fullname": "더 킹 오브 파이터즈 R-2", "short": "KOF R-2",
-            "sub": "1999 · 대전격투 · KOF",
-            "patchRe": "^KOF_?R2_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
-            "news": ["킹 오브 파이터즈 R-2", "KOF R-2", "R-2"]},
-  "ffc":   {"fullname": "아랑전설 퍼스트 컨택트", "short": "아랑전설",
-            "sub": "1999 · 대전격투 · 아랑전설",
-            "patchRe": "^FatalFuryFC_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
-            "news": ["아랑전설"]},
-  "ms1":   {"fullname": "메탈슬러그 1st 미션", "short": "메탈슬러그 1st",
-            "sub": "1999 · 런앤건 · 메탈슬러그",
-            "patchRe": "^MetalSlug1st_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
-            "news": ["메탈슬러그 1st"]},
-  "ms2":   {"fullname": "메탈슬러그 2nd 미션", "short": "메탈슬러그 2nd",
-            "sub": "2000 · 런앤건 · 메탈슬러그",
-            "patchRe": "^MetalSlug2nd_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
-            "news": ["메탈슬러그 2nd"]}
+  "svc": {
+   "fullname": "SNK vs. Capcom — 정상결전 최강 파이터즈",
+   "short": "SvC",
+   "sub": "1999 · 대전격투 · SNK vs 캡콤",
+   "patchRe": "^SvC_MotM_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
+   "extra": "원버튼 필살기 엔진",
+   "news": [
+    "SNK vs. Capcom",
+    "정상결전",
+    "SvC"
+   ],
+   "rom_md5": [
+    "dfea3ad9af4a631de6f97d86589b971e"
+   ]
+  },
+  "ss2": {
+   "fullname": "사무라이 스피리츠! 2",
+   "short": "사무쇼2",
+   "sub": "1999 · 대전격투 · 사무라이 스피리츠",
+   "patchRe": "^SS2_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
+   "extra": "캐릭터 해설 + 한국어 더빙(음성팩)",
+   "news": [
+    "사무라이 스피리츠! 2",
+    "사무쇼2"
+   ],
+   "rom_md5": [
+    "8d6a36acd3b171970d87d2fca6796a4a",
+    "3e46575450756953d755c23db12c4dd0"
+   ]
+  },
+  "ss1": {
+   "fullname": "사무라이 스피리츠!",
+   "short": "사무쇼1",
+   "sub": "1998 · 대전격투 · 사무라이 스피리츠",
+   "patchRe": "^SS1_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
+   "news": [
+    "사무라이 스피리츠!",
+    "사무쇼1"
+   ],
+   "rom_md5": [
+    "d13f954b2f1c703bdf857837c24e332e"
+   ]
+  },
+  "lb": {
+   "fullname": "월화의 검사 특별편",
+   "short": "월화",
+   "sub": "2000 · 대전격투 · 월화의 검사",
+   "patchRe": "^LastBlade_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
+   "news": [
+    "월화의 검사"
+   ],
+   "rom_md5": [
+    "83fa4cb3c629aa57c12f9cec52c5a53d"
+   ]
+  },
+  "lbj": {
+   "fullname": "월화의 검사 특별편 (일본판)",
+   "short": "월화(일)",
+   "sub": "일본판 롬 — 한글패치는 UE(영문)판 전용",
+   "news": [
+    "GEKKA"
+   ]
+  },
+  "kofr2": {
+   "fullname": "더 킹 오브 파이터즈 R-2",
+   "short": "KOF R-2",
+   "sub": "1999 · 대전격투 · KOF",
+   "patchRe": "^KOF_?R2_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
+   "news": [
+    "킹 오브 파이터즈 R-2",
+    "KOF R-2",
+    "R-2"
+   ],
+   "rom_md5": [
+    "d5c583a11012494c2ed738b2a2c5ab53"
+   ]
+  },
+  "ffc": {
+   "fullname": "아랑전설 퍼스트 컨택트",
+   "short": "아랑전설",
+   "sub": "1999 · 대전격투 · 아랑전설",
+   "patchRe": "^FatalFuryFC_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
+   "news": [
+    "아랑전설"
+   ],
+   "rom_md5": [
+    "690a3397f20e31b2c4a2833f51670245"
+   ]
+  },
+  "ms1": {
+   "fullname": "메탈슬러그 1st 미션",
+   "short": "메탈슬러그 1st",
+   "sub": "1999 · 런앤건 · 메탈슬러그",
+   "patchRe": "^MetalSlug1st_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
+   "news": [
+    "메탈슬러그 1st"
+   ],
+   "rom_md5": [
+    "a7dfee9950d0679cabb4ee6dfc530fb6",
+    "4d3efef436c67d4f4e031951b97d64c8"
+   ]
+  },
+  "ms2": {
+   "fullname": "메탈슬러그 2nd 미션",
+   "short": "메탈슬러그 2nd",
+   "sub": "2000 · 런앤건 · 메탈슬러그",
+   "patchRe": "^MetalSlug2nd_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
+   "news": [
+    "메탈슬러그 2nd"
+   ],
+   "rom_md5": [
+    "a58f7c41cd9e6c96cd5b4b477f022570"
+   ]
+  },
+  "cfc1": {
+   "fullname": "SNK vs. 캡콤 카드 파이터즈 클래시",
+   "short": "카드 파이터즈",
+   "sub": "1999 · 카드 배틀 · SNK vs 캡콤",
+   "patchRe": "^CFC1_Korean_v([0-9][0-9A-Za-z.]*)\\.ips$",
+   "extra": "영문판(UE) 전용 — 일본판에는 안 맞습니다",
+   "news": [
+    "카드 파이터즈",
+    "Card Fighters",
+    "CFC1"
+   ],
+   "rom_md5": [
+    "74e8381e94565e21a3197449bb4423bf",
+    "3bcc1c9ef59a75e3c2e6b49be6b84bab"
+   ]
+  },
+  "cfc2": {
+   "fullname": "SNK vs. 캡콤 카드 파이터즈 클래시 2",
+   "short": "카드 파이터즈 2",
+   "sub": "2001 · 카드 배틀 · 일본판 전용",
+   "patchRe": "^CFC2_Korean_v([0-9]+\\.[0-9]+)\\.ips$",
+   "rom_md5": [
+    "ebc0e8c33d1a5e5be5457ad988233feb"
+   ],
+   "news": [
+    "카드 파이터즈 2",
+    "카드 파이터즈 클래시 2"
+   ]
+  }
  },
  "cores": {
-  "svc": {"ko": "SvC 원버튼 코어 (SP 코어)",
-          "intro": "PocketCore 의 **SNK vs. Capcom MotM** 코어입니다. 기술키 하나로 커맨드를 대신\n넣는 **원버튼 필살기 엔진**이 들어 있습니다. 지원 표에 없는 다른 네오지오 포켓(컬러)\n롬도 이 코어로 돕니다 — 엔진은 SVC 롬이 아니면 스스로 잡니다.\n"},
-  "ss2": {"ko": "사무쇼2 코어 (해설·더빙)",
-          "intro": "PocketCore 의 **사무라이 스피리츠! 2** 전용 코어입니다. 캐릭터 해설 자막과\n한국어 더빙 재생, 간이입력(ABLE) 연동이 들어 있습니다. 더빙 **음성**은 별도\n음성팩(ss2-voice 릴리즈)이 있어야 납니다.\n"}
+  "svc": {
+   "ko": "SvC 원버튼 코어 (SP 코어)",
+   "intro": "PocketCore 의 **SNK vs. Capcom MotM** 코어입니다. 기술키 하나로 커맨드를 대신\n넣는 **원버튼 필살기 엔진**이 들어 있습니다. 지원 표에 없는 다른 네오지오 포켓(컬러)\n롬도 이 코어로 돕니다 — 엔진은 SVC 롬이 아니면 스스로 잡니다.\n"
+  },
+  "ss2": {
+   "ko": "사무쇼2 코어 (해설·더빙)",
+   "intro": "PocketCore 의 **사무라이 스피리츠! 2** 전용 코어입니다. 캐릭터 해설 자막과\n한국어 더빙 재생, 간이입력(ABLE) 연동이 들어 있습니다. 더빙 **음성**은 별도\n음성팩(ss2-voice 릴리즈)이 있어야 납니다.\n"
+  }
  }
 }

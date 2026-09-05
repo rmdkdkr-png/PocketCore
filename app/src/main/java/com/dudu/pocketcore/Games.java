@@ -39,6 +39,16 @@ public final class Games {
             this.baseLang = baseLang; this.voice = voice; this.features = features;
         }
 
+        /** 우리가 이 게임에 «준비해 둔 것»이 있는가 — 한글패치 또는 입력 패치(원버튼·빠른 기본기).
+         *  롬 스캔이 이걸로 거른다: 준비된 것만 데려온다. 표에 있어도 준비물이 없으면
+         *  (월화 일본판·카드 파이터즈 일본판/2편) 스캔이 기본으로는 안 집는다. */
+        public boolean prepared() {
+            if (patchable) return true;
+            for (String f : features)
+                if (f.startsWith("sp:") || f.startsWith("fastcd:")) return true;
+            return false;
+        }
+
         /** 이 게임이 해당 기능을 쓰는가. 설정 필터·배지·패드 프로필의 단일 판정. */
         public boolean has(String feature) {
             for (String f : features) if (f.equals(feature)) return true;
@@ -112,6 +122,18 @@ public final class Games {
                  "libretro_svc.so", true, "japanese", null, NONE),
         new Game("ms2",   "ngpc", "METALSLUG2ND", "메탈슬러그 2nd 미션",
                  "libretro_svc.so", true, "japanese", null, NONE),
+        /* 카드 파이터즈 — 머리표를 실측해 세 갈래로 갈랐다(0x24~).
+           「CARD FIGHT E」 영문판(UE) · 「CARD FIGHTER」 일본판(J) · 「CARD FIGHT 2」 2편.
+           ★ 한패는 «영문판 전용»이다. 일본판은 27.6% 다른 별개 빌드라 얹으면 글자가 깨진다
+           (실측: 캐릭터 고르기 화면이 「進終最大」技血罡数後N」로 깨졌다). 그래서 갈라 둔다.
+           baseLang 이 «english» 인 첫 항목이다 — 이 게임은 언어 분기가 아예 없고(0x6F87 참조 1곳,
+           그마저 자료다) 판이 따로라, 한패가 덮은 것은 영문 쪽이다. */
+        new Game("cfc1",  "ngpc", "CARD FIGHT E", "카드 파이터즈 클래시",
+                 "libretro_svc.so", true,  "english",  null, NONE),
+        new Game("cfc1j", "ngpc", "CARD FIGHTER", "카드 파이터즈 클래시 (일본판)",
+                 "libretro_svc.so", false, "japanese", null, NONE),
+        new Game("cfc2",  "ngpc", "CARD FIGHT 2", "카드 파이터즈 클래시 2",
+                 "libretro_svc.so", false, "japanese", null, NONE),
     };
 
     /** 마스터 표 전체 (identify 순서 — 구체 tag 먼저). 배포·문서 export 가 읽는다. */
@@ -122,7 +144,7 @@ public final class Games {
      *  lbj 는 여기 없다(배포 표에서 빠짐) — displayOrder() 는 빠진 게임을 뒤에 붙여 준다.
      *  배포 스크립트는 ExportGames 가 뽑은 이 배열을 그대로 쓴다(games_catalog 의 것은 예비). */
     public static final String[] DISPLAY_ORDER =
-        { "svc", "ss2", "ss1", "lb", "kofr2", "ffc", "ms1", "ms2" };
+        { "svc", "ss2", "ss1", "lb", "kofr2", "ffc", "cfc1", "ms1", "ms2" };
     public static Game[] displayOrder() {
         java.util.ArrayList<Game> out = new java.util.ArrayList<>();
         for (String id : DISPLAY_ORDER) for (Game g : ALL) if (g.id.equals(id)) out.add(g);
@@ -147,11 +169,58 @@ public final class Games {
     }
 
     /** 어느 게임인지 롬 헤더로 가른다. 모르는 롬이면 null — 그래도 순정 코어로 돌아간다. */
+    /** 내려받은 «덧붙임» 게임들. games.json 이 있으면 채워진다. 없으면 빈 배열.
+     *  ★ 내장표(ALL)를 못 덮는다 — identify 는 늘 ALL 을 먼저 본다. */
+    private static Game[] EXTRA = new Game[0];
+
+    /** 앱 업데이트 없이 게임을 늘리는 자리. 색인 파일을 읽어 EXTRA 를 채운다.
+     *  깨져 있으면 조용히 아무것도 안 한다 — 이 경로는 부팅 전에 도는 곳이라
+     *  예외 하나가 「롬을 못 알아본다」로 보인다. */
+    public static void loadExtras(java.io.File dir) {
+        try {
+            java.io.File f = new java.io.File(dir, "games.json");
+            if (!f.isFile()) return;
+            byte[] b = new byte[(int) f.length()];
+            java.io.FileInputStream in = new java.io.FileInputStream(f);
+            try { int n = 0; while (n < b.length) { int r = in.read(b, n, b.length - n); if (r < 0) break; n += r; } }
+            finally { in.close(); }
+            org.json.JSONArray a = new org.json.JSONObject(new String(b, "UTF-8")).getJSONArray("games");
+            java.util.ArrayList<Game> out = new java.util.ArrayList<Game>();
+            for (int i = 0; i < a.length(); i++) {
+                org.json.JSONObject o = a.getJSONObject(i);
+                String id = o.optString("id", null), tag = o.optString("tag", null);
+                if (id == null || tag == null || tag.length() == 0) continue;
+                boolean dup = false;                       /* ② 내장표와 겹치면 버린다 */
+                for (Game g : ALL) if (g.id.equals(id) || g.tag.equals(tag)) { dup = true; break; }
+                if (dup) continue;
+                org.json.JSONArray fa = o.optJSONArray("features");
+                String[] fs = new String[fa == null ? 0 : fa.length()];
+                for (int k = 0; k < fs.length; k++) fs[k] = fa.optString(k, "");
+                out.add(new Game(id, o.optString("platform", "ngpc"), tag, o.optString("ko", id),
+                                 o.optString("core", "libretro_svc.so"), o.optBoolean("patchable", false),
+                                 o.optString("baseLang", "japanese"),
+                                 o.isNull("voice") ? null : o.optString("voice", null), fs));
+            }
+            EXTRA = out.toArray(new Game[0]);
+        } catch (Throwable ignored) {                      /* ③ 무슨 일이 있어도 내장표는 산다 */
+        }
+    }
+
     public static Game identify(String romPath) {
         String tag = readTag(romPath);
         if (tag == null) return null;
-        for (Game g : ALL) if (tag.startsWith(g.tag)) return g;
+        for (Game g : ALL)   if (tag.startsWith(g.tag)) return g;   /* ① 내장표가 늘 먼저 */
+        for (Game g : EXTRA) if (tag.startsWith(g.tag)) return g;
         return null;
+    }
+
+    /** 내장표 + 내려받은 것. 진열장·설정이 게임을 훑을 때 쓴다. */
+    public static Game[] allIncludingExtras() {
+        if (EXTRA.length == 0) return ALL;
+        Game[] r = new Game[ALL.length + EXTRA.length];
+        System.arraycopy(ALL, 0, r, 0, ALL.length);
+        System.arraycopy(EXTRA, 0, r, ALL.length, EXTRA.length);
+        return r;
     }
 
     /** 표에 없는 롬이 쓸 코어. 원버튼 엔진은 롬 표식을 보고 스스로 자므로 안전하다. */

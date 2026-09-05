@@ -48,6 +48,12 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        /* 내려받은 게임표를 먼저 읽는다 — 롬을 알아보기 «전»이어야 한다.
+           파일이 없거나 깨져 있으면 아무 일도 안 일어난다(내장표로 돈다). */
+        Games.loadExtras(new java.io.File(root(), "design"));
+        /* ⚠ 이 파일은 android.provider.Settings 를 import 한다 — 우리 Settings 가 가려진다.
+           이름을 다 적어야 우리 것이 잡힌다(짧게 쓰면 조용히 안드로이드 클래스로 간다). */
+        com.dudu.pocketcore.Settings.migrate();   /* 옛 옵션 값 → 새 이름. 설정이 꺼지지 않게 */
         Orient.apply(this);
         if (!hasStorage()) { askStorage(); return; }
         setup();
@@ -449,6 +455,28 @@ public class MainActivity extends Activity {
             else if (right) curLv.moveSel(1);
             else { LauncherView.Item it = curLv.selected(); if (it != null) openSheet(it.rom); }
         }
+        return true;
+    }
+
+    /** 스틱·HAT 십자 — **많은 패드가 십자를 축으로 보내서 KeyEvent 가 아예 안 온다.**
+     *  에뮬 화면·키 배정 화면엔 이 처리가 있었는데 런처에만 없어서 「패드로 게임이 안 골라진다」가
+     *  됐다(유저 제보 2026-09-05). 좌우 = 카드 넘기기, 선택창이 떠 있으면 위아래 = 항목. */
+    private int axisPrev = 0;
+
+    @Override public boolean onGenericMotionEvent(android.view.MotionEvent e) {
+        int m = KeyMap.axisMask(e);
+        if (m < 0) return super.onGenericMotionEvent(e);
+        int went = m & ~axisPrev;      /* 새로 «기울인» 방향만 — 쥐고 있어도 한 칸만 간다 */
+        axisPrev = m;
+        if (went == 0) return true;
+        if (curSheet != null && curSheet.isShowing()) {
+            if ((went & (1 << Emu.UP)) != 0)    curSheet.moveFocus(-1);
+            if ((went & (1 << Emu.DOWN)) != 0)  curSheet.moveFocus(+1);
+            return true;
+        }
+        if (curLv == null) return true;
+        if ((went & (1 << Emu.LEFT)) != 0)  curLv.moveSel(-1);
+        if ((went & (1 << Emu.RIGHT)) != 0) curLv.moveSel(1);
         return true;
     }
 

@@ -17,8 +17,8 @@ final class KeyMap {
         { "down",   "아래",          Emu.DOWN },
         { "left",   "왼쪽",          Emu.LEFT },
         { "right",  "오른쪽",        Emu.RIGHT },
-        { "b",      "A (펀치 / 약P)", Emu.B },        /* NGP A = 레트로패드 B */
-        { "a",      "B (킥 / 약K)",   Emu.A },        /* NGP B = 레트로패드 A */
+        { "b",      "A (펀치·베기 / 약P)", Emu.B },        /* NGP A = 레트로패드 B */
+        { "a",      "B (킥·회피 / 약K)",   Emu.A },        /* NGP B = 레트로패드 A */
         { "y",      "강P (SvC) / A+B (SS2)", Emu.Y },
         { "x",      "강K (SvC) / SP (SS2)",  Emu.X },
         { "r",      "SP·기술키 (SvC·KOF)",   Emu.R },
@@ -32,8 +32,11 @@ final class KeyMap {
     static {
         DEF.put("up", KeyEvent.KEYCODE_DPAD_UP);       DEF.put("down", KeyEvent.KEYCODE_DPAD_DOWN);
         DEF.put("left", KeyEvent.KEYCODE_DPAD_LEFT);   DEF.put("right", KeyEvent.KEYCODE_DPAD_RIGHT);
-        DEF.put("b", KeyEvent.KEYCODE_BUTTON_B);       DEF.put("a", KeyEvent.KEYCODE_BUTTON_A);
-        DEF.put("y", KeyEvent.KEYCODE_BUTTON_Y);       DEF.put("x", KeyEvent.KEYCODE_BUTTON_X);
+        /* ★ 레트로패드 관례: «아래» 버튼(안드로이드 BUTTON_A) = 레트로패드 B = NGP A(베기/펀치).
+           전엔 b←BUTTON_B · a←BUTTON_A 로 뒤집혀 있어 패드 A 가 회피, B 가 베기로 나갔다(유저 제보 2026-09-05).
+           X/Y 도 같은 관례로: 레트로패드 Y(왼쪽 얼굴) = BUTTON_X · 레트로패드 X(위) = BUTTON_Y. */
+        DEF.put("b", KeyEvent.KEYCODE_BUTTON_A);       DEF.put("a", KeyEvent.KEYCODE_BUTTON_B);
+        DEF.put("y", KeyEvent.KEYCODE_BUTTON_X);       DEF.put("x", KeyEvent.KEYCODE_BUTTON_Y);
         DEF.put("r", KeyEvent.KEYCODE_BUTTON_R1);      DEF.put("l", KeyEvent.KEYCODE_BUTTON_L1);
         DEF.put("start", KeyEvent.KEYCODE_BUTTON_START); DEF.put("select", KeyEvent.KEYCODE_BUTTON_SELECT);
         DEF.put("menu", KeyEvent.KEYCODE_BUTTON_THUMBL); DEF.put("turbo", KeyEvent.KEYCODE_BUTTON_R2);
@@ -49,6 +52,15 @@ final class KeyMap {
             if (p.length == 2 && k.map.containsKey(p[0])) {
                 try { k.map.put(p[0], Integer.parseInt(p[1])); } catch (NumberFormatException ignored) { }
             }
+        }
+        /* 옛 기본값(뒤집힌 표)을 «그대로» 저장해 둔 사람만 새 기본값으로 옮긴다.
+           네 칸이 전부 옛 기본값과 같을 때만 — 하나라도 직접 바꿨으면 그 사람 뜻이라 손대지 않는다. */
+        if (s != null
+                && k.map.get("b") == KeyEvent.KEYCODE_BUTTON_B && k.map.get("a") == KeyEvent.KEYCODE_BUTTON_A
+                && k.map.get("y") == KeyEvent.KEYCODE_BUTTON_Y && k.map.get("x") == KeyEvent.KEYCODE_BUTTON_X) {
+            k.map.put("b", KeyEvent.KEYCODE_BUTTON_A); k.map.put("a", KeyEvent.KEYCODE_BUTTON_B);
+            k.map.put("y", KeyEvent.KEYCODE_BUTTON_X); k.map.put("x", KeyEvent.KEYCODE_BUTTON_Y);
+            k.save();
         }
         return k;
     }

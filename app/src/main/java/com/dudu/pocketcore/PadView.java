@@ -37,6 +37,7 @@ public class PadView extends View {
         if (edit) invalidate();
     }
 
+    public static final int ACT_BAND = 9, ACT_SIDES = 10;   /* 코어 옵션을 게임 중에 뒤집는 칸 */
     public static final int ACT_SAVE = 1, ACT_LOAD = 2, ACT_SHOT = 3, ACT_RESET = 4, ACT_PICK = 5, ACT_SLOT = 6, ACT_SPK = 7,
             /* 설정 — 게임 안에서 바로 연다. 예전에는 「롬」으로 게임을 내리고
                목록 맨 아래까지 가야 닿았다. 설정 하나 보려고 게임을 끄는 건 말이 안 된다. */
@@ -110,13 +111,24 @@ public class PadView extends View {
 
     private float dpadR, btnR;
     private final RectF opt = new RectF();
-    private final RectF[] util = new RectF[9];
+    private final RectF[] util = new RectF[10];
     /* 「종료」= 게임을 닫고 고르는 창으로 (제보: 「롬」은 사실 종료 버튼인데 이름이 달랐다).
-       「해설」은 사무쇼2 에만 있는 기능이라 그 프로필에서만 칸이 생긴다.
        「배치」= 버튼 자리·크기 + 게임 화면 상자까지 한꺼번에 편집(제보: 「키」란 이름이 좁았다). */
-    private final String[] utilLabel = { "슬롯1", "저장", "로드", "샷", "리셋", "종료", "해설", "설정", "배치" };
-    private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_SHOT, ACT_RESET, ACT_PICK, ACT_SPK, ACT_CFG, 0 };
-    private static final int UTIL_EDIT = 8;   /* 마지막 칸 「키」 = 배치 편집 토글 (액션이 아니다) */
+    /* 세 무리로 묶어 둔다 — 두 줄로 접힐 때 무리가 갈리지 않게 순서가 곧 배치다.
+         ① 상태  슬롯·저장·로드·샷·리셋
+         ② 이 게임(코어 기능)  띠·기둥 — 게임마다 있는 것만 칸이 생긴다
+         ③ 마무리  설정·배치·종료 */
+    private final String[] utilLabel = { "슬롯1", "저장", "로드", "샷", "리셋",
+                                         "띠", "기둥", "설정", "배치", "종료" };
+    private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_SHOT, ACT_RESET,
+                                    ACT_BAND, ACT_SIDES, ACT_CFG, 0, ACT_PICK };
+    private static final int UTIL_EDIT = 8;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
+    /* 이 게임이 코어에서 쓰는 기능 — 게임별 칸은 여기서만 생긴다.
+       전에는 「이 게임에 그 기능이 있나」를 패드 프로필 모양(prof == P_SS2)으로 판단했다.
+       게임 표에 이미 있는 사실을 모양으로 되짚은 것이라 진실이 두 벌이 됐다.
+       이제 EmuActivity 가 게임 표를 읽어 알려 준다. */
+    private boolean hasBand = false, hasSides = false;
+    private float barBottom = 0;   /* 두 줄로 접히므로 편집 안내문은 «마지막 줄» 아래에 놓는다 */
     private final RectF minus = new RectF(), plus = new RectF();
     private final RectF barHandle = new RectF();
     private boolean barOpen = false;   /* 상단바는 기본 접힘 — [≡]로 여닫는 순수 토글 */
@@ -187,9 +199,20 @@ public class PadView extends View {
         invalidate();
     }
 
-    /** 이 프로필에서 상단바 i번 칸이 존재하는가 — 해설(SPK)은 사무쇼2 전용. */
+    /** 이 게임이 코어에서 쓰는 기능을 알려 준다 — 상단바의 게임별 칸이 이걸 보고 생긴다. */
+    public void setCoreFeatures(boolean band, boolean sides) {
+        hasBand = band; hasSides = sides;
+        if (getWidth() > 0) layoutBar(getWidth(), getHeight());
+        invalidate();
+    }
+
+    /** 상단바 i번 칸이 이 게임에 존재하는가. 없는 칸은 그리지도 누르지도 않는다. */
     private boolean utilVisible(int i) {
-        return utilAct[i] != ACT_SPK || prof == P_SS2;
+        switch (utilAct[i]) {
+        case ACT_BAND:  return hasBand;
+        case ACT_SIDES: return hasSides;
+        default:        return true;
+        }
     }
 
     /** 배치 파일 — 세로 pad_<게임>.txt / 가로 pad_<게임>_land.txt 로 따로 둔다. */
@@ -285,18 +308,32 @@ public class PadView extends View {
         layoutBar(w, h);
     }
 
+    /** 상단바 배치. 여섯 칸이 넘으면 «두 줄»로 접는다 —
+     *  한 줄로 아홉 칸을 늘어놓으면 폭의 98% 를 먹어 칸마다 글자가 두 자도 안 들어갔다.
+     *  두 줄로 접으면 같은 자리에서 칸이 60% 넓어진다. */
     private void layoutBar(int w, int h) {
         float base = Math.min(w, h);              /* 가로에서도 짧은 변 기준 — 알약·유틸 칸이 반토막 나지 않게(리뷰 F12) */
-        float uw = w * 0.104f, uh = base * 0.056f, gap = w * 0.006f;   /* 너무 작다는 제보 — 키움 */
-        if (w > h) uw = base * 0.15f;
+        float uh = base * 0.056f, gap = w * 0.006f, gapY = base * 0.010f;
         int vis = 0;
         for (int i = 0; i < util.length; i++) if (utilVisible(i)) vis++;
+        int rows = vis > 6 ? 2 : 1;
+        int perRow = (vis + rows - 1) / rows;      /* 두 줄이면 위가 한 칸 더 많을 수 있다 */
+        float maxw = (w > h) ? base * 0.15f : w * 0.20f;
+        float uw = Math.min(maxw, (w * 0.90f - gap * (perRow - 1)) / perRow);
         /* 바는 「메뉴」 버튼 바로 아래 — 버튼이 커지면서 겹치던 것을 층으로 분리 */
-        float total = uw * vis + gap * (vis - 1), x = (w - total) / 2f, y = base * 0.052f;
+        float y = base * 0.052f;
+        int nThis = Math.min(perRow, vis), placed = 0, inRow = 0;
+        float x = (w - (uw * nThis + gap * (nThis - 1))) / 2f;
         for (int i = 0; i < util.length; i++) {
             if (!utilVisible(i)) { util[i].setEmpty(); continue; }   /* 빈 칸 = 히트도 없다 */
-            util[i].set(x, y, x + uw, y + uh); x += uw + gap;
+            util[i].set(x, y, x + uw, y + uh); x += uw + gap; placed++; inRow++;
+            if (inRow == perRow && placed < vis) {                    /* 줄 바꿈 — 남은 만큼으로 가운데 맞춤 */
+                inRow = 0; y += uh + gapY;
+                nThis = Math.min(perRow, vis - placed);
+                x = (w - (uw * nThis + gap * (nThis - 1))) / 2f;
+            }
         }
+        barBottom = y + uh;
         /* 메뉴 버튼 — [≡] 실핸들이 너무 작다는 제보. 항상 보이는 알약 버튼으로. */
         barHandle.set(w * 0.5f - base * 0.08f, 0, w * 0.5f + base * 0.08f, base * 0.046f);
     }
@@ -397,8 +434,8 @@ public class PadView extends View {
         if (edit) {
             text.setTextSize(getHeight() * 0.019f);
             c.drawText("편집: 버튼·게임화면 끌어서 이동 · [－][＋]는 고른 것(없으면 게임 화면) 크기 · 「배치」로 저장",
-                    w / 2f, util[0].bottom + getHeight() * 0.032f, text);
-            float bw = w * 0.10f, bh = getHeight() * 0.038f, byy = util[0].bottom + getHeight() * 0.042f;
+                    w / 2f, barBottom + getHeight() * 0.032f, text);
+            float bw = w * 0.10f, bh = getHeight() * 0.038f, byy = barBottom + getHeight() * 0.042f;
             minus.set(w * 0.30f, byy, w * 0.30f + bw, byy + bh);
             plus.set(w * 0.60f, byy, w * 0.60f + bw, byy + bh);
             fill.setColor(0xe0202020);                       /* 불투명 — 게임 화면 위에서도 버튼으로 보이게 */

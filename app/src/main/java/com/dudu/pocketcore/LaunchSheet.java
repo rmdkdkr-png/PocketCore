@@ -321,6 +321,19 @@ public final class LaunchSheet {
         return true;
     }
 
+    /** 스틱·HAT 십자로 오는 방향(-1 위 / +1 아래). 축은 MotionEvent 라 key() 를 못 탄다 —
+     *  MainActivity.onGenericMotionEvent 가 여기로 넘겨 준다. */
+    public void moveFocus(int d) {
+        int n = opts.size();
+        focus = (focus + d + n + 1) % (n + 1);
+        paintFocus();
+    }
+
+    /** 축 쪽에서 온 확인 — key() 의 ok 갈래와 같은 일을 한다. */
+    public void confirm() {
+        if (focus >= opts.size()) go(); else toggle(focus);
+    }
+
     /* ── 잡동사니 ───────────────────────────────────────────────── */
 
     private int dp(int v) {

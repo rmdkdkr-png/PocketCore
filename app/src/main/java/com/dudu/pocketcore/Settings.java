@@ -282,6 +282,32 @@ public final class Settings {
         return m;
     }
 
+    /**
+     * 옛 옵션 값을 «같은 뜻의» 새 값으로 옮긴다.
+     *
+     * 패치 이름이 바뀌면 옵션 키도 바뀌어 **유저 설정이 조용히 꺼진다** — v1.1→v1.2 때 한 번 그랬다.
+     * 「빠른 기본기(FastCD)」가 「강 기본기 당기기」 단계 다이얼로 합쳐지면서 또 그럴 자리다.
+     * 다행히 바이트가 같은 판끼리 대응이 실측으로 확인돼 있어 **어림이 아니라 정확히** 옮길 수 있다:
+     *   SvC FastCD v1.5 ≡ −8 단계 · KOF R-2 FastCD v1.2 ≡ −6 단계 (이식소 실측, md5 동일)
+     *
+     * 새 키가 이미 있으면 건드리지 않는다 — 유저가 직접 고른 값이 이깁니다.
+     */
+    public static void migrate() {
+        Map<String, String> m = load();
+        if (!m.containsKey("pocketcore_svc_faststrong")
+                && "enabled".equals(m.get("pocketcore_svc_fastcd")))
+            put("pocketcore_svc_faststrong", "svc_faststrong_8");
+
+        String k = m.get("pocketcore_kofr2_speed");
+        if (!m.containsKey("pocketcore_kofr2_faststrong") && k != null && !"disabled".equals(k)) {
+            String v = null;
+            if ("kofr2_fastcd".equals(k)) v = "kofr2_faststrong_6";
+            else if (k.startsWith("kofr2_fastpunch_"))
+                v = "kofr2_faststrong_" + k.substring("kofr2_fastpunch_".length());
+            if (v != null) put("pocketcore_kofr2_faststrong", v);
+        }
+    }
+
     /** 값 하나를 바꿔 쓴다. **주석은 살린다** — 파일을 손으로 고치는 사람이 아직 있다. */
     public static void put(String key, String val) {
         File f = MainActivity.optsFile();

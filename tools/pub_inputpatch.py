@@ -135,9 +135,17 @@ if os.environ.get('DRY'): print(text); print(readme); sys.exit(0)
 # ── 레포 트리 커밋 ─────────────────────────────────────────────
 for m in cat['mods']:
     put_file('patches/'+m['file'], open(os.path.join(REPO,'mods',m['file']),'rb').read(), '패치: %s %s'%(m['id'],m['ver']))
+for _t,_m in cat.get('tags',{}).items():
+    if _m.get('intro'):
+        _p=os.path.join(REPO,'mods','docs',_m['intro'])
+        if os.path.exists(_p): put_file('docs/'+_m['intro'], open(_p,'rb').read(), '본문: '+_t)
 put_file('catalog.json', json.dumps(cat,ensure_ascii=False,indent=1).encode('utf-8'), '카탈로그 갱신')
 put_file('mods.json', text.encode('utf-8'), '색인 갱신')
 for n in imgs: put_file('docs/img/'+n, open(os.path.join(IMGDIR,n),'rb').read(), '이미지: '+n)
+for _t,_m in cat.get('tags',{}).items():                 # 본문이 가리키는 그림이 실제로 올라갔나
+    if _m.get('shot') and _m['shot'] not in imgs:
+        raise SystemExit('★ %s 의 스샷 %s 가 %s 에 없다 — 올리면 본문이 404 를 가리킨다'
+                         %(_t,_m['shot'],IMGDIR))
 try:
     for f in api('/repos/%s/contents/docs/img'%IP):
         if f['name'] not in imgs:
@@ -168,8 +176,18 @@ for x in idx['mods']: groups.setdefault(x['tag'],[]).append(x)
 for tag,xs in groups.items():
     g=xs[0]['gameKo']; title='%s — %s'%(g, ' / '.join(dict.fromkeys(x['ko'].split(' — ')[0] for x in xs)))
     lines=['## %s'%title,'']
-    for x in xs: lines+=['**%s %s** — %s'%(x['ko'],x['ver'],x['help']),'']
-    if len(xs)>1: lines+=['같은 바이트를 고치는 판들이라 **하나만** 입히세요.','']
+    meta=cat.get('tags',{}).get(tag,{})
+    intro=None
+    if meta.get('intro'):
+        ip_=os.path.join(REPO,'mods','docs',meta['intro'])
+        if os.path.exists(ip_): intro=open(ip_,encoding='utf-8').read().rstrip()
+        else: print('  ⚠ intro 없음:',ip_)
+    if intro:
+        # 사람이 쓴 글이 있으면 그걸 쓴다 — 자동 help 나열은 겹치므로 뺀다
+        lines+=[intro,'']
+    else:
+        for x in xs: lines+=['**%s %s** — %s'%(x['ko'],x['ver'],x['help']),'']
+        if len(xs)>1: lines+=['같은 바이트를 고치는 판들이라 **하나만** 입히세요.','']
     lines+=[HOWTO,'| 파일 | 판 | md5 |','|---|---|---|']+['| %s | %s | `%s` |'%(x['file'],x['ver'],x['md5']) for x in xs]
     lines+=['','롬은 배포하지 않습니다(차분만). 전체 목록·전후 비교는 [README](https://github.com/%s).'%IP]
     body_t='\n'.join(lines)

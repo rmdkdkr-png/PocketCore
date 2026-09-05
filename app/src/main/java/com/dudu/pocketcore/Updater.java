@@ -85,6 +85,15 @@ public final class Updater {
             FileOutputStream fo = new FileOutputStream(new File(dir, "design.json"));
             fo.write(jb); fo.close();
 
+            /* 게임표 — 앱 업데이트 없이 게임을 늘리는 자리. 내장표를 «덮지 않고» 뒤에 붙는다.
+               못 받아도 그냥 지나간다(내장표만으로 돌아간다). */
+            try {
+                byte[] gb = fetch(base + "/games.json", 10000);
+                FileOutputStream gf = new FileOutputStream(new File(dir, "games.json"));
+                gf.write(gb); gf.close();
+                Games.loadExtras(dir);
+            } catch (Throwable ignored) { }
+
             /* 배포 지정 썸네일 — PC 지정툴(thumbtool)이 고른 장면. 런처 우선순위는
                내 지정 > 이것 > 자동 캡처. 판(ver=파일 md5)이 바뀐 것만 받는다. */
             JSONObject th = j.optJSONObject("thumbs");
@@ -278,6 +287,11 @@ public final class Updater {
             JSONObject j = new JSONObject(new String(jb, "UTF-8")).getJSONObject("patches");
             File dir = new File(MainActivity.root(), "patch");
             dir.mkdirs();
+            /* 색인을 그대로 남긴다 — 롬 스캔이 rom_md5(우리가 아는 원본) 를 여기서 읽는다.
+               앱에 표를 박지 않으므로 덤프를 늘려도 APK 를 다시 안 구워도 된다. */
+            try (FileOutputStream pj = new FileOutputStream(new File(dir, "patches.json"))) {
+                pj.write(jb);
+            } catch (Exception ignored) { }
             StringBuilder got = new StringBuilder();
             java.util.Iterator<String> it = j.keys();
             while (it.hasNext()) {
