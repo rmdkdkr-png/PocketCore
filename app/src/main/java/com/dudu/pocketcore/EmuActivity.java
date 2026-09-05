@@ -30,6 +30,7 @@ public class EmuActivity extends Activity {
     private FrameLayout root;
     private PadView pad;
     private String romPath;
+    private LaunchSheet sheet;                 /* 게임 중 옵션 창(실행 전 선택 창과 같은 것) */
     private long romMtime;
     private int padMask = 0, keyMask = 0;
     private String romType = "svc";   /* Games 표의 id. 모르는 롬이면 "svc"(순정 코어) */
@@ -320,8 +321,12 @@ public class EmuActivity extends Activity {
         loaded = rc == 0;
         romMtime = new File(romPath).lastModified();
         toast(loaded ? coreLabel : "코어/롬 로드 실패 (code " + rc + ")");
-        /* 이어하기 — 나갈 때 자동 저장해 둔 자리에서 계속. 로드와 같은 스레드라 안전하다. */
-        if (loaded && autoSave && autoStatePath().exists()
+        /* 이어하기 — 옵션 바꾸고 다시 연 경우는 그 직전 상태(resume), 아니면 나갈 때 자동 저장해 둔 자리. 로드와 같은 스레드라 안전하다. */
+        String resume = getIntent().getStringExtra("resume");
+        if (loaded && resume != null && new File(resume).exists()) {
+            if (Emu.nativeLoadState(resume) == 0) toast("옵션 적용 — 그 자리에서 이어하기");
+            new File(resume).delete();
+        } else if (loaded && autoSave && autoStatePath().exists()
                 && Emu.nativeLoadState(autoStatePath().getAbsolutePath()) == 0)
             toast("이어하기");
     }
@@ -387,13 +392,22 @@ public class EmuActivity extends Activity {
         case PadView.ACT_SIDES:
             toggleCoreOpt("ngp_ss2sp_sides", "기둥 아트");
             break;
-        case PadView.ACT_CFG:
-            /* 게임을 켠 채로 설정을 연다. 돌아오면 onResume 이 화면 설정을 다시 읽는다. */
-            startActivity(new Intent(this, SettingsActivity.class)
-                    .putExtra("rom", getIntent().getStringExtra("rom")));  /* 이 게임 설정만 */
-            break;
+        case PadView.ACT_CFG: {
+            /* 게임 중 옵션 창 — 실행 전 선택 창과 같은 것. 「적용하고 이어하기」= 지금 자리 저장 → 옵션대로 다시 굽기 → 다시 열어 그 자리부터
+               (유저 2026-09-05 「게임 중간에도 이 창 되게 — 오토세이브하고 리로드」). 전체 설정은 창 아래 링크로. */
+            final String orig = getIntent().getStringExtra("rom");
+            sheet = LaunchSheet.showInGame(this, game, game != null ? game.ko : new File(orig).getName(),
+                    new Runnable() { @Override public void run() { applyLive(orig); } },
+                    new Runnable() { @Override public void run() {
+                        startActivity(new Intent(EmuActivity.this, SettingsActivity.class).putExtra("rom", orig)); } });
+            break; }
         case PadView.ACT_PICK:
             goList();
+            break;
+        case PadView.ACT_QUIT:
+            /* 앱 종료 — 오토세이브는 onPause 가, 코어 내리기는 onDestroy 가 챙긴다. 다음에 켜면 목록부터. */
+            MainActivity.forgetLast(this);
+            finishAffinity();
             break;
         }
     }
@@ -406,6 +420,20 @@ public class EmuActivity extends Activity {
         Emu.nativeSetOption(key, v);
         persistOption(key, v);
         toast(ko + (on ? " 끔" : " 켬"));
+    }
+
+    /** 옵션을 바꾼 채 이어하기 — 상태를 임시 파일에 저장하고 같은 롬으로 다시 연다.
+     *  새 EmuActivity 가 옵션대로 다시 굽고(Patcher.resolve) "resume" 상태를 되읽는다. 세이브 상태에 롬 바이트는 없어 패치가 달라도 이어진다. */
+    private void applyLive(String orig) {
+        File st = new File(getCacheDir(), "live.state");
+        if (loaded && Emu.nativeSaveState(st.getAbsolutePath()) != 0) { toast("상태 저장 실패 — 그대로 둡니다"); return; }
+        if (loaded) Emu.nativeSaveSram();
+        Intent i = new Intent(this, EmuActivity.class).putExtra("rom", orig);
+        if (loaded) i.putExtra("resume", st.getAbsolutePath());
+        MainActivity.forgetLast(this);
+        Emu.nativeUnload(); loaded = false;
+        startActivity(i);
+        finish();
     }
 
     /** 목록으로 — 「목록」키·뒤로가기 공용. 오토세이브는 onPause 가 챙긴다. */
@@ -533,6 +561,10 @@ public class EmuActivity extends Activity {
     private int mapKey(int code) { return keymap != null ? keymap.bitOf(code) : 0; }
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
+        if (sheet != null && sheet.isShowing()) {           /* 옵션 창이 떠 있으면 패드는 창을 조작한다 */
+            if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) return sheet.handleKey(e) || true;
+            return true;
+        }
         boolean gamepad = KeyMap.isGamepad(e);
         {   /* 바가 열려 있으면 입력은 바를 조작한다 — 게임엔 안 간다(리뷰 F17). 방향·BACK·확인 키는 출처와 무관하게 받는다
                (게임기 내장 십자는 키보드 출처로 올 때가 있다). */
@@ -611,7 +643,7 @@ public class EmuActivity extends Activity {
             Emu.nativeSaveSram();
             /* 오토세이브 — SRAM 저장과 같은 자리·같은 방식(UI 스레드 직접 호출 전례).
                gl.onPause() 전이어야 한다. */
-            if (autoSave) Emu.nativeSaveState(autoStatePath().getAbsolutePath());
+            if (loaded && autoSave) Emu.nativeSaveState(autoStatePath().getAbsolutePath());   /* 다시 굽으려 내린 뒤엔 안 쓴다 */
         }
         /* 오디오 장치를 놓는다 — 백그라운드에서 물고 있으면 다른 앱 재생 뒤
            스트림이 죽은 채 돌아오는 무음 사고가 난다. 복귀 때 새로 연다. */

@@ -53,6 +53,8 @@ public final class LaunchSheet {
     private final java.util.HashMap<Integer, DialBar> dials = new java.util.HashMap<>();
     private final List<TextView> valViews = new ArrayList<>();
     private View startBtn;
+    private String startLabel = "시작  ▶", subtitle = null;   /* 게임 안 모드에서 바뀐다 */
+    private Runnable onSettings = null;                          /* 게임 안 모드: 「앱 전체 설정 열기」 */
     private int focus;            /* 0..opts.size()-1 = 줄, opts.size() = 시작 버튼 */
     private Dialog dlg;
     private KeyMap keymap;
@@ -60,6 +62,15 @@ public final class LaunchSheet {
     public static LaunchSheet show(Activity a, File rom, Games.Game g, Bitmap thumb, String title, Runnable onStart) {
         LaunchSheet s = new LaunchSheet(a, g, onStart);
         s.open(rom, thumb, title);
+        return s;
+    }
+    /** 게임 안에서 — 같은 창, 「적용하고 이어하기」. 지금 자리를 저장하고 옵션대로 다시 구워 그 자리에서 이어간다(유저 2026-09-05). */
+    public static LaunchSheet showInGame(Activity a, Games.Game g, String title, Runnable onApply, Runnable onSettings) {
+        LaunchSheet s = new LaunchSheet(a, g, onApply);
+        s.startLabel = "적용하고 이어하기  ▶";
+        s.subtitle = "바꾸면 지금 자리를 저장하고 다시 열어 그대로 이어갑니다.";
+        s.onSettings = onSettings;
+        s.open(null, null, title);
         return s;
     }
     /** 떠 있는가 — 런처가 패드 키를 이 창으로 넘길지 판단하는 데 쓴다. */
@@ -192,7 +203,8 @@ public final class LaunchSheet {
         h.setTypeface(h.getTypeface(), android.graphics.Typeface.BOLD);
         tt.addView(h);
         TextView s = new TextView(a);
-        s.setText(opts.isEmpty() ? "이 롬에 붙는 패치가 없습니다 — 「시작」을 누르면 순정 그대로 엽니다."
+        s.setText(subtitle != null ? subtitle
+                : opts.isEmpty() ? "이 롬에 붙는 패치가 없습니다 — 「시작」을 누르면 순정 그대로 엽니다."
                                  : "실행 전에 적용할 것을 고르세요. 선택은 이 게임에 저장됩니다.");
         s.setTextColor(DIM); s.setTextSize(12); s.setPadding(0, dp(2), 0, 0);
         tt.addView(s);
@@ -226,7 +238,7 @@ public final class LaunchSheet {
         btns.setOrientation(LinearLayout.HORIZONTAL);
         TextView cancel = pill("취소", BTN2, DIM, false);
         cancel.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { dlg.dismiss(); } });
-        TextView start = pill("시작  ▶", GOLD, INK, true);
+        TextView start = pill(startLabel, GOLD, INK, true);
         start.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { go(); } });
         startBtn = start;
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -234,6 +246,13 @@ public final class LaunchSheet {
         cp.rightMargin = dp(10); cp.topMargin = stp.topMargin = dp(14);
         btns.addView(cancel, cp); btns.addView(start, stp);
         col.addView(btns);
+        if (onSettings != null) {                                   /* 게임 안: 전체 설정으로 가는 길 */
+            TextView more = new TextView(a);
+            more.setText("앱 전체 설정 열기  ›"); more.setTextColor(DIM); more.setTextSize(13); more.setGravity(Gravity.CENTER);
+            more.setPadding(0, dp(12), 0, dp(2)); more.setClickable(true);
+            more.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { dlg.dismiss(); onSettings.run(); } });
+            col.addView(more);
+        }
 
         TextView hint = new TextView(a);
         hint.setText("패드: 위아래 이동 · 펀치 버튼 바꾸기/시작 · 킥 버튼 닫기");

@@ -116,24 +116,14 @@ public class SettingsActivity extends Activity {
             for (Settings.Item it : Settings.modItems()) if (shows(it)) ms.add(it);
             section(col, "조작 패치", ms);
         } else {
-            /* 런처: 범용 항목을 묶음대로 → 그 아래 게임별 소절(그 게임 전용 항목만).
-               숨기지 않는다 — 설정에 닿을 길이 없어지면 안 된다. 전용 항목이 없는 게임은 소절 없음. */
+            /* 런처: 범용 항목만 (유저 2026-09-05 「전체 설정엔 제너럴만」). 게임별 항목(한글패치·조작 패치·엔진)은
+               게임을 고를 때 뜨는 창과 게임 안 「설정」에서 — 거기서만 보이니 닿을 길은 있다. */
             for (Map.Entry<String, Settings.Item[]> g : Settings.GROUPS.entrySet()) {
                 java.util.List<Settings.Item> its = new java.util.ArrayList<>();
                 for (Settings.Item it : g.getValue()) if (it.feature == null && it.game == null) its.add(it);
                 section(col, g.getKey(), its);
             }
-            java.util.List<Settings.Item> allMods = Settings.modItems();
-            for (Games.Game gm : Games.displayOrder()) {   /* 표시 순서 = Games.DISPLAY_ORDER */
-                java.util.List<Settings.Item> its = new java.util.ArrayList<>();
-                for (Settings.Item[] arr : Settings.GROUPS.values())
-                    for (Settings.Item it : arr)
-                        if (matches(it, gm)) its.add(it);
-                for (Settings.Item it : allMods) if (matches(it, gm)) its.add(it);
-                section(col, gm.ko, its);
-            }
-            if (allMods.isEmpty())
-                note(col, "조작 패치(빠른 기본기·콤보 등) 목록은 「업데이트 확인」을 누르면 받아집니다.");
+            note(col, "게임별 항목(한글패치·조작 패치·엔진 옵션)은 게임을 고를 때 뜨는 창과 게임 안 「설정」에서 고릅니다.");
         }
 
         /* ── 물리 패드 — 매핑 화면 진입 ── */

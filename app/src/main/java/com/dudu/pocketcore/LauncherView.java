@@ -252,10 +252,19 @@ public final class LauncherView extends View {
                 cv.drawText(lb[i], bx2 + padX + tw2 / 2, byTop + bh * 0.72f, tp);
                 bx2 += tw2 + padX * 2 + gap;
             }
+            float ly2 = byTop + bh + h * 0.028f;
             if (!cur.sub.isEmpty()) {
                 tp.setColor(withA(0xff9999aa, la));
                 tp.setTextSize(h * 0.017f);
-                cv.drawText(cur.sub, w / 2, byTop + bh + h * 0.028f, tp);
+                cv.drawText(cur.sub, w / 2, ly2, tp);
+                ly2 += h * 0.022f;
+            }
+            {   /* 롬 파일명 — 같은 게임 롬이 여럿(J/UE/[h1]/패치본)이면 이름만으론 못 가른다(유저 2026-09-05) */
+                String fn = cur.rom.getName(); int dot = fn.lastIndexOf('.'); if (dot > 0) fn = fn.substring(0, dot);
+                tp.setColor(withA(0xff6b7388, la));
+                tp.setTextSize(h * 0.015f);
+                while (fn.length() > 8 && tp.measureText(fn) > w * 0.9f) fn = fn.substring(0, fn.length() - 2);   /* 너무 길면 자른다 */
+                cv.drawText(fn, w / 2, ly2, tp);
             }
             tp.setColor(withA(0xff777788, la));
             tp.setTextSize(h * 0.015f);

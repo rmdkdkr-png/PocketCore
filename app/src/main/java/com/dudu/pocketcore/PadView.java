@@ -38,6 +38,7 @@ public class PadView extends View {
     }
 
     public static final int ACT_BAND = 9, ACT_SIDES = 10;   /* 코어 옵션을 게임 중에 뒤집는 칸 */
+    public static final int ACT_QUIT = 11;                    /* 앱 종료 — 「목록」(ACT_PICK)과 달라야 한다(유저 2026-09-05) */
     public static final int ACT_SAVE = 1, ACT_LOAD = 2, ACT_SHOT = 3, ACT_RESET = 4, ACT_PICK = 5, ACT_SLOT = 6, ACT_SPK = 7,
             /* 설정 — 게임 안에서 바로 연다. 예전에는 「롬」으로 게임을 내리고
                목록 맨 아래까지 가야 닿았다. 설정 하나 보려고 게임을 끄는 건 말이 안 된다. */
@@ -121,7 +122,7 @@ public class PadView extends View {
     private final String[] utilLabel = { "슬롯1", "저장", "로드", "샷", "리셋",
                                          "띠", "기둥", "설정", "배치", "종료" };
     private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_SHOT, ACT_RESET,
-                                    ACT_BAND, ACT_SIDES, ACT_CFG, 0, ACT_PICK };
+                                    ACT_BAND, ACT_SIDES, ACT_CFG, 0, ACT_QUIT };
     private static final int UTIL_EDIT = 8;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
     /* 이 게임이 코어에서 쓰는 기능 — 게임별 칸은 여기서만 생긴다.
        전에는 「이 게임에 그 기능이 있나」를 패드 프로필 모양(prof == P_SS2)으로 판단했다.
@@ -268,7 +269,7 @@ public class PadView extends View {
             if (listener != null) listener.onMask(0);
         } else {
             if (listener != null) listener.onAction(utilAct[barSel]);
-            if (utilAct[barSel] == ACT_PICK) barOpen = false;
+            if (utilAct[barSel] == ACT_PICK || utilAct[barSel] == ACT_QUIT) barOpen = false;
         }
         invalidate();
     }
@@ -610,7 +611,7 @@ public class PadView extends View {
                         if (listener != null) listener.onAction(utilAct[i]);
                         /* 순수 토글 — [≡]를 다시 눌러야 닫힌다. 저장·로드·샷은 연달아 쓰는데
                            매번 다시 열어야 했다(제보). 다만 화면을 떠나는 「롬」만은 접는다. */
-                        if (utilAct[i] == ACT_PICK) barOpen = false;
+                        if (utilAct[i] == ACT_PICK || utilAct[i] == ACT_QUIT) barOpen = false;
                         invalidate();
                         return true;
                     }
