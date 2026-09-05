@@ -345,10 +345,13 @@ public final class Updater {
     private static void syncMods(Activity act) {
         try {
             byte[] jb = fetch(MODS + "/mods.json", 10000);
-            org.json.JSONArray arr = new JSONObject(new String(jb, "UTF-8")).getJSONArray("mods");
+            org.json.JSONArray arr = new JSONObject(new String(jb, "UTF-8")).getJSONArray("mods");   /* JSON 으로 안 열리면 여기서 예외 → 옛 색인 유지 */
             File dir = com.dudu.pocketcore.Settings.modsDir();
             dir.mkdirs();
-            StringBuilder got = new StringBuilder();
+            /* ★ 색인부터 쓴다 — 전엔 IPS 를 다 받은 뒤에 썼는데, 하나라도 못 받으면 예외로 빠져 색인이 옛 것으로 남았다.
+               그래서 기기에 「FastCD v1.1 켬/끔」이 다이얼로 안 바뀌고 남아 있었다(제보 2026-09-05). Patcher 는 IPS 없는 항목을 건너뛴다. */
+            try (FileOutputStream fo = new FileOutputStream(new File(dir, "mods.json"))) { fo.write(jb); }
+            StringBuilder got = new StringBuilder(); int failed = 0;
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject e = arr.getJSONObject(i);
                 String id = e.getString("id"), ver = e.optString("ver", "");
@@ -356,18 +359,18 @@ public final class Updater {
                 File ips = new File(dir, id + ".ips");
                 File verf = new File(dir, id + ".ver");
                 if (ips.exists() && ver.equals(readSmall(verf))) continue;
-                byte[] b = fetch(e.getString("url"), 30000);
-                if (b.length < 8 || b[0] != 'P' || b[1] != 'A' || b[2] != 'T' || b[3] != 'C' || b[4] != 'H') continue;
-                FileOutputStream fo = new FileOutputStream(ips);
-                fo.write(b); fo.close();
-                writeSmall(verf, ver);
-                if (got.length() > 0) got.append(" · ");
-                got.append(e.optString("ko", id)).append(' ').append(ver);
+                try {                                                 /* 하나 실패해도 나머지는 받는다 */
+                    byte[] b = fetch(e.getString("url"), 30000);
+                    if (b.length < 8 || b[0] != 'P' || b[1] != 'A' || b[2] != 'T' || b[3] != 'C' || b[4] != 'H') { failed++; continue; }
+                    try (FileOutputStream fo = new FileOutputStream(ips)) { fo.write(b); }
+                    writeSmall(verf, ver);
+                    if (got.length() > 0) got.append(" · ");
+                    got.append(e.optString("ko", id)).append(' ').append(ver);
+                } catch (Exception ex) { failed++; }
             }
-            FileOutputStream fo = new FileOutputStream(new File(dir, "mods.json"));   /* 색인은 항상 최신으로 */
-            fo.write(jb); fo.close();
             if (got.length() > 0)
                 toast(act, "조작 패치 새 판: " + got + " — 설정에서 켜고 게임을 다시 열면 적용됩니다");
+            if (failed > 0) toast(act, "조작 패치 " + failed + "개는 못 받았습니다 — 다음 확인 때 다시 받습니다");
         } catch (Exception e) {
             toast(act, "조작 패치 확인 실패: " + e.getClass().getSimpleName());
         }

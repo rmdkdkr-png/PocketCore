@@ -266,10 +266,27 @@ public class SettingsActivity extends Activity {
 
         final String[] cur = { Settings.get(vals, it) };
         val.setText(it.names[it.indexOf(cur[0])]);
+        if (it.vals.length > 2) {                             /* 다단 = 가로 다이얼 바(유저 2026-09-05) */
+            DialBar bar = new DialBar(this, it.names, it.indexOf(cur[0]), new DialBar.OnPick() {
+                @Override public void onPick(int k) {
+                    cur[0] = it.vals[k]; val.setText(it.names[k]);
+                    Settings.put(it.key, cur[0]); vals.put(it.key, cur[0]);
+                    if ("pocketcore_lang".equals(it.key)) {
+                        Settings.removePrefix("pocketcore_lang_");
+                        java.util.Iterator<String> ki = vals.keySet().iterator();
+                        while (ki.hasNext()) if (ki.next().startsWith("pocketcore_lang_")) ki.remove();
+                    }
+                }
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+            lp.topMargin = dp(8);
+            row.addView(bar, lp);
+        }
 
         row.setClickable(true);
         row.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
+                if (it.vals.length > 2) return;                /* 다이얼 줄은 바에서 고른다 */
                 int i = (it.indexOf(cur[0]) + 1) % it.vals.length;
                 cur[0] = it.vals[i];
                 val.setText(it.names[i]);

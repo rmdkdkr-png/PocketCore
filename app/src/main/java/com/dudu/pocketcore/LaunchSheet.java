@@ -50,6 +50,7 @@ public final class LaunchSheet {
     private final Activity a; private final Games.Game g; private final Runnable onStart;
     private final List<Opt> opts = new ArrayList<>();
     private final List<View> rowViews = new ArrayList<>();
+    private final java.util.HashMap<Integer, DialBar> dials = new java.util.HashMap<>();
     private final List<TextView> valViews = new ArrayList<>();
     private View startBtn;
     private int focus;            /* 0..opts.size()-1 = 줄, opts.size() = 시작 버튼 */
@@ -128,6 +129,7 @@ public final class LaunchSheet {
             Settings.put(o.key, "on".equals(o.cur) ? onLang(m, o.g) : offLang(m, o.g));
         } else Settings.put(o.key, o.cur);
         valViews.get(i).setText(o.name());
+        DialBar b = dials.get(i); if (b != null) b.setIndex(o.idx());          /* 패드로 돌려도 바가 따라간다 */
         a.getWindow().getDecorView().performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
     }
 
@@ -251,11 +253,25 @@ public final class LaunchSheet {
         TextView name = new TextView(a);
         name.setText(o.label); name.setTextColor(o.enabled ? TXT : DIM); name.setTextSize(16);
         top.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView val = new TextView(a);
+        final TextView val = new TextView(a);
         val.setText(o.name()); val.setTextColor(o.enabled ? GOLD : DIM); val.setTextSize(15);
         val.setTypeface(val.getTypeface(), android.graphics.Typeface.BOLD);
         top.addView(val);
         row.addView(top);
+        if (o.enabled && o.vals.length > 2) {                 /* 다단 = 가로 다이얼 바 — 탭/드래그로 고른다(유저 2026-09-05) */
+            DialBar bar = new DialBar(a, o.names, o.idx(), new DialBar.OnPick() {
+                @Override public void onPick(int k) {
+                    o.cur = o.vals[k];
+                    if (o.kind == 0) { Map<String, String> m = Settings.load(); Settings.put(o.key, "on".equals(o.cur) ? onLang(m, o.g) : offLang(m, o.g)); }
+                    else Settings.put(o.key, o.cur);
+                    val.setText(o.name());
+                }
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+            lp.topMargin = dp(8);
+            row.addView(bar, lp);
+            dials.put(i, bar);
+        }
         if (o.help != null && !o.help.isEmpty()) {
             TextView help = new TextView(a);
             help.setText(o.help.replace(" 게임을 다시 열면 적용됩니다.", "").replace(" 게임을 다시 열면 적용.", ""));
@@ -266,7 +282,7 @@ public final class LaunchSheet {
         }
         row.setClickable(true);
         row.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { focus = i; paintFocus(); toggle(i); }
+            @Override public void onClick(View v) { focus = i; paintFocus(); if (o.vals.length <= 2) toggle(i); }   /* 다이얼 줄은 바로 고른다 */
         });
         rowViews.add(row); valViews.add(val);
         return row;

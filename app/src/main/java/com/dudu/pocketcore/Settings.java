@@ -99,41 +99,13 @@ public final class Settings {
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SIDES),
             new Item("ngp_svcsp_band", "기술명 띠",
                 "기술 이름을 화면 **밖** 띠에 띄웁니다. 끄면 게임 그림 위에 겹칩니다."
-                + " 세로가 32px 늘어납니다. SS2 는 해설 띠가 이미 그 자리를 씁니다.",
+                + " 세로가 32px 늘어납니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_BAND),
-            new Item("ngp_ss2sp_comm_draw", "해설창 자리",
-                "SS2 해설 자막을 어디에 그릴지. 「위 띠」가 게임 그림을 안 가립니다.",
-                new String[]{ "above", "inside_bottom", "disabled" },
-                new String[]{ "위 띠", "화면 안 아래", "끔" }, "above").f(Games.F_COMM),
         });
         GROUPS.put("소리", new Item[]{
             new Item("pocketcore_launcher_snd", "런처 소리",
                 "롬 고르는 화면의 부팅음과 테마곡. 게임에 들어가면 멈춥니다.",
                 ONOFF, ONOFF_K, "enabled"),
-            new Item("ngp_ss2sp_dub", "해설 음성",
-                "system/ss2_voice_<언어>.pak 이 있어야 납니다. 없으면 자막만 나옵니다.",
-                ONOFF, ONOFF_K, "enabled").f(Games.F_COMM),
-            new Item("ngp_ss2sp_comm_vol", "해설 크기",
-                "게임 소리는 안 줄입니다. 해설만 이 값만큼 얹습니다.",
-                new String[]{ "0","50","80","100","120","150" },
-                new String[]{ "끔","50%","80%","100%","120%","150%" }, "100").f(Games.F_COMM),
-            new Item("ngp_ss2sp_comm_lang", "해설 언어",
-                "음성팩 이름과 짝입니다 — system/ss2_voice_<이 값>.pak 을 읽습니다."
-                + " 재생 키가 문장 해시라 표와 팩의 판이 어긋나면 그냥 조용해집니다.",
-                new String[]{ "ko" }, new String[]{ "한국어" }, "ko").f(Games.F_COMM),
-        });
-        GROUPS.put("해설", new Item[]{
-            /* 유저 지시(2026-09-03): 캐릭터 챗은 기본 끔, 심판(쿠로코) 목소리는 남긴다 — 코어의 마스터
-               스위치(ngp_ss2sp_comm)를 끄면 둘 다 죽으므로 따로 난 키 두 개를 쓴다. */
-            new Item("ngp_ss2sp_chat", "캐릭터 챗",
-                "SS2 전용. 해설 캐릭터가 경기 상황·관계 대사·메뉴 잡담을 합니다. 꺼도 심판(쿠로코)은 남습니다.",
-                ONOFF, ONOFF_K, "disabled").f(Games.F_COMM).l(),
-            new Item("ngp_ss2sp_ref", "심판 (쿠로코)",
-                "SS2 전용. 대진 호명·라운드 개시·판정. 음성팩이 있으면 목소리도 납니다. 캐릭터 챗과 따로 켜고 끕니다.",
-                ONOFF, ONOFF_K, "enabled").f(Games.F_COMM).l(),
-            new Item("ngp_ss2sp_comm", "해설 전체 스위치",
-                "끄면 캐릭터 챗·심판·자막창이 모두 꺼집니다. 보통은 켜 두고 위 두 항목으로 고릅니다.",
-                ONOFF, ONOFF_K, "enabled").f(Games.F_COMM),
         });
         GROUPS.put("조작", new Item[]{
             new Item("pocketcore_touchpad", "터치 패드",
@@ -162,13 +134,6 @@ public final class Settings {
                 + "(A·B 탭=약/꾹=강, 8프레임부터 강 — 게임 원판정) — 단 강P·강K 버튼은 끔에서도 즉발 강으로"
                 + " 살아 있습니다. 게임을 다시 열면 적용됩니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_BASICS).l(),
-            new Item("ngp_svcsp_holdsync", "SVC 강 발동 당김",
-                "강약 구분 끔(2버튼)에서 A·B 를 꾹 눌러 내는 강이 언제 시작하는지. 게임이 판정을 내리고도 2프레임을"
-                + " 더 끄는데, 그 몫을 돌려받는 것입니다. 쥐는 시간(8프레임)도 강 모션 길이(캐릭터마다 다름)도 그대로입니다."
-                + " 보통 = 2프레임 당김, 약으로 남는 탭 6프레임 유지. 최대 = 4프레임 당김, 약 탭은 4프레임으로 줍니다."
-                + " 강이 굼떠서 답답하면 이것 말고 「빠른 기본기(FastCD)」를 켜세요 — 그쪽이 캐릭터별 모션을 줄입니다.",
-                new String[]{ "mid", "max", "off" },
-                new String[]{ "보통 (약 창 유지)", "최대 (약 창 4f)", "순정" }, "mid").f(Games.F_BASICS).l(),
             new Item("ngp_svcsp_land", "SVC 착지 선입력",
                 "점프 공격 뒤 착지 직전에 누른 기본기를 엔진이 기억했다가 착지하는 순간 대신"
                 + " 눌러 줍니다 — 강P·강K 는 강으로, A·B 는 강약 구분이 끔일 때 쥔 채 착지하면 강·탭이면 약"
@@ -294,6 +259,14 @@ public final class Settings {
      */
     public static void migrate() {
         Map<String, String> m = load();
+        /* 3.90 — 유저 지시: 쿠로코 캐릭터 해설은 아웃(메뉴에서 전부 제거), SVC 강 발동 당김 제거.
+           메뉴만 지우면 예전 값이 options.txt 에 남아 코어가 계속 켜므로 값도 끈다. 표식 키로 한 번만. */
+        if (!"1".equals(m.get("pocketcore_mig390"))) {
+            put("ngp_ss2sp_comm", "disabled"); put("ngp_ss2sp_chat", "disabled"); put("ngp_ss2sp_ref", "disabled");
+            put("ngp_ss2sp_dub", "disabled"); put("ngp_ss2sp_comm_draw", "disabled");
+            put("ngp_svcsp_holdsync", "off");
+            put("pocketcore_mig390", "1");
+        }
         if (!m.containsKey("pocketcore_svc_faststrong")
                 && "enabled".equals(m.get("pocketcore_svc_fastcd")))
             put("pocketcore_svc_faststrong", "svc_faststrong_8");

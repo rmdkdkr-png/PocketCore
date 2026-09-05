@@ -146,6 +146,11 @@ public class PadView extends View {
         { "EXIT", 0.035f, 0.10f },
     };
     private int dragIdx = -1, dragPid = -1, selIdx = -1;
+    /* 배치 모드 두 손가락 핀치 — 고른 상자(없으면 게임 화면)의 크기 (유저 2026-09-05 「두 손 드래그로 크기 변경」) */
+    private boolean pinching = false; private float pinch0 = 0f, pinchBase = 1f; private int pinchSentPct = 0;
+    private static float pinchDist(MotionEvent e) {
+        float dx = e.getX(0) - e.getX(1), dy = e.getY(0) - e.getY(1); return (float) Math.sqrt(dx * dx + dy * dy);
+    }
     private boolean ffDown = false;
     private int ffPid = -1;
     /* 십자 소유제 — 십자를 잡은 손가락은 화면 어디로 흘러도 십자를 놓지 않는다.
@@ -358,7 +363,7 @@ public class PadView extends View {
             line.setColor(selScreen ? 0xccffcc44 : 0x8844ccff);
             c.drawRect(screenBox, line);
             text.setTextSize(h * 0.020f);
-            c.drawText("화면" + (selScreen ? " (선택됨 — [－][＋]로 크기)" : ""),
+            c.drawText("화면" + (selScreen ? " (선택됨 — [－][＋] 또는 두 손가락으로 크기)" : ""),
                     screenBox.centerX(), screenBox.top + h * 0.028f, text);
         }
 
@@ -551,6 +556,13 @@ public class PadView extends View {
         if (physical && !edit && act != MotionEvent.ACTION_DOWN && act != MotionEvent.ACTION_POINTER_DOWN)
             return true;
 
+        if (edit && act == MotionEvent.ACTION_POINTER_DOWN && e.getPointerCount() == 2) {
+            pinching = true; pinch0 = pinchDist(e); pinchSentPct = 0;
+            if (!selScreen && selIdx < 0) selScreen = true;          /* 아무것도 안 골랐으면 게임 화면 */
+            pinchBase = selScreen ? 1f : sc[selIdx];
+            dragIdx = -1; dragScreen = false;
+            invalidate(); return true;
+        }
         if (act == MotionEvent.ACTION_DOWN || act == MotionEvent.ACTION_POINTER_DOWN) {
             int idx = e.getActionIndex();
             float x = e.getX(idx), y = e.getY(idx);
@@ -590,7 +602,10 @@ public class PadView extends View {
                 return true;
             }
             if (barOpen) {
-                for (int i = 0; i < UTIL_EDIT; i++) {
+                /* 「배치」(UTIL_EDIT) 는 위에서 따로 처리 — 그 뒤 칸(종료)까지 전부 본다.
+                   전엔 i < UTIL_EDIT 라 9번 칸 「종료」가 눌러도 안 잡혔다(제보 2026-09-05). */
+                for (int i = 0; i < util.length; i++) {
+                    if (i == UTIL_EDIT || !utilVisible(i)) continue;
                     if (util[i].contains(x, y)) {
                         if (listener != null) listener.onAction(utilAct[i]);
                         /* 순수 토글 — [≡]를 다시 눌러야 닫힌다. 저장·로드·샷은 연달아 쓰는데
@@ -626,6 +641,22 @@ public class PadView extends View {
         }
 
         if (edit) {
+            if (pinching) {
+                if (act == MotionEvent.ACTION_MOVE && e.getPointerCount() >= 2) {
+                    float r = pinchDist(e) / Math.max(1f, pinch0);
+                    if (selScreen) {
+                        int pct = Math.round((r - 1f) * 100f);
+                        if (pct != pinchSentPct && listener != null) { listener.onScreenScale(pct - pinchSentPct); pinchSentPct = pct; }
+                    } else if (selIdx >= 0) {
+                        sc[selIdx] = Math.max(0.6f, Math.min(1.8f, pinchBase * r));
+                    }
+                    invalidate();
+                } else if (act == MotionEvent.ACTION_POINTER_UP || act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) {
+                    pinching = false;
+                    if (selScreen && listener != null) listener.onScreenDrop();
+                }
+                return true;
+            }
             if (act == MotionEvent.ACTION_MOVE && dragIdx >= 0) {
                 for (int i = 0; i < e.getPointerCount(); i++) {
                     if (e.getPointerId(i) != dragPid) continue;

@@ -98,8 +98,8 @@ public final class Games {
 
     private static final Game[] ALL = {
         new Game("ss2", "ngpc", "SAMURAI2",     "사무라이 쇼다운! 2",
-                 "libretro_ss2.so", true, "japanese", "ss2_voice_ko.pak",
-                 new String[]{ F_SP_SS2, F_COMM, F_SIDES }),
+                 "libretro_ss2.so", true, "japanese", null,             /* 3.90: 해설·더빙 아웃(유저) — 음성팩·배지 없음 */
+                 new String[]{ F_SP_SS2, F_SIDES }),
         new Game("svc", "ngpc", "SNKvsCAPCOM1", "정상결전 최강 파이터즈",
                  "libretro_svc.so", true, "japanese", null,   /* 실측 확정 */
                  new String[]{ F_SP_SVC, F_BAND, F_BASICS, F_ACTSHOW, F_FASTCD_SVC }),
