@@ -70,8 +70,12 @@ public final class Updater {
             }
             /* 앱이 최신일 때만 컨텐츠 동기화 — 새 앱을 설치하러 떠나는 중이면 다음에 받는다.
                앱(APK)은 앱이 바뀔 때만 갈고, 코어·음성팩·한글패치는 여기서 따로 받는다. */
-            if (idle) { syncCores(act, base); syncPatches(act, base); syncMods(act);
-                        syncDesign(base); showNews(act, base); }
+            /* 자료(한패 색인·IPS·조작패치·디자인)는 앱이 최신이 아니어도 받는다 — 전엔 새 앱 안내가 뜨면
+               전부 건너뛰어, 설치를 미룬 기기는 색인을 영영 못 받아 롬 스캔이 순정 판별을 못 했다(2026-09-05).
+               코어는 코드라 앱이 최신일 때만(옛 앱에 새 코어를 얹지 않는다). 소식 창은 설치 안내와 겹치지 않게. */
+            if (idle) syncCores(act, base);
+            syncPatches(act, base); syncMods(act); syncDesign(base);
+            if (idle) showNews(act, base);
         }}).start();
     }
 
@@ -275,6 +279,21 @@ public final class Updater {
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
         act.startActivity(i);
         return false;
+    }
+
+    /** 색인만 받아 둔다 — 롬 스캔이 순정 판별(rom_md5)에 쓴다. 색인이 없는 기기에서 스캔이 직접 부른다.
+     *  오류 페이지를 색인으로 남기지 않게 JSON 으로 열리는지 본 뒤 쓴다. 실패는 조용히 false. */
+    static boolean fetchIndex() {
+        try {
+            byte[] jb = fetch(baseUrl() + "/patches.json", 10000);
+            new JSONObject(new String(jb, "UTF-8")).getJSONObject("patches");
+            File dir = new File(MainActivity.root(), "patch");
+            dir.mkdirs();
+            try (FileOutputStream pj = new FileOutputStream(new File(dir, "patches.json"))) { pj.write(jb); }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** 한글패치 동기화 — 릴리즈의 patches.json(게임 id → 최신 IPS 주소·판)을 보고

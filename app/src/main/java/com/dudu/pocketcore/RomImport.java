@@ -103,7 +103,11 @@ public final class RomImport {
             walk(Environment.getExternalStorageDirectory(), 0, new int[]{ 0 }, found);
             /* 머리표를 읽어 «패치가 준비된 게임»만 가려낸다. 파일마다 12바이트를 읽으므로
                반드시 여기(작업 스레드)에서 한다 — 목록 그릴 때 하면 화면이 걸린다. */
-            final java.util.Map<String, java.util.Set<String>> known = knownRoms();
+            java.util.Map<String, java.util.Set<String>> known = knownRoms();
+            /* 색인이 없으면 지금 받아 본다 — 앱 새 판 안내가 떠 있던 기기는 첫 동기화를 못 해 색인이
+               없었고, 그때 스캔이 82개를 전부 「순정」이라 적었다(제보 2026-09-05). */
+            if (known.isEmpty() && Updater.fetchIndex()) known = knownRoms();
+            final boolean noIndex = known.isEmpty();
             final List<File> ready = new ArrayList<>();
             final java.util.Map<File, String> why = new java.util.HashMap<>();   /* 빠진 이유 — 라벨에 단다 */
             for (File f : found) {
@@ -111,7 +115,13 @@ public final class RomImport {
                 if (g == null)          { why.put(f, "모르는 롬"); continue; }
                 if (!g.patchable)       { why.put(f, "한글패치 없음"); continue; }      /* ① 한패가 있는 게임만 */
                 java.util.Set<String> hs = known.get(g.id);
-                if (hs != null && !hs.contains(md5(f))) {                             /* ② 아는 원본만 */
+                if (hs == null) {                                                     /* ② 표가 없으면 «모른다»고 쓴다 — 순정이라 우기지 않는다 */
+                    why.put(f, noIndex ? "색인을 못 받아 순정인지 확인 못 함 — 인터넷을 켜고 다시 스캔하거나, 순정이 확실하면 직접 체크"
+                                       : "이 게임의 원본 표가 색인에 아직 없음 — 순정이 확실하면 직접 체크");
+                    ready.add(f);                                                     /* 보이되 기본 체크는 해제(라벨의 ⚠ 가 푼다) */
+                    continue;
+                }
+                if (!hs.contains(md5(f))) {                                           /* ② 아는 원본만 */
                     why.put(f, "확인 안 한 덤프이거나 이미 패치된 롬");
                     continue;
                 }
@@ -119,7 +129,7 @@ public final class RomImport {
             }
             a.runOnUiThread(new Runnable() { @Override public void run() {
                 wait.dismiss();
-                showList(a, found, ready, why, false);
+                showList(a, found, ready, why, false, noIndex);
             }});
         }}).start();
     }
@@ -150,7 +160,7 @@ public final class RomImport {
      */
     private static void showList(final Activity a, final List<File> found,
                                  final List<File> ready, final java.util.Map<File, String> why,
-                                 final boolean all) {
+                                 final boolean all, final boolean noIndex) {
         final int etc = found.size() - ready.size();
         final List<File> show = all ? found : ready;
         if (show.isEmpty()) {
@@ -166,7 +176,7 @@ public final class RomImport {
             if (etc > 0) b.setNeutralButton("찾은 것 " + found.size() + "개 보기",
                     new DialogInterface.OnClickListener() {
                         @Override public void onClick(DialogInterface d, int w) {
-                            showList(a, found, ready, why, true);
+                            showList(a, found, ready, why, true, noIndex);
                         }
                     });
             b.show();
@@ -193,7 +203,8 @@ public final class RomImport {
         }
         AlertDialog.Builder b = new AlertDialog.Builder(a)
                 .setTitle(all ? "찾은 롬 " + found.size() + "개"
-                              : "한글패치가 있는 순정 롬 " + ready.size() + "개")
+                        : noIndex ? "롬 " + ready.size() + "개 — 순정인지 확인 못 함 (색인 없음)"
+                                  : "한글패치가 있는 순정 롬 " + ready.size() + "개")
                 .setMultiChoiceItems(labels, checked,
                         new DialogInterface.OnMultiChoiceClickListener() {
                             @Override public void onClick(DialogInterface d, int w, boolean c) {
@@ -220,7 +231,7 @@ public final class RomImport {
             b.setNeutralButton("나머지 " + etc + "개도 보기",
                     new DialogInterface.OnClickListener() {
                         @Override public void onClick(DialogInterface d, int w) {
-                            showList(a, found, ready, why, true);
+                            showList(a, found, ready, why, true, noIndex);
                         }
                     });
         b.show();
@@ -228,7 +239,8 @@ public final class RomImport {
 
     /* ── 「아는 원본」 표 ─────────────────────────────────────────── */
 
-    /** 색인(patch/patches.json)의 게임별 rom_md5 목록. 없으면 빈 map — 그러면 안 가린다. */
+    /** 색인(patch/patches.json)의 게임별 rom_md5 목록. 없으면 빈 map — 그러면 scan 이 받아 보고,
+     *  그래도 없으면 «확인 못 함»으로 보여 준다(순정이라 우기지 않는다). */
     private static java.util.Map<String, java.util.Set<String>> knownRoms() {
         java.util.Map<String, java.util.Set<String>> out = new java.util.HashMap<>();
         File f = new File(MainActivity.root(), "patch/patches.json");
