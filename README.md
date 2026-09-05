@@ -11,7 +11,7 @@
 
 *아직 프로토타입입니다 — 미숙한 구석이 있고, 지원하는 롬도 아래 표의 일부(네오지오 포켓)뿐입니다.*
 
-<img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_svc.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ss2.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ss1.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_lb.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_kofr2.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ffc.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_cfc1.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ms1.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ms2.png" width="11%">
+<img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_svc.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ss2.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ss1.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_lb.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_kofr2.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ffc.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_cfc1.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_cfc2.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ms1.png" width="11%"> <img src="https://github.com/rmdkdkr-png/PocketCore/releases/download/app/thumb_ms2.png" width="11%">
 
 </div>
 
@@ -48,6 +48,7 @@
 | 더 킹 오브 파이터즈 R-2 | v0.2.4 |  |
 | 아랑전설 퍼스트 컨택트 | v0.1a |  |
 | SNK vs. 캡콤 카드 파이터즈 클래시 | v0.12 | 영문판(UE) 전용 — 일본판에는 안 맞습니다 |
+| SNK vs. 캡콤 카드 파이터즈 클래시 2 | v0.1 |  |
 | 메탈슬러그 1st 미션 | v0.1 |  |
 | 메탈슬러그 2nd 미션 | v0.7 |  |
 
