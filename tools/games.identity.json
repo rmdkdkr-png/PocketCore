@@ -15,5 +15,5 @@
   {"id":"cfc1j", "platform":"ngpc", "tag":"CARD FIGHTER", "ko":"카드 파이터즈 클래시 (일본판)", "core":"libretro_svc.so", "patchable":false, "baseLang":"japanese", "voice":null, "features":[]},
   {"id":"cfc2", "platform":"ngpc", "tag":"CARD FIGHT 2", "ko":"카드 파이터즈 클래시 2", "core":"libretro_svc.so", "patchable":true, "baseLang":"japanese", "voice":null, "features":[]}
  ],
- "displayOrder": ["svc","ss2","ss1","lb","kofr2","ffc","cfc1","ms1","ms2"]
+ "displayOrder": ["svc", "ss2", "ss1", "lb", "kofr2", "ffc", "cfc1", "cfc2", "ms1", "ms2"]
 }

@@ -144,7 +144,7 @@ public final class Games {
      *  lbj 는 여기 없다(배포 표에서 빠짐) — displayOrder() 는 빠진 게임을 뒤에 붙여 준다.
      *  배포 스크립트는 ExportGames 가 뽑은 이 배열을 그대로 쓴다(games_catalog 의 것은 예비). */
     public static final String[] DISPLAY_ORDER =
-        { "svc", "ss2", "ss1", "lb", "kofr2", "ffc", "cfc1", "ms1", "ms2" };
+        { "svc", "ss2", "ss1", "lb", "kofr2", "ffc", "cfc1", "cfc2", "ms1", "ms2" };
     public static Game[] displayOrder() {
         java.util.ArrayList<Game> out = new java.util.ArrayList<>();
         for (String id : DISPLAY_ORDER) for (Game g : ALL) if (g.id.equals(id)) out.add(g);
