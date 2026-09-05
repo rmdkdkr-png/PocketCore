@@ -133,7 +133,7 @@ public final class Games {
         new Game("cfc1j", "ngpc", "CARD FIGHTER", "카드 파이터즈 클래시 (일본판)",
                  "libretro_svc.so", false, "japanese", null, NONE),
         new Game("cfc2",  "ngpc", "CARD FIGHT 2", "카드 파이터즈 클래시 2",
-                 "libretro_svc.so", false, "japanese", null, NONE),
+                 "libretro_svc.so", true, "japanese", null, NONE),      /* 한패 v0.1 (2026-09-05, 일본판 전용) — patchable 은 색인으로 못 바꿔 APK 3.89 */
     };
 
     /** 마스터 표 전체 (identify 순서 — 구체 tag 먼저). 배포·문서 export 가 읽는다. */
