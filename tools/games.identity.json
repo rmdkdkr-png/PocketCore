@@ -2,9 +2,9 @@
  "ver": 1,
  "source": "Games.java (app SSOT) — 손대지 말고 ExportGames 로 재생성",
  "games": [
-  {"id":"ss2", "platform":"ngpc", "tag":"SAMURAI2", "ko":"사무라이 스피리츠! 2", "core":"libretro_ss2.so", "patchable":true, "baseLang":"japanese", "voice":"ss2_voice_ko.pak", "features":["sp:ss2","comm","sides"]},
+  {"id":"ss2", "platform":"ngpc", "tag":"SAMURAI2", "ko":"사무라이 쇼다운! 2", "core":"libretro_ss2.so", "patchable":true, "baseLang":"japanese", "voice":"ss2_voice_ko.pak", "features":["sp:ss2","comm","sides"]},
   {"id":"svc", "platform":"ngpc", "tag":"SNKvsCAPCOM1", "ko":"정상결전 최강 파이터즈", "core":"libretro_svc.so", "patchable":true, "baseLang":"japanese", "voice":null, "features":["sp:svc","band","basics","actshow","fastcd:svc"]},
-  {"id":"ss1", "platform":"ngpc", "tag":"SAMURAI", "ko":"사무라이 스피리츠!", "core":"libretro_svc.so", "patchable":true, "baseLang":"japanese", "voice":null, "features":[]},
+  {"id":"ss1", "platform":"ngpc", "tag":"SAMURAI", "ko":"사무라이 쇼다운!", "core":"libretro_svc.so", "patchable":true, "baseLang":"japanese", "voice":null, "features":[]},
   {"id":"lb", "platform":"ngpc", "tag":"LASTBLADE", "ko":"월화의 검사 특별편", "core":"libretro_svc.so", "patchable":true, "baseLang":"japanese", "voice":null, "features":[]},
   {"id":"lbj", "platform":"ngpc", "tag":"GEKKA", "ko":"월화의 검사 특별편 (일본판)", "core":"libretro_svc.so", "patchable":false, "baseLang":"japanese", "voice":null, "features":[]},
   {"id":"kofr2", "platform":"ngpc", "tag":"KOF R2", "ko":"더 킹 오브 파이터즈 R-2", "core":"libretro_svc.so", "patchable":true, "baseLang":"japanese", "voice":null, "features":["sp:kof","fastcd:kof"]},

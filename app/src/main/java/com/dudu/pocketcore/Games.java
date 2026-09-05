@@ -97,13 +97,13 @@ public final class Games {
     private static final String[] NONE = {};
 
     private static final Game[] ALL = {
-        new Game("ss2", "ngpc", "SAMURAI2",     "사무라이 스피리츠! 2",
+        new Game("ss2", "ngpc", "SAMURAI2",     "사무라이 쇼다운! 2",
                  "libretro_ss2.so", true, "japanese", "ss2_voice_ko.pak",
                  new String[]{ F_SP_SS2, F_COMM, F_SIDES }),
         new Game("svc", "ngpc", "SNKvsCAPCOM1", "정상결전 최강 파이터즈",
                  "libretro_svc.so", true, "japanese", null,   /* 실측 확정 */
                  new String[]{ F_SP_SVC, F_BAND, F_BASICS, F_ACTSHOW, F_FASTCD_SVC }),
-        new Game("ss1", "ngpc", "SAMURAI",      "사무라이 스피리츠!",
+        new Game("ss1", "ngpc", "SAMURAI",      "사무라이 쇼다운!",
                  "libretro_svc.so", true, "japanese", null, NONE),
         new Game("lb",  "ngpc", "LASTBLADE",    "월화의 검사 특별편",
                  "libretro_svc.so", true, "japanese", null, NONE),

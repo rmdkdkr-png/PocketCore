@@ -19,7 +19,7 @@ cores = rj('cores.json'); core_v = cores.get('cores', {}); packs = cores.get('pa
 news = rj('news.json').get('items', [])
 
 def news_for(gid, n=6):
-    """가장 긴 별칭이 맞는 게임에 귀속 — '사무라이 스피리츠!' 가 '사무라이 스피리츠! 2' 를 삼키지 않게."""
+    """가장 긴 별칭이 맞는 게임에 귀속 — '사무라이 쇼다운!' 가 '사무라이 쇼다운! 2' 를 삼키지 않게."""
     out = []
     for it in news:
         t = it.get('text', ''); best = None; blen = 0
