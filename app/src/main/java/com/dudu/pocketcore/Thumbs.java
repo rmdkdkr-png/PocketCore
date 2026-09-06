@@ -68,10 +68,9 @@ public final class Thumbs {
                     MainActivity.optsFile().getAbsolutePath());
             if (rc != 0) return false;
             Emu.nativeAudioPause();               /* 소리 없이 */
-            /* 띠·기둥·해설창 없이 게임 화면만 — 런타임 옵션이라 options.txt 는 안 건드린다 */
+            /* 띠 없이 게임 화면만 — 런타임 옵션이라 options.txt 는 안 건드린다.
+               기둥·해설창은 폐기해서 끌 것이 없다(2026-09-07). */
             Emu.nativeSetOption("ngp_svcsp_band", "disabled");
-            Emu.nativeSetOption("ngp_ss2sp_sides", "disabled");
-            Emu.nativeSetOption("ngp_ss2sp_comm_draw", "disabled");
             Emu.nativeRunFrames(BOOT_FRAMES);
             int w = Emu.nativeFrameWidth(), h = Emu.nativeFrameHeight();
             Bitmap bmp = null;

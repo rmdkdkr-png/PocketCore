@@ -90,18 +90,17 @@ public final class Games {
          F_ACTSHOW 판독 오버레이        = pocketcore_svc_actshow
          F_BAND    기술명 띠            = ngp_svcsp_band
          F_FASTCD_SVC / F_FASTCD_KOF   빠른 기본기 = pocketcore_<id>_fastcd
-         F_COMM    캐릭터 해설·더빙     = ngp_ss2sp_comm(+dub/vol/lang/draw)
-         F_SIDES   기둥 아트            = ngp_ss2sp_sides   */
+         (F_COMM 해설·더빙 · F_SIDES 기둥 아트는 폐기했다 — 2026-09-07) */
     public static final String
         F_SP_SVC="sp:svc", F_SP_KOF="sp:kof", F_SP_SS2="sp:ss2", F_SP_LB="sp:lb",
-        F_ACTSHOW="actshow", F_BAND="band", F_FASTCD_SVC="fastcd:svc", F_FASTCD_KOF="fastcd:kof",
-        F_COMM="comm", F_SIDES="sides";
+        F_ACTSHOW="actshow", F_BAND="band",
+        F_FASTCD_SVC="fastcd:svc", F_FASTCD_KOF="fastcd:kof";
     private static final String[] NONE = {};
 
     private static final Game[] ALL = {
         new Game("ss2", "ngpc", "SAMURAI2",     "사무라이 쇼다운! 2",
                  "libretro_ss2.so", true, "japanese", null,             /* 3.90: 해설·더빙 아웃(유저) — 음성팩·배지 없음 */
-                 new String[]{ F_SP_SS2, F_SIDES }),
+                 new String[]{ F_SP_SS2 }),
         new Game("svc", "ngpc", "SNKvsCAPCOM1", "정상결전 최강 파이터즈",
                  "libretro_svc.so", true, "japanese", null,   /* 실측 확정 */
                  new String[]{ F_SP_SVC, F_BAND, F_ACTSHOW, F_FASTCD_SVC }),

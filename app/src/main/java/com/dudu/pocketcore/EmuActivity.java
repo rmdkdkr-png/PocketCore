@@ -114,8 +114,7 @@ public class EmuActivity extends Activity {
                        : (game != null && game.has(Games.F_SP_LB)) ? "kof" : "ngp";
         pad.setProfile(profile, (game != null) ? game.id : "ngp");
         /* 상단바의 게임별 칸 — 코어가 이 게임에서 실제로 쓰는 기능만. 게임 표가 단일 출처다. */
-        pad.setCoreFeatures(game != null && game.has(Games.F_BAND),
-                            game != null && game.has(Games.F_SIDES));
+        pad.setCoreFeatures(game != null && game.has(Games.F_BAND));
         pad.setListener(new PadView.Listener() {
             @Override public void onMask(int mask) { padMask = mask; }
             @Override public void onAction(int action) { handleAction(action); }
@@ -148,7 +147,6 @@ public class EmuActivity extends Activity {
         applyScreenLayout();
 
         loadCore();
-        checkVoicePack();
         watchRom();
     }
 
@@ -309,15 +307,6 @@ public class EmuActivity extends Activity {
         return getApplicationInfo().nativeLibraryDir + "/" + lib;
     }
 
-    /** 해설 음성팩이 있어야 하는 게임인데 없으면 알려 준다 — 조용한 실패가 제일 나쁘다. */
-    private void checkVoicePack() {
-        if (game == null || game.voice == null) return;
-        if (new File(MainActivity.sysDir(), game.voice).exists()) return;
-        if (new File(MainActivity.sysDir(), "ngpvoice.pak").exists()) return;  /* 옛 이름 */
-        h.postDelayed(new Runnable() { @Override public void run() {
-            toast("해설 음성팩 없음 — system/" + game.voice + " 에 넣으세요");
-        }}, 2500);
-    }
 
     private void loadCore() {
         int rc = Emu.nativeLoad(corePath(), romPath,
@@ -394,9 +383,6 @@ public class EmuActivity extends Activity {
             break;
         case PadView.ACT_BAND:
             toggleCoreOpt("ngp_svcsp_band", "기술명 띠");
-            break;
-        case PadView.ACT_SIDES:
-            toggleCoreOpt("ngp_ss2sp_sides", "기둥 아트");
             break;
         case PadView.ACT_CFG: {
             /* 게임 중 옵션 창 — 실행 전 선택 창과 같은 것. 「적용하고 이어하기」= 지금 자리 저장 → 옵션대로 다시 굽기 → 다시 열어 그 자리부터

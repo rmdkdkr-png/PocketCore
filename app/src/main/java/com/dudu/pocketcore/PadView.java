@@ -37,7 +37,8 @@ public class PadView extends View {
         if (edit) invalidate();
     }
 
-    public static final int ACT_BAND = 9, ACT_SIDES = 10;   /* 코어 옵션을 게임 중에 뒤집는 칸 */
+    public static final int ACT_BAND = 9;   /* 코어 옵션을 게임 중에 뒤집는 칸 */
+    /* ACT_SIDES(기둥) 는 2026-09-07 폐기 — 코어에서 빠지는 기능을 화면에 남기지 않는다. */
     public static final int ACT_QUIT = 11;                    /* 앱 종료 — 「목록」(ACT_PICK)과 달라야 한다(유저 2026-09-05) */
     public static final int ACT_SAVE = 1, ACT_LOAD = 2, ACT_SHOT = 3, ACT_RESET = 4, ACT_PICK = 5, ACT_SLOT = 6, ACT_SPK = 7,
             /* 설정 — 게임 안에서 바로 연다. 예전에는 「롬」으로 게임을 내리고
@@ -109,23 +110,23 @@ public class PadView extends View {
 
     private float dpadR, btnR;
     private final RectF opt = new RectF();
-    private final RectF[] util = new RectF[10];
+    private final RectF[] util = new RectF[9];
     /* 「종료」= 게임을 닫고 고르는 창으로 (제보: 「롬」은 사실 종료 버튼인데 이름이 달랐다).
        「배치」= 버튼 자리·크기 + 게임 화면 상자까지 한꺼번에 편집(제보: 「키」란 이름이 좁았다). */
     /* 세 무리로 묶어 둔다 — 두 줄로 접힐 때 무리가 갈리지 않게 순서가 곧 배치다.
          ① 상태  슬롯·저장·로드·샷·리셋
-         ② 이 게임(코어 기능)  띠·기둥 — 게임마다 있는 것만 칸이 생긴다
+         ② 이 게임(코어 기능)  띠 — 게임마다 있는 것만 칸이 생긴다 (기둥은 2026-09-07 폐기)
          ③ 마무리  설정·배치·종료 */
     private final String[] utilLabel = { "슬롯1", "저장", "로드", "샷", "리셋",
-                                         "띠", "기둥", "설정", "배치", "종료" };
+                                         "띠", "설정", "배치", "종료" };
     private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_SHOT, ACT_RESET,
-                                    ACT_BAND, ACT_SIDES, ACT_CFG, 0, ACT_QUIT };
-    private static final int UTIL_EDIT = 8;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
+                                    ACT_BAND, ACT_CFG, 0, ACT_QUIT };
+    private static final int UTIL_EDIT = 7;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
     /* 이 게임이 코어에서 쓰는 기능 — 게임별 칸은 여기서만 생긴다.
        전에는 「이 게임에 그 기능이 있나」를 패드 프로필 모양(prof == P_SS2)으로 판단했다.
        게임 표에 이미 있는 사실을 모양으로 되짚은 것이라 진실이 두 벌이 됐다.
        이제 EmuActivity 가 게임 표를 읽어 알려 준다. */
-    private boolean hasBand = false, hasSides = false;
+    private boolean hasBand = false;
     private float barBottom = 0;   /* 두 줄로 접히므로 편집 안내문은 «마지막 줄» 아래에 놓는다 */
     private final RectF minus = new RectF(), plus = new RectF();
     private final RectF barHandle = new RectF();
@@ -233,8 +234,8 @@ public class PadView extends View {
     }
 
     /** 이 게임이 코어에서 쓰는 기능을 알려 준다 — 상단바의 게임별 칸이 이걸 보고 생긴다. */
-    public void setCoreFeatures(boolean band, boolean sides) {
-        hasBand = band; hasSides = sides;
+    public void setCoreFeatures(boolean band) {
+        hasBand = band;
         if (getWidth() > 0) layoutBar(getWidth(), getHeight());
         invalidate();
     }
@@ -243,7 +244,6 @@ public class PadView extends View {
     private boolean utilVisible(int i) {
         switch (utilAct[i]) {
         case ACT_BAND:  return hasBand;
-        case ACT_SIDES: return hasSides;
         default:        return true;
         }
     }

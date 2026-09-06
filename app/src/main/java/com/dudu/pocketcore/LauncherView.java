@@ -237,7 +237,6 @@ public final class LauncherView extends View {
             int bn = 0;
             if (cur.pat) { lb[bn] = "한패"; bc[bn++] = 0xff2e7d32; }
             if (cur.sp)  { lb[bn] = "SP";   bc[bn++] = 0xffb26500; }
-            if (cur.dub) { lb[bn] = "더빙"; bc[bn++] = 0xff5e35b1; }
             float padX = h * 0.010f, gap = h * 0.008f, bh = h * 0.028f;
             float bw = 0;
             for (int i = 0; i < bn; i++) bw += tp.measureText(lb[i]) + padX * 2 + (i > 0 ? gap : 0);

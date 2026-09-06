@@ -95,9 +95,8 @@ public final class Settings {
                 "자동은 기기 회전을 따릅니다. 가로는 게임기·거치 플레이용 — 기둥 아트도 양옆에 다 들어갑니다.",
                 new String[]{ "auto", "portrait", "landscape" },
                 new String[]{ "자동", "세로", "가로" }, "auto"),
-            new Item("ngp_ss2sp_sides", "기둥 아트",
-                "게임 양옆에 64px 기둥을 세웁니다. 폭이 160 → 288 이 됩니다.",
-                ONOFF, ONOFF_K, "enabled").f(Games.F_SIDES),
+            /* 「기둥 아트」(ngp_ss2sp_sides) 는 2026-09-07 유저 지시로 폐기했다.
+               해설·더빙(ngp_ss2sp_comm 계열)은 3.90 에 이미 뺐고, 남은 배관도 같이 걷어냈다. */
             new Item("ngp_svcsp_band", "기술명 띠",
                 "기술 이름을 화면 **밖** 띠에 띄웁니다. 끄면 게임 그림 위에 겹칩니다."
                 + " 세로가 32px 늘어납니다.",
@@ -274,8 +273,6 @@ public final class Settings {
         /* 3.90 — 유저 지시: 쿠로코 캐릭터 해설은 아웃(메뉴에서 전부 제거), SVC 강 발동 당김 제거.
            메뉴만 지우면 예전 값이 options.txt 에 남아 코어가 계속 켜므로 값도 끈다. 표식 키로 한 번만. */
         if (!"1".equals(m.get("pocketcore_mig390"))) {
-            put("ngp_ss2sp_comm", "disabled"); put("ngp_ss2sp_chat", "disabled"); put("ngp_ss2sp_ref", "disabled");
-            put("ngp_ss2sp_dub", "disabled"); put("ngp_ss2sp_comm_draw", "disabled");
             put("pocketcore_mig390", "1");
         }
         if (!m.containsKey("pocketcore_svc_faststrong")

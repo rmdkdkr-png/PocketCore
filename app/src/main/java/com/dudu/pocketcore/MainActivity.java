@@ -324,7 +324,7 @@ public class MainActivity extends Activity {
                 LauncherView.Item it = new LauncherView.Item(r, nm);
                 if (g != null) {
                     it.sp  = g.has(Games.F_SP_SVC);   /* 게임 표의 features 가 단일 출처 */
-                    it.dub = g.voice != null && new File(sysDir(), g.voice).exists();
+                    it.dub = false;   /* 해설·더빙 폐기(2026-09-07) */
                     it.pat = new File(new File(root(), "patch"), g.id + "_ko.ips").exists()
                           || assetExists("patch/" + g.id + "_ko.ips");
                     String sub = meta.get(g.id);
@@ -512,9 +512,7 @@ public class MainActivity extends Activity {
                 + "# 기술명 띠 — 화면 밖 띠에 기술 이름을 띄운다(게임 그림을 안 가린다).\n"
                 + "ngp_svcsp_band=enabled\n"
                 + "#\n"
-                + "# 해설 언어. 음성팩 이름과 짝이다 — system/ss2_voice_<언어>.pak 을 읽는다.\n"
                 + "# 재생 키가 문장 해시라서 표와 팩의 판이 어긋나면 그냥 조용해진다.\n"
-                + "ngp_ss2sp_comm_lang=ko\n"
                 + "ngp_language=japanese\n"
                 + "ngp_svcsp_engine=enabled\n"
                 + "# KOF R-2 원버튼(R=SP, 탭 약/꾹 강). 기본 꺼짐 — 켜면 R 이 A+B 대신 SP.\n"
@@ -522,7 +520,6 @@ public class MainActivity extends Activity {
                 + "ngp_kofsp_toast=enabled\n"
                 + "ngp_svcsp_toast=enabled\n"
                 + "ngp_ss2sp=enabled\n"
-                + "ngp_ss2sp_comm=disabled\n"
                 + "# 화면 방향(auto/portrait/landscape)·터치 패드(auto/on/off) — 게임기(가로·물리 패드)용.\n"
                 + "# 배포 레벨: stable=정식(검증된 판만) / test=시험(나오는 대로). 앱·코어 공통.\n"
                 + "pocketcore_level=stable\n"
@@ -531,10 +528,7 @@ public class MainActivity extends Activity {
                 + "# 캐릭터 챗은 기본 끔, 심판(쿠로코)은 켬 — 둘은 따로 논다(유저 지시 2026-09-03).\n"
                 + "ngp_ss2sp_chat=disabled\n"
                 + "ngp_ss2sp_ref=disabled\n"
-                + "ngp_ss2sp_comm_draw=disabled\n"
-                + "ngp_ss2sp_sides=enabled\n"
-                + "ngp_ss2sp_comm_vol=100\n"
-                + "ngp_ss2sp_dub=enabled\n";
+                + "ngp_ss2sp=enabled\n";
         try (java.io.FileOutputStream fo = new java.io.FileOutputStream(f)) {
             fo.write(def.getBytes("UTF-8"));
         } catch (Exception ignored) { }
