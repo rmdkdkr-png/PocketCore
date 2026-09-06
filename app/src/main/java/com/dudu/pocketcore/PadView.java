@@ -160,6 +160,29 @@ public class PadView extends View {
     private int dpadPid = -1;
     private int dpadMask = 0, dpadLast = 0;
     private final RectF dpadArc = new RectF();   /* 십자 섹터 그리기용 — onDraw 안 할당 금지 */
+    /* ★★ 십자키 «단일 출처» — 판정과 그리기가 이 표 하나를 같이 본다.
+       따로 두면 오늘 고친 병(그림과 판정이 다르다)이 그대로 다시 난다.
+       DPAD_HALF = 정방향 반폭(도). 대각 반폭은 남는 각을 넷으로 나눠 자동으로 정해진다.
+       48/42 → 54/36 으로 넓혔다: ← 홀드 가드가 ↙ 로 새는 것을 줄인다(이식소 권고).
+       각은 «수학 기준»(반시계, 0=오른쪽, 90=위). 화면각 = −수학각이다. */
+    private static final float DPAD_HALF = 27f;                 /* 정방향 54도 */
+    private static float diagHalf() { return (360f - 8f * DPAD_HALF) / 8f; }   /* = 18도 */
+    /* 여덟 갈래의 «중심각». 0·2·4·6 이 정방향, 1·3·5·7 이 대각이다. */
+    private static final float[] DPAD_CENTER = { 0f, 45f, 90f, 135f, 180f, 225f, 270f, 315f };
+    private static float halfOf(int k) { return (k % 2 == 0) ? DPAD_HALF : diagHalf(); }
+    /** 갈래 k 가 내는 비트. */
+    private static int dpadBits(int k) {
+        switch (k) {
+            case 0: return 1 << Emu.RIGHT;
+            case 1: return (1 << Emu.RIGHT) | (1 << Emu.UP);
+            case 2: return 1 << Emu.UP;
+            case 3: return (1 << Emu.LEFT) | (1 << Emu.UP);
+            case 4: return 1 << Emu.LEFT;
+            case 5: return (1 << Emu.LEFT) | (1 << Emu.DOWN);
+            case 6: return 1 << Emu.DOWN;
+            default: return (1 << Emu.RIGHT) | (1 << Emu.DOWN);
+        }
+    }
 
     public PadView(Context c) {
         super(c);
@@ -392,25 +415,13 @@ public class PadView extends View {
                    정방향 48도(±24) 는 밝게, 대각 42도는 한 단계 어둡게 둔다. */
                 float dcx = cx(i), dcy = cy(i), R = radOf(i);
                 dpadArc.set(dcx - R, dcy - R, dcx + R, dcy + R);
-                /* {시작각, 끝각(수학 기준·반시계), 비트, 정방향인가} */
-                final float[][] SEC = {
-                    { -24f,  24f, Emu.RIGHT, 1 }, {  66f, 114f, Emu.UP,   1 },
-                    { 156f, 204f, Emu.LEFT,  1 }, { 246f, 294f, Emu.DOWN, 1 },
-                    {  24f,  66f, -1, 0 }, { 114f, 156f, -1, 0 },
-                    { 204f, 246f, -1, 0 }, { 294f, 336f, -1, 0 },
-                };
-                for (float[] sc4 : SEC) {
-                    boolean on;
-                    if (sc4[3] > 0) on = bit((int) sc4[2]);
-                    else {
-                        /* 대각은 두 비트가 함께 서 있을 때 */
-                        float mid = (sc4[0] + sc4[1]) * 0.5f;
-                        boolean up = mid > 0f && mid < 180f, right = mid < 90f || mid > 270f;
-                        on = bit(up ? Emu.UP : Emu.DOWN) && bit(right ? Emu.RIGHT : Emu.LEFT);
-                    }
-                    fill.setColor(on ? 0x77ffffff : (sc4[3] > 0 ? 0x33ffffff : 0x22ffffff));
-                    /* 화면 각도는 시계방향이라 부호를 뒤집는다 */
-                    c.drawArc(dpadArc, -sc4[1], sc4[1] - sc4[0], true, fill);
+                for (int k = 0; k < 8; k++) {
+                    float half = halfOf(k), c0 = DPAD_CENTER[k];
+                    int bits = dpadBits(k);
+                    boolean on = (dpadMask & bits) == bits && bits != 0;
+                    fill.setColor(on ? 0x77ffffff : (k % 2 == 0 ? 0x33ffffff : 0x1fffffff));
+                    /* 화면각 = −수학각. 섹터 [c−h, c+h] → arc(start = −(c+h), sweep = 2h) */
+                    c.drawArc(dpadArc, -(c0 + half), 2f * half, true, fill);
                 }
                 /* 가운데 데드존 — 여기선 아무 방향도 안 난다 */
                 fill.setColor(0x22000000);
@@ -524,17 +535,8 @@ public class PadView extends View {
         return -1;
     }
 
-    /* 8방 섹터 중심각 — 비트 마스크 기준 */
-    private static float dirCenter(int m) {
-        boolean u = (m & (1 << Emu.UP)) != 0, d = (m & (1 << Emu.DOWN)) != 0;
-        boolean l = (m & (1 << Emu.LEFT)) != 0, r = (m & (1 << Emu.RIGHT)) != 0;
-        if (r && !u && !d) return 0;   if (r && u) return 45;
-        if (u && !l && !r) return 90;  if (l && u) return 135;
-        if (l && !u && !d) return 180; if (l && d) return 225;
-        if (d && !l && !r) return 270; if (r && d) return 315;
-        return -1;
-    }
-    private static boolean isDiag(int m) { return Integer.bitCount(m) == 2; }
+    /* dirCenter()·isDiag() 는 뺐다 — 각도는 이제 DPAD_CENTER/halfOf() «한 곳»에서만 온다.
+       두 벌로 두면 그림과 판정이 어긋난다(2026-09-06 에 그 병으로 고쳤다). */
     private static float angDist(float a, float b) {
         float d = Math.abs(a - b) % 360f;
         return d > 180f ? 360f - d : d;
@@ -552,24 +554,15 @@ public class PadView extends View {
         if (dx * dx + dy * dy < dead * dead) { dpadLast = 0; return 0; }
         float ang = (float) Math.toDegrees(Math.atan2(-dy, dx));
         if (ang < 0) ang += 360f;
-        /* 직전 방향 섹터(+7도) 안이면 유지 */
-        if (dpadLast != 0) {
-            float c0 = dirCenter(dpadLast);
-            if (c0 >= 0 && angDist(ang, c0) <= (isDiag(dpadLast) ? 21f : 24f) + 5f)
+        /* 붙잡기: 직전 갈래의 섹터를 +6도 넓혀 본다 — 경계에서 벌벌 떨리지 않게 */
+        for (int k = 0; k < 8; k++)
+            if (dpadLast != 0 && dpadBits(k) == dpadLast
+                && angDist(ang, DPAD_CENTER[k]) <= halfOf(k) + 6f)
                 return dpadLast;
-        }
-        /* 정방향 48도/대각 42도 — 과한 정방향 편향은 원을 그려도 네모처럼 걸린다(제보) */
-        int m;
-        if      (angDist(ang,   0) <= 24f) m = 1 << Emu.RIGHT;
-        else if (angDist(ang,  90) <= 24f) m = 1 << Emu.UP;
-        else if (angDist(ang, 180) <= 24f) m = 1 << Emu.LEFT;
-        else if (angDist(ang, 270) <= 24f) m = 1 << Emu.DOWN;
-        else if (ang <  90f) m = (1 << Emu.RIGHT) | (1 << Emu.UP);
-        else if (ang < 180f) m = (1 << Emu.LEFT)  | (1 << Emu.UP);
-        else if (ang < 270f) m = (1 << Emu.LEFT)  | (1 << Emu.DOWN);
-        else                 m = (1 << Emu.RIGHT) | (1 << Emu.DOWN);
-        dpadLast = m;
-        return m;
+        /* ★ 넓이는 위 표에서만 온다. 그리기와 같은 값이다. */
+        for (int k = 0; k < 8; k++)
+            if (angDist(ang, DPAD_CENTER[k]) <= halfOf(k)) { dpadLast = dpadBits(k); return dpadLast; }
+        return dpadLast;   /* 표가 360도를 덮으므로 여기 안 온다 */
     }
 
     private int ffIndex() {
