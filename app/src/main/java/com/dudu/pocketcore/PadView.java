@@ -159,6 +159,7 @@ public class PadView extends View {
        (구판: 정사각 판정 + 축 임계값 — 대각이 과대하고, 박스 밖으로 새면 뚝 끊겼다) */
     private int dpadPid = -1;
     private int dpadMask = 0, dpadLast = 0;
+    private final RectF dpadArc = new RectF();   /* 십자 섹터 그리기용 — onDraw 안 할당 금지 */
 
     public PadView(Context c) {
         super(c);
@@ -384,18 +385,36 @@ public class PadView extends View {
         if (!physical || edit) for (int i = 0; i < nC; i++) {
             if (!ctrlVisible(i)) continue;
             int b = bitOf(i);
-            if (b == -1) {                                   /* 십자 */
-                float dcx = cx(i), dcy = cy(i), R = radOf(i), arm = R * 0.42f;
-                fill.setColor(bit(Emu.UP)    ? 0x66ffffff : 0x33ffffff);
-                c.drawRect(dcx - arm, dcy - R, dcx + arm, dcy - arm, fill);
-                fill.setColor(bit(Emu.DOWN)  ? 0x66ffffff : 0x33ffffff);
-                c.drawRect(dcx - arm, dcy + arm, dcx + arm, dcy + R, fill);
-                fill.setColor(bit(Emu.LEFT)  ? 0x66ffffff : 0x33ffffff);
-                c.drawRect(dcx - R, dcy - arm, dcx - arm, dcy + arm, fill);
-                fill.setColor(bit(Emu.RIGHT) ? 0x66ffffff : 0x33ffffff);
-                c.drawRect(dcx + arm, dcy - arm, dcx + R, dcy + arm, fill);
-                fill.setColor(0x22ffffff);
-                c.drawRect(dcx - arm, dcy - arm, dcx + arm, dcy + arm, fill);
+            if (b == -1) {                                   /* 십자 — 판정과 «같은 모양»으로 */
+                /* ★ 예전에는 팔 넷짜리 십자를 그렸는데 판정은 8방향 각도였다.
+                   곧 대각이 화면에 없어서, 빈 귀퉁이를 누르면 «안 그린 데»에서 대각이 나갔다.
+                   이제 dpadDir() 과 «같은 각도»로 여덟 섹터를 그린다 — 보이는 것이 걸리는 것이다.
+                   정방향 48도(±24) 는 밝게, 대각 42도는 한 단계 어둡게 둔다. */
+                float dcx = cx(i), dcy = cy(i), R = radOf(i);
+                dpadArc.set(dcx - R, dcy - R, dcx + R, dcy + R);
+                /* {시작각, 끝각(수학 기준·반시계), 비트, 정방향인가} */
+                final float[][] SEC = {
+                    { -24f,  24f, Emu.RIGHT, 1 }, {  66f, 114f, Emu.UP,   1 },
+                    { 156f, 204f, Emu.LEFT,  1 }, { 246f, 294f, Emu.DOWN, 1 },
+                    {  24f,  66f, -1, 0 }, { 114f, 156f, -1, 0 },
+                    { 204f, 246f, -1, 0 }, { 294f, 336f, -1, 0 },
+                };
+                for (float[] sc4 : SEC) {
+                    boolean on;
+                    if (sc4[3] > 0) on = bit((int) sc4[2]);
+                    else {
+                        /* 대각은 두 비트가 함께 서 있을 때 */
+                        float mid = (sc4[0] + sc4[1]) * 0.5f;
+                        boolean up = mid > 0f && mid < 180f, right = mid < 90f || mid > 270f;
+                        on = bit(up ? Emu.UP : Emu.DOWN) && bit(right ? Emu.RIGHT : Emu.LEFT);
+                    }
+                    fill.setColor(on ? 0x77ffffff : (sc4[3] > 0 ? 0x33ffffff : 0x22ffffff));
+                    /* 화면 각도는 시계방향이라 부호를 뒤집는다 */
+                    c.drawArc(dpadArc, -sc4[1], sc4[1] - sc4[0], true, fill);
+                }
+                /* 가운데 데드존 — 여기선 아무 방향도 안 난다 */
+                fill.setColor(0x22000000);
+                c.drawCircle(dcx, dcy, R * 0.12f, fill);
             } else if (b == -2) {                            /* OPTION */
                 float base = Math.min(getWidth(), getHeight());
                 float ow2 = base * 0.10f * sc[i], oh2 = base * 0.021f * sc[i];
