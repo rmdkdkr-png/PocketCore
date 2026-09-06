@@ -97,12 +97,16 @@ public class EmuActivity extends Activity {
         gl.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
 
         pad = new PadView(this);
-        /* 패드는 네 벌 — SS2 전용, SvC(원버튼 6키), KOF R-2(R=SP 4키), 순정 NGPC(A·B 만).
+        /* 패드는 네 벌 — SS2 전용, SvC(원버튼 6키), KOF R-2·월화(R=SP · L=A+B), 순정 NGPC(A·B 만).
            엔진 없는 게임에 기술·강약 버튼을 두면 안 나가는 버튼이 화면만 차지한다.
            배치 파일은 **게임마다** 따로다. */
         String profile = (game != null && game.has(Games.F_SP_SS2)) ? "ss2"   /* 게임 표의 features 가 단일 출처 */
                        : (game != null && game.has(Games.F_SP_SVC)) ? "svc"
-                       : (game != null && game.has(Games.F_SP_KOF)) ? "kof" : "ngp";
+                       : (game != null && game.has(Games.F_SP_KOF)) ? "kof"
+                       /* 월화도 KOF 와 «같은 비트»다 — R(11)=SP · L(10)=A+B (이식소 실측).
+                          여기가 비어 있어서 월화가 「A·B 뿐」인 순정 패드로 떨어졌고,
+                          유저에게는 «A+B 가 없어진» 것으로 보였다. */
+                       : (game != null && game.has(Games.F_SP_LB)) ? "kof" : "ngp";
         pad.setProfile(profile, (game != null) ? game.id : "ngp");
         /* 강약 구분이 꺼져 있으면 화면의 전용 강P·강K 는 뺀다 — 그 모드에선 A·B 꾹이 강이다(유저 2026-09-04).
            「강 발동 맞춤」이 중간이면 꾹 강이 즉발과 같은 프레임이라 전용 버튼이 할 일이 더 없다. */

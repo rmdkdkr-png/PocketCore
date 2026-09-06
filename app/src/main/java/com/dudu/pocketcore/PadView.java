@@ -74,8 +74,9 @@ public class PadView extends View {
     };
     /* KOF R-2 — SP 엔진(설정 「KOF 원버튼」 켬): R(비트11)=SP, 탭=약/홀드=강(문턱 6프레임,
        코어가 잰다 — SVC 의 12 와 다르다, 이식소 실측). L(비트10)=A+B. 슬롯은 잡은 방향:
-       방향없음=장풍 · 앞=대공 · 앞아래=초필살기 · 공중 가능. 엔진을 끄면 코어가 R 을
-       A+B 로 도로 접으므로 버튼이 놀지 않는다. */
+       방향없음=장풍 · 앞=대공 · 앞아래=초필살기 · 공중 가능.
+       ★ 엔진을 끄면 R 은 «아무 일도 안 한다» — 코어가 A+B 로 접지 않는다(이식소 실측).
+       A+B 는 켬·끔 무관하게 언제나 L 이다. 월화도 같은 계약을 쓴다. */
     private static final Object[][] P_KOF = {
         { "DPAD", "",     -1, 0.22f, 0.76f, 1.00f },
         { "A",    "A",     0, 0.66f, 0.80f, 1.10f },
@@ -181,6 +182,17 @@ public class PadView extends View {
         if (listener != null) listener.onMask(0);
         invalidate();
     }
+    /** 화면에 적을 글자. 강약 구분을 끄면 강 버튼이 사라지므로 「약P·약K」의 «약» 이
+     *  가리킬 짝이 없다 — 그때는 그 둘이 곧 A·B 다(탭=약, 꾹=강). 유저 지적 2026-09-06. */
+    private String label(int i) {
+        Object nm = prof[i][0];
+        if (!svcStrong) {
+            if ("WP".equals(nm)) return "A";
+            if ("WK".equals(nm)) return "B";
+        }
+        return (String) prof[i][1];
+    }
+
     /** 이 컨트롤을 지금 화면에 두는가. 숨긴 것은 그리지도, 누르지도, 편집에서 잡히지도 않는다. */
     private boolean ctrlVisible(int i) {
         if (svcStrong) return true;
@@ -397,20 +409,20 @@ public class PadView extends View {
                 fill.setColor(ffDown ? 0x88ffcc44 : 0x33ffffff);
                 c.drawCircle(cx(i), cy(i), r, fill);
                 text.setTextSize(r * 0.55f);
-                c.drawText((String) prof[i][1], cx(i), cy(i) + r * 0.20f, text);
+                c.drawText(label(i), cx(i), cy(i) + r * 0.20f, text);
             } else if (b == -4) {                            /* 목록으로 나가기 */
                 float r = radOf(i);
                 fill.setColor(0x33ffffff);
                 c.drawCircle(cx(i), cy(i), r, fill);
                 text.setTextSize(r * 0.42f);
-                c.drawText((String) prof[i][1], cx(i), cy(i) + r * 0.16f, text);
+                c.drawText(label(i), cx(i), cy(i) + r * 0.16f, text);
             } else {                                         /* 게임 버튼 */
                 float r = radOf(i);
                 int ci = btnColorIdx % BTN_COL_ON.length; btnColorIdx++;
                 fill.setColor(bit(b) ? BTN_COL_ON[ci] : BTN_COL_OFF[ci]);
                 c.drawCircle(cx(i), cy(i), r, fill);
                 text.setTextSize(r * 0.52f);
-                c.drawText((String) prof[i][1], cx(i), cy(i) + r * 0.19f, text);
+                c.drawText(label(i), cx(i), cy(i) + r * 0.19f, text);
             }
             if (edit && i == selIdx) {
                 line.setColor(0xccffcc44);

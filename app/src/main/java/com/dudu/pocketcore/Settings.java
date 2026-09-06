@@ -119,7 +119,8 @@ public final class Settings {
             new Item("ngp_kofsp_engine", "KOF 원버튼 필살기",
                 "KOF R-2 전용. SP 버튼(패드의 R) 하나로 커맨드를 대신 넣습니다 —"
                 + " 방향없음=장풍 · 앞=대공 · 앞아래=초필살기 · 공중에서도 나갑니다."
-                + " 탭=약 / 꾹=강. 끄면 SP 버튼은 순정처럼 A+B 로 동작합니다.",
+                + " 탭=약 / 꾹=강. 끄면 R 은 A+B 로 동작합니다."
+                + " A+B 는 켜든 끄든 «항상 L 로도» 낼 수 있습니다.",
                 new String[]{ "disabled", "enabled" },
                 new String[]{ "끔", "켬" }, "disabled").f(Games.F_SP_KOF).l(),
             new Item("ngp_kofsp_toast", "KOF 기술 표기 표시",
@@ -151,8 +152,22 @@ public final class Settings {
                (공중 강공격 불발)이 있어 메뉴에서 뺐다 — 빠른 기본기는 이제 FastCD 가
                부작용 없이 대신한다. 배관(EmuActivity·Patcher)은 남겨 두어 연구 시
                options.txt 에 pocketcore_svc_fastrom=enabled 로 손수 켤 수 있다. */
+            /* 월화 SP — 이식소가 코어에 넣은 ngp_lbsp_engine 하나만 건다.
+               토스트(ngp_lbsp_toast)는 코어에 아직 없다 — 생기면 그때 만든다.
+               ★ 설명은 «지금 실제로 되는 것»만 적는다. 슬롯 일곱이 서면 고친다. */
+            new Item("ngp_lbsp_engine", "월화 원버튼 필살기",
+                "월화 전용. 켜면 R 이 기술키가 됩니다 — 방향+R 로 필살기가 나갑니다"
+                + " (방향없음=질풍 · 앞=대공 · 뒤·아래·앞아래=각각 다른 기술)."
+                + " 끄면 R 은 A+B 로 동작합니다."
+                + " A+B 는 켜든 끄든 «항상 L 로도» 낼 수 있습니다."
+                + " ★ 아직 만드는 중이라 «카에데»만 됩니다 — 다른 캐릭터는 커맨드가 달라"
+                + " 안 나가거나 엉뚱한 기술이 나갈 수 있습니다.",
+                ONOFF, ONOFF_K, "disabled").f(Games.F_SP_LB).l(),
             new Item("ngp_ss2sp", "SS2 원버튼",
-                "SS2 전용. 이쪽은 게임에 원래 간이입력(ABLE)이 있어 기본은 그것을 씁니다.",
+                "SS2 전용. 켜면 기술키 하나로 커맨드를 대신 넣습니다 — 방향에 따라 다른 기술이 나갑니다."
+                + " 끄면 그 버튼은 A+B 로 동작합니다."
+                + " A+B 는 켜든 끄든 «항상 L 로도» 낼 수 있습니다."
+                + " (SS2 는 기술키가 X·R 둘 다, A+B 가 Y·L 둘 다입니다.)",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SS2).l(),
         });
     }
