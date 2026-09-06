@@ -498,7 +498,7 @@ public class EmuActivity extends Activity {
         String v = (game != null) ? m.get("pocketcore_lang_" + game.id) : null;
         if (v == null) v = m.get("pocketcore_lang");
         if (v != null) for (String k : Games.LANGS) if (k.equals(v)) return v;
-        return "ko-ja";
+        return "ko";
     }
 
 

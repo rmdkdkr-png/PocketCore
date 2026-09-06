@@ -154,15 +154,16 @@ public final class Games {
 
     /** 고를 수 있는 언어.
      *  네오지오 포켓 롬은 일어와 영어를 **함께** 담고 BIOS 설정으로 고른다.
-     *  한글 패치는 그중 한쪽 표만 덮으므로, 덮인 쪽으로 맞춰야 한글이 보인다.
-     *  어느 쪽을 덮었는지는 **게임마다 다르다** — 그래서 바탕을 손으로 고를 수 있게 둔다.
-     *  (SvC 는 실측으로 일어 쪽이 확정됐다. 영어 화면은 패치 전후가 0 화소 차이였다.) */
-    public static final String[] LANGS    = { "ko-ja", "ko-en", "ja", "en" };
-    public static final String[] LANGS_KO = { "한국어(일어 바탕)", "한국어(영어 바탕)",
-                                              "일본어", "English" };
+     *  한글 패치는 그중 한쪽 표만 덮는데, **어느 쪽을 덮었는지는 게임이 안다**(Game.baseLang).
+     *  그래서 「한국어」는 하나면 된다 — 바탕은 앱이 게임마다 알아서 맞춘다.
+     *  (옛 설정의 `ko-ja`·`ko-en` 도 그대로 읽힌다. ngpLanguage 가 아래에서 함께 다룬다.) */
+    public static final String[] LANGS    = { "ko", "ja", "en" };
+    public static final String[] LANGS_KO = { "한국어", "일본어", "English" };
 
     /** 그 언어를 내려면 코어의 ngp_language 를 무엇으로 둬야 하나. */
     public static String ngpLanguage(Game g, String lang) {
+        /* 「한국어」는 바탕을 게임이 정한다 — 옛 설정 ko-ja/ko-en 보다 이쪽이 먼저다. */
+        if ("ko".equals(lang)) return (g != null) ? g.baseLang : "japanese";
         if ("en".equals(lang) || "ko-en".equals(lang)) return "english";
         if ("ja".equals(lang) || "ko-ja".equals(lang)) return "japanese";
         return (g != null) ? g.baseLang : "japanese";

@@ -96,7 +96,7 @@ public final class LaunchSheet {
             String ver = readText(new File(new File(MainActivity.root(), "patch"), g.id + "_ko.ver"));
             o.label = "한글패치" + (ver != null && !ver.isEmpty() ? "  " + ver : "");
             o.vals = new String[]{ "on", "off" }; o.names = new String[]{ "적용", "안 함" };
-            String lang = m.get(o.key); if (lang == null) lang = m.get("pocketcore_lang"); if (lang == null) lang = "ko-ja";
+            String lang = m.get(o.key); if (lang == null) lang = m.get("pocketcore_lang"); if (lang == null) lang = "ko";
             o.cur = lang.startsWith("ko") ? "on" : "off";
             boolean have = new File(new File(MainActivity.root(), "patch"), g.id + "_ko.ips").exists()
                         || assetExists("patch/" + g.id + "_ko.ips");
@@ -116,13 +116,13 @@ public final class LaunchSheet {
     }
     /** 「안 함」이 실제로 쓰는 언어 값 — 전역이 원어(ja/en)면 그대로, 한국어면 이 게임 바탕의 원어. 도움말과 toggle 이 같이 쓴다. */
     private static String offLang(Map<String, String> m, Games.Game g) {
-        String global = m.get("pocketcore_lang"); if (global == null) global = "ko-ja";
+        String global = m.get("pocketcore_lang"); if (global == null) global = "ko";
         boolean enBase = "english".equals(g.baseLang);
         return !global.startsWith("ko") ? global : (enBase ? "en" : "ja");
     }
     private static String onLang(Map<String, String> m, Games.Game g) {
-        String global = m.get("pocketcore_lang"); if (global == null) global = "ko-ja";
-        return global.startsWith("ko") ? global : ("english".equals(g.baseLang) ? "ko-en" : "ko-ja");
+        String global = m.get("pocketcore_lang"); if (global == null) global = "ko";
+        return global.startsWith("ko") ? "ko" : "ko";
     }
     private static Opt fromItem(Settings.Item it, Map<String, String> m) {
         Opt o = new Opt(); o.kind = 1; o.key = it.key; o.label = it.label; o.help = it.help;
