@@ -316,11 +316,16 @@ public final class Updater {
             while (it.hasNext()) {
                 String id = it.next();
                 JSONObject e = j.getJSONObject(id);
-                String ver = e.getString("ver");
+                /* 시험 갈래 — 코어·앱과 같은 방식(options.txt 의 pocketcore_level=test).
+                   그 항목이 없으면 정식 그대로다. .ver 에 "-test" 를 붙여, 레벨을 되돌리면
+                   판 문자열이 달라져 정식 판을 다시 받는다. */
+                boolean useTest = testLevel() && e.optJSONObject("test") != null;
+                JSONObject use = useTest ? e.getJSONObject("test") : e;
+                String ver = use.getString("ver") + (useTest ? "-test" : "");
                 File ips = new File(dir, id + "_ko.ips");
                 File verf = new File(dir, id + "_ko.ver");
                 if (ips.exists() && ver.equals(readSmall(verf))) continue;
-                byte[] b = fetch(e.getString("url"), 30000);
+                byte[] b = fetch(use.getString("url"), 30000);
                 /* IPS 서명 확인 — 오류 페이지를 패치로 저장하는 사고 방지 */
                 if (b.length < 8 || b[0] != 'P' || b[1] != 'A' || b[2] != 'T'
                                  || b[3] != 'C' || b[4] != 'H') continue;
@@ -328,7 +333,7 @@ public final class Updater {
                 fo.write(b); fo.close();
                 writeSmall(verf, ver);
                 if (got.length() > 0) got.append(" · ");
-                got.append(e.optString("ko", id)).append(' ').append(ver);
+                got.append(use.optString("ko", e.optString("ko", id))).append(' ').append(ver);
             }
             toast(act, got.length() > 0
                     ? "한글패치 새 판: " + got + " — 게임을 다시 열면 적용됩니다"
