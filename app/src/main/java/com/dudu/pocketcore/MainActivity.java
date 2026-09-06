@@ -528,7 +528,14 @@ public class MainActivity extends Activity {
                 + "# 캐릭터 챗은 기본 끔, 심판(쿠로코)은 켬 — 둘은 따로 논다(유저 지시 2026-09-03).\n"
                 + "ngp_ss2sp_chat=disabled\n"
                 + "ngp_ss2sp_ref=disabled\n"
-                + "ngp_ss2sp=enabled\n";
+                + "ngp_ss2sp=enabled\n"
+                /* ★ 기둥·해설은 폐기했지만 SS2 코어 기본값이 아직 켬이다
+                   (sides=enabled · comm=enabled · comm_draw=above).
+                   줄을 지우면 «새로 까는 사람»에게 도로 켜지고 화면 세로까지 늘어난다.
+                   코어에서 빠질 때까지 여기서 못 박아 끈다 — 빠진 뒤엔 이 줄이 그냥 무시된다. */
+                + "ngp_ss2sp_sides=disabled\n"
+                + "ngp_ss2sp_comm=disabled\n"
+                + "ngp_ss2sp_comm_draw=disabled\n";
         try (java.io.FileOutputStream fo = new java.io.FileOutputStream(f)) {
             fo.write(def.getBytes("UTF-8"));
         } catch (Exception ignored) { }
