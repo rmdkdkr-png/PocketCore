@@ -113,9 +113,6 @@ public class EmuActivity extends Activity {
                           유저에게는 «A+B 가 없어진» 것으로 보였다. */
                        : (game != null && game.has(Games.F_SP_LB)) ? "kof" : "ngp";
         pad.setProfile(profile, (game != null) ? game.id : "ngp");
-        /* 강약 구분이 꺼져 있으면 화면의 전용 강P·강K 는 뺀다 — 그 모드에선 A·B 꾹이 강이다(유저 2026-09-04).
-           「강 발동 맞춤」이 중간이면 꾹 강이 즉발과 같은 프레임이라 전용 버튼이 할 일이 더 없다. */
-        pad.setSvcStrongKeys(!"disabled".equals(readOpt("ngp_svcsp_basics", "enabled")));
         /* 상단바의 게임별 칸 — 코어가 이 게임에서 실제로 쓰는 기능만. 게임 표가 단일 출처다. */
         pad.setCoreFeatures(game != null && game.has(Games.F_BAND),
                             game != null && game.has(Games.F_SIDES));

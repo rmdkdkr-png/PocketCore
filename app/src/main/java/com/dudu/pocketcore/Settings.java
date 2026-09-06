@@ -131,18 +131,9 @@ public final class Settings {
             new Item("ngp_svcsp_toast", "기술명 표시",
                 "원버튼으로 기술이 나갈 때 이름을 띄웁니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC),
-            new Item("ngp_svcsp_basics", "SVC 강약 버튼 구분",
-                "켬 = 약P·약K·강P·강K 4버튼(약은 짧게 고정, 강은 즉발). 끔 = 순정 2버튼"
-                + "(A·B 탭=약/꾹=강, 8프레임부터 강 — 게임 원판정) — 단 강P·강K 버튼은 끔에서도 즉발 강으로"
-                + " 살아 있습니다. 게임을 다시 열면 적용됩니다.",
-                ONOFF, ONOFF_K, "enabled").f(Games.F_BASICS).l(),
-            new Item("ngp_svcsp_land", "SVC 착지 선입력",
-                "점프 공격 뒤 착지 직전에 누른 기본기를 엔진이 기억했다가 착지하는 순간 대신"
-                + " 눌러 줍니다 — 강P·강K 는 강으로, A·B 는 강약 구분이 끔일 때 쥔 채 착지하면 강·탭이면 약"
-                + "(켬이면 A·B 는 약 고정). 끔(기본) = 순정 그대로,"
-                + " 공중에서 누른 건 공중기로만 쓰이고 지상기는 착지 뒤 다시 눌러야 나갑니다."
-                + " 게임을 다시 열면 적용됩니다.",
-                ONOFF, ONOFF_K, "disabled").f(Games.F_SP_SVC).l(),
+            /* ngp_svcsp_basics(강약 4버튼 구분)·ngp_svcsp_land(착지 선입력) 는
+               2026-09-06 유저 지시로 코어에서 «통째로» 빠졌다(이식소 ec4fc34).
+               기본기는 이제 게임 원판정 — 탭=약 / 꾹=강. 스위치가 없으니 항목도 없다. */
             new Item("pocketcore_svc_actshow", "판독 오버레이 (동작번호)",
                 "SvC 전용. 화면 왼쪽 위에 「내 동작번호|상대반응」을 상시 표시합니다."
                 + " 영상만 찍어도 무슨 기술이 나갔는지(약·강 구분 포함) 확정할 수 있는"
@@ -285,7 +276,6 @@ public final class Settings {
         if (!"1".equals(m.get("pocketcore_mig390"))) {
             put("ngp_ss2sp_comm", "disabled"); put("ngp_ss2sp_chat", "disabled"); put("ngp_ss2sp_ref", "disabled");
             put("ngp_ss2sp_dub", "disabled"); put("ngp_ss2sp_comm_draw", "disabled");
-            put("ngp_svcsp_holdsync", "off");
             put("pocketcore_mig390", "1");
         }
         if (!m.containsKey("pocketcore_svc_faststrong")

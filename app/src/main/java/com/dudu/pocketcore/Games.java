@@ -81,13 +81,12 @@ public final class Games {
        코어의 권위 게이팅(svcsp_rom_ok / kofsp_rom_ok / ss2comm_rom_is_ss2, native C)의
        **거울**이다 — 코어가 어느 롬에 어느 엔진을 붙이는지 바뀌면 여기도 따라야 한다
        (기존 tag 문자열이 코어 헤더매칭을 거울한 것과 같은 성질, 단지 한 곳에 명시).
-         F_SP_SVC  원버튼 필살기(SvC)  = ngp_svcsp_engine · ngp_svcsp_toast · ngp_svcsp_land
+         F_SP_SVC  원버튼 필살기(SvC)  = ngp_svcsp_engine · ngp_svcsp_toast
          F_SP_KOF  원버튼 필살기(R-2)  = ngp_kofsp_engine · ngp_kofsp_toast
          F_SP_SS2  SS2 원버튼           = ngp_ss2sp
          F_SP_LB   원버튼 필살기(월화)  = ngp_lbsp_engine
                    ★ 코어 게이팅 lbsp_rom_ok(): 헤더 0x24 가 "LASTBLADE" 9바이트.
                      UE 만 문다 — 일본판(GEKKA)은 «일부러» 안 문다.
-         F_BASICS  강약 4버튼 구분      = ngp_svcsp_basics · ngp_svcsp_holdsync
          F_ACTSHOW 판독 오버레이        = pocketcore_svc_actshow
          F_BAND    기술명 띠            = ngp_svcsp_band
          F_FASTCD_SVC / F_FASTCD_KOF   빠른 기본기 = pocketcore_<id>_fastcd
@@ -95,7 +94,6 @@ public final class Games {
          F_SIDES   기둥 아트            = ngp_ss2sp_sides   */
     public static final String
         F_SP_SVC="sp:svc", F_SP_KOF="sp:kof", F_SP_SS2="sp:ss2", F_SP_LB="sp:lb",
-        F_BASICS="basics",
         F_ACTSHOW="actshow", F_BAND="band", F_FASTCD_SVC="fastcd:svc", F_FASTCD_KOF="fastcd:kof",
         F_COMM="comm", F_SIDES="sides";
     private static final String[] NONE = {};
@@ -106,7 +104,7 @@ public final class Games {
                  new String[]{ F_SP_SS2, F_SIDES }),
         new Game("svc", "ngpc", "SNKvsCAPCOM1", "정상결전 최강 파이터즈",
                  "libretro_svc.so", true, "japanese", null,   /* 실측 확정 */
-                 new String[]{ F_SP_SVC, F_BAND, F_BASICS, F_ACTSHOW, F_FASTCD_SVC }),
+                 new String[]{ F_SP_SVC, F_BAND, F_ACTSHOW, F_FASTCD_SVC }),
         new Game("ss1", "ngpc", "SAMURAI",      "사무라이 쇼다운!",
                  "libretro_svc.so", true, "japanese", null, NONE),
         new Game("lb",  "ngpc", "LASTBLADE",    "월화의 검사 특별편",

@@ -54,8 +54,6 @@ public class PadView extends View {
         { "DPAD", "",     -1, 0.22f, 0.76f, 1.00f },
         { "WP",   "약P",   0, 0.74f, 0.84f, 1.00f },
         { "WK",   "약K",   8, 0.88f, 0.76f, 1.00f },
-        { "SP_P", "강P",   1, 0.60f, 0.76f, 1.00f },
-        { "SP_K", "강K",   9, 0.74f, 0.68f, 1.00f },
         { "TECH", "기술", 11, 0.90f, 0.60f, 1.25f },
         { "AB",   "A+B", 10, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
@@ -103,11 +101,9 @@ public class PadView extends View {
     private Object[][] prof = P_SVC;
     private String profName = "svc";
     private boolean svcPlaceholders = true;
-    /* 강약 구분(4버튼) 을 끄면 전용 강P·강K 는 화면에서 뺀다 — 그 모드에선 A·B 를 꾹 눌러 강을 내므로
-       버튼이 자리만 차지한다(유저 2026-09-04 「그 모드 안 쓰는 거면 강K 강P 는 빠져야 돼」).
-       물리 패드의 강 키는 코어가 계속 받는다 — 여기서 빼는 건 화면 버튼뿐이다.
-       배치 파일은 이름(SP_P/SP_K)으로 저장하므로 숨겨도 저장된 자리는 안 깨진다. */
-    private boolean svcStrong = true;
+    /* 강P·강K 버튼은 2026-09-06 에 걷어냈다 — 코어에서 강약 구분이 통째로 빠져
+       기본기가 게임 원판정(탭=약 / 꾹=강)으로 돌아왔다. 눌러도 안 되는 버튼은 두지 않는다.
+       옛 배치 파일에 SP_P/SP_K 줄이 남아 있어도 이름으로 찾으므로 남은 자리는 안 깨진다. */
     private float[] fx, fy, sc;
     private int nC;
 
@@ -138,12 +134,17 @@ public class PadView extends View {
     private int mask = 0;
     private boolean edit = false;
     private boolean land = false;      /* 가로 화면 — 배치 파일과 기본 좌표가 따로다 */
-    private boolean physical = false;  /* 물리 패드 모드 — 게임 버튼을 숨기고 메뉴 알약만 남긴다 */
+    private boolean physical = false;  /* 물리 패드가 붙어 있나 (지금은 화면을 안 바꾼다) */
+    /* ★ 2026-09-06 유저: 「터치랑 패드입력은 둘다되도록해 왜 터치를 잠그냐」.
+       예전엔 물리 패드가 붙으면 화면 버튼을 그리지도 받지도 않았다.
+       물리 패드는 «더해지는» 것이지 «갈아타는» 것이 아니다 — 둘 다 살린다.
+       배관은 남겨 둔다. 「패드 붙으면 버튼 숨겨 달라」가 다시 나오면 이 상수만 되돌린다. */
+    private static final boolean PHYSICAL_HIDES_TOUCH = false;
+    private boolean hidesTouch() { return PHYSICAL_HIDES_TOUCH && physical && !edit; }
     /* 가로 기본 좌표(이름별). 십자는 왼쪽 아래, 버튼 무리는 오른쪽 아래, 유틸은 양 위 구석. */
     private static final Object[][] LAND = {
         /* 가로에서 게임 상자는 가운데 약 43%(160:152 를 세로에 맞춤)를 차지하므로 오른쪽 무리는 72% 밖에 둔다 */
-        { "DPAD", 0.13f, 0.64f }, { "WP", 0.78f, 0.82f }, { "WK", 0.90f, 0.72f }, { "SP_P", 0.78f, 0.60f },
-        { "SP_K", 0.90f, 0.50f }, { "TECH", 0.95f, 0.30f }, { "AB", 0.05f, 0.36f }, { "A", 0.80f, 0.78f },
+        { "DPAD", 0.13f, 0.64f }, { "WP", 0.78f, 0.82f }, { "WK", 0.90f, 0.72f },         { "TECH", 0.95f, 0.30f }, { "AB", 0.05f, 0.36f }, { "A", 0.80f, 0.78f },
         { "B", 0.92f, 0.62f }, { "SP", 0.94f, 0.36f }, { "OPT", 0.50f, 0.96f }, { "FF", 0.965f, 0.10f },
         { "EXIT", 0.035f, 0.10f },
     };
@@ -198,18 +199,11 @@ public class PadView extends View {
 
     /** "ss2"·"svc"·"ngp" — 롬 헤더로 EmuActivity 가 정한다 */
     /** 화면에 전용 강P·강K 버튼을 둘 것인가 — 「SVC 강약 버튼 구분」과 짝(EmuActivity 가 알려 준다). */
-    public void setSvcStrongKeys(boolean on) {
-        if (svcStrong == on) return;
-        svcStrong = on;
-        mask = 0;                       /* 사라지는 버튼이 눌린 채로 남지 않게 */
-        if (listener != null) listener.onMask(0);
-        invalidate();
-    }
     /** 화면에 적을 글자. 강약 구분을 끄면 강 버튼이 사라지므로 「약P·약K」의 «약» 이
      *  가리킬 짝이 없다 — 그때는 그 둘이 곧 A·B 다(탭=약, 꾹=강). 유저 지적 2026-09-06. */
     private String label(int i) {
         Object nm = prof[i][0];
-        if (!svcStrong) {
+        if (false) {
             if ("WP".equals(nm)) return "A";
             if ("WK".equals(nm)) return "B";
         }
@@ -218,9 +212,7 @@ public class PadView extends View {
 
     /** 이 컨트롤을 지금 화면에 두는가. 숨긴 것은 그리지도, 누르지도, 편집에서 잡히지도 않는다. */
     private boolean ctrlVisible(int i) {
-        if (svcStrong) return true;
-        Object nm = prof[i][0];
-        return !("SP_P".equals(nm) || "SP_K".equals(nm));
+        return true;   /* 숨기는 버튼이 없다 — 강P·강K 를 걷어낸 뒤로(2026-09-06) */
     }
 
     public void setProfile(String name) { setProfile(name, name); }
@@ -271,7 +263,7 @@ public class PadView extends View {
     public void setPhysicalMode(boolean on) {
         if (physical == on) return;
         physical = on;
-        if (on) {
+        if (on && PHYSICAL_HIDES_TOUCH) {
             mask = 0; dpadPid = -1; dpadMask = 0; dpadLast = 0;
             if (ffDown) { ffDown = false; ffPid = -1; if (listener != null) listener.onTurbo(false); }   /* 배속 고착 방지(리뷰 F2) */
             if (listener != null) listener.onMask(0);
@@ -404,7 +396,7 @@ public class PadView extends View {
         }
 
         int btnColorIdx = 0;
-        if (!physical || edit) for (int i = 0; i < nC; i++) {
+        if (!hidesTouch()) for (int i = 0; i < nC; i++) {
             if (!ctrlVisible(i)) continue;
             int b = bitOf(i);
             if (b == -1) {                                   /* 십자 */
@@ -573,8 +565,9 @@ public class PadView extends View {
 
     @Override public boolean onTouchEvent(MotionEvent e) {
         int act = e.getActionMasked();
-        /* 물리 패드 모드: 눌림(DOWN)만 메뉴 알약·유틸 바용으로 받고 나머지 터치는 버린다 */
-        if (physical && !edit && act != MotionEvent.ACTION_DOWN && act != MotionEvent.ACTION_POINTER_DOWN)
+        /* 버튼을 숨기는 모드일 때만 눌림(DOWN)을 메뉴 알약·유틸 바용으로 걸러 받는다.
+           지금은 안 숨기므로 이 가름막이 서지 않는다 — 터치가 언제나 산다. */
+        if (hidesTouch() && act != MotionEvent.ACTION_DOWN && act != MotionEvent.ACTION_POINTER_DOWN)
             return true;
 
         if (edit && act == MotionEvent.ACTION_POINTER_DOWN && e.getPointerCount() == 2) {
@@ -637,7 +630,7 @@ public class PadView extends View {
                     }
                 }
             }
-            if (physical && !edit) return true;       /* 버튼이 안 보이니 게임 입력도 안 받는다 */
+            if (hidesTouch()) return true;            /* 버튼을 숨겼을 때만 게임 입력도 안 받는다 */
             int fi = ffIndex();
             if (fi >= 0 && dist(x, y, cx(fi), cy(fi)) < radOf(fi) * 1.3f) {
                 ffDown = true; ffPid = e.getPointerId(idx);

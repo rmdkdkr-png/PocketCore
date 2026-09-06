@@ -123,7 +123,20 @@ public class SettingsActivity extends Activity {
                 for (Settings.Item it : g.getValue()) if (it.feature == null && it.game == null) its.add(it);
                 section(col, g.getKey(), its);
             }
-            note(col, "게임별 항목(한글패치·조작 패치·엔진 옵션)은 게임을 고를 때 뜨는 창과 게임 안 「설정」에서 고릅니다.");
+            /* ★ 2026-09-06 유저: 「설정창에서 기존 원래메뉴도 접근되어야」.
+               게임을 켜지 않으면 게임별 항목을 아예 못 보던 것을 고친다 —
+               범용을 먼저 다 보이고, 그 아래에 게임마다 제 묶음을 붙인다.
+               항목·값은 게임 안에서 보는 것과 «같은 것»이다(같은 규칙, 같은 저장). */
+            note(col, "아래는 게임별 항목입니다. 게임을 고를 때 뜨는 창과 게임 안 「설정」에서도 같은 것을 볼 수 있습니다.");
+            for (Games.Game gm : Games.displayOrder()) {
+                java.util.List<Settings.Item> mine = new java.util.ArrayList<>();
+                for (Map.Entry<String, Settings.Item[]> g : Settings.GROUPS.entrySet())
+                    for (Settings.Item it : g.getValue())
+                        if ((it.feature != null || it.game != null) && matches(it, gm)) mine.add(it);
+                for (Settings.Item it : Settings.modItems())
+                    if ((it.feature != null || it.game != null) && matches(it, gm)) mine.add(it);
+                section(col, gm.ko, mine);
+            }
         }
 
         /* ── 물리 패드 — 매핑 화면 진입 ── */

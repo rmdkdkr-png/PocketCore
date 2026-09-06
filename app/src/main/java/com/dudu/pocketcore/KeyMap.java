@@ -36,8 +36,12 @@ final class KeyMap {
            전엔 b←BUTTON_B · a←BUTTON_A 로 뒤집혀 있어 패드 A 가 회피, B 가 베기로 나갔다(유저 제보 2026-09-05).
            X/Y 도 같은 관례로: 레트로패드 Y(왼쪽 얼굴) = BUTTON_X · 레트로패드 X(위) = BUTTON_Y. */
         DEF.put("b", KeyEvent.KEYCODE_BUTTON_A);       DEF.put("a", KeyEvent.KEYCODE_BUTTON_B);
-        DEF.put("y", KeyEvent.KEYCODE_BUTTON_X);       DEF.put("x", KeyEvent.KEYCODE_BUTTON_Y);
-        DEF.put("r", KeyEvent.KEYCODE_BUTTON_R1);      DEF.put("l", KeyEvent.KEYCODE_BUTTON_L1);
+        /* ★ 2026-09-06 유저 지시: **물리 Y 가 SP, 물리 X 가 A+B**.
+           우리 «r 칸»이 SP(비트 11), «l 칸»이 A+B(비트 10) 이므로 그 둘의 물리 키만 옮긴다.
+           코어 계약(R=SP · L=A+B)은 그대로다 — 바뀌는 건 «어느 물리 키가 그 비트를 보내나»뿐. */
+        DEF.put("r", KeyEvent.KEYCODE_BUTTON_Y);       DEF.put("l", KeyEvent.KEYCODE_BUTTON_X);
+        /* 비던 강P·강K 는 어깨로 밀어 둔다(강약 구분을 끄면 안 쓰는 칸이다). */
+        DEF.put("y", KeyEvent.KEYCODE_BUTTON_R1);      DEF.put("x", KeyEvent.KEYCODE_BUTTON_L1);
         DEF.put("start", KeyEvent.KEYCODE_BUTTON_START); DEF.put("select", KeyEvent.KEYCODE_BUTTON_SELECT);
         DEF.put("menu", KeyEvent.KEYCODE_BUTTON_THUMBL); DEF.put("turbo", KeyEvent.KEYCODE_BUTTON_R2);
     }
@@ -60,6 +64,15 @@ final class KeyMap {
                 && k.map.get("y") == KeyEvent.KEYCODE_BUTTON_Y && k.map.get("x") == KeyEvent.KEYCODE_BUTTON_X) {
             k.map.put("b", KeyEvent.KEYCODE_BUTTON_A); k.map.put("a", KeyEvent.KEYCODE_BUTTON_B);
             k.map.put("y", KeyEvent.KEYCODE_BUTTON_X); k.map.put("x", KeyEvent.KEYCODE_BUTTON_Y);
+            k.save();
+        }
+        /* ★ 2026-09-06 — Y=SP · X=A+B 로 옮긴다. 여기도 «옛 기본값 그대로인 사람»만이다.
+           네 칸(y·x·r·l)이 전부 옛 기본값과 같을 때만 옮긴다. 하나라도 손댔으면 그 사람 뜻이다. */
+        if (s != null
+                && k.map.get("y") == KeyEvent.KEYCODE_BUTTON_X && k.map.get("x") == KeyEvent.KEYCODE_BUTTON_Y
+                && k.map.get("r") == KeyEvent.KEYCODE_BUTTON_R1 && k.map.get("l") == KeyEvent.KEYCODE_BUTTON_L1) {
+            k.map.put("r", KeyEvent.KEYCODE_BUTTON_Y);  k.map.put("l", KeyEvent.KEYCODE_BUTTON_X);
+            k.map.put("y", KeyEvent.KEYCODE_BUTTON_R1); k.map.put("x", KeyEvent.KEYCODE_BUTTON_L1);
             k.save();
         }
         return k;
