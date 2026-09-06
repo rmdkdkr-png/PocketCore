@@ -1,177 +1,131 @@
 {
- "_doc": "인풋(조작·게임플레이) 패치 채널의 단일출처. tools/pub_inputpatch.py 가 이걸로 mods.json 색인을 만들어 InputPatch 레포(트리 patches/ + 고정 릴리즈 태그 mods)에 IPS 와 함께 올리고, README 소개글·앱 동봉 스냅샷(assets/mods.json)도 갱신한다. 앱은 mods.json 을 받아 게임별 토글(옵션 키 pocketcore_<id>)을 만들고 켜진 것만 .patched 사본에 순서대로 얹는다. 한패(patches.json)와 겹치는 바이트 없는 것만 올릴 것. id 는 옵션 키·파일명에 쓰이므로 ASCII. 같은 자리를 다른 값으로 덮는 배타 패치는 group/group_ko/pick 을 달면 앱이 **한 줄짜리 다이얼**(끔 · 값1 · 값2 …)로 그리고 옵션 키는 pocketcore_<group> 이 된다. group 이 없으면 예전대로 개별 토글. 태그별로 tags.<태그> 에 intro(mods/docs/<파일>.md)·shot(docs/img/<파일>) 을 달면 그 릴리즈 본문에 스샷과 사람이 쓴 글이 들어간다 — 없으면 지금처럼 help 로 자동 생성.",
- "ver": 1,
- "tag": "mods",
- "mods": [
-  {
-   "id": "kofr2_faststrong_2",
-   "game": "kofr2",
-   "ko": "강 기본기 당기기 — −2",
-   "ver": "v1.0",
-   "file": "kofr2_faststrong_2.ips",
-   "default": "disabled",
-   "help": "서서 강펀치·강킥이 나가는 속도를 2프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
-   "tag": "kofr2-faststrong",
-   "group": "kofr2_faststrong",
-   "group_ko": "강 기본기 당기기",
-   "pick": "−2"
-  },
-  {
-   "id": "kofr2_faststrong_4",
-   "game": "kofr2",
-   "ko": "강 기본기 당기기 — −4",
-   "ver": "v1.0",
-   "file": "kofr2_faststrong_4.ips",
-   "default": "disabled",
-   "help": "서서 강펀치·강킥이 나가는 속도를 4프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
-   "tag": "kofr2-faststrong",
-   "group": "kofr2_faststrong",
-   "group_ko": "강 기본기 당기기",
-   "pick": "−4"
-  },
-  {
-   "id": "kofr2_faststrong_6",
-   "game": "kofr2",
-   "ko": "강 기본기 당기기 — −6",
-   "ver": "v1.0",
-   "file": "kofr2_faststrong_6.ips",
-   "default": "disabled",
-   "help": "서서 강펀치·강킥이 나가는 속도를 6프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
-   "tag": "kofr2-faststrong",
-   "group": "kofr2_faststrong",
-   "group_ko": "강 기본기 당기기",
-   "pick": "−6"
-  },
-  {
-   "id": "kofr2_faststrong_8",
-   "game": "kofr2",
-   "ko": "강 기본기 당기기 — −8",
-   "ver": "v1.0",
-   "file": "kofr2_faststrong_8.ips",
-   "default": "disabled",
-   "help": "서서 강펀치·강킥이 나가는 속도를 8프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
-   "tag": "kofr2-faststrong",
-   "group": "kofr2_faststrong",
-   "group_ko": "강 기본기 당기기",
-   "pick": "−8"
-  },
-  {
-   "id": "svc_faststrong_2",
-   "game": "svc",
-   "ko": "강 기본기 당기기 — −2",
-   "ver": "v1.0",
-   "file": "svc_faststrong_2.ips",
-   "default": "disabled",
-   "help": "서서 강펀치·강킥이 나가는 속도를 2프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
-   "tag": "svc-faststrong",
-   "group": "svc_faststrong",
-   "group_ko": "강 기본기 당기기",
-   "pick": "−2"
-  },
-  {
-   "id": "svc_faststrong_4",
-   "game": "svc",
-   "ko": "강 기본기 당기기 — −4",
-   "ver": "v1.0",
-   "file": "svc_faststrong_4.ips",
-   "default": "disabled",
-   "help": "서서 강펀치·강킥이 나가는 속도를 4프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
-   "tag": "svc-faststrong",
-   "group": "svc_faststrong",
-   "group_ko": "강 기본기 당기기",
-   "pick": "−4"
-  },
-  {
-   "id": "svc_faststrong_6",
-   "game": "svc",
-   "ko": "강 기본기 당기기 — −6",
-   "ver": "v1.0",
-   "file": "svc_faststrong_6.ips",
-   "default": "disabled",
-   "help": "서서 강펀치·강킥이 나가는 속도를 6프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
-   "tag": "svc-faststrong",
-   "group": "svc_faststrong",
-   "group_ko": "강 기본기 당기기",
-   "pick": "−6"
-  },
-  {
-   "id": "svc_faststrong_8",
-   "game": "svc",
-   "ko": "강 기본기 당기기 — −8",
-   "ver": "v1.0",
-   "file": "svc_faststrong_8.ips",
-   "default": "disabled",
-   "help": "서서 강펀치·강킥이 나가는 속도를 8프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
-   "tag": "svc-faststrong",
-   "group": "svc_faststrong",
-   "group_ko": "강 기본기 당기기",
-   "pick": "−8"
-  },
-  {
-   "id": "ss2_lightrecover_2",
-   "game": "ss2",
-   "ko": "약베기 후경직 감소 — −2",
-   "ver": "v1.0",
-   "file": "ss2_lightrecover_2.ips",
-   "default": "disabled",
-   "help": "서서 약베기(A 탭)의 후경직(맞힌 뒤 자세가 돌아오는 시간)을 2프레임 당깁니다. 걷다가 내는 앞베기(→+A)와 홀드·필살기는 그대로이고, 발동·대미지·타수도 원본 그대로입니다. 캐릭터마다 자기 값에서 깎으므로 캐릭터 차이는 남습니다. 단계에 따라 약베기 뒤에 약베기가 이어지는 캐릭터가 생깁니다 — 릴리즈 글의 표를 보고 고르세요. 게임을 다시 열면 적용.",
-   "tag": "ss2-lightrecover",
-   "group": "ss2_lightrecover",
-   "group_ko": "약베기 후경직 감소",
-   "pick": "−2"
-  },
-  {
-   "id": "ss2_lightrecover_4",
-   "game": "ss2",
-   "ko": "약베기 후경직 감소 — −4",
-   "ver": "v1.0",
-   "file": "ss2_lightrecover_4.ips",
-   "default": "disabled",
-   "help": "서서 약베기(A 탭)의 후경직(맞힌 뒤 자세가 돌아오는 시간)을 4프레임 당깁니다. 걷다가 내는 앞베기(→+A)와 홀드·필살기는 그대로이고, 발동·대미지·타수도 원본 그대로입니다. 캐릭터마다 자기 값에서 깎으므로 캐릭터 차이는 남습니다. 단계에 따라 약베기 뒤에 약베기가 이어지는 캐릭터가 생깁니다 — 릴리즈 글의 표를 보고 고르세요. 게임을 다시 열면 적용.",
-   "tag": "ss2-lightrecover",
-   "group": "ss2_lightrecover",
-   "group_ko": "약베기 후경직 감소",
-   "pick": "−4"
-  },
-  {
-   "id": "ss2_lightrecover_6",
-   "game": "ss2",
-   "ko": "약베기 후경직 감소 — −6",
-   "ver": "v1.0",
-   "file": "ss2_lightrecover_6.ips",
-   "default": "disabled",
-   "help": "서서 약베기(A 탭)의 후경직(맞힌 뒤 자세가 돌아오는 시간)을 6프레임 당깁니다. 걷다가 내는 앞베기(→+A)와 홀드·필살기는 그대로이고, 발동·대미지·타수도 원본 그대로입니다. 캐릭터마다 자기 값에서 깎으므로 캐릭터 차이는 남습니다. 단계에 따라 약베기 뒤에 약베기가 이어지는 캐릭터가 생깁니다 — 릴리즈 글의 표를 보고 고르세요. 게임을 다시 열면 적용.",
-   "tag": "ss2-lightrecover",
-   "group": "ss2_lightrecover",
-   "group_ko": "약베기 후경직 감소",
-   "pick": "−6"
-  },
-  {
-   "id": "ss2_lightrecover_8",
-   "game": "ss2",
-   "ko": "약베기 후경직 감소 — −8",
-   "ver": "v1.0",
-   "file": "ss2_lightrecover_8.ips",
-   "default": "disabled",
-   "help": "서서 약베기(A 탭)의 후경직(맞힌 뒤 자세가 돌아오는 시간)을 8프레임 당깁니다. 걷다가 내는 앞베기(→+A)와 홀드·필살기는 그대로이고, 발동·대미지·타수도 원본 그대로입니다. 캐릭터마다 자기 값에서 깎으므로 캐릭터 차이는 남습니다. 단계에 따라 약베기 뒤에 약베기가 이어지는 캐릭터가 생깁니다 — 릴리즈 글의 표를 보고 고르세요. 게임을 다시 열면 적용.",
-   "tag": "ss2-lightrecover",
-   "group": "ss2_lightrecover",
-   "group_ko": "약베기 후경직 감소",
-   "pick": "−8"
+  "_doc": "인풋(조작·게임플레이) 패치 채널의 단일출처. tools/pub_inputpatch.py 가 이걸로 mods.json 색인을 만들어 InputPatch 레포(트리 patches/ + 고정 릴리즈 태그 mods)에 IPS 와 함께 올리고, README 소개글·앱 동봉 스냅샷(assets/mods.json)도 갱신한다. 앱은 mods.json 을 받아 게임별 토글(옵션 키 pocketcore_<id>)을 만들고 켜진 것만 .patched 사본에 순서대로 얹는다. 한패(patches.json)와 겹치는 바이트 없는 것만 올릴 것. id 는 옵션 키·파일명에 쓰이므로 ASCII. 같은 자리를 다른 값으로 덮는 배타 패치는 group/group_ko/pick 을 달면 앱이 **한 줄짜리 다이얼**(끔 · 값1 · 값2 …)로 그리고 옵션 키는 pocketcore_<group> 이 된다. group 이 없으면 예전대로 개별 토글. 태그별로 tags.<태그> 에 intro(mods/docs/<파일>.md)·shot(docs/img/<파일>) 을 달면 그 릴리즈 본문에 스샷과 사람이 쓴 글이 들어간다 — 없으면 지금처럼 help 로 자동 생성.",
+  "ver": 1,
+  "tag": "mods",
+  "mods": [
+    {
+      "id": "kofr2_faststrong_2",
+      "game": "kofr2",
+      "ko": "강 기본기 당기기 — −2",
+      "ver": "v1.0",
+      "file": "kofr2_faststrong_2.ips",
+      "default": "disabled",
+      "help": "서서 강펀치·강킥이 나가는 속도를 2프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
+      "tag": "kofr2-faststrong",
+      "group": "kofr2_faststrong",
+      "group_ko": "강 기본기 당기기",
+      "pick": "−2"
+    },
+    {
+      "id": "kofr2_faststrong_4",
+      "game": "kofr2",
+      "ko": "강 기본기 당기기 — −4",
+      "ver": "v1.0",
+      "file": "kofr2_faststrong_4.ips",
+      "default": "disabled",
+      "help": "서서 강펀치·강킥이 나가는 속도를 4프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
+      "tag": "kofr2-faststrong",
+      "group": "kofr2_faststrong",
+      "group_ko": "강 기본기 당기기",
+      "pick": "−4"
+    },
+    {
+      "id": "kofr2_faststrong_6",
+      "game": "kofr2",
+      "ko": "강 기본기 당기기 — −6",
+      "ver": "v1.0",
+      "file": "kofr2_faststrong_6.ips",
+      "default": "disabled",
+      "help": "서서 강펀치·강킥이 나가는 속도를 6프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
+      "tag": "kofr2-faststrong",
+      "group": "kofr2_faststrong",
+      "group_ko": "강 기본기 당기기",
+      "pick": "−6"
+    },
+    {
+      "id": "kofr2_faststrong_8",
+      "game": "kofr2",
+      "ko": "강 기본기 당기기 — −8",
+      "ver": "v1.0",
+      "file": "kofr2_faststrong_8.ips",
+      "default": "disabled",
+      "help": "서서 강펀치·강킥이 나가는 속도를 8프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
+      "tag": "kofr2-faststrong",
+      "group": "kofr2_faststrong",
+      "group_ko": "강 기본기 당기기",
+      "pick": "−8"
+    },
+    {
+      "id": "svc_faststrong_2",
+      "game": "svc",
+      "ko": "강 기본기 당기기 — −2",
+      "ver": "v1.0",
+      "file": "svc_faststrong_2.ips",
+      "default": "disabled",
+      "help": "서서 강펀치·강킥이 나가는 속도를 2프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
+      "tag": "svc-faststrong",
+      "group": "svc_faststrong",
+      "group_ko": "강 기본기 당기기",
+      "pick": "−2"
+    },
+    {
+      "id": "svc_faststrong_4",
+      "game": "svc",
+      "ko": "강 기본기 당기기 — −4",
+      "ver": "v1.0",
+      "file": "svc_faststrong_4.ips",
+      "default": "disabled",
+      "help": "서서 강펀치·강킥이 나가는 속도를 4프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
+      "tag": "svc-faststrong",
+      "group": "svc_faststrong",
+      "group_ko": "강 기본기 당기기",
+      "pick": "−4"
+    },
+    {
+      "id": "svc_faststrong_6",
+      "game": "svc",
+      "ko": "강 기본기 당기기 — −6",
+      "ver": "v1.0",
+      "file": "svc_faststrong_6.ips",
+      "default": "disabled",
+      "help": "서서 강펀치·강킥이 나가는 속도를 6프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
+      "tag": "svc-faststrong",
+      "group": "svc_faststrong",
+      "group_ko": "강 기본기 당기기",
+      "pick": "−6"
+    },
+    {
+      "id": "svc_faststrong_8",
+      "game": "svc",
+      "ko": "강 기본기 당기기 — −8",
+      "ver": "v1.0",
+      "file": "svc_faststrong_8.ips",
+      "default": "disabled",
+      "help": "서서 강펀치·강킥이 나가는 속도를 8프레임 당깁니다. 이 기종이 「버튼을 더 누르나 보자」로 기다리는 시간만 돌려받는 것이라 **대미지·타수·경직은 순정 그대로**이고 약 공격은 한 프레임도 안 건드립니다. 캐릭터마다 실제로 줄어드는 양이 다릅니다 — 전부 같은 값으로 맞추면 「누가 빠르고 누가 굼뜬가」가 사라지기 때문에 일부러 차이를 남깁니다. 원본부터 강이 약보다 빠르거나 같은 기술은 손대지 않습니다. 게임을 다시 열면 적용.",
+      "tag": "svc-faststrong",
+      "group": "svc_faststrong",
+      "group_ko": "강 기본기 당기기",
+      "pick": "−8"
+    },
+    {
+      "id": "ss2_allcards",
+      "game": "ss2",
+      "ko": "올 카드 (카드 120장 해금)",
+      "ver": "v1.0",
+      "file": "ss2_allcards.ips",
+      "default": "disabled",
+      "save_tag": "allcards",
+      "help": "카드 120장이 처음부터 열린 상태로 시작합니다. 롬에 박힌 «공장 초기 세이브»를 바꾸는 것이라, 켜면 이 게임은 별도 저장으로 돌아갑니다 — 원래 진행도는 그대로 남고 끄면 돌아옵니다. 한글패치를 안 써도(일본어 원판으로 열어도) 적용됩니다. 게임을 다시 열면 적용."
+    }
+  ],
+  "tags": {
+    "kofr2-faststrong": {
+      "intro": "kofr2_faststrong.md",
+      "shot": "kofr2_faststrong.png"
+    },
+    "svc-faststrong": {
+      "intro": "svc_faststrong.md",
+      "shot": "svc_faststrong.png"
+    }
   }
- ],
- "tags": {
-  "kofr2-faststrong": {
-   "intro": "kofr2_faststrong.md",
-   "shot": "kofr2_faststrong.png"
-  },
-  "svc-faststrong": {
-   "intro": "svc_faststrong.md",
-   "shot": "svc_faststrong.png"
-  },
-  "ss2-lightrecover": {
-   "intro": "ss2_lightrecover.md",
-   "shot": "ss2_lightrecover.png"
-  }
- }
 }

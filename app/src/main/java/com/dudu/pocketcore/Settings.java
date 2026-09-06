@@ -152,7 +152,7 @@ public final class Settings {
                options.txt 에 pocketcore_svc_fastrom=enabled 로 손수 켤 수 있다. */
             new Item("ngp_ss2sp", "SS2 원버튼",
                 "SS2 전용. 이쪽은 게임에 원래 간이입력(ABLE)이 있어 기본은 그것을 씁니다.",
-                ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SS2),
+                ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SS2).l(),
         });
     }
 
@@ -165,10 +165,14 @@ public final class Settings {
         /** 배타 묶음 — 같은 자리를 다른 값으로 덮는 패치들. 묶이면 한 줄짜리 다이얼이 되고 옵션 키는
          *  pocketcore_<group> 이며 값이 곧 고른 패치의 id 다. 비어 있으면 예전대로 개별 토글. */
         public final String group, groupKo, pick;
+        /** 롬의 «세이브 구역»을 바꾸는 패치라는 표식(예: "allcards"). 비어 있지 않으면 Patcher 가
+         *  사본 이름에 이 말을 끼워 넣어 그 판이 자기 .flash 를 갖게 한다 — 안 그러면 기기에 이미
+         *  있는 세이브가 로드할 때마다 그 바이트를 덮어 «켜도 아무 일이 없는» 스위치가 된다. */
+        public final String saveTag;
         Mod(String id, String game, String ko, String ver, String help, String def,
-            String group, String groupKo, String pick) {
+            String group, String groupKo, String pick, String saveTag) {
             this.id = id; this.game = game; this.ko = ko; this.ver = ver; this.help = help; this.def = def;
-            this.group = group; this.groupKo = groupKo; this.pick = pick;
+            this.group = group; this.groupKo = groupKo; this.pick = pick; this.saveTag = saveTag;
         }
         public boolean grouped() { return group != null && !group.isEmpty(); }
     }
@@ -189,7 +193,8 @@ public final class Settings {
                 if (id.isEmpty() || game.isEmpty() || !id.matches("[A-Za-z0-9_]+")) continue;
                 out.add(new Mod(id, game, m.optString("ko", id), m.optString("ver", ""),
                                 m.optString("help", ""), m.optString("default", "disabled"),
-                                m.optString("group", ""), m.optString("group_ko", ""), m.optString("pick", "")));
+                                m.optString("group", ""), m.optString("group_ko", ""), m.optString("pick", ""),
+                                m.optString("save_tag", "")));
             }
         } catch (Exception ignored) { }
         return out;

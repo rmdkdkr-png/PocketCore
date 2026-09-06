@@ -50,6 +50,7 @@ public final class Patcher {
            파일은 내려받은 mods/<id>.ips 우선, 없으면 동봉 assets/patch/<id>.ips(svc/kofr2 FastCD 는 동봉). */
         java.util.List<byte[]> mods = new java.util.ArrayList<>();
         StringBuilder modSig = new StringBuilder();
+        StringBuilder saveTag = new StringBuilder();          /* 세이브 구역을 바꾸는 패치의 표식 모음 */
         if (withMods && game != null) {
             java.util.Map<String, String> opts = Settings.load();
             for (Settings.Mod md : Settings.mods()) {
@@ -72,6 +73,9 @@ public final class Patcher {
                 if (b == null) continue;
                 mods.add(b);
                 modSig.append(md.id).append('=').append(md.ver).append(':').append(b.length).append(';');
+                /* 색인의 글자가 파일 이름이 되는 자리다 — 반드시 걸러 쓴다. */
+                if (md.saveTag != null && md.saveTag.matches("[a-z0-9]+"))
+                    saveTag.append('.').append(md.saveTag);
             }
         }
         try {
@@ -107,10 +111,24 @@ public final class Patcher {
             if (ips == null && extra == null && mods.isEmpty())
                 return romPath;                               /* 쓸 패치가 하나도 없다 */
 
-            /* 사본 이름은 원본과 같게 둔다 — 상태저장 파일 이름이 롬 이름에서 나오므로,
+            /* 사본 이름은 원본과 같게 둔다 — 상태저장·세이브 파일 이름이 롬 이름에서 나오므로,
                이름이 바뀌면 언어를 바꿀 때마다 세이브가 갈라진다.
-               대신 도장에 언어·문턱 여부를 적어 둔다. 어느 쪽이 바뀌어도 다시 만든다. */
-            File out = new File(new File(MainActivity.root(), DIR), rom.getName());
+               대신 도장에 언어·문턱 여부를 적어 둔다. 어느 쪽이 바뀌어도 다시 만든다.
+
+               ★예외 하나 — saveTag 가 붙은 패치(롬의 세이브 구역 자체를 바꾸는 것, 예: 올카드).
+               그건 **반대 이유로 갈라야** 한다. 코어는 롬을 읽을 때마다 <롬이름>.flash 를 롬 위에
+               되쓰므로(ngp/rom.c → flash.c), 이름이 같으면 기기에 있던 세이브가 그 바이트를 덮어
+               「켜도 아무 일이 없는」 스위치가 된다. 이름을 가르면 그 판이 자기 세이브를 갖고,
+               끄면 원래 이름으로 돌아가 원래 진행도가 그대로 기다린다. */
+            String tag = saveTag.toString();
+            String outName = rom.getName();
+            if (!tag.isEmpty()) {
+                int dotIdx = outName.lastIndexOf('.');
+                outName = (dotIdx > 0)
+                        ? outName.substring(0, dotIdx) + tag + outName.substring(dotIdx)
+                        : outName + tag;
+            }
+            File out = new File(new File(MainActivity.root(), DIR), outName);
             File stamp = new File(out.getPath() + ".stamp");
             String want = lang + ":" + rom.length() + ":" + rom.lastModified() + ":"
                         + (ips != null ? ips.length : 0)
@@ -226,10 +244,14 @@ public final class Patcher {
         }
     }
 
+    /** 도장을 읽는다. 예전에는 128 B 를 «한 번만» 읽어서, 도장이 그보다 길어지면 읽은 값이 잘려
+     *  비교가 영원히 거짓이 됐다 — 게임을 열 때마다 2~4 MB 를 조용히 다시 굽는다(오류도 안 뜬다).
+     *  mods 가 늘면 실제로 넘는 길이라 끝까지 읽는다. 짧은 도장은 읽는 값이 같아 기존 것을 안 버린다. */
     private static String readText(File f) {
         try (FileInputStream in = new FileInputStream(f)) {
-            byte[] b = new byte[128];
-            int n = in.read(b);
+            byte[] b = new byte[512];
+            int n = 0;
+            while (n < b.length) { int r = in.read(b, n, b.length - n); if (r < 0) break; n += r; }
             return n > 0 ? new String(b, 0, n, "UTF-8").trim() : null;
         } catch (Exception e) {
             return null;
