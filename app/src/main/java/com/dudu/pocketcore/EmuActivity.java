@@ -33,14 +33,11 @@ public class EmuActivity extends Activity {
     private LaunchSheet sheet;                 /* 게임 중 옵션 창(실행 전 선택 창과 같은 것) */
     private long romMtime;
     private int padMask = 0, keyMask = 0;
-    /* ★ 짧은 방향 입력 걸쇠 — onDrawFrame 이 프레임당 한 번만 padMask 를 읽으므로,
-       두 폴링 «사이»에 눌렀다 뗀 터치는 코어가 아예 못 본다(유저: 「짧게 누르면 안 뛴다」).
-       방향 비트가 새로 서면 최소 LATCH_FRAMES 동안 살려 둔다.
-       ★ 방향만 건다 — A·B 는 «탭=약 / 꾹=강» 판정이 걸려 있어 길이를 늘리면 약이 강이 된다. */
-    private static final int LATCH_FRAMES = 3;
-    private static final int DIR_BITS = (1 << Emu.UP) | (1 << Emu.DOWN)
-                                      | (1 << Emu.LEFT) | (1 << Emu.RIGHT);
-    private final int[] latchLeft = new int[16];
+    /* 짧은 방향 걸쇠(3프레임)를 넣었다가 유저 지시로 뺐다(2026-09-06).
+       방향을 붙잡아 두면 236 처럼 방향이 빨리 갈아타는 커맨드가 뭉갠다 —
+       짧은 탭이 반쯤 새는 것보다 그쪽이 크다는 판단이다.
+       ★ 다시 필요해지면 «늘리지» 말고 «코어가 한 번 읽어 갈 때까지만 안 지우는» 쪽으로 짜라.
+         정확히 한 프레임만 보장하니 뭉개지 않는다(이식소 제안). */
     private String romType = "svc";   /* Games 표의 id. 모르는 롬이면 "svc"(순정 코어) */
     private Games.Game game;          /* 표에 있는 게임이면 여기 — 코어·한패·음성팩이 다 들어 있다 */
     private boolean patched = false;  /* 번역 패치 사본을 실행 중인가 */
@@ -90,12 +87,7 @@ public class EmuActivity extends Activity {
                 Emu.nativeResize(w, hgt);
             }
             @Override public void onDrawFrame(GL10 g) {
-                int held = 0;
-                synchronized (latchLeft) {
-                    for (int b = 0; b < 16; b++)
-                        if (latchLeft[b] > 0) { held |= 1 << b; latchLeft[b]--; }
-                }
-                Emu.nativeSetInput(padMask | keyMask | axisMask | held);
+                Emu.nativeSetInput(padMask | keyMask | axisMask);
                 Emu.nativeFrame();
                 /* 프레임 크기가 바뀌면(기둥·띠 토글) 화면 상자를 다시 잡는다 */
                 int fw = Emu.nativeFrameWidth(), fh = Emu.nativeFrameHeight();
@@ -128,14 +120,7 @@ public class EmuActivity extends Activity {
         pad.setCoreFeatures(game != null && game.has(Games.F_BAND),
                             game != null && game.has(Games.F_SIDES));
         pad.setListener(new PadView.Listener() {
-            @Override public void onMask(int mask) {
-                int rise = mask & ~padMask & DIR_BITS;      /* 이번에 «새로» 선 방향 */
-                if (rise != 0) synchronized (latchLeft) {
-                    for (int b = 0; b < 16; b++)
-                        if ((rise & (1 << b)) != 0) latchLeft[b] = LATCH_FRAMES;
-                }
-                padMask = mask;
-            }
+            @Override public void onMask(int mask) { padMask = mask; }
             @Override public void onAction(int action) { handleAction(action); }
             @Override public void onTurbo(boolean on) { Emu.nativeSetTurbo(on); }
             @Override public void onScreenDrag(float dxFrac, float dyFrac) {

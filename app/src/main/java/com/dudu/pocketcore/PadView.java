@@ -159,7 +159,6 @@ public class PadView extends View {
        (구판: 정사각 판정 + 축 임계값 — 대각이 과대하고, 박스 밖으로 새면 뚝 끊겼다) */
     private int dpadPid = -1;
     private int dpadMask = 0, dpadLast = 0;
-    private final RectF dpadArc = new RectF();   /* 십자 섹터 그리기용 — onDraw 안 할당 금지 */
     /* ★★ 십자키 «단일 출처» — 판정과 그리기가 이 표 하나를 같이 본다.
        따로 두면 오늘 고친 병(그림과 판정이 다르다)이 그대로 다시 난다.
        DPAD_HALF = 정방향 반폭(도). 대각 반폭은 남는 각을 넷으로 나눠 자동으로 정해진다.
@@ -408,24 +407,21 @@ public class PadView extends View {
         if (!physical || edit) for (int i = 0; i < nC; i++) {
             if (!ctrlVisible(i)) continue;
             int b = bitOf(i);
-            if (b == -1) {                                   /* 십자 — 판정과 «같은 모양»으로 */
-                /* ★ 예전에는 팔 넷짜리 십자를 그렸는데 판정은 8방향 각도였다.
-                   곧 대각이 화면에 없어서, 빈 귀퉁이를 누르면 «안 그린 데»에서 대각이 나갔다.
-                   이제 dpadDir() 과 «같은 각도»로 여덟 섹터를 그린다 — 보이는 것이 걸리는 것이다.
-                   정방향 48도(±24) 는 밝게, 대각 42도는 한 단계 어둡게 둔다. */
-                float dcx = cx(i), dcy = cy(i), R = radOf(i);
-                dpadArc.set(dcx - R, dcy - R, dcx + R, dcy + R);
-                for (int k = 0; k < 8; k++) {
-                    float half = halfOf(k), c0 = DPAD_CENTER[k];
-                    int bits = dpadBits(k);
-                    boolean on = (dpadMask & bits) == bits && bits != 0;
-                    fill.setColor(on ? 0x77ffffff : (k % 2 == 0 ? 0x33ffffff : 0x1fffffff));
-                    /* 화면각 = −수학각. 섹터 [c−h, c+h] → arc(start = −(c+h), sweep = 2h) */
-                    c.drawArc(dpadArc, -(c0 + half), 2f * half, true, fill);
-                }
-                /* 가운데 데드존 — 여기선 아무 방향도 안 난다 */
-                fill.setColor(0x22000000);
-                c.drawCircle(dcx, dcy, R * 0.12f, fill);
+            if (b == -1) {                                   /* 십자 */
+                /* 유저: 「디패드는 판정박스를 보여줄 필요 없음」 — 여덟 갈래로 그려 봤다가
+                   되돌렸다(2026-09-06). 그래서 «그리는 모양»과 «걸리는 각»이 일부러 다르다.
+                   걸리는 각은 DPAD_CENTER/halfOf() 표 하나에서만 온다 — 아래 그림은 표식이다. */
+                float dcx = cx(i), dcy = cy(i), R = radOf(i), arm = R * 0.42f;
+                fill.setColor(bit(Emu.UP)    ? 0x66ffffff : 0x33ffffff);
+                c.drawRect(dcx - arm, dcy - R, dcx + arm, dcy - arm, fill);
+                fill.setColor(bit(Emu.DOWN)  ? 0x66ffffff : 0x33ffffff);
+                c.drawRect(dcx - arm, dcy + arm, dcx + arm, dcy + R, fill);
+                fill.setColor(bit(Emu.LEFT)  ? 0x66ffffff : 0x33ffffff);
+                c.drawRect(dcx - R, dcy - arm, dcx - arm, dcy + arm, fill);
+                fill.setColor(bit(Emu.RIGHT) ? 0x66ffffff : 0x33ffffff);
+                c.drawRect(dcx + arm, dcy - arm, dcx + R, dcy + arm, fill);
+                fill.setColor(0x22ffffff);
+                c.drawRect(dcx - arm, dcy - arm, dcx + arm, dcy + arm, fill);
             } else if (b == -2) {                            /* OPTION */
                 float base = Math.min(getWidth(), getHeight());
                 float ow2 = base * 0.10f * sc[i], oh2 = base * 0.021f * sc[i];
