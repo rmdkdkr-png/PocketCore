@@ -274,7 +274,7 @@ public final class Updater {
             return false;
         }
         Intent i = new Intent(Intent.ACTION_VIEW);
-        i.setDataAndType(Uri.parse("content://com.dudu.pocketcore.apk/update.apk"),
+        i.setDataAndType(Uri.parse("content://" + act.getPackageName() + ".apk/update.apk"),
                 "application/vnd.android.package-archive");
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
         act.startActivity(i);

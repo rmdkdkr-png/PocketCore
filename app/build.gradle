@@ -10,6 +10,10 @@ android {
         targetSdk 34
         versionCode 126
         versionName "4.04"
+        // 시험판은 정식판과 «나란히» 깔리게 패키지 이름·표시 이름을 바꿔 굽는다
+        // (CI: -PpcSuffix=.fgtest -PpcLabel="PocketCore 시험"). 안 주면 정식 그대로.
+        if (project.hasProperty('pcSuffix')) applicationIdSuffix project.property('pcSuffix')
+        manifestPlaceholders = [appLabel: project.findProperty('pcLabel') ?: "PocketCore"]
         // 세 갈래면 요즘 폰(arm64)·구형 32비트(armv7)·에뮬레이터와 크롬북(x86_64)이 다 덮인다.
         // x86(32비트)와 riscv64 는 뺀다 — 전자는 사실상 죽었고 후자는 쓸 단말이 없다.
         ndk { abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64' }

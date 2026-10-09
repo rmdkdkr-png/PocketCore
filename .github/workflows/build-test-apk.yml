@@ -1,0 +1,36 @@
+# 시험판 APK — 정식판(com.dudu.pocketcore)과 나란히 깔리는 com.dudu.pocketcore.fgtest 로 굽는다.
+# 결과는 릴리즈 태그 fgtest 에 PocketCore-fgtest.apk 로 올라간다(정식 배포 태그 app 은 안 건드린다).
+name: build-test-apk
+on:
+  push:
+    branches: [feat/framegen-art]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build debug APK (side-by-side test id)
+        run: gradle :app:assembleDebug -PpcSuffix=.fgtest "-PpcLabel=PocketCore 시험" --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PocketCore-fgtest
+          path: app/build/outputs/apk/debug/*.apk
+      - name: Publish to release fgtest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk PocketCore-fgtest.apk
+          gh release delete fgtest -y --cleanup-tag || true
+          gh release create fgtest PocketCore-fgtest.apk --prerelease --target "${GITHUB_SHA}" \
+            --title "시험판 — 프레임 생성 + 버튼 아트 (${GITHUB_SHA::7})" \
+            --notes "feat/framegen-art ${GITHUB_SHA::7} 자동 빌드. 정식판과 따로 깔린다(앱 이름 「PocketCore 시험」). 디버그 서명."
