@@ -14,6 +14,7 @@
 #include <aaudio/AAudio.h>
 #include <time.h>
 #include "libretro.h"
+#include "framegen.h"
 
 #define TAG "PocketCore"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
@@ -60,11 +61,20 @@ static unsigned  g_fb_cap = 0;
 static unsigned  g_fb_w = 0, g_fb_h = 0;
 static int       g_fb_dirty = 0;
 
+/* 프레임 생성(framegen.c) — 직전 코어 프레임 사본과 만들어 둔 중간 그림 */
+static uint8_t  *g_prev = NULL, *g_mid = NULL;
+static unsigned  g_fg_cap = 0;
+static unsigned  g_prev_w = 0, g_prev_h = 0;
+static int       g_fg_mode = FG_OFF;     /* Java 가 설정에서 넣는다 */
+static int       g_mid_ready = 0, g_mid_dirty = 0;
+static double    g_vsync_ema = 0.0;      /* 실측 vsync 간격(초) — 120Hz 인지는 이걸로 판단 */
+static double    g_last_vsync = 0.0;
+
 static volatile int32_t g_input = 0;   /* bitmask of RETRO_DEVICE_ID_* */
 static int g_loaded = 0;
 
 /* GL */
-static GLuint g_prog = 0, g_tex = 0;
+static GLuint g_prog = 0, g_tex = 0, g_tex_mid = 0;
 static GLint  a_pos, a_uv, u_tex;
 static int    g_vw = 1, g_vh = 1;
 static int    g_integer_scale = 1;
@@ -380,19 +390,33 @@ static void gl_setup(void)
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glGenTextures(1, &g_tex_mid);
+   glBindTexture(GL_TEXTURE_2D, g_tex_mid);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   g_mid_dirty = g_mid_ready;   /* 표면이 새로 생기면 텍스처도 새것 — 다시 올린다 */
+   g_fb_dirty = 1;
    glClearColor(0.f, 0.f, 0.f, 1.f);
 }
 
-static void gl_draw(void)
+static void gl_draw(int show_mid)
 {
    if (!g_fb || !g_fb_w) return;
 
+   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
    glBindTexture(GL_TEXTURE_2D, g_tex);
    if (g_fb_dirty) {
-      glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_fb_w, g_fb_h, 0,
                    GL_RGBA, GL_UNSIGNED_BYTE, g_fb);
       g_fb_dirty = 0;
+   }
+   if (show_mid && g_mid_dirty) {
+      glBindTexture(GL_TEXTURE_2D, g_tex_mid);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_fb_w, g_fb_h, 0,
+                   GL_RGBA, GL_UNSIGNED_BYTE, g_mid);
+      g_mid_dirty = 0;
    }
 
    /* aspect-correct, integer-scaled viewport.
@@ -428,7 +452,7 @@ static void gl_draw(void)
    glUseProgram(g_prog);
    glUniform1i(u_tex, 0);
    glActiveTexture(GL_TEXTURE0);
-   glBindTexture(GL_TEXTURE_2D, g_tex);
+   glBindTexture(GL_TEXTURE_2D, show_mid ? g_tex_mid : g_tex);
    glVertexAttribPointer(a_pos, 2, GL_FLOAT, GL_FALSE, 0, pos);
    glVertexAttribPointer(a_uv,  2, GL_FLOAT, GL_FALSE, 0, uv);
    glEnableVertexAttribArray(a_pos);
@@ -602,6 +626,7 @@ JNI(void, nativeUnload)(JNIEnv *env, jclass cls)
    dlclose(g_lib);
    g_lib = NULL;
    g_loaded = 0;
+   g_mid_ready = 0; g_mid_dirty = 0; g_prev_w = g_prev_h = 0;
 }
 
 JNI(void, nativeSurfaceCreated)(JNIEnv *env, jclass cls) { (void)env; (void)cls; gl_setup(); }
@@ -637,12 +662,57 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
    int steps = 0, maxsteps = 2;
    if (g_turbo) { dt *= 0.25; maxsteps = 6; }
    if (g_next_t <= 0.0 || t - g_next_t > 0.25) g_next_t = t;
+   /* vsync 간격 실측 — 기기가 화면 주사율을 60/120 사이로 바꿔도 따라간다 */
+   if (g_last_vsync > 0.0) {
+      double iv = t - g_last_vsync;
+      if (iv > 0.002 && iv < 0.1)
+         g_vsync_ema = g_vsync_ema > 0.0 ? g_vsync_ema * 0.9 + iv * 0.1 : iv;
+   }
+   g_last_vsync = t;
+   /* 프레임 생성은 화면이 게임보다 «충분히» 빠를 때만 — 60Hz 화면에선 끼울 빈 vsync 가 없다.
+      배속 중에도 끈다(한 vsync 에 여러 프레임이 돈다). */
+   int fg_on = g_fg_mode != FG_OFF && !g_turbo && g_loaded
+            && g_vsync_ema > 0.0 && g_vsync_ema < dt * 0.70;
    while (g_next_t <= t && steps < maxsteps) {
-      if (g_loaded) c_run();
+      if (g_loaded) {
+         if (fg_on && g_fb && g_fb_w) {      /* 코어가 덮어쓰기 전에 지금 그림을 «직전»으로 */
+            unsigned need = g_fb_w * g_fb_h * 4;
+            if (need > g_fg_cap) {
+               free(g_prev); free(g_mid);
+               g_prev = (uint8_t *)malloc(need); g_mid = (uint8_t *)malloc(need);
+               g_fg_cap = (g_prev && g_mid) ? need : 0;
+            }
+            if (g_fg_cap >= need) { memcpy(g_prev, g_fb, need); g_prev_w = g_fb_w; g_prev_h = g_fb_h; }
+         }
+         c_run();
+      }
       g_next_t += dt; steps++;
    }
+   /* 이번 vsync 에 새 프레임이 나왔으면 «중간 그림»을 먼저 보여 주고, 다음 vsync 에 새 프레임.
+      120Hz 에서 표시 순서 = 중간(n-1→n) · n · 중간(n→n+1) · n+1 … (반 프레임 지연) */
+   int show_mid = 0;
+   if (fg_on && steps > 0 && g_fg_cap && g_prev_w == g_fb_w && g_prev_h == g_fb_h) {
+      fg_build(g_prev, g_fb, g_mid, (int)g_fb_w, (int)g_fb_h, g_fg_mode);
+      g_mid_ready = 1; g_mid_dirty = 1; show_mid = 1;
+   }
    glClear(GL_COLOR_BUFFER_BIT);
-   gl_draw();
+   gl_draw(show_mid);
+}
+
+JNI(void, nativeSetFrameGen)(JNIEnv *env, jclass cls, jint mode)
+{
+   (void)env; (void)cls;
+   g_fg_mode = (mode == FG_BLEND || mode == FG_MOTION) ? mode : FG_OFF;
+   LOGI("framegen mode %d", g_fg_mode);
+}
+
+/* 지금 실제로 중간 프레임을 끼우고 있는가 (화면이 충분히 빠른가) — 토스트·진단용 */
+JNI(jint, nativeFrameGenActive)(JNIEnv *env, jclass cls)
+{
+   (void)env; (void)cls;
+   double fps = g_av.timing.fps > 1.0 ? g_av.timing.fps : 60.0;
+   if (g_vsync_ema <= 0.0) return -1;                         /* 아직 모름 */
+   return (g_fg_mode != FG_OFF && g_vsync_ema < (1.0 / fps) * 0.70) ? (jint)(1.0 / g_vsync_ema + 0.5) : 0;
 }
 
 JNI(void, nativeSetInput)(JNIEnv *env, jclass cls, jint mask)

@@ -30,4 +30,8 @@ public final class Emu {
     public static native void nativeAudioPause();   /* 백그라운드 — 오디오 장치를 놓는다 */
     public static native void nativeAudioResume();  /* 복귀 — 새 스트림으로 다시 연다 */
     public static native void nativeRunFrames(int n); /* GL 없이 n프레임 — 썸네일 캡처용 */
+    /* 프레임 생성(중간 프레임 보간) — 0=끔 1=섞기 2=움직임 보정. 120Hz 같은 빠른 화면에서만 실제로 끼운다 */
+    public static native void nativeSetFrameGen(int mode);
+    /** 지금 끼우고 있으면 화면 Hz, 화면이 느려 못 끼우면 0, 아직 모르면 -1. */
+    public static native int  nativeFrameGenActive();
 }

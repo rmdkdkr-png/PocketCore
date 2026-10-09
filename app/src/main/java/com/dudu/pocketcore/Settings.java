@@ -95,6 +95,13 @@ public final class Settings {
                 "자동은 기기 회전을 따릅니다. 가로는 게임기·거치 플레이용 — 기둥 아트도 양옆에 다 들어갑니다.",
                 new String[]{ "auto", "portrait", "landscape" },
                 new String[]{ "자동", "세로", "가로" }, "auto"),
+            new Item("pocketcore_framegen", "프레임 생성",
+                "120Hz 화면에서 게임 프레임(60) 사이에 중간 그림을 만들어 끼웁니다 — 스크롤·이동이 두 배로 부드럽습니다."
+                + " 「움직임」은 블록마다 움직인 방향을 찾아 반만큼 옮긴 그림(도트가 번지지 않음),"
+                + " 「섞기」는 두 프레임을 반반 섞습니다(가볍지만 잔상). 표시가 약 8ms(반 프레임) 늦어집니다."
+                + " 60Hz 화면이면 켜 둬도 아무 일도 안 합니다. 게임 중 상단바 「보간」 칸으로도 바꿉니다.",
+                new String[]{ "off", "blend", "motion" },
+                new String[]{ "끔", "섞기", "움직임" }, "off"),
             /* 「기둥 아트」(ngp_ss2sp_sides) 는 2026-09-07 유저 지시로 폐기했다.
                해설·더빙(ngp_ss2sp_comm 계열)은 3.90 에 이미 뺐고, 남은 배관도 같이 걷어냈다. */
             new Item("ngp_svcsp_band", "기술명 띠",
@@ -112,6 +119,12 @@ public final class Settings {
                 "자동은 물리 게임패드가 연결되면 터치 버튼을 숨기고 메뉴 알약만 남깁니다. 버튼 배정은 설정 아래 「물리 패드 매핑」.",
                 new String[]{ "auto", "on", "off" },
                 new String[]{ "자동", "항상 표시", "숨김" }, "auto"),
+            new Item("pocketcore_padskin", "버튼 모양",
+                "아트 = 기기 질감(금속 테·유광 버튼·각인 십자)으로 그립니다. 단순 = 예전 반투명 도형."
+                + " PocketCore/design/skin/ 에 a.png·b.png·dpad.png 같은 그림을 넣으면 그 그림으로 바꿔 씁니다"
+                + " (눌림은 a_on.png).",
+                new String[]{ "art", "flat" },
+                new String[]{ "아트", "단순" }, "art"),
             new Item("ngp_svcsp_engine", "원버튼 필살기",
                 "SvC 전용. 기술키 하나로 커맨드를 대신 넣습니다. 방향에 따라 다른 기술이 나갑니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC).l(),

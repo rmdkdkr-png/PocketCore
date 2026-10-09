@@ -39,7 +39,8 @@ public class PadView extends View {
 
     public static final int ACT_BAND = 9;   /* 코어 옵션을 게임 중에 뒤집는 칸 */
     /* ACT_SIDES(기둥) 는 2026-09-07 폐기 — 코어에서 빠지는 기능을 화면에 남기지 않는다. */
-    public static final int ACT_QUIT = 11;                    /* 앱 종료 — 「목록」(ACT_PICK)과 달라야 한다(유저 2026-09-05) */
+    public static final int ACT_QUIT = 11;
+    public static final int ACT_FRAMEGEN = 12;                /* 프레임 생성 끔→움직임→섞기 순환 */                    /* 앱 종료 — 「목록」(ACT_PICK)과 달라야 한다(유저 2026-09-05) */
     public static final int ACT_SAVE = 1, ACT_LOAD = 2, ACT_SHOT = 3, ACT_RESET = 4, ACT_PICK = 5, ACT_SLOT = 6, ACT_SPK = 7,
             /* 설정 — 게임 안에서 바로 연다. 예전에는 「롬」으로 게임을 내리고
                목록 맨 아래까지 가야 닿았다. 설정 하나 보려고 게임을 끄는 건 말이 안 된다. */
@@ -99,6 +100,25 @@ public class PadView extends View {
     private static final int[] BTN_COL_ON  = { 0x8866aaff, 0x88ff5566, 0x884477cc, 0x88cc3344, 0x88ffcc44, 0x8899eeaa };
     private static final int[] BTN_COL_OFF = { 0x4466aaff, 0x44ff5566, 0x444477cc, 0x44cc3344, 0x44ffcc44, 0x4499eeaa };
 
+    /* 버튼 아트(PadSkin) — 설정 「버튼 모양」 아트/단순. 단순 = 예전 반투명 도형 그대로 */
+    private final PadSkin skin = new PadSkin();
+    private boolean art = true;
+    /** 아트를 켜고 끈다. 덮어쓰기 그림(design/skin/*.png)도 이때 다시 읽는다. */
+    public void setArt(boolean on) {
+        art = on;
+        skin.reloadUser();
+        skin.clear();
+        invalidate();
+    }
+    /** 버튼 고유색 — 이름으로 정한다(프로필이 달라도 A 는 늘 같은 색). */
+    private static int hueOf(Object name) {
+        if ("A".equals(name) || "WP".equals(name)) return 0xff3f6fd1;   /* 청 */
+        if ("B".equals(name) || "WK".equals(name)) return 0xffd13f4f;   /* 홍 */
+        if ("SP".equals(name) || "TECH".equals(name)) return 0xffe0a43a; /* 호박 — 금테 */
+        if ("AB".equals(name)) return 0xff3f9e7c;                       /* 비취 */
+        return 0xff5a5e6a;
+    }
+
     private Object[][] prof = P_SVC;
     private String profName = "svc";
     private boolean svcPlaceholders = true;
@@ -110,7 +130,7 @@ public class PadView extends View {
 
     private float dpadR, btnR;
     private final RectF opt = new RectF();
-    private final RectF[] util = new RectF[9];
+    private final RectF[] util = new RectF[10];
     /* 「종료」= 게임을 닫고 고르는 창으로 (제보: 「롬」은 사실 종료 버튼인데 이름이 달랐다).
        「배치」= 버튼 자리·크기 + 게임 화면 상자까지 한꺼번에 편집(제보: 「키」란 이름이 좁았다). */
     /* 세 무리로 묶어 둔다 — 두 줄로 접힐 때 무리가 갈리지 않게 순서가 곧 배치다.
@@ -118,10 +138,11 @@ public class PadView extends View {
          ② 이 게임(코어 기능)  띠 — 게임마다 있는 것만 칸이 생긴다 (기둥은 2026-09-07 폐기)
          ③ 마무리  설정·배치·종료 */
     private final String[] utilLabel = { "슬롯1", "저장", "로드", "샷", "리셋",
-                                         "띠", "설정", "배치", "종료" };
+                                         "띠", "보간", "설정", "배치", "종료" };
     private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_SHOT, ACT_RESET,
-                                    ACT_BAND, ACT_CFG, 0, ACT_QUIT };
-    private static final int UTIL_EDIT = 7;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
+                                    ACT_BAND, ACT_FRAMEGEN, ACT_CFG, 0, ACT_QUIT };
+    private static final int UTIL_FG = 6;     /* 「보간」 칸 — 라벨이 지금 모드를 보여 준다 */
+    private static final int UTIL_EDIT = 8;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
     /* 이 게임이 코어에서 쓰는 기능 — 게임별 칸은 여기서만 생긴다.
        전에는 「이 게임에 그 기능이 있나」를 패드 프로필 모양(prof == P_SS2)으로 판단했다.
        게임 표에 이미 있는 사실을 모양으로 되짚은 것이라 진실이 두 벌이 됐다.
@@ -197,6 +218,8 @@ public class PadView extends View {
 
     public void setListener(Listener l) { listener = l; }
     public void setSlotLabel(int n) { utilLabel[0] = "슬롯" + n; invalidate(); }
+    /** 「보간」 칸 라벨 — 끔/섞기/움직임 이 칸만 봐도 지금 모드가 보이게. */
+    public void setFrameGenLabel(String s) { utilLabel[UTIL_FG] = s; invalidate(); }
 
     /** "ss2"·"svc"·"ngp" — 롬 헤더로 EmuActivity 가 정한다 */
     /** 화면에 전용 강P·강K 버튼을 둘 것인가 — 「SVC 강약 버튼 구분」과 짝(EmuActivity 가 알려 준다). */
@@ -339,6 +362,7 @@ public class PadView extends View {
         dpadR = Math.min(w * 0.17f, padH * 0.36f);
         btnR = Math.min(w * 0.082f, padH * 0.17f);
         layoutBar(w, h);
+        skin.clear();                             /* 크기별로 구운 그림 — 새 크기로 다시 */
     }
 
     /** 상단바 배치. 여섯 칸이 넘으면 «두 줄»로 접는다 —
@@ -399,7 +423,9 @@ public class PadView extends View {
         if (!hidesTouch()) for (int i = 0; i < nC; i++) {
             if (!ctrlVisible(i)) continue;
             int b = bitOf(i);
-            if (b == -1) {                                   /* 십자 */
+            if (art && drawArt(c, i, b)) {
+                /* 아트로 그렸다 */
+            } else if (b == -1) {                                   /* 십자 */
                 /* 유저: 「디패드는 판정박스를 보여줄 필요 없음」 — 여덟 갈래로 그려 봤다가
                    되돌렸다(2026-09-06). 그래서 «그리는 모양»과 «걸리는 각»이 일부러 다르다.
                    걸리는 각은 DPAD_CENTER/halfOf() 표 하나에서만 온다 — 아래 그림은 표식이다. */
@@ -448,12 +474,23 @@ public class PadView extends View {
             }
         }
 
+        if (art) {
+            skin.pill(c, "menu", barHandle, false, barOpen || edit, 1,
+                    barOpen || edit ? "\uba54\ub274 \u25b4" : "\uba54\ub274 \u25be");
+        } else {
         fill.setColor(barOpen || edit ? 0x55ffffff : 0x30ffffff);
         c.drawRoundRect(barHandle, 14, 14, fill);
         text.setTextSize(barHandle.height() * 0.52f);
         c.drawText(barOpen || edit ? "\uba54\ub274 \u25b4" : "\uba54\ub274 \u25be",
                 barHandle.centerX(), barHandle.bottom - barHandle.height() * 0.30f, text);
-        if (barOpen || edit) {
+        }
+        if ((barOpen || edit) && art) {
+            for (int i = 0; i < util.length; i++) {
+                if (util[i].isEmpty()) continue;
+                boolean hl = (i == UTIL_EDIT && edit) || i == barSel;
+                skin.pill(c, "bar", util[i], false, hl, 2, utilLabel[i]);
+            }
+        } else if (barOpen || edit) {
             fill.setColor(0x22ffffff);
             text.setTextSize(util[0].height() * 0.5f);
             for (int i = 0; i < util.length; i++) {
@@ -484,6 +521,39 @@ public class PadView extends View {
             c.drawText("－", minus.centerX(), minus.centerY() + bh * 0.2f, text);
             c.drawText("＋", plus.centerX(), plus.centerY() + bh * 0.2f, text);
         }
+    }
+
+    /** 아트로 컨트롤 i 를 그린다. 못 그리는 종류면 false(단순 도형으로 떨어진다). */
+    private boolean drawArt(Canvas c, int i, int b) {
+        Object nm = prof[i][0];
+        String key = String.valueOf(nm).toLowerCase();
+        if (b == -1) {
+            int dir = (bit(Emu.UP) ? 1 : 0) | (bit(Emu.DOWN) ? 2 : 0)
+                    | (bit(Emu.LEFT) ? 4 : 0) | (bit(Emu.RIGHT) ? 8 : 0);
+            skin.dpad(c, cx(i), cy(i), radOf(i), dir);
+            return true;
+        }
+        if (b == -2) {                                   /* OPTION — 실기처럼 작은 알약 */
+            float base = Math.min(getWidth(), getHeight());
+            float ow2 = base * 0.10f * sc[i], oh2 = base * 0.021f * sc[i];
+            opt.set(cx(i) - ow2, cy(i) - oh2, cx(i) + ow2, cy(i) + oh2);
+            skin.pill(c, "opt", opt, bit(Emu.START), false, 0, "OPTION");
+            return true;
+        }
+        if (b == -3) {
+            skin.button(c, "ff", cx(i), cy(i), radOf(i), ffDown ? 0xffe0a43a : 0xff4a4e5a, ffDown, false, label(i));
+            return true;
+        }
+        if (b == -4) {
+            skin.button(c, "exit", cx(i), cy(i), radOf(i), 0xff4a4e5a, false, false, label(i));
+            return true;
+        }
+        if (b >= 0) {
+            boolean acc = "SP".equals(nm) || "TECH".equals(nm);
+            skin.button(c, key, cx(i), cy(i), radOf(i), hueOf(nm), bit(b), acc, label(i));
+            return true;
+        }
+        return false;
     }
 
     private int nearestControl(float x, float y) {

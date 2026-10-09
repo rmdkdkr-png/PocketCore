@@ -100,6 +100,12 @@ public class EmuActivity extends Activity {
             }
         });
         gl.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
+        /* 표면이 생길 때마다 주사율 요청을 다시 건다 — Surface.setFrameRate 는 표면에 붙는 값이다 */
+        gl.getHolder().addCallback(new android.view.SurfaceHolder.Callback() {
+            @Override public void surfaceCreated(android.view.SurfaceHolder sh) { applyFrameRate(); }
+            @Override public void surfaceChanged(android.view.SurfaceHolder sh, int f, int w, int hh) { }
+            @Override public void surfaceDestroyed(android.view.SurfaceHolder sh) { }
+        });
 
         pad = new PadView(this);
         /* 패드는 네 벌 — SS2 전용, SvC(원버튼 6키), KOF R-2·월화(R=SP · L=A+B), 순정 NGPC(A·B 만).
@@ -115,6 +121,7 @@ public class EmuActivity extends Activity {
         pad.setProfile(profile, (game != null) ? game.id : "ngp");
         /* 상단바의 게임별 칸 — 코어가 이 게임에서 실제로 쓰는 기능만. 게임 표가 단일 출처다. */
         pad.setCoreFeatures(game != null && game.has(Games.F_BAND));
+        applyFrameGen(false);
         pad.setListener(new PadView.Listener() {
             @Override public void onMask(int mask) { padMask = mask; }
             @Override public void onAction(int action) { handleAction(action); }
@@ -192,6 +199,7 @@ public class EmuActivity extends Activity {
         String v = or(m.get("pocketcore_touchpad"), "auto");
         boolean hide = "off".equals(v) || ("auto".equals(v) && KeyMap.physicalPresent());
         if (pad != null) pad.setPhysicalMode(hide);
+        if (pad != null) pad.setArt(!"flat".equals(or(m.get("pocketcore_padskin"), "art")));
     }
     private final android.hardware.input.InputManager.InputDeviceListener devListener =
             new android.hardware.input.InputManager.InputDeviceListener() {
@@ -384,6 +392,13 @@ public class EmuActivity extends Activity {
         case PadView.ACT_BAND:
             toggleCoreOpt("ngp_svcsp_band", "기술명 띠");
             break;
+        case PadView.ACT_FRAMEGEN: {
+            /* 끔 → 움직임 → 섞기 → 끔. 주로 쓸 것(움직임)을 한 번 누르면 바로 닿게 */
+            String cur = readOpt("pocketcore_framegen", "off");
+            String nx = "off".equals(cur) ? "motion" : "motion".equals(cur) ? "blend" : "off";
+            persistOption("pocketcore_framegen", nx);
+            applyFrameGen(true);
+            break; }
         case PadView.ACT_CFG: {
             /* 게임 중 옵션 창 — 실행 전 선택 창과 같은 것. 「적용하고 이어하기」= 지금 자리 저장 → 옵션대로 다시 굽기 → 다시 열어 그 자리부터
                (유저 2026-09-05 「게임 중간에도 이 창 되게 — 오토세이브하고 리로드」). 전체 설정은 창 아래 링크로. */
@@ -401,6 +416,61 @@ public class EmuActivity extends Activity {
             MainActivity.forgetLast(this);
             finishAffinity();
             break;
+        }
+    }
+
+    /* ── 프레임 생성 ─────────────────────────────────────────────
+       코어는 60.25fps 그대로 돌리고, 120Hz 화면의 «빈 vsync» 에 중간 그림을 끼운다(native.c · framegen.c).
+       그러려면 화면이 실제로 120Hz 여야 한다 — 삼성은 정적 화면을 60Hz 로 내리므로
+       켜져 있을 때는 창·표면에 최고 주사율을 요청한다. 끄면 요청도 거둔다(배터리). */
+    private int fgMode = 0;
+
+    private static int fgModeOf(String v) {
+        return "motion".equals(v) ? 2 : "blend".equals(v) ? 1 : 0;
+    }
+
+    private void applyFrameGen(boolean announce) {
+        fgMode = fgModeOf(readOpt("pocketcore_framegen", "off"));
+        Emu.nativeSetFrameGen(fgMode);
+        if (pad != null) pad.setFrameGenLabel(fgMode == 2 ? "보간:움직임" : fgMode == 1 ? "보간:섞기" : "보간:끔");
+        applyFrameRate();
+        if (!announce) return;
+        final String name = fgMode == 2 ? "움직임" : fgMode == 1 ? "섞기" : "끔";
+        if (fgMode == 0) { toast("프레임 생성 끔"); return; }
+        /* 화면이 실제 몇 Hz 로 도는지는 몇 프레임 지나야 안다 — 잠깐 뒤에 알려 준다 */
+        h.postDelayed(new Runnable() { @Override public void run() {
+            int hz = Emu.nativeFrameGenActive();
+            toast("프레임 생성: " + name + (hz > 0 ? " · " + hz + "Hz 로 끼우는 중"
+                    : hz == 0 ? " · 지금 화면이 60Hz 라 효과 없음(기기 설정 「화면 부드러움」=적응형 확인)" : ""));
+        }}, 700);
+    }
+
+    /** 창에는 최고 주사율 모드를, 표면에는 120fps 를 요청한다(끄면 기본으로). */
+    private void applyFrameRate() {
+        try {
+            android.view.Display d = getWindowManager().getDefaultDisplay();
+            WindowManager.LayoutParams lp = getWindow().getAttributes();
+            int want = 0;
+            float best = 0f;
+            if (fgMode != 0) {
+                android.view.Display.Mode cur = d.getMode();
+                for (android.view.Display.Mode m : d.getSupportedModes())
+                    if (m.getPhysicalWidth() == cur.getPhysicalWidth()
+                            && m.getPhysicalHeight() == cur.getPhysicalHeight()
+                            && m.getRefreshRate() > best) { best = m.getRefreshRate(); want = m.getModeId(); }
+            }
+            if (lp.preferredDisplayModeId != want) {
+                lp.preferredDisplayModeId = want;          /* 0 = 시스템에 맡김 */
+                getWindow().setAttributes(lp);
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 30 && gl != null) {
+                android.view.Surface s = gl.getHolder().getSurface();
+                if (s != null && s.isValid())
+                    s.setFrameRate(fgMode != 0 ? Math.max(best, 120f) : 0f,
+                            android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+            }
+        } catch (Exception e) {
+            android.util.Log.w("PocketCore", "frame rate request: " + e);
         }
     }
 
@@ -647,6 +717,7 @@ public class EmuActivity extends Activity {
         super.onResume(); Orient.apply(this); immersive(); gl.onResume();
         if (loaded) Emu.nativeAudioResume();
         keymap = KeyMap.load();   /* 매핑 화면에서 돌아온 경우 */
+        applyFrameGen(false);     /* 설정에서 프레임 생성을 바꾸고 돌아온 경우 */
         applyScreenLayout();      /* 설정에서 돌아온 경우 바로 반영 (터치 패드 모드 포함) */
         try { ((android.hardware.input.InputManager) getSystemService(INPUT_SERVICE))
                 .registerInputDeviceListener(devListener, h); } catch (Exception ignored) { }
