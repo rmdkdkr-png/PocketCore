@@ -31,9 +31,23 @@ android {
     // keep the core .so on disk so dlopen(nativeLibraryDir + "/...") works
     packagingOptions { jniLibs { useLegacyPackaging true } }
 
+    // 시험판 전용 고정 서명 — CI 러너는 돌 때마다 새 디버그 키를 만들어서, 시험판끼리도
+    // 덮어 깔기가 막혔다. 이 키는 .fgtest 패키지만 서명한다(정식판 dudu 키와 무관, 공개돼도 무방).
+    signingConfigs {
+        fgtest {
+            storeFile file('fgtest.keystore')
+            storePassword 'android'
+            keyAlias 'fgtest'
+            keyPassword 'android'
+        }
+    }
+
     buildTypes {
         release { minifyEnabled false }
-        debug   { debuggable true }
+        debug   {
+            debuggable true
+            if (project.hasProperty('pcSuffix')) signingConfig signingConfigs.fgtest
+        }
     }
 
     compileOptions {
