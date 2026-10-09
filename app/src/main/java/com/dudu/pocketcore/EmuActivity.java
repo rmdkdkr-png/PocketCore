@@ -317,6 +317,8 @@ public class EmuActivity extends Activity {
 
 
     private void loadCore() {
+        /* 코어가 로드 중에 주사율을 물을 수 있다 — 실측 전이라 시스템 값을 먼저 넣어 둔다 */
+        try { Emu.nativeSetPanelHz(getWindowManager().getDefaultDisplay().getRefreshRate()); } catch (Exception ignored) { }
         int rc = Emu.nativeLoad(corePath(), romPath,
                 MainActivity.sysDir().getAbsolutePath(),
                 MainActivity.saveDir().getAbsolutePath(),
@@ -445,6 +447,14 @@ public class EmuActivity extends Activity {
         }}, 700);
     }
 
+    /** 120Hz 를 요청할 이유 — 앱 보간이 켜졌거나, ss2 코어의 프레임 생성이 꺼져 있지 않을 때.
+     *  코어 「자동」은 패널이 실제로 120 이어야 켜지는데, 삼성은 요청 없으면 60 으로 내려
+     *  자동이 영영 안 켜진다. 코어 기본값이 auto 라 여기 기본도 auto 로 읽는다. */
+    private boolean wantHighRefresh() {
+        if (fgMode != 0) return true;
+        return "ss2".equals(romType) && !"disabled".equals(readOpt("ngp_framegen", "auto"));
+    }
+
     /** 창에는 최고 주사율 모드를, 표면에는 120fps 를 요청한다(끄면 기본으로). */
     private void applyFrameRate() {
         try {
@@ -452,7 +462,7 @@ public class EmuActivity extends Activity {
             WindowManager.LayoutParams lp = getWindow().getAttributes();
             int want = 0;
             float best = 0f;
-            if (fgMode != 0) {
+            if (wantHighRefresh()) {
                 android.view.Display.Mode cur = d.getMode();
                 for (android.view.Display.Mode m : d.getSupportedModes())
                     if (m.getPhysicalWidth() == cur.getPhysicalWidth()
@@ -466,7 +476,7 @@ public class EmuActivity extends Activity {
             if (android.os.Build.VERSION.SDK_INT >= 30 && gl != null) {
                 android.view.Surface s = gl.getHolder().getSurface();
                 if (s != null && s.isValid())
-                    s.setFrameRate(fgMode != 0 ? Math.max(best, 120f) : 0f,
+                    s.setFrameRate(wantHighRefresh() ? Math.max(best, 120f) : 0f,
                             android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
             }
         } catch (Exception e) {

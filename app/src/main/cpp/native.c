@@ -69,6 +69,22 @@ static int       g_fg_mode = FG_OFF;     /* Java 가 설정에서 넣는다 */
 static int       g_mid_ready = 0, g_mid_dirty = 0;
 static double    g_vsync_ema = 0.0;      /* 실측 vsync 간격(초) — 120Hz 인지는 이걸로 판단 */
 static double    g_last_vsync = 0.0;
+static float     g_panel_hz_hint = 0.f;  /* Java 가 알려 준 Display.getRefreshRate() — 실측 전 대용 */
+
+/* 패널 주사율 — 코어의 GET_TARGET_REFRESH_RATE 에 답한다(ss2 코어 프레임 생성 「자동」이 이걸 본다).
+   vsync 실측값을 흔한 주사율로 맞춰 돌려준다(120Hz 면 120.0, 60 이면 60.0). 실측 전이면 Java 값. */
+static float panel_hz(void)
+{
+   static const float std_hz[] = { 48.f, 50.f, 60.f, 72.f, 90.f, 96.f, 120.f, 144.f, 165.f, 240.f };
+   float hz = g_vsync_ema > 0.0 ? (float)(1.0 / g_vsync_ema) : g_panel_hz_hint;
+   if (hz <= 0.f) return 60.f;
+   float best = std_hz[0], bd = 1e9f;
+   for (unsigned i = 0; i < sizeof std_hz / sizeof std_hz[0]; i++) {
+      float d = hz > std_hz[i] ? hz - std_hz[i] : std_hz[i] - hz;
+      if (d < bd) { bd = d; best = std_hz[i]; }
+   }
+   return best;
+}
 
 static volatile int32_t g_input = 0;   /* bitmask of RETRO_DEVICE_ID_* */
 static int g_loaded = 0;
@@ -204,6 +220,9 @@ static bool cb_environment(unsigned cmd, void *data)
 
    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
       *(int *)data = 3; return true;
+
+   case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE:
+      *(float *)data = panel_hz(); return true;
 
    case RETRO_ENVIRONMENT_GET_FASTFORWARDING:
       *(bool *)data = false; return true;
@@ -698,6 +717,9 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
    glClear(GL_COLOR_BUFFER_BIT);
    gl_draw(show_mid);
 }
+
+JNI(void, nativeSetPanelHz)(JNIEnv *env, jclass cls, jfloat hz)
+{ (void)env; (void)cls; g_panel_hz_hint = hz; }
 
 JNI(void, nativeSetFrameGen)(JNIEnv *env, jclass cls, jint mode)
 {
