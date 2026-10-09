@@ -720,6 +720,9 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
    gl_draw(show_mid);
 }
 
+JNI(jfloat, nativePanelHz)(JNIEnv *env, jclass cls) { (void)env; (void)cls; return panel_hz(); }
+JNI(jdouble, nativeCoreFps)(JNIEnv *env, jclass cls) { (void)env; (void)cls; return g_av.timing.fps; }
+
 JNI(void, nativeSetPaused)(JNIEnv *env, jclass cls, jboolean on)
 { (void)env; (void)cls; g_paused = on ? 1 : 0; }
 

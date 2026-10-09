@@ -396,10 +396,7 @@ public class EmuActivity extends Activity {
             toggleCoreOpt("ngp_svcsp_band", "기술명 띠");
             break;
         case PadView.ACT_FRAMEGEN: {
-            /* 끔 → 움직임 → 섞기 → 끔. 주로 쓸 것(움직임)을 한 번 누르면 바로 닿게 */
-            String cur = readOpt("pocketcore_framegen", "off");
-            String nx = "off".equals(cur) ? "motion" : "motion".equals(cur) ? "blend" : "off";
-            persistOption("pocketcore_framegen", nx);
+            persistOption("pocketcore_framegen", fgOn() ? "off" : "motion");
             applyFrameGen(true);
             break; }
         case PadView.ACT_CFG: {
@@ -430,35 +427,49 @@ public class EmuActivity extends Activity {
        코어는 60.25fps 그대로 돌리고, 120Hz 화면의 «빈 vsync» 에 중간 그림을 끼운다(native.c · framegen.c).
        그러려면 화면이 실제로 120Hz 여야 한다 — 삼성은 정적 화면을 60Hz 로 내리므로
        켜져 있을 때는 창·표면에 최고 주사율을 요청한다. 끄면 요청도 거둔다(배터리). */
-    private int fgMode = 0;
+    private int fgMode = 0;   /* 앱 보간 모드(native) — 사무쇼2는 코어가 하므로 늘 0 */
 
-    private static int fgModeOf(String v) {
-        return "motion".equals(v) ? 2 : "blend".equals(v) ? 1 : 0;
-    }
+    /** 프레임 생성 스위치(하나뿐). 옛 값 blend 는 끔으로 본다(설정 화면 표시와 맞추려고). */
+    private boolean fgOn() { return "motion".equals(readOpt("pocketcore_framegen", "off")); }
+    /** 이 게임은 코어가 프레임 생성을 하는가 — ss2 코어(ss2-sp-core framegen). */
+    private boolean coreFg() { return "ss2".equals(romType); }
 
     private void applyFrameGen(boolean announce) {
-        fgMode = fgModeOf(readOpt("pocketcore_framegen", "off"));
+        final boolean on = fgOn();
+        if (coreFg()) {
+            /* 사무쇼2: 코어 옵션으로 넘긴다. 로드 전이면 options.txt 를 코어가 읽고,
+               게임 중이면 nativeSetOption 이 «옵션 바뀜»을 알려 코어가 다음 프레임에 다시 읽는다. */
+            String v = on ? "auto" : "disabled";
+            persistOption("ngp_framegen", v);
+            if (loaded) Emu.nativeSetOption("ngp_framegen", v);
+            fgMode = 0;
+        } else {
+            fgMode = on ? 2 : 0;
+        }
         Emu.nativeSetFrameGen(fgMode);
-        if (pad != null) pad.setFrameGenLabel(fgMode == 2 ? "보간:움직임" : fgMode == 1 ? "보간:섞기" : "보간:끔");
+        if (pad != null) pad.setFrameGenLabel(on ? "120Hz:켬" : "120Hz:끔");
         applyFrameRate();
         if (!announce) return;
-        final String name = fgMode == 2 ? "움직임" : fgMode == 1 ? "섞기" : "끔";
-        if (fgMode == 0) { toast("프레임 생성 끔"); return; }
-        /* 화면이 실제 몇 Hz 로 도는지는 몇 프레임 지나야 안다 — 잠깐 뒤에 알려 준다 */
-        h.postDelayed(new Runnable() { @Override public void run() {
-            int hz = Emu.nativeFrameGenActive();
-            toast("프레임 생성: " + name + (hz > 0 ? " · " + hz + "Hz 로 끼우는 중"
-                    : hz == 0 ? " · 지금 화면이 60Hz 라 효과 없음(기기 설정 「화면 부드러움」=적응형 확인)" : ""));
-        }}, 700);
+        if (!on) { toast("프레임 생성 끔"); return; }
+        /* 화면이 실제 몇 Hz 인지·코어가 켰는지는 조금 지나야 안다(주사율 전환·코어 판정) */
+        h.postDelayed(new Runnable() { @Override public void run() { toast(fgStatus()); }}, 1800);
     }
 
-    /** 120Hz 를 요청할 이유 — 앱 보간이 켜졌거나, ss2 코어의 프레임 생성이 꺼져 있지 않을 때.
-     *  코어 「자동」은 패널이 실제로 120 이어야 켜지는데, 삼성은 요청 없으면 60 으로 내려
-     *  자동이 영영 안 켜진다. 코어 기본값이 auto 라 여기 기본도 auto 로 읽는다. */
-    private boolean wantHighRefresh() {
-        if (fgMode != 0) return true;
-        return "ss2".equals(romType) && !"disabled".equals(readOpt("ngp_framegen", "auto"));
+    /** 지금 실제로 무슨 일이 일어나는지 한 줄 — 「켰는데 되는 건가」를 이 토스트로 판정한다. */
+    private String fgStatus() {
+        int hz = Math.round(Emu.nativePanelHz());
+        double cfps = Emu.nativeCoreFps();
+        if (coreFg()) {
+            if (cfps > 90) return "프레임 생성: 코어가 120Hz 로 출력 중 (화면 " + hz + "Hz)";
+            if (hz < 90)   return "프레임 생성: 화면이 " + hz + "Hz 라 대기 — 기기 설정 「화면 부드러움」=적응형 확인";
+            return "프레임 생성: 코어가 아직 안 켬 (화면 " + hz + "Hz) — 잠시 뒤 다시 확인";
+        }
+        if (Emu.nativeFrameGenActive() > 0) return "프레임 생성: 앱이 " + hz + "Hz 로 끼우는 중";
+        return "프레임 생성: 화면이 " + hz + "Hz 라 대기 — 기기 설정 「화면 부드러움」=적응형 확인";
     }
+
+    /** 120Hz 를 요청할 이유 — 프레임 생성이 켜졌을 때(앱이든 코어든). 삼성은 요청이 없으면 60 으로 내린다. */
+    private boolean wantHighRefresh() { return fgOn(); }
 
     /** 창에는 최고 주사율 모드를, 표면에는 120fps 를 요청한다(끄면 기본으로). */
     private void applyFrameRate() {

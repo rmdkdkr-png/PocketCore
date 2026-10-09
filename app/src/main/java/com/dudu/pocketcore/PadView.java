@@ -39,8 +39,8 @@ public class PadView extends View {
 
     public static final int ACT_BAND = 9;   /* 코어 옵션을 게임 중에 뒤집는 칸 */
     /* ACT_SIDES(기둥) 는 2026-09-07 폐기 — 코어에서 빠지는 기능을 화면에 남기지 않는다. */
-    public static final int ACT_QUIT = 11;
-    public static final int ACT_FRAMEGEN = 12;                /* 프레임 생성 끔→움직임→섞기 순환 */                    /* 앱 종료 — 「목록」(ACT_PICK)과 달라야 한다(유저 2026-09-05) */
+    public static final int ACT_QUIT = 11;                    /* 앱 종료 — 「목록」(ACT_PICK)과 달라야 한다(유저 2026-09-05) */
+    public static final int ACT_FRAMEGEN = 12;                /* 프레임 생성 켬/끔 */
     public static final int ACT_SAVE = 1, ACT_LOAD = 2, ACT_SHOT = 3, ACT_RESET = 4, ACT_PICK = 5, ACT_SLOT = 6, ACT_SPK = 7,
             /* 설정 — 게임 안에서 바로 연다. 예전에는 「롬」으로 게임을 내리고
                목록 맨 아래까지 가야 닿았다. 설정 하나 보려고 게임을 끄는 건 말이 안 된다. */
@@ -138,7 +138,7 @@ public class PadView extends View {
          ② 이 게임(코어 기능)  띠 — 게임마다 있는 것만 칸이 생긴다 (기둥은 2026-09-07 폐기)
          ③ 마무리  설정·배치·종료 */
     private final String[] utilLabel = { "슬롯1", "저장", "로드", "샷", "리셋",
-                                         "띠", "보간", "설정", "배치", "종료" };
+                                         "띠", "120Hz", "설정", "배치", "종료" };
     private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_SHOT, ACT_RESET,
                                     ACT_BAND, ACT_FRAMEGEN, ACT_CFG, 0, ACT_QUIT };
     private static final int UTIL_FG = 6;     /* 「보간」 칸 — 라벨이 지금 모드를 보여 준다 */

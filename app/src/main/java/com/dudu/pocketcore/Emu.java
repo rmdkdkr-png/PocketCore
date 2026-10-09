@@ -38,4 +38,8 @@ public final class Emu {
     public static native void nativeSetPaused(boolean on);
     /** 지금 끼우고 있으면 화면 Hz, 화면이 느려 못 끼우면 0, 아직 모르면 -1. */
     public static native int  nativeFrameGenActive();
+    /** 실측 패널 주사율(60/90/120…) — 상태 토스트용. */
+    public static native float  nativePanelHz();
+    /** 코어가 지금 선언한 fps — 사무쇼2 코어가 프레임 생성을 켜면 120.5. */
+    public static native double nativeCoreFps();
 }
