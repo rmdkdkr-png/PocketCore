@@ -34,6 +34,8 @@ public final class Emu {
     public static native void nativeSetFrameGen(int mode);
     /** 실측 전 대용 패널 주사율(Display.getRefreshRate) — 코어의 GET_TARGET_REFRESH_RATE 답에 쓴다. */
     public static native void nativeSetPanelHz(float hz);
+    /** 코어 멈춤 — 게임 안 「설정」 창이 떠 있는 동안. 그림은 마지막 것을 계속 그린다. */
+    public static native void nativeSetPaused(boolean on);
     /** 지금 끼우고 있으면 화면 Hz, 화면이 느려 못 끼우면 0, 아직 모르면 -1. */
     public static native int  nativeFrameGenActive();
 }

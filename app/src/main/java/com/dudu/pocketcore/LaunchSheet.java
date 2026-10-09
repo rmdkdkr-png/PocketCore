@@ -75,6 +75,8 @@ public final class LaunchSheet {
     }
     /** 떠 있는가 — 런처가 패드 키를 이 창으로 넘길지 판단하는 데 쓴다. */
     public boolean isShowing() { return dlg != null && dlg.isShowing(); }
+    /** 창이 닫힐 때(취소·바깥 탭·적용 모두) — 게임 안에서는 멈춘 코어를 다시 돌린다. */
+    public Runnable onClose;
     /** 런처(Activity)가 받은 키를 이 창이 처리한다. 창이 윈도우 포커스를 못 받는 환경(실측: 에뮬 + 풀스크린 액티비티)에서도
      *  패드가 창을 조작하게 — 창이 포커스를 받았으면 Dialog 의 OnKeyListener 가 같은 함수를 부르므로 이중 처리는 없다(창 둘 중 하나만 키를 받는다). */
     public boolean handleKey(KeyEvent e) { return key(e.getKeyCode(), e); }
@@ -163,6 +165,9 @@ public final class LaunchSheet {
             w.getDecorView().setSystemUiVisibility(a.getWindow().getDecorView().getSystemUiVisibility());
         }
         dlg.setCanceledOnTouchOutside(true);
+        dlg.setOnDismissListener(new DialogInterface.OnDismissListener() {
+            @Override public void onDismiss(DialogInterface d) { if (onClose != null) onClose.run(); }
+        });
         dlg.setOnKeyListener(new DialogInterface.OnKeyListener() {
             @Override public boolean onKey(DialogInterface d, int code, KeyEvent e) { return key(code, e); }
         });
@@ -225,7 +230,9 @@ public final class LaunchSheet {
         }
         ScrollView sv = new ScrollView(a);
         sv.addView(list);
-        sv.setVerticalScrollBarEnabled(false);
+        /* 항목이 많아 반 화면을 넘으면 스크롤된다 — 아래에 더 있다는 걸 보이게 스크롤바를 켜 둔다 */
+        sv.setVerticalScrollBarEnabled(true);
+        sv.setScrollbarFadingEnabled(false);
         int maxH = (int) (a.getResources().getDisplayMetrics().heightPixels * 0.50f);
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);

@@ -655,6 +655,7 @@ JNI(void, nativeResize)(JNIEnv *env, jclass cls, jint w, jint h)
 
 static double g_next_t;   /* 다음 코어 프레임 마감 시각 */
 static int g_turbo = 0;   /* 배속(▶▶) 누르는 동안 4배 */
+static volatile int g_paused = 0;   /* 게임 안 「설정」 창이 떠 있는 동안 — 코어를 멈추고 마지막 그림만 그린다 */
 
 static double now_s(void)
 {
@@ -692,6 +693,7 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
       배속 중에도 끈다(한 vsync 에 여러 프레임이 돈다). */
    int fg_on = g_fg_mode != FG_OFF && !g_turbo && g_loaded
             && g_vsync_ema > 0.0 && g_vsync_ema < dt * 0.70;
+   if (g_paused) { g_next_t = t; maxsteps = 0; fg_on = 0; }   /* 멈춤 — 풀리면 시계를 지금부터 다시 */
    while (g_next_t <= t && steps < maxsteps) {
       if (g_loaded) {
          if (fg_on && g_fb && g_fb_w) {      /* 코어가 덮어쓰기 전에 지금 그림을 «직전»으로 */
@@ -717,6 +719,9 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
    glClear(GL_COLOR_BUFFER_BIT);
    gl_draw(show_mid);
 }
+
+JNI(void, nativeSetPaused)(JNIEnv *env, jclass cls, jboolean on)
+{ (void)env; (void)cls; g_paused = on ? 1 : 0; }
 
 JNI(void, nativeSetPanelHz)(JNIEnv *env, jclass cls, jfloat hz)
 { (void)env; (void)cls; g_panel_hz_hint = hz; }

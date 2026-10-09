@@ -45,7 +45,7 @@ public class EmuActivity extends Activity {
     private int slot = 1;
     private boolean autoSave = true;  /* 나갈 때 자동 저장, 열 때 이어하기 */
     /* v4 로스터 11인 — 재캐스팅 아웃(샤를로트/소게츠/모로즈미/유가) 제외 */
-    private boolean loaded = false;
+    private volatile boolean loaded = false;   /* GL 스레드(내리기)와 UI 스레드가 같이 본다 */
     private final Handler h = new Handler(Looper.getMainLooper());
 
     @Override protected void onCreate(Bundle b) {
@@ -317,6 +317,7 @@ public class EmuActivity extends Activity {
 
 
     private void loadCore() {
+        Emu.nativeSetPaused(false);   /* 멈춤 표시는 프로세스 전역이다 — 창이 떠 있던 채로 넘어왔어도 새 판은 돈다 */
         /* 코어가 로드 중에 주사율을 물을 수 있다 — 실측 전이라 시스템 값을 먼저 넣어 둔다 */
         try { Emu.nativeSetPanelHz(getWindowManager().getDefaultDisplay().getRefreshRate()); } catch (Exception ignored) { }
         int rc = Emu.nativeLoad(corePath(), romPath,
@@ -405,10 +406,14 @@ public class EmuActivity extends Activity {
             /* 게임 중 옵션 창 — 실행 전 선택 창과 같은 것. 「적용하고 이어하기」= 지금 자리 저장 → 옵션대로 다시 굽기 → 다시 열어 그 자리부터
                (유저 2026-09-05 「게임 중간에도 이 창 되게 — 오토세이브하고 리로드」). 전체 설정은 창 아래 링크로. */
             final String orig = getIntent().getStringExtra("rom");
+            /* 창이 떠 있는 동안 게임을 멈춘다 — 전엔 뒤에서 게임이 계속 돌고, 쥐고 있던 버튼이 눌린 채 남았다 */
+            padMask = 0; releasePhysical();
+            Emu.nativeSetPaused(true);
             sheet = LaunchSheet.showInGame(this, game, game != null ? game.ko : new File(orig).getName(),
                     new Runnable() { @Override public void run() { applyLive(orig); } },
                     new Runnable() { @Override public void run() {
                         startActivity(new Intent(EmuActivity.this, SettingsActivity.class).putExtra("rom", orig)); } });
+            sheet.onClose = new Runnable() { @Override public void run() { Emu.nativeSetPaused(false); } };
             break; }
         case PadView.ACT_PICK:
             goList();
@@ -496,29 +501,55 @@ public class EmuActivity extends Activity {
 
     /** 옵션을 바꾼 채 이어하기 — 상태를 임시 파일에 저장하고 같은 롬으로 다시 연다.
      *  새 EmuActivity 가 옵션대로 다시 굽고(Patcher.resolve) "resume" 상태를 되읽는다. 세이브 상태에 롬 바이트는 없어 패치가 달라도 이어진다. */
-    private void applyLive(String orig) {
-        File st = new File(getCacheDir(), "live.state");
-        if (loaded && Emu.nativeSaveState(st.getAbsolutePath()) != 0) { toast("상태 저장 실패 — 그대로 둡니다"); return; }
-        if (loaded) Emu.nativeSaveSram();
-        Intent i = new Intent(this, EmuActivity.class).putExtra("rom", orig);
-        if (loaded) i.putExtra("resume", st.getAbsolutePath());
-        MainActivity.forgetLast(this);
-        Emu.nativeUnload(); loaded = false;
-        startActivity(i);
-        finish();
+    private void applyLive(final String orig) {
+        /* 저장·내리기는 «GL 스레드에서» — 예전엔 UI 스레드에서 해서, 코어가 프레임을 도는 도중에
+           상태를 뜨거나 코어를 내려 깨진 상태·튕김이 날 수 있었다(게임 안 「설정」이 불안정하던 원인). */
+        final File st = new File(getCacheDir(), "live.state");
+        gl.queueEvent(new Runnable() { @Override public void run() {
+            final boolean had = loaded;
+            if (had && Emu.nativeSaveState(st.getAbsolutePath()) != 0) {
+                toast("상태 저장 실패 — 그대로 둡니다");
+                Emu.nativeSetPaused(false);
+                return;
+            }
+            if (had) Emu.nativeSaveSram();
+            Emu.nativeUnload(); loaded = false;
+            Emu.nativeSetPaused(false);
+            runOnUiThread(new Runnable() { @Override public void run() {
+                Intent i = new Intent(EmuActivity.this, EmuActivity.class).putExtra("rom", orig);
+                if (had) i.putExtra("resume", st.getAbsolutePath());
+                MainActivity.forgetLast(EmuActivity.this);
+                startActivity(i);
+                finish();
+            }});
+        }});
     }
 
     /** 목록으로 — 「목록」키·뒤로가기 공용. 오토세이브는 onPause 가 챙긴다. */
     private void goList() {
         MainActivity.forgetLast(this);
-        Emu.nativeUnload();
-        /* menu 를 달아야 목록이 뜬다 — 롬이 하나뿐이면 바로 그 롬으로 되돌아가서
-           설정에 닿을 길이 없어진다 */
-        Intent i2 = new Intent(this, MainActivity.class);
-        i2.putExtra("menu", true);
-        startActivity(i2);
-        finish();
+        /* 목록(런처)은 썸네일을 찍느라 같은 코어 자리(Emu)를 쓰므로, 목록을 띄우기 «전에» 내려야 한다.
+           다만 내리기·오토세이브는 GL 스레드에서 — UI 스레드에서 바로 내리면 프레임 도중에 코어가 사라진다.
+           (예전엔 내린 뒤 onPause 가 오토세이브를 시도해 조용히 실패했다 — 목록으로 나가면 이어하기가 옛 자리였다) */
+        if (leaving) return;
+        leaving = true;
+        gl.queueEvent(new Runnable() { @Override public void run() {
+            if (loaded) {
+                Emu.nativeSaveSram();
+                if (autoSave) Emu.nativeSaveState(autoStatePath().getAbsolutePath());
+                Emu.nativeUnload(); loaded = false;
+            }
+            runOnUiThread(new Runnable() { @Override public void run() {
+                /* menu 를 달아야 목록이 뜬다 — 롬이 하나뿐이면 바로 그 롬으로 되돌아가서
+                   설정에 닿을 길이 없어진다 */
+                Intent i2 = new Intent(EmuActivity.this, MainActivity.class);
+                i2.putExtra("menu", true);
+                startActivity(i2);
+                finish();
+            }});
+        }});
     }
+    private boolean leaving = false;   /* 목록으로 나가는 중 — 뒤로가기 연타로 두 번 내리지 않게 */
 
     /** 뒤로가기 = 목록으로 — 예전엔 앱이 그냥 닫혀서 「게임을 닫으면 테마가 다시
      *  나와야 한다」는 흐름 자체가 없었다(제보). */
