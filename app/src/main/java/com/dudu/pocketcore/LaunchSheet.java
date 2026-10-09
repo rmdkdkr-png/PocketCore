@@ -112,6 +112,10 @@ public final class LaunchSheet {
                 for (Settings.Item it : arr)
                     if (it.launch && ((it.feature != null && g.has(it.feature)) || (it.game != null && g.id.equals(it.game))))
                         opts.add(fromItem(it, m));
+            /* ④ 모든 게임 공통 — launch 표시된 범용 항목(프레임 생성·버튼 모양). 게임 안 「설정」에서 바로 닿게 */
+            for (Settings.Item[] arr : Settings.GROUPS.values())
+                for (Settings.Item it : arr)
+                    if (it.launch && it.feature == null && it.game == null) opts.add(fromItem(it, m));
         }
     }
     /** 「안 함」이 실제로 쓰는 언어 값 — 전역이 원어(ja/en)면 그대로, 한국어면 이 게임 바탕의 원어. 도움말과 toggle 이 같이 쓴다. */

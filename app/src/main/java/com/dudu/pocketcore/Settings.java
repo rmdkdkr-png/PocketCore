@@ -101,7 +101,18 @@ public final class Settings {
                 + " 「섞기」는 두 프레임을 반반 섞습니다(가볍지만 잔상). 표시가 약 8ms(반 프레임) 늦어집니다."
                 + " 60Hz 화면이면 켜 둬도 아무 일도 안 합니다. 게임 중 상단바 「보간」 칸으로도 바꿉니다.",
                 new String[]{ "off", "blend", "motion" },
-                new String[]{ "끔", "섞기", "움직임" }, "off"),
+                new String[]{ "끔", "섞기", "움직임" }, "off").l(),
+            /* 사무쇼2 코어(ss2-sp-core framegen)의 프레임 생성 — 코어 옵션이라 코어가 로드할 때 읽는다.
+               코어가 켜지면 120.5fps 를 선언하고, 앱 보간은 vsync 판정에서 저절로 꺼진다(이중 보간 없음). */
+            new Item("ngp_framegen", "코어 프레임 생성 (사무쇼2)",
+                "사무쇼2 전용. 화면 픽셀이 아니라 스프라이트·스크롤 위치를 보간해 같은 타일로 다시 그립니다 — 앱 보간보다 깨끗합니다."
+                + " 자동 = 패널이 실제 120Hz 일 때만 켬(60 으로 떨어지면 코어가 스스로 끄고 돌아오면 다시 켬).",
+                new String[]{ "auto", "enabled", "disabled" },
+                new String[]{ "자동", "켬", "끔" }, "auto").g("ss2").l(),
+            new Item("ngp_framegen_mode", "코어 프레임 생성 방식",
+                "예측 = 다음 프레임을 미리 돌려 그 사이를 그림(지연 없음). 보간 = 이전↔현재 사이를 먼저 보여 줌(+8ms).",
+                new String[]{ "predict", "interp" },
+                new String[]{ "예측", "보간" }, "predict").g("ss2").l(),
             /* 「기둥 아트」(ngp_ss2sp_sides) 는 2026-09-07 유저 지시로 폐기했다.
                해설·더빙(ngp_ss2sp_comm 계열)은 3.90 에 이미 뺐고, 남은 배관도 같이 걷어냈다. */
             new Item("ngp_svcsp_band", "기술명 띠",
@@ -124,7 +135,7 @@ public final class Settings {
                 + " PocketCore/design/skin/ 에 a.png·b.png·dpad.png 같은 그림을 넣으면 그 그림으로 바꿔 씁니다"
                 + " (눌림은 a_on.png).",
                 new String[]{ "art", "flat" },
-                new String[]{ "아트", "단순" }, "art"),
+                new String[]{ "아트", "단순" }, "art").l(),
             new Item("ngp_svcsp_engine", "원버튼 필살기",
                 "SvC 전용. 기술키 하나로 커맨드를 대신 넣습니다. 방향에 따라 다른 기술이 나갑니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC).l(),
