@@ -161,8 +161,11 @@ def run(tag, size, density, bar_labels, with_settings):
     sh("input tap %d %d" % (sw // 2, int(sh_ * 0.18)))            # 가운데 카드 → 실행 전 선택창
     time.sleep(2.5)
     shot(tag + "_02_launchsheet")
-    if not tap_text("시작", exact=False):
-        sh("input keyevent 66")
+    b = find(lambda n: (n.get("text") or "").startswith("시작"))         # 「시작  ▶」 단추(설명 글의 «라운드 시작» 말고)
+    if b:
+        sh("input tap %d %d" % ((b[0] + b[2]) // 2, (b[1] + b[3]) // 2))
+    else:
+        print("no start button")
     time.sleep(9)
     shot(tag + "_03_game")
     pv = view_bounds("PadView") or screen_box()
