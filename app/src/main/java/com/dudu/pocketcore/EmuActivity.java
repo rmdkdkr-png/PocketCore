@@ -130,6 +130,7 @@ public class EmuActivity extends Activity {
             @Override public void onAction(int action) { handleAction(action); }
             @Override public void onTurbo(boolean on) { Emu.nativeSetTurbo(on); }
             @Override public void onScreenDrag(float dxFrac, float dyFrac) {
+                freezeAutoFit();
                 int w = root.getWidth(), hgt = root.getHeight();
                 int gw = w * scrPct / 100, gh = hgt * scrPct / 100;
                 if (w > gw)  scrX = clamp(scrX + Math.round(dxFrac * w * 100f / (w - gw)), 0, 100);
@@ -137,6 +138,7 @@ public class EmuActivity extends Activity {
                 placeScreen();
             }
             @Override public void onScreenScale(int dPct) {
+                freezeAutoFit();
                 scrPct = clamp(scrPct + dPct, 20, 100);
                 placeScreen(); persistScreen();
             }
@@ -185,6 +187,11 @@ public class EmuActivity extends Activity {
         }
         java.util.Map<String, String> m = Settings.load();
         scrPct = clamp(intOf(m.get("pocketcore_screen_size"), 100), 20, 100);
+        /* 크기·자리를 한 번도 안 정했으면(옵션 없음) 세로 화면에서 «패드 위에 맞춤» — 폴드 큰 화면처럼 정사각에 가까우면
+           가로 꽉 채운 게임이 높이의 80% 를 먹어 패드가 그림을 반쯤 덮었다(유저 2026-10-10 「인터페이스 좀 손봐 줘」).
+           배치에서 끌거나 크기를 바꾸면 그 값이 저장돼 이 자동 맞춤은 꺼진다. */
+        autoFit = m.get("pocketcore_screen_size") == null && m.get("pocketcore_screen_x") == null
+               && m.get("pocketcore_screen_y") == null && m.get("pocketcore_screen_v") == null;
         /* 자리: x·y 퍼센트(남는 공간 대비 0~100). 없으면 옛 top/center 계열에서 변환.
            「키」 편집에서 화면 상자를 끌면 이 값이 갱신·저장된다. */
         String v = or(m.get("pocketcore_screen_v"), "center");
@@ -216,6 +223,19 @@ public class EmuActivity extends Activity {
     }
 
     private int scrPct = 100, scrX = 50, scrY = 50;
+    private boolean autoFit = false;       /* 크기·자리 미설정 — 세로에서 게임을 위쪽, 패드 자리(아래 44%) 위에 맞춘다 */
+    /** 자동 맞춤 상자를 같은 자리의 크기·자리 값으로 바꿔 넣는다 — 배치에서 끌기 시작할 때 튀지 않게. */
+    private void freezeAutoFit() {
+        if (!autoFit || gl == null || root == null) return;
+        autoFit = false;
+        int w = root.getWidth(), hgt = root.getHeight();
+        android.view.ViewGroup.LayoutParams lp0 = gl.getLayoutParams();
+        if (w <= 0 || hgt <= 0 || !(lp0 instanceof FrameLayout.LayoutParams)) return;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) lp0;
+        scrPct = clamp(Math.round(lp.width * 100f / w), 20, 100);
+        scrX = 50;
+        scrY = hgt > lp.height ? clamp(Math.round(lp.topMargin * 100f / (hgt - lp.height)), 0, 100) : 50;
+    }
     private KeyMap keymap;                 /* 물리 패드 매핑 표 */
     private volatile int axisMask;         /* 스틱·HAT 십자 → 방향 비트 (장치별 합, 리뷰 F3) */
     private final android.util.SparseIntArray axisByDev = new android.util.SparseIntArray();
@@ -251,6 +271,13 @@ public class EmuActivity extends Activity {
         android.util.Log.i("PocketCore", "placeScreen root " + w + "x" + hgt + " frame " + fw + "x" + fh + " box " + gw + "x" + gh);
         int mx = (w - gw) * clamp(scrX, 0, 100) / 100;
         int my = top + (hgt - top - gh) * clamp(scrY, 0, 100) / 100;
+        if (autoFit && hgt > w && gameW == fw) {
+            /* 세로·자동: 메뉴 알약 아래(짧은 변 5%)부터 높이 56% 까지 — 그 아래는 패드 자리 */
+            int top2 = Math.round(Math.min(w, hgt) * 0.05f), maxH = Math.round(hgt * 0.56f) - top2;
+            gw = w; gh = w * fh / gameW;
+            if (gh > maxH) { gh = maxH; gw = gh * gameW / fh; }
+            mx = (w - gw) / 2; my = top2;
+        }
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(gw, gh,
                 android.view.Gravity.TOP | android.view.Gravity.LEFT);
         lp.leftMargin = mx; lp.topMargin = my;
