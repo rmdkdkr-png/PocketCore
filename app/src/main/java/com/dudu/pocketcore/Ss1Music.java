@@ -238,18 +238,72 @@ final class Ss1Music {
         return b;
     }
 
-    /** 롬 폴더에서 사무쇼1 롬(헤더 SAMURAI, SAMURAI2 아님)을 찾는다. 없으면 null */
+    /** 사무쇼1 롬(헤더 SAMURAI, SAMURAI2 아님)을 찾는다. 없으면 null.
+     *  ① 롬 폴더(와 그 아래 한 칸) ② 다운로드 폴더(와 그 아래 한 칸). 맨 롬이든 zip·7z 안이든.
+     *  롬 폴더 밖이나 압축 안에서 찾으면 롬 폴더로 꺼내 두고 그걸 쓴다(다음부턴 바로 찾게).
+     *  유저 2026-10-10 「ss1 롬을 롬스캔에서 안 끌어오는 것 같아」·「폴더에 넣었는데도 소리도 안 끌고 오는 듯」. */
     static java.io.File findSs1Rom() {
-        java.io.File dir = MainActivity.romsDir();
+        java.io.File roms = MainActivity.romsDir();
+        java.io.File f = findIn(roms, roms, 1);
+        if (f != null) return f;
+        try {
+            java.io.File dl = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
+            if (dl != null) f = findIn(dl, roms, 1);
+        } catch (Throwable ignored) { }
+        return f;
+    }
+
+    private static boolean isSs1(java.io.File f) {
+        Games.Game g = Games.identify(f.getAbsolutePath());
+        return g != null && "ss1".equals(g.id);
+    }
+
+    /** dir 안(깊이 depth 까지)에서 SS1 롬을 찾는다. 롬 폴더(roms) 바로 아래의 맨 롬이 아니면 roms 로 꺼내 두고 그 사본을 돌려준다. */
+    private static java.io.File findIn(java.io.File dir, final java.io.File roms, int depth) {
         java.io.File[] fs = dir.listFiles();
         if (fs == null) return null;
-        for (java.io.File f : fs) {
-            if (!f.isFile()) continue;
-            String n = f.getName().toLowerCase(java.util.Locale.ROOT);
-            if (!(n.endsWith(".ngp") || n.endsWith(".ngc") || n.endsWith(".npc"))) continue;
-            Games.Game g = Games.identify(f.getAbsolutePath());
-            if (g != null && "ss1".equals(g.id)) return f;
+        java.util.Arrays.sort(fs);
+        for (java.io.File f : fs) {                         /* 맨 롬 먼저 */
+            if (!f.isFile() || !Archives.isRomName(f.getName()) || f.length() > Archives.MAX_ROM) continue;
+            if (!isSs1(f)) continue;
+            if (dir.equals(roms)) return f;
+            java.io.File out = new java.io.File(roms, f.getName());
+            if (out.exists() && out.length() == f.length() && isSs1(out)) return out;
+            byte[] d = Patcher.readFile(f);
+            if (d == null) continue;
+            return save(roms, f.getName(), d);
         }
+        for (java.io.File f : fs) {                         /* 그다음 압축 안 */
+            if (!f.isFile() || !Archives.isArchiveName(f.getName()) || f.length() > 256L * 1024 * 1024) continue;
+            final java.io.File[] got = new java.io.File[1];
+            Archives.forEachRom(f, new Archives.Visitor() {
+                @Override public boolean rom(String e, byte[] data) {
+                    Games.Game g = Games.identifyBytes(data);
+                    if (g == null || !"ss1".equals(g.id)) return true;
+                    got[0] = save(roms, Archives.baseName(e), data);
+                    return got[0] == null;
+                }
+            });
+            if (got[0] != null) return got[0];
+        }
+        if (depth > 0)
+            for (java.io.File f : fs) {
+                if (!f.isDirectory() || f.getName().startsWith(".")) continue;
+                java.io.File r = findIn(f, roms, depth - 1);
+                if (r != null) return r;
+            }
         return null;
+    }
+
+    private static java.io.File save(java.io.File roms, String name, byte[] data) {
+        roms.mkdirs();
+        java.io.File out = new java.io.File(roms, name);
+        if (out.exists()) {
+            if (out.length() == data.length && isSs1(out)) return out;
+            out = new java.io.File(roms, "SS1 " + System.currentTimeMillis() + ".ngp");
+        }
+        try (java.io.FileOutputStream o = new java.io.FileOutputStream(out)) { o.write(data); }
+        catch (Exception x) { return null; }
+        return out;
     }
 }

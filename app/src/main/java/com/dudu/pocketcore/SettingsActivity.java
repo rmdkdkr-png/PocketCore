@@ -242,13 +242,13 @@ public class SettingsActivity extends Activity {
             }));
             romCard.addView(divider(), divLp());
             romCard.addView(actionRow("파일 골라 가져오기",
-                    "파일 선택기에서 롬을 고르면 앱 폴더로 복사합니다 (여러 개 가능)",
+                    "파일 선택기에서 롬(또는 zip·7z)을 고르면 앱 폴더로 복사합니다 (여러 개 가능)",
                     new View.OnClickListener() {
                 @Override public void onClick(View v) { RomImport.pick(SettingsActivity.this); }
             }));
             romCard.addView(divider(), divLp());
             romCard.addView(actionRow("저장소에서 롬 스캔",
-                    "기기 저장소를 훑어 .ngc/.ngp 를 찾아 모아옵니다", new View.OnClickListener() {
+                    "기기 저장소를 훑어 .ngc/.ngp 를 찾아 모아옵니다 (zip·7z 안도 꺼냄)", new View.OnClickListener() {
                 @Override public void onClick(View v) { RomImport.scan(SettingsActivity.this); }
             }));
             TextView foot = new TextView(this);
