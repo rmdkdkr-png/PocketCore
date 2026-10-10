@@ -42,6 +42,37 @@ final class Ss1Music {
         {0, 0}, {1, 1}, {2, 2}, {3, 3}, {4, 5}, {5, 6},
         {9, 9}, {15, 15}, {16, 16}, {17, 17}, {20, 20}, {21, 9}, {22, 10} };
 
+    /** SS1 곡 크기 맞춤 — SS2 칸마다 음량 명령을 몇 단계(2dB) 크게 할지. 바꿀 SS2 곡의 30초 RMS 에 가장 가깝게 고르되,
+     *  가장 큰 트랙이 0(최대)에 걸려 트랙 사이 균형이 1단계 넘게 무너지지 않게(k ≤ 최소 음량 + 1). 음수 = 작게.
+     *  유저 2026-10-10 「SS1 판 데시벨 맞춰 트는 건 됨?」. 렌더로 잰 값(세션 도구 loud.py): 맞춘 뒤 차이 −2.8~+0.8dB,
+     *  20(가면 신전 ← SS1 #20)만 곡 자체가 작아 −7.7dB. */
+    static final int[] VOL_K = new int[24];
+    static {
+        int[][] k = { {0, 1}, {1, 2}, {2, 3}, {3, 3}, {4, 2}, {5, 3}, {9, 3}, {15, 2}, {16, 1}, {17, 2}, {20, 4}, {21, -1}, {22, 1},
+                      /* 같은 곡만(MAP_SAME) — SS2 판과 같은 크기로 */
+                      {6, 2}, {7, 1}, {8, 1}, {10, 1}, {11, 2}, {12, 2}, {13, 3}, {14, 2}, {18, 3}, {19, 3} };
+        for (int[] e : k) VOL_K[e[0]] = e[1];
+    }
+
+    /** 배경음악 끔(효과음만) — 24칸 모두 소리 없는 곡으로. SS1 롬 없이도 된다. 실패하면 null. */
+    static byte[] mute(byte[] ss2, boolean[] spare) {
+        lastPlaced = 0; lastWanted = 24;
+        if (spare == null) spare = spare(ss2, null, null);
+        try {
+            int[] l2 = layout(ss2);
+            if (l2 == null) return null;
+            List<Set1> s2 = parseSets(ss2, l2[2]);
+            if (s2.size() < 24) return null;
+            List<int[]> want = new ArrayList<>();
+            for (int i = 0; i < 24; i++) want.add(new int[]{ i, -1 });
+            byte[] out = build(ss2, null, l2, null, s2, null, want, spare);
+            if (out != null) lastPlaced = 24;
+            return out;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
     /** 짝 표의 지문 — Patcher 도장에 넣어, 표를 바꾸면 구워 둔 사본을 다시 굽게 한다 */
     static int mapSig(boolean all) { return Arrays.deepHashCode(all ? MAP_ALL : MAP_SAME); }
 
@@ -57,7 +88,7 @@ final class Ss1Music {
      *       맞닿은 것끼리 합쳐 씀. 짧은 0xFF 줄은 그림(색 3 통 칸)·표·대사의 빈 줄일 수 있다. 2026-10-10 유저 「프리징 뜸」:
      *       한패 v1.01 이 대사 칸을 0xFF 로 채워 «빈 줄»로 가리키는 자리(0x038EC5~ 등)를 빈칸으로 알고 곡을 써서,
      *       그 장면 대사 엔진이 곡 바이트를 글자로 읽다 엉뚱한 주소로 튀어 0xFF 를 찾아 끝없이 돌았다) */
-    static final int VER = 3;
+    static final int VER = 4;   /* 4 = SS1 곡 크기 맞춤(SnkScore) + 배경음악 끔 */
 
     /** 사무쇼2 원판([!]·[h1] 같음)의 끝 채움 두 곳 — 이 안에서만 빈칸을 찾는다.
      *  0x04F38A~0x050000(블록 끝까지 3,190B) · 0x1DF762~0x1F0000(소리 자료 뒤, 세이브 구역 앞 67,742B).
@@ -139,7 +170,7 @@ final class Ss1Music {
     private static byte[] build(byte[] ss2, byte[] ss1, int[] l2, int[] l1, List<Set1> s2, List<Set1> s1, List<int[]> pairs,
                                 boolean[] spare) {
         byte[] out = ss2.clone();
-        int b2 = l2[0], b1 = l1[0];
+        int b2 = l2[0], b1 = l1 != null ? l1[0] : 0;
         int nBank2 = 0;
         for (Set1 s : s2) for (int x : s.ins) nBank2 = Math.max(nBank2, x + 1);
         List<byte[]> bank = new ArrayList<>();
@@ -147,8 +178,19 @@ final class Ss1Music {
 
         List<Object[]> plans = new ArrayList<>();
         for (int[] pr : pairs) {
-            Set1 s = s2.get(pr[0]), t = s1.get(pr[1]);
+            Set1 s = s2.get(pr[0]);
+            if (pr[1] < 0) {                                   /* 소리 없는 곡 — 악기는 그대로, 곡 악기칸 1개(0 이면 메인 CPU 복사가 넘친다: SnkScore) */
+                List<Integer> ins0 = new ArrayList<>();
+                for (int x : s.ins) ins0.add(x);
+                plans.add(new Object[]{ s, null, ins0, new int[]{ 0 }, SnkScore.silentRecord(0).length - 3 });
+                continue;
+            }
+            Set1 t = s1.get(pr[1]);
             int lb = entryLen(ss1, t.bgm);
+            /* 메인 CPU 는 항목을 [자리만큼][악기칸 k][나머지] 세 번의 LDIR 로 옮긴다 — 하나라도 0 이면 65,536 바이트가
+               넘쳐 멈춘다(SnkScore.silentRecord). 원래 게임 곡은 늘 셋 다 1 이상이지만 이상한 덤프에 대비해 거른다. */
+            int pos1 = ss1[t.bgm + 2] & 0xFF;
+            if (pos1 < 1 || t.refs.length < 1 || lb - pos1 - t.refs.length < 1) continue;
             Set<Integer> keep = new HashSet<>();
             for (int i = 0; i < Math.min(10, s.ins.length); i++) keep.add(i);
             for (int[] sf : s.sfx) for (int j = 1; j < sf.length; j++) keep.add(sf[j]);
@@ -265,7 +307,13 @@ final class Ss1Music {
             Object[] p = plans.get(i);
             Set1 s = (Set1) p[0], t = (Set1) p[1];
             int lb = (Integer) p[4];
-            System.arraycopy(ss1, t.bgm, out, recAt[i], 3 + lb);
+            if (t == null) {
+                byte[] sr = SnkScore.silentRecord(ss2[s.bgm] & 0xFF);   /* 곡 번호는 원래 곡 것 */
+                System.arraycopy(sr, 0, out, recAt[i], sr.length);
+            } else {
+                System.arraycopy(ss1, t.bgm, out, recAt[i], 3 + lb);
+                SnkScore.shiftVolume(out, recAt[i], VOL_K[s.slot]);      /* SS2 곡 크기에 맞춤(해석 못 하면 그대로) */
+            }
             System.arraycopy(desc[i], 0, out, setAt[i], desc[i].length);
             put32(out, l2[2] + 4 * s.slot, setAt[i] + ROMBASE);
         }

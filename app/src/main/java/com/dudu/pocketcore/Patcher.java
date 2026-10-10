@@ -46,6 +46,8 @@ public final class Patcher {
     public static final String MUSIC_OK = "배경음악: 사무쇼1 곡";
     public static final String MUSIC_NO_ROM = "배경음악: 사무쇼1 롬을 못 찾아 원래 곡 — 롬 폴더에 넣거나 「롬 › 저장소에서 롬 스캔」";
     public static final String MUSIC_FAIL = "배경음악: 이 사무쇼1 롬에선 곡을 못 꺼내 원래 곡";
+    public static final String MUSIC_MUTE = "배경음악: 끔(효과음만)";
+    public static final String MUSIC_MUTE_FAIL = "배경음악: 이 롬에선 끄지 못해 원래 곡";
 
     public static String resolve(Context ctx, String romPath, Games.Game game, String lang,
                                  boolean fastRom, boolean withMods) {
@@ -85,15 +87,20 @@ public final class Patcher {
             }
         }
         /* 사무쇼2 배경음악 — 폰에 있는 사무쇼1 롬에서 곡을 꺼내 사본에 심는다(Ss1Music). 옵션 pocketcore_ss2_music:
-           ss1 = SS1 음악(기본) · same = 같은 곡만 SS1 판 · off = 원래. SS1 롬이 없으면 원래 음악. */
+           ss1 = SS1 음악(기본) · same = 같은 곡만 SS1 판 · off = 원래 · mute = 끔(효과음만, SS1 롬 필요 없음).
+           SS1 롬이 없으면 원래 음악. */
         byte[] ss1rom = null;
-        boolean musicAll = true;
+        boolean musicAll = true, musicMute = false;
         String musicSig = "";
         musicNote = null;
         if (game != null && "ss2".equals(game.id)) {
             String mv = Settings.load().get("pocketcore_ss2_music");
             if (mv == null) mv = "ss1";
-            if (!"off".equals(mv)) {
+            if ("mute".equals(mv)) {                          /* 유저 2026-10-10 「BGM 끄는 옵션 추가하고」 */
+                musicMute = true;
+                musicSig = "mute,v" + Ss1Music.VER;
+                musicNote = MUSIC_MUTE;
+            } else if (!"off".equals(mv)) {
                 File f1 = Ss1Music.findSs1Rom();
                 if (f1 != null) {
                     ss1rom = readFile(f1);
@@ -134,7 +141,7 @@ public final class Patcher {
                     ips = readAsset(ctx, "patch/" + name);
                 }
             }
-            if (ips == null && extra == null && mods.isEmpty() && ss1rom == null)
+            if (ips == null && extra == null && mods.isEmpty() && ss1rom == null && !musicMute)
                 return romPath;                               /* 쓸 패치가 하나도 없다 */
 
             /* 사본 이름은 원본과 같게 둔다 — 상태저장·세이브 파일 이름이 롬 이름에서 나오므로,
@@ -164,9 +171,9 @@ public final class Patcher {
                         + ":S" + musicSig;                     /* 사무쇼2 배경음악(SS1) */
 
             if (out.exists() && want.equals(readText(stamp))) {
-                if (ss1rom != null) {
+                if (ss1rom != null || musicMute) {
                     String mres = readText(new File(out.getPath() + ".music"));
-                    if ("fail".equals(mres)) musicNote = MUSIC_FAIL;
+                    if ("fail".equals(mres)) musicNote = musicMute ? MUSIC_MUTE_FAIL : MUSIC_FAIL;
                     else if (mres != null && mres.startsWith("part ")) musicNote = MUSIC_OK + " (" + mres.substring(5) + "곡)";
                 }
                 return out.getPath();
@@ -190,14 +197,15 @@ public final class Patcher {
             }
             boolean musicFail = false;
             String musicRes = "ok";
-            if (ss1rom != null) {                            /* 맨 마지막 — 한패·조작 패치가 쓰고 남은 빈칸에 심는다 */
+            if (ss1rom != null || musicMute) {               /* 맨 마지막 — 한패·조작 패치가 쓰고 남은 빈칸에 심는다 */
                 /* 빈칸 = 원래 롬의 끝 채움 중 어느 패치도 안 쓴 바이트. 패치가 0xFF 로 쓴 자리도 «쓴 것» —
                    한패 v1.01 은 줄인 대사 뒤를 0xFF 로 메우고 빈 줄로 가리킨다(거기 곡을 쓰면 그 장면에서 멈춘다). */
                 boolean[] touched = new boolean[done.length];
                 if (ips != null) markIps(ips, touched);
                 if (extra != null) markIps(extra, touched);
                 for (byte[] modb : mods) markIps(modb, touched);
-                byte[] d4 = Ss1Music.apply(done, ss1rom, musicAll, Ss1Music.spare(done, data, touched));
+                boolean[] sp = Ss1Music.spare(done, data, touched);
+                byte[] d4 = musicMute ? Ss1Music.mute(done, sp) : Ss1Music.apply(done, ss1rom, musicAll, sp);
                 if (d4 != null) {
                     done = d4;
                     if (Ss1Music.lastPlaced < Ss1Music.lastWanted) {   /* 빈칸이 모자라 일부 장면은 원래 곡 */
@@ -205,7 +213,7 @@ public final class Patcher {
                         musicNote = MUSIC_OK + " (" + Ss1Music.lastPlaced + "/" + Ss1Music.lastWanted + "곡)";
                     }
                 }
-                else { musicFail = true; musicNote = MUSIC_FAIL; }
+                else { musicFail = true; musicNote = musicMute ? MUSIC_MUTE_FAIL : MUSIC_FAIL; }
             }
             if (java.util.Arrays.equals(done, data)) return romPath;  /* 아무 변화 없음 */
 
