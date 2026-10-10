@@ -98,7 +98,7 @@ public final class Patcher {
                 if (f1 != null) {
                     ss1rom = readFile(f1);
                     musicAll = !"same".equals(mv);
-                    if (ss1rom != null) musicSig = mv + "," + f1.length() + "," + f1.lastModified();
+                    if (ss1rom != null) musicSig = mv + "," + f1.length() + "," + f1.lastModified() + ",v" + Ss1Music.VER;
                 }
                 musicNote = ss1rom == null ? MUSIC_NO_ROM : MUSIC_OK;
             }
@@ -163,7 +163,11 @@ public final class Patcher {
                         + ":S" + musicSig;                     /* 사무쇼2 배경음악(SS1) */
 
             if (out.exists() && want.equals(readText(stamp))) {
-                if (ss1rom != null && "fail".equals(readText(new File(out.getPath() + ".music")))) musicNote = MUSIC_FAIL;
+                if (ss1rom != null) {
+                    String mres = readText(new File(out.getPath() + ".music"));
+                    if ("fail".equals(mres)) musicNote = MUSIC_FAIL;
+                    else if (mres != null && mres.startsWith("part ")) musicNote = MUSIC_OK + " (" + mres.substring(5) + "곡)";
+                }
                 return out.getPath();
             }
 
@@ -184,9 +188,16 @@ public final class Patcher {
                 if (d3 != null) done = d3;
             }
             boolean musicFail = false;
+            String musicRes = "ok";
             if (ss1rom != null) {                            /* 맨 마지막 — 한패·조작 패치가 쓰고 남은 빈칸에 심는다 */
                 byte[] d4 = Ss1Music.apply(done, ss1rom, musicAll);
-                if (d4 != null) done = d4;
+                if (d4 != null) {
+                    done = d4;
+                    if (Ss1Music.lastPlaced < Ss1Music.lastWanted) {   /* 빈칸이 모자라 일부 장면은 원래 곡 */
+                        musicRes = "part " + Ss1Music.lastPlaced + "/" + Ss1Music.lastWanted;
+                        musicNote = MUSIC_OK + " (" + Ss1Music.lastPlaced + "/" + Ss1Music.lastWanted + "곡)";
+                    }
+                }
                 else { musicFail = true; musicNote = MUSIC_FAIL; }
             }
             if (java.util.Arrays.equals(done, data)) return romPath;  /* 아무 변화 없음 */
@@ -194,7 +205,7 @@ public final class Patcher {
             out.getParentFile().mkdirs();
             try (FileOutputStream fo = new FileOutputStream(out)) { fo.write(done); }
             writeText(stamp, want);
-            writeText(new File(out.getPath() + ".music"), musicFail ? "fail" : "ok");
+            writeText(new File(out.getPath() + ".music"), musicFail ? "fail" : musicRes);
             return out.getPath();
         } catch (Exception e) {
             return romPath;
