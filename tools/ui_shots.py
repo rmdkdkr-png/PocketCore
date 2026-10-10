@@ -109,7 +109,7 @@ def bar_cells(w, h, labels, density=420):
     uh = max(base * 0.050, 34 * dp)
     gap = max(w * 0.006, 4 * dp)
     gap_y = base * 0.010
-    row_w = w * 0.96
+    row_w = w * (0.80 if w > h else 0.96)
     rows = 1 if (row_w - gap * (vis - 1)) / vis >= 52 * dp else 2
     per = (vis + rows - 1) // rows
     maxw = base * 0.16 if w > h else w * 0.22

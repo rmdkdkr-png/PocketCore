@@ -60,7 +60,7 @@ public class PadView extends View {
         { "TECH", "기술", 11, 0.90f, 0.60f, 1.25f },
         { "AB",   "A+B", 10, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
-        { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
+        { "FF",   "▶▶",  -3, 0.94f, 0.17f, 0.80f },
     };
     private static final Object[][] P_SS2 = {
         { "DPAD", "",     -1, 0.22f, 0.76f, 1.00f },
@@ -69,7 +69,7 @@ public class PadView extends View {
         { "SP",   "SP",    9, 0.90f, 0.56f, 1.20f },
         { "AB",   "A+B",   1, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
-        { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
+        { "FF",   "▶▶",  -3, 0.94f, 0.17f, 0.80f },
     };
     /* KOF R-2 — SP 엔진(설정 「KOF 원버튼」 켬): R(비트11)=SP, 탭=약/홀드=강(문턱 6프레임,
        코어가 잰다 — SVC 의 12 와 다르다, 이식소 실측). L(비트10)=A+B. 슬롯은 잡은 방향:
@@ -83,7 +83,7 @@ public class PadView extends View {
         { "SP",   "SP",   11, 0.90f, 0.56f, 1.20f },
         { "AB",   "A+B",  10, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
-        { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
+        { "FF",   "▶▶",  -3, 0.94f, 0.17f, 0.80f },
     };
     /* 순정 NGPC — 원버튼 엔진이 없는 게임(메탈슬러그 등). NGP 실기 그대로 A·B 두 개만.
        기술·강약 버튼을 여기 두면 안 나가는 버튼이 화면만 차지한다는 제보로 분리했다. */
@@ -92,7 +92,7 @@ public class PadView extends View {
         { "A",    "A",     0, 0.68f, 0.80f, 1.15f },
         { "B",    "B",     8, 0.88f, 0.70f, 1.15f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
-        { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
+        { "FF",   "▶▶",  -3, 0.94f, 0.17f, 0.80f },
     };
     private static final int[] BTN_COL_ON  = { 0x8866aaff, 0x88ff5566, 0x884477cc, 0x88cc3344, 0x88ffcc44, 0x8899eeaa };
     private static final int[] BTN_COL_OFF = { 0x4466aaff, 0x44ff5566, 0x444477cc, 0x44cc3344, 0x44ffcc44, 0x4499eeaa };
@@ -368,7 +368,8 @@ public class PadView extends View {
         float uh = Math.max(base * 0.050f, 34 * dp), gap = Math.max(w * 0.006f, 4 * dp), gapY = base * 0.010f;
         int vis = 0;
         for (int i = 0; i < util.length; i++) if (utilVisible(i)) vis++;
-        float rowW = w * 0.96f;
+        /* 가로에서는 양 끝 10% 를 비운다 — 오른쪽 위 구석 「▶▶」(배속)이 열린 바 끝 칸과 겹치지 않게(폴드 큰 화면 가로처럼 정사각에 가까울 때) */
+        float rowW = w * (w > h ? 0.80f : 0.96f);
         int rows = (rowW - gap * (vis - 1)) / vis >= 52 * dp ? 1 : 2;
         int perRow = (vis + rows - 1) / rows;
         float maxw = (w > h) ? base * 0.16f : w * 0.22f;
