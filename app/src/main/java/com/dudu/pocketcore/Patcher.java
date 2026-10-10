@@ -41,6 +41,12 @@ public final class Patcher {
      *  대본 물리 바닥까지만 — 차등 보존, 전 항목 실측 검증). 문턱·판정 알고리즘은 안
      *  건드리므로 약/강 구분은 순정 그대로. 한글패치와 겹치는 바이트 없음(실측).
      *  현재 svc(20기술)·kofr2(14명) 에 자산이 있고, 다른 게임은 자산이 없어 자동 무시된다. */
+    /** 사무쇼2 배경음악 결과 — resolve 가 채운다(사무쇼2·SS1 음악 켬일 때만, 아니면 null). 게임 시작 토스트가 보여 준다. */
+    public static volatile String musicNote;
+    public static final String MUSIC_OK = "배경음악: 사무쇼1 곡";
+    public static final String MUSIC_NO_ROM = "배경음악: 사무쇼1 롬을 못 찾아 원래 곡 — 롬 폴더에 넣거나 「롬 › 저장소에서 롬 스캔」";
+    public static final String MUSIC_FAIL = "배경음악: 이 사무쇼1 롬에선 곡을 못 꺼내 원래 곡";
+
     public static String resolve(Context ctx, String romPath, Games.Game game, String lang,
                                  boolean fastRom, boolean withMods) {
         String name = (game != null) ? game.patchFor(lang) : null;
@@ -83,6 +89,7 @@ public final class Patcher {
         byte[] ss1rom = null;
         boolean musicAll = true;
         String musicSig = "";
+        musicNote = null;
         if (game != null && "ss2".equals(game.id)) {
             String mv = Settings.load().get("pocketcore_ss2_music");
             if (mv == null) mv = "ss1";
@@ -93,6 +100,7 @@ public final class Patcher {
                     musicAll = !"same".equals(mv);
                     if (ss1rom != null) musicSig = mv + "," + f1.length() + "," + f1.lastModified();
                 }
+                musicNote = ss1rom == null ? MUSIC_NO_ROM : MUSIC_OK;
             }
         }
         try {
@@ -154,7 +162,10 @@ public final class Patcher {
                         + ":P" + pver                         /* 새 판 받으면 다시 입힌다 */
                         + ":S" + musicSig;                     /* 사무쇼2 배경음악(SS1) */
 
-            if (out.exists() && want.equals(readText(stamp))) return out.getPath();
+            if (out.exists() && want.equals(readText(stamp))) {
+                if (ss1rom != null && "fail".equals(readText(new File(out.getPath() + ".music")))) musicNote = MUSIC_FAIL;
+                return out.getPath();
+            }
 
             byte[] data = readFile(rom);
             if (data == null) return romPath;
@@ -172,15 +183,18 @@ public final class Patcher {
                 byte[] d3 = apply(done, modb);
                 if (d3 != null) done = d3;
             }
+            boolean musicFail = false;
             if (ss1rom != null) {                            /* 맨 마지막 — 한패·조작 패치가 쓰고 남은 빈칸에 심는다 */
                 byte[] d4 = Ss1Music.apply(done, ss1rom, musicAll);
                 if (d4 != null) done = d4;
+                else { musicFail = true; musicNote = MUSIC_FAIL; }
             }
             if (java.util.Arrays.equals(done, data)) return romPath;  /* 아무 변화 없음 */
 
             out.getParentFile().mkdirs();
             try (FileOutputStream fo = new FileOutputStream(out)) { fo.write(done); }
             writeText(stamp, want);
+            writeText(new File(out.getPath() + ".music"), musicFail ? "fail" : "ok");
             return out.getPath();
         } catch (Exception e) {
             return romPath;
@@ -249,7 +263,7 @@ public final class Patcher {
         }
     }
 
-    private static byte[] readFile(File f) {
+    static byte[] readFile(File f) {
         long len = f.length();
         if (len <= 0 || len > 64L * 1024 * 1024) return null;
         byte[] b = new byte[(int) len];

@@ -331,12 +331,19 @@ public class EmuActivity extends Activity {
         toast(loaded ? coreLabel : "코어/롬 로드 실패 (code " + rc + ")");
         /* 이어하기 — 옵션 바꾸고 다시 연 경우는 그 직전 상태(resume), 아니면 나갈 때 자동 저장해 둔 자리. 로드와 같은 스레드라 안전하다. */
         String resume = getIntent().getStringExtra("resume");
+        boolean resumed = false;
         if (loaded && resume != null && new File(resume).exists()) {
-            if (Emu.nativeLoadState(resume) == 0) toast("옵션 적용 — 그 자리에서 이어하기");
+            if (Emu.nativeLoadState(resume) == 0) { toast("옵션 적용 — 그 자리에서 이어하기"); resumed = true; }
             new File(resume).delete();
         } else if (loaded && autoSave && autoStatePath().exists()
-                && Emu.nativeLoadState(autoStatePath().getAbsolutePath()) == 0)
-            toast("이어하기");
+                && Emu.nativeLoadState(autoStatePath().getAbsolutePath()) == 0) {
+            toast("이어하기"); resumed = true;
+        }
+        /* 사무쇼2 배경음악(SS1) 결과를 알려 준다 — 「넣었는데 안 바뀐다」를 눈으로 가릴 수 있게(유저 2026-10-10).
+           이어하기면 지금 울리는 곡은 저장 당시 것이라(소리칩 램에 이미 올라가 있다) 다음 장면부터 바뀐다. */
+        String mn = Patcher.musicNote;
+        if (loaded && mn != null)
+            toast(Patcher.MUSIC_OK.equals(mn) && resumed ? mn + " (이어하기라 다음 장면부터)" : mn);
     }
 
     /** ROM hacking convenience: rebuild the ROM and the emulator picks it up by itself. */
