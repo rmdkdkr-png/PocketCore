@@ -190,7 +190,13 @@ public final class Patcher {
             boolean musicFail = false;
             String musicRes = "ok";
             if (ss1rom != null) {                            /* 맨 마지막 — 한패·조작 패치가 쓰고 남은 빈칸에 심는다 */
-                byte[] d4 = Ss1Music.apply(done, ss1rom, musicAll);
+                /* 빈칸 = 원래 롬의 끝 채움 중 어느 패치도 안 쓴 바이트. 패치가 0xFF 로 쓴 자리도 «쓴 것» —
+                   한패 v1.01 은 줄인 대사 뒤를 0xFF 로 메우고 빈 줄로 가리킨다(거기 곡을 쓰면 그 장면에서 멈춘다). */
+                boolean[] touched = new boolean[done.length];
+                if (ips != null) markIps(ips, touched);
+                if (extra != null) markIps(extra, touched);
+                for (byte[] modb : mods) markIps(modb, touched);
+                byte[] d4 = Ss1Music.apply(done, ss1rom, musicAll, Ss1Music.spare(done, data, touched));
                 if (d4 != null) {
                     done = d4;
                     if (Ss1Music.lastPlaced < Ss1Music.lastWanted) {   /* 빈칸이 모자라 일부 장면은 원래 곡 */
@@ -253,6 +259,28 @@ public final class Patcher {
             }
         }
         return null;                                        /* EOF 를 못 만났다 */
+    }
+
+    /** IPS 가 쓰는 바이트를 mark 에 표시한다(데이터·RLE 모두). 형식이 어긋나면 거기서 멈춘다. */
+    static void markIps(byte[] ips, boolean[] mark) {
+        if (ips == null || ips.length < 8 || ips[0] != 'P' || ips[1] != 'A' || ips[2] != 'T'
+                || ips[3] != 'C' || ips[4] != 'H') return;
+        int p = 5;
+        while (p + 3 <= ips.length) {
+            if (ips[p] == 'E' && ips[p+1] == 'O' && ips[p+2] == 'F') return;
+            if (p + 5 > ips.length) return;
+            int off = ((ips[p] & 0xff) << 16) | ((ips[p+1] & 0xff) << 8) | (ips[p+2] & 0xff);
+            int len = ((ips[p+3] & 0xff) << 8) | (ips[p+4] & 0xff);
+            p += 5;
+            if (len == 0) {
+                if (p + 3 > ips.length) return;
+                len = ((ips[p] & 0xff) << 8) | (ips[p+1] & 0xff);
+                p += 3;
+            } else {
+                p += len;
+            }
+            for (int k = off; k < off + len && k < mark.length; k++) mark[k] = true;
+        }
     }
 
     private static byte[] grow(byte[] a, int need) {

@@ -45,8 +45,46 @@ final class Ss1Music {
     }
 
     /** 심는 방법의 판 — Patcher 도장에 들어간다. 바뀌면 예전에 구워 둔 사본을 다시 굽는다
-     *  (2 = 빈칸이 모자라면 통째 포기하던 것을 «들어가는 만큼» + 꼭 맞는 자리 배치로, 2026-10-10) */
-    static final int VER = 2;
+     *  (2 = 빈칸이 모자라면 통째 포기하던 것을 «들어가는 만큼» + 꼭 맞는 자리 배치로, 2026-10-10)
+     *  (3 = 빈칸을 «원래 게임의 끝 채움 두 곳(KNOWN_PAD)의 앞머리·꼬리 중 패치가 안 건드린 곳»으로만 + 풀린 옛 곡·세트·은행 자리를
+     *       맞닿은 것끼리 합쳐 씀. 짧은 0xFF 줄은 그림(색 3 통 칸)·표·대사의 빈 줄일 수 있다. 2026-10-10 유저 「프리징 뜸」:
+     *       한패 v1.01 이 대사 칸을 0xFF 로 채워 «빈 줄»로 가리키는 자리(0x038EC5~ 등)를 빈칸으로 알고 곡을 써서,
+     *       그 장면 대사 엔진이 곡 바이트를 글자로 읽다 엉뚱한 주소로 튀어 0xFF 를 찾아 끝없이 돌았다) */
+    static final int VER = 3;
+
+    /** 사무쇼2 원판([!]·[h1] 같음)의 끝 채움 두 곳 — 이 안에서만 빈칸을 찾는다.
+     *  0x04F38A~0x050000(블록 끝까지 3,190B) · 0x1DF762~0x1F0000(소리 자료 뒤, 세이브 구역 앞 67,742B).
+     *  이미 한패가 입혀진 롬이 들어와도(패치 전 모습을 모름) 한패가 0xFF 로 비운 다른 칸을 빈칸으로 오인하지 않게. */
+    static final int[][] KNOWN_PAD = { {0x04F38A, 0x050000}, {0x1DF762, 0x1F0000} };
+
+    /** 빈칸으로 써도 되는 바이트 표. orig = 패치 전 롬(없으면 ss2 자체로 판단), touched = 패치가 쓴 바이트(없으면 null).
+     *  끝 채움마다 «앞머리»와 «꼬리»에 남은 0xFF 만 쓴다 — 패치 자료 사이에 낀 0xFF 줄은 IPS 가 안 적었을 뿐
+     *  패치 자료(빈 줄·통 칸)일 수 있다(IPS 는 원래 값과 같은 0xFF 를 건너뛴다). 세이브 구역(0x1F0000~)은 늘 뺀다. */
+    static boolean[] spare(byte[] ss2, byte[] orig, boolean[] touched) {
+        byte[] o = (orig != null && orig.length == ss2.length) ? orig : ss2;
+        boolean[] ok = new boolean[ss2.length];
+        for (int[] pad : KNOWN_PAD) {
+            int a = pad[0], b = Math.min(Math.min(ss2.length, pad[1]), 0x1F0000);
+            if (a >= b) continue;
+            /* 원판에서도 그 칸 전체가 0xFF 여야(판이 다르면 끝 채움 자리가 아닐 수 있다) */
+            int run = 0;
+            for (int k = a; k < b; k++) if ((o[k] & 0xFF) == 0xFF) run++;
+            if (run < b - a || b - a < 64) continue;
+            int h = a;
+            while (h < b && free1(ss2, touched, h)) h++;
+            for (int k = a; k < h; k++) ok[k] = true;
+            int t = b;
+            while (t > h && free1(ss2, touched, t - 1)) t--;
+            for (int k = t; k < b; k++) ok[k] = true;
+        }
+        return ok;
+    }
+
+    private static boolean free1(byte[] r, boolean[] touched, int k) {
+        return (r[k] & 0xFF) == 0xFF && (touched == null || k >= touched.length || !touched[k]);
+    }
+
+    static byte[] apply(byte[] ss2, byte[] ss1, boolean all) { return apply(ss2, ss1, all, null); }
 
     /** 마지막 apply 가 심은 곡 수 / 시도한 곡 수 (토스트용) */
     static volatile int lastPlaced, lastWanted;
@@ -54,8 +92,9 @@ final class Ss1Music {
     /** ss2 사본에 SS1 곡을 심은 새 배열. all=false 면 같은 곡만. 하나도 못 하면 null.
      *  빈칸이 모자라면(한패 v1.01 은 빈칸을 12K 더 쓴다 — 유저 2026-10-10 「SS1 뮤직을 들려주는 것 같지가 않아」의 원인:
      *  예전엔 하나라도 안 들어가면 통째로 포기해서 원래 음악이 나왔다) 우선순위가 낮은 장면부터 원래 곡으로 남기고 나머지는 심는다. */
-    static byte[] apply(byte[] ss2, byte[] ss1, boolean all) {
+    static byte[] apply(byte[] ss2, byte[] ss1, boolean all, boolean[] spare) {
         lastPlaced = 0; lastWanted = 0;
+        if (spare == null) spare = spare(ss2, null, null);
         try {
             int[] l2 = layout(ss2), l1 = layout(ss1);
             if (l2 == null || l1 == null) return null;
@@ -67,7 +106,7 @@ final class Ss1Music {
             List<int[]> want = new ArrayList<>(Arrays.asList(pairs));
             want.sort((x, y) -> Integer.compare(prio(x[0]), prio(y[0])));
             while (!want.isEmpty()) {
-                byte[] out = build(ss2, ss1, l2, l1, s2, s1, want);
+                byte[] out = build(ss2, ss1, l2, l1, s2, s1, want, spare);
                 if (out != null) { lastPlaced = want.size(); return out; }
                 want.remove(want.size() - 1);
             }
@@ -90,7 +129,8 @@ final class Ss1Music {
     }
 
     /** pairs 를 전부 심어 본다. 빈칸이 모자라면 null(원본은 건드리지 않음). */
-    private static byte[] build(byte[] ss2, byte[] ss1, int[] l2, int[] l1, List<Set1> s2, List<Set1> s1, List<int[]> pairs) {
+    private static byte[] build(byte[] ss2, byte[] ss1, int[] l2, int[] l1, List<Set1> s2, List<Set1> s1, List<int[]> pairs,
+                                boolean[] spare) {
         byte[] out = ss2.clone();
         int b2 = l2[0], b1 = l1[0];
         int nBank2 = 0;
@@ -134,15 +174,15 @@ final class Ss1Music {
         if (plans.isEmpty()) return null;
         if (bank.size() > 255) return null;
 
-        /* 빈 자리: 0xFF 빈칸(세이브 구역 0x1F0000~ 은 피함) + 갈아 끼워 안 쓰게 된 SS2 곡 레코드·세트 */
+        /* 빈 자리: 원래 게임의 끝 채움 중 패치가 안 건드린 0xFF(spare) + 갈아 끼워 안 쓰게 된 SS2 곡 레코드·세트 */
         Set<Integer> moved = new HashSet<>();
         for (Object[] p : plans) moved.add(((Set1) p[0]).slot);
         List<int[]> regions = new ArrayList<>();
-        int lim = Math.min(out.length, 0x1F0000);
+        int lim = Math.min(Math.min(out.length, spare.length), 0x1F0000);
         for (int i = 0; i < lim; ) {
-            if ((out[i] & 0xFF) == 0xFF) {
+            if (spare[i] && (out[i] & 0xFF) == 0xFF) {
                 int j = i;
-                while (j < lim && (out[j] & 0xFF) == 0xFF) j++;
+                while (j < lim && spare[j] && (out[j] & 0xFF) == 0xFF) j++;
                 if (j - i >= 64) regions.add(new int[]{ i + 8, j - 8 });
                 i = j;
             } else i++;
@@ -159,6 +199,18 @@ final class Ss1Music {
             if (!sharedRec && freedRec.add(s.bgm)) regions.add(new int[]{ s.bgm, s.bgm + 3 + entryLen(ss2, s.bgm) });
             if (!sharedSet && freedSet.add(s.at)) regions.add(new int[]{ s.at, s.end });
         }
+        /* 옛 은행 — 새 은행으로 옮기고 즉시값을 고치므로 비게 된다 */
+        regions.add(new int[]{ b2, b2 + 9 * nBank2 });
+        /* 맞닿은 빈자리는 하나로 — 풀린 SS2 곡 레코드들은 거의 줄지어 있어 합치면 큰 SS1 곡도 들어간다 */
+        regions.sort((x, y) -> Integer.compare(x[0], y[0]));
+        List<int[]> merged = new ArrayList<>();
+        for (int[] rg : regions) {
+            if (rg[1] <= rg[0]) continue;
+            int[] last = merged.isEmpty() ? null : merged.get(merged.size() - 1);
+            if (last != null && rg[0] <= last[1]) last[1] = Math.max(last[1], rg[1]);
+            else merged.add(new int[]{ rg[0], rg[1] });
+        }
+        regions = merged;
 
         byte[] bankB = new byte[bank.size() * 9];
         for (int i = 0; i < bank.size(); i++) System.arraycopy(bank.get(i), 0, bankB, 9 * i, 9);
