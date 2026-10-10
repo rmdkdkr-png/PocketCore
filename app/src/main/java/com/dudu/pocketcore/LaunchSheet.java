@@ -266,11 +266,13 @@ public final class LaunchSheet {
             col.addView(more);
         }
 
-        TextView hint = new TextView(a);
-        hint.setText("패드: 위아래 이동 · 펀치 버튼 바꾸기/시작 · 킥 버튼 닫기");
-        hint.setTextColor(0xff5c6478); hint.setTextSize(11); hint.setGravity(Gravity.CENTER);
-        hint.setPadding(0, dp(10), 0, 0);
-        col.addView(hint);
+        if (KeyMap.physicalPresent()) {                             /* 패드가 붙어 있을 때만 — 터치만 쓰면 군더더기 */
+            TextView hint = new TextView(a);
+            hint.setText("패드: 위아래 이동 · 펀치 버튼 바꾸기/시작 · 킥 버튼 닫기");
+            hint.setTextColor(0xff5c6478); hint.setTextSize(11); hint.setGravity(Gravity.CENTER);
+            hint.setPadding(0, dp(10), 0, 0);
+            col.addView(hint);
+        }
         return col;
     }
 
@@ -307,7 +309,7 @@ public final class LaunchSheet {
             TextView help = new TextView(a);
             help.setText(o.help.replace(" 게임을 다시 열면 적용됩니다.", "").replace(" 게임을 다시 열면 적용.", ""));
             help.setTextColor(DIM); help.setTextSize(12);
-            help.setMaxLines(3); help.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            help.setMaxLines(2); help.setEllipsize(android.text.TextUtils.TruncateAt.END);
             help.setPadding(0, dp(3), dp(24), 0);
             row.addView(help);
         }

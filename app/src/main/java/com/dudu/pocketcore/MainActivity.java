@@ -382,36 +382,46 @@ public class MainActivity extends Activity {
            업데이트는 PC 릴리즈 서버(같은 와이파이)에서 새 판을 받아 설치창까지 간다. */
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        TextView cfg = new TextView(this);
-        cfg.setText("설정");
-        cfg.setTextColor(0xffd9a441);
-        cfg.setTextSize(17);
-        cfg.setGravity(android.view.Gravity.CENTER);
-        cfg.setPadding(0, 46, 0, 46);
-        cfg.setBackgroundColor(0xff191b22);
-        cfg.setClickable(true);
+        bar.setBackgroundColor(0xff0b0b0e);
+        int gp = (int) (12 * getResources().getDisplayMetrics().density);
+        bar.setPadding(gp, gp / 2, gp, gp);
+        /* 런처 바탕과 같은 먹색 위에 둥근 버튼 두 개 — 예전 납작한 색 덩어리 대신(유저 2026-10-10 「인터페이스 좀 손봐 줘」) */
+        TextView cfg = barButton("설정", 0xffd9a441, 0xff191b22, 0xff4a3d22);
         cfg.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 startActivity(new Intent(MainActivity.this, SettingsActivity.class));
             }
         });
-        TextView upd = new TextView(this);
-        upd.setText("업데이트 확인");
-        upd.setTextColor(0xff7fc97f);
-        upd.setTextSize(17);
-        upd.setGravity(android.view.Gravity.CENTER);
-        upd.setPadding(0, 46, 0, 46);
-        upd.setBackgroundColor(0xff16211a);
-        upd.setClickable(true);
+        TextView upd = barButton("업데이트 확인", 0xffbfc6d4, 0xff191b22, 0xff2f3442);
         upd.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { Updater.check(MainActivity.this); }
         });
-        bar.addView(cfg, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        bar.addView(upd, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp1.rightMargin = gp / 2;
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp2.leftMargin = gp / 2;
+        bar.addView(cfg, lp1);
+        bar.addView(upd, lp2);
         col.addView(bar);
         setContentView(col);
+    }
+
+    /** 런처 아래 줄 버튼 — 둥근 판 + 가는 테. */
+    private TextView barButton(String label, int fg, int bg, int stroke) {
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextColor(fg);
+        t.setTextSize(16);
+        t.setGravity(android.view.Gravity.CENTER);
+        float d = getResources().getDisplayMetrics().density;
+        t.setPadding(0, (int) (14 * d), 0, (int) (14 * d));
+        android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+        g.setColor(bg);
+        g.setCornerRadius(14 * d);
+        g.setStroke(Math.max(1, (int) d), stroke);
+        t.setBackground(g);
+        t.setClickable(true);
+        return t;
     }
 
     /** 실행 전 패치 선택창 — 카드를 누르면 바로 실행하지 않고 그 게임에 적용할 것을 고른 뒤 「시작」. */

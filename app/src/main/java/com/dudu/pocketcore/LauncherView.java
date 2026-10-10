@@ -92,13 +92,20 @@ public final class LauncherView extends View {
         }
     }
 
+    /* 런처 버튼도 게임 안 터치 패드와 같은 아트(PadSkin)로 — 설정 「버튼 모양」을 따른다(유저 2026-10-10 「버튼이나 전반적 인터페이스 좀 손봐 줘」) */
+    private final PadSkin skin = new PadSkin();
+    private boolean art = true;
+
     public LauncherView(Context c) {
         super(c);
         px.setAntiAlias(false);
         px.setFilterBitmap(false);
         tp.setAntiAlias(true);
         setBackgroundColor(0xff0b0b0e);
+        try { art = !"flat".equals(Settings.load().get("pocketcore_padskin")); } catch (Exception ignored) { }
+        if (art) skin.reloadUser();
     }
+    @Override protected void onSizeChanged(int w, int h, int ow, int oh) { skin.clear(); }
 
     public void setItems(List<Item> it) { items = it; sel = 0; invalidate(); }
     public void setListener(Listener l) { listener = l; }
@@ -334,42 +341,39 @@ public final class LauncherView extends View {
     private float dcx, dcy, dR, aX, aY, aR, bX, bY, bR;
     private final RectF optR = new RectF();
 
+    /* 런처 패드 — 십자(카드 넘기기) + A(실행)만. B(업뎃)·OPTION(설정)은 아래 줄 「설정 · 업데이트 확인」과 같은 일을 해서
+       뺐다(유저 2026-10-10 「뺄 거 빼고」). 버튼 모양은 게임 안 터치 패드와 같은 아트(설정 「버튼 모양」). */
     private void drawPad(Canvas c) {
-        float w = getWidth(), h = getHeight();
-        dcx = w * 0.20f; dcy = h * 0.80f; dR = Math.min(w, h) * 0.13f;
-        aX = w * 0.72f; aY = h * 0.84f; aR = Math.min(w, h) * 0.062f;
-        bX = w * 0.88f; bY = h * 0.76f; bR = Math.min(w, h) * 0.055f;
-        float arm = dR * 0.42f;
+        float w = getWidth(), h = getHeight(), mn = Math.min(w, h);
+        dcx = w * 0.22f; dcy = h * 0.80f; dR = mn * 0.13f;
+        aX = w * 0.78f; aY = h * 0.80f; aR = mn * 0.075f;
+        bR = 0; optR.setEmpty();
+        if (art) {
+            skin.dpad(c, dcx, dcy, dR, 0);
+            skin.button(c, "a", aX, aY, aR, 0xff3f6fd1, false, false, "A");
+        } else {
+            float arm = dR * 0.42f;
+            tp.setStyle(Paint.Style.FILL);
+            tp.setColor(0x22ffffff);
+            c.drawRect(dcx - arm, dcy - dR, dcx + arm, dcy - arm, tp);
+            c.drawRect(dcx - arm, dcy + arm, dcx + arm, dcy + dR, tp);
+            tp.setColor(0x3cffffff);
+            c.drawRect(dcx - dR, dcy - arm, dcx - arm, dcy + arm, tp);
+            c.drawRect(dcx + arm, dcy - arm, dcx + dR, dcy + arm, tp);
+            tp.setColor(0x22ffffff);
+            c.drawRect(dcx - arm, dcy - arm, dcx + arm, dcy + arm, tp);
+            tp.setColor(0x38ffffff);
+            c.drawCircle(aX, aY, aR, tp);
+            tp.setColor(0xffdddddd);
+            tp.setTextAlign(Paint.Align.CENTER);
+            tp.setTextSize(aR * 0.7f);
+            c.drawText("A", aX, aY + aR * 0.25f, tp);
+        }
         tp.setStyle(Paint.Style.FILL);
-        tp.setColor(0x22ffffff);
-        c.drawRect(dcx - arm, dcy - dR, dcx + arm, dcy - arm, tp);
-        c.drawRect(dcx - arm, dcy + arm, dcx + arm, dcy + dR, tp);
-        tp.setColor(0x3cffffff);
-        c.drawRect(dcx - dR, dcy - arm, dcx - arm, dcy + arm, tp);
-        c.drawRect(dcx + arm, dcy - arm, dcx + dR, dcy + arm, tp);
-        tp.setColor(0x22ffffff);
-        c.drawRect(dcx - arm, dcy - arm, dcx + arm, dcy + arm, tp);
-
-        tp.setColor(0x38ffffff);
-        c.drawCircle(aX, aY, aR, tp);
-        c.drawCircle(bX, bY, bR, tp);
-        optR.set(w * 0.5f - w * 0.10f, h * 0.955f - h * 0.021f,
-                 w * 0.5f + w * 0.10f, h * 0.955f + h * 0.021f);
-        tp.setColor(0x2affffff);
-        c.drawRoundRect(optR, 12, 12, tp);
-
-        tp.setColor(0xffdddddd);
         tp.setTextAlign(Paint.Align.CENTER);
-        tp.setTextSize(aR * 0.7f);
-        c.drawText("A", aX, aY + aR * 0.25f, tp);
-        tp.setTextSize(bR * 0.7f);
-        c.drawText("B", bX, bY + bR * 0.25f, tp);
-        tp.setTextSize(optR.height() * 0.5f);
-        c.drawText("OPTION", optR.centerX(), optR.centerY() + optR.height() * 0.18f, tp);
-        tp.setTextSize(aR * 0.42f);
-        tp.setColor(0x88ffffff);
-        c.drawText("실행", aX, aY + aR + aR * 0.55f, tp);
-        c.drawText("업뎃", bX, bY - bR - bR * 0.35f, tp);
+        tp.setTextSize(mn * 0.026f);
+        tp.setColor(0x99ffffff);
+        c.drawText("실행", aX, aY + aR + aR * 0.62f, tp);
         tp.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -396,7 +400,7 @@ public final class LauncherView extends View {
                 downX = -1;
                 return true;
             }
-            if (dist(x, y, bX, bY) < bR * 1.35f) {
+            if (bR > 0 && dist(x, y, bX, bY) < bR * 1.35f) {
                 if (listener != null) listener.onUpdate();
                 downX = -1;
                 return true;

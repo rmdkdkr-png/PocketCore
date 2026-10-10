@@ -93,20 +93,19 @@ def scroll_shots(name, pages=3):
         shot("%s_%d" % (name, i))
 
 
-def bar_cells(w, h, labels):
+def bar_cells(w, h, labels, density=420):
     """PadView.layoutBar 와 같은 계산 — 보이는 칸들의 가운데 좌표(뷰 기준)."""
+    dp = density / 160.0
     base = min(w, h)
     vis = len(labels)
-    uh = base * 0.056
-    gap = w * 0.006
+    uh = max(base * 0.050, 34 * dp)
+    gap = max(w * 0.006, 4 * dp)
     gap_y = base * 0.010
-    rows = 2 if vis > 6 else 1
-    if os.environ.get("BAR_V2"):
-        dp = 420 / 160.0
-        rows = 1 if (w * 0.96 - gap * (vis - 1)) / vis >= 52 * dp else 2
+    row_w = w * 0.96
+    rows = 1 if (row_w - gap * (vis - 1)) / vis >= 52 * dp else 2
     per = (vis + rows - 1) // rows
-    maxw = base * 0.15 if w > h else w * 0.20
-    uw = min(maxw, (w * (0.96 if os.environ.get("BAR_V2") else 0.90) - gap * (per - 1)) / per)
+    maxw = base * 0.16 if w > h else w * 0.22
+    uw = min(maxw, (row_w - gap * (per - 1)) / per)
     y = base * 0.052
     out = {}
     placed = 0
@@ -131,14 +130,17 @@ def screen_box():
     return (0, 0, int(m.group(1)), int(m.group(2))) if m else (0, 0, 1080, 1920)
 
 
-def settings_pages(tag):
+def settings_pages(tag, pages):
     shot(tag + "_06_settings_top")
-    for page in ["화면", "움직임·반응", "조작", "게임", "소리", "업데이트"]:
+    for page in pages:
         if tap_text(page):
             time.sleep(2)
             scroll_shots("%s_07_%s" % (tag, page), 3)
             sh("input keyevent 4")
             time.sleep(1.5)
+
+
+PAGES = ["화면", "움직임·반응", "조작", "게임", "소리", "롬", "업데이트"]
 
 
 def run(tag, size, density, bar_labels, with_settings):
@@ -150,19 +152,17 @@ def run(tag, size, density, bar_labels, with_settings):
     adb("shell", "am", "start", "-n", PKG + "/com.dudu.pocketcore.MainActivity", "--ez", "menu", "true")
     time.sleep(8)
     shot(tag + "_01_launcher")
-    if with_settings:
-        lv = view_bounds("LauncherView") or screen_box()
-        print("LauncherView", lv)
-        lw, lh = lv[2] - lv[0], lv[3] - lv[1]
-        sh("input tap %d %d" % (lv[0] + lw // 2, lv[1] + int(lh * 0.955)))     # OPTION = 설정
+    sw, sh_ = screen_box()[2], screen_box()[3]
+    if with_settings and tap_text("설정"):                       # 런처 아래 줄 「설정」
         time.sleep(2.5)
-        settings_pages(tag)
+        settings_pages(tag, PAGES)
         sh("input keyevent 4")
         time.sleep(2)
-    sh("input keyevent 66")            # ENTER → 실행 전 선택창
+    sh("input tap %d %d" % (sw // 2, int(sh_ * 0.18)))            # 가운데 카드 → 실행 전 선택창
     time.sleep(2.5)
     shot(tag + "_02_launchsheet")
-    sh("input keyevent 66")            # ENTER(포커스 = 시작) → 게임
+    if not tap_text("시작", exact=False):
+        sh("input keyevent 66")
     time.sleep(9)
     shot(tag + "_03_game")
     pv = view_bounds("PadView") or screen_box()
@@ -172,16 +172,20 @@ def run(tag, size, density, bar_labels, with_settings):
     sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(base * 0.023)))   # 메뉴 알약
     time.sleep(1.5)
     shot(tag + "_04_menu")
-    cells = bar_cells(w, h, bar_labels)
+    cells = bar_cells(w, h, bar_labels, density)
     if "설정" in cells:
         cx, cy = cells["설정"]
         sh("input tap %d %d" % (pv[0] + int(cx), pv[1] + int(cy)))
         time.sleep(2.5)
         shot(tag + "_05_ingame_sheet")
-        sh("input keyevent 4")
-        time.sleep(1.5)
-    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(base * 0.023)))   # 메뉴 닫기
-    time.sleep(1)
+        if with_settings and tap_text("앱 전체 설정 열기", exact=False):
+            time.sleep(2.5)
+            settings_pages(tag + "_ingame", ["움직임·반응", "조작"])
+            sh("input keyevent 4")
+            time.sleep(2)
+        else:
+            sh("input keyevent 4")
+            time.sleep(1.5)
     shot(tag + "_08_game_after")
 
 
@@ -197,9 +201,9 @@ def main():
             "pocketcore_padskin=art\npocketcore_level=test\n")
     open("/tmp/options.txt", "w").write(opts)
     adb("push", "/tmp/options.txt", "/sdcard/PocketCore/options.txt", check=True)
-    labels = os.environ.get("BAR_LABELS", "슬롯1,저장,로드,샷,리셋,앱보간,코어120,설정,배치,종료").split(",")
+    labels = os.environ.get("BAR_LABELS", "슬롯1,저장,로드,리셋,설정,배치,목록,종료").split(",")
     run("main", "1856x2160", 420, labels, True)
-    run("cover", "904x2316", 420, labels, False)
+    run("cover", "904x2160", 420, labels, False)
     sh("wm size reset")
     sh("wm density reset")
 

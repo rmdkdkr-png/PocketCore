@@ -141,7 +141,7 @@ public class SettingsActivity extends Activity {
 
     /** 첫 화면 — 갈래 목록. */
     private void buildTop(LinearLayout col) {
-        header(col, "설정", "화면·움직임은 게임으로 돌아가면 바로 바뀝니다. 언어·조작 패치는 게임을 다시 열 때 반영됩니다.");
+        header(col, "설정", null);
         LinearLayout card = card(col);
         boolean first = true;
         for (final Settings.Page p : Settings.PAGES) {
@@ -202,12 +202,10 @@ public class SettingsActivity extends Activity {
     /** 갈래 화면 — 소절마다 카드. */
     private void buildPage(LinearLayout col, Settings.Page p) {
         String note = null;
-        if ("screen".equals(p.id))
-            note = "업스케일러 = 도트를 키우는 방식(하나만 고름). 필터 = 그 위에 덧입히는 효과(여러 개, 각자 세기). 게임으로 돌아가면 바로 바뀝니다.";
-        else if ("motion".equals(p.id))
+        if ("screen".equals(p.id) || "motion".equals(p.id))
             note = "게임으로 돌아가면 바로 바뀝니다.";
-        else if ("control".equals(p.id) || "game".equals(p.id))
-            note = "조작 패치·언어는 게임을 다시 열 때 반영됩니다. 게임 중이면 게임 안 「설정」 창의 「적용하고 이어하기」로 바로 적용할 수 있습니다.";
+        else if ("control".equals(p.id) || "game".equals(p.id) || "sound".equals(p.id))
+            note = "조작 패치·언어·배경음악은 게임을 다시 열 때 반영됩니다(게임 안 「설정 › 적용하고 이어하기」로 바로).";
         header(col, p.title, note);
 
         for (String sec : p.sections) section(col, sec, visible(sec));
@@ -232,6 +230,16 @@ public class SettingsActivity extends Activity {
                 @Override public void onClick(View v) {
                     startActivity(new Intent(SettingsActivity.this, KeymapActivity.class));
                 }
+            }));
+        }
+
+        if ("update".equals(p.id)) {
+            /* 업데이트 확인 — 런처의 B(업뎃) 말고도 설정에서 바로 */
+            LinearLayout upCard = sectionCard(col, "지금 확인");
+            upCard.addView(actionRow("업데이트 확인",
+                    "앱·한글패치·조작 패치의 새 판을 찾아 받습니다(배포 레벨에 따라)",
+                    new View.OnClickListener() {
+                @Override public void onClick(View v) { Updater.check(SettingsActivity.this); }
             }));
         }
 

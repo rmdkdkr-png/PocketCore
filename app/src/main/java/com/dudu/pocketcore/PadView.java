@@ -61,7 +61,6 @@ public class PadView extends View {
         { "AB",   "A+B", 10, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
         { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
-        { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
     };
     private static final Object[][] P_SS2 = {
         { "DPAD", "",     -1, 0.22f, 0.76f, 1.00f },
@@ -71,7 +70,6 @@ public class PadView extends View {
         { "AB",   "A+B",   1, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
         { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
-        { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
     };
     /* KOF R-2 — SP 엔진(설정 「KOF 원버튼」 켬): R(비트11)=SP, 탭=약/홀드=강(문턱 6프레임,
        코어가 잰다 — SVC 의 12 와 다르다, 이식소 실측). L(비트10)=A+B. 슬롯은 잡은 방향:
@@ -86,7 +84,6 @@ public class PadView extends View {
         { "AB",   "A+B",  10, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
         { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
-        { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
     };
     /* 순정 NGPC — 원버튼 엔진이 없는 게임(메탈슬러그 등). NGP 실기 그대로 A·B 두 개만.
        기술·강약 버튼을 여기 두면 안 나가는 버튼이 화면만 차지한다는 제보로 분리했다. */
@@ -96,7 +93,6 @@ public class PadView extends View {
         { "B",    "B",     8, 0.88f, 0.70f, 1.15f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
         { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
-        { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
     };
     private static final int[] BTN_COL_ON  = { 0x8866aaff, 0x88ff5566, 0x884477cc, 0x88cc3344, 0x88ffcc44, 0x8899eeaa };
     private static final int[] BTN_COL_OFF = { 0x4466aaff, 0x44ff5566, 0x444477cc, 0x44cc3344, 0x44ffcc44, 0x4499eeaa };
@@ -131,20 +127,20 @@ public class PadView extends View {
 
     private float dpadR, btnR;
     private final RectF opt = new RectF();
-    private final RectF[] util = new RectF[11];
+    /* 상단바 칸 — 2026-10-10 유저 「버튼이나 전반적 인터페이스 좀 손봐 줘, 뺄 거 빼고」 로 정리:
+         상태(슬롯·저장·로드·리셋) · 설정·배치 · 나가기(목록·종료). 한 줄로 들어가면 한 줄(폴드 큰 화면), 좁으면 두 줄.
+       뺀 것: 샷(폰 화면 캡처로 충분) · 띠·앱보간·코어120 즉석 토글(설정에 있음, 실험용이었다) ·
+       화면 구석의 둥근 「목록」 버튼(메뉴 칸과 겹쳐 그려졌다 — 이제 메뉴 안 「목록」) */
+    private final RectF[] util = new RectF[8];
     /* 「종료」= 게임을 닫고 고르는 창으로 (제보: 「롬」은 사실 종료 버튼인데 이름이 달랐다).
        「배치」= 버튼 자리·크기 + 게임 화면 상자까지 한꺼번에 편집(제보: 「키」란 이름이 좁았다). */
     /* 세 무리로 묶어 둔다 — 두 줄로 접힐 때 무리가 갈리지 않게 순서가 곧 배치다.
          ① 상태  슬롯·저장·로드·샷·리셋
          ② 이 게임(코어 기능)  띠 — 게임마다 있는 것만 칸이 생긴다 (기둥은 2026-09-07 폐기)
          ③ 마무리  설정·배치·종료 */
-    private final String[] utilLabel = { "슬롯1", "저장", "로드", "샷", "리셋",
-                                         "띠", "앱보간", "코어120", "설정", "배치", "종료" };
-    private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_SHOT, ACT_RESET,
-                                    ACT_BAND, ACT_FRAMEGEN, ACT_COREFG, ACT_CFG, 0, ACT_QUIT };
-    private static final int UTIL_FG = 6;     /* 「앱보간」 칸 — 라벨이 지금 모드를 보여 준다 */
-    private static final int UTIL_CFG_FG = 7; /* 「코어120」 칸 — 코어 프레임 생성이 있는 게임(사무쇼2)만 */
-    private static final int UTIL_EDIT = 9;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
+    private final String[] utilLabel = { "슬롯1", "저장", "로드", "리셋", "설정", "배치", "목록", "종료" };
+    private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_RESET, ACT_CFG, 0, ACT_PICK, ACT_QUIT };
+    private static final int UTIL_EDIT = 5;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
     private boolean hasCoreFg = false;
     /* 이 게임이 코어에서 쓰는 기능 — 게임별 칸은 여기서만 생긴다.
        전에는 「이 게임에 그 기능이 있나」를 패드 프로필 모양(prof == P_SS2)으로 판단했다.
@@ -171,7 +167,6 @@ public class PadView extends View {
         /* 가로에서 게임 상자는 가운데 약 43%(160:152 를 세로에 맞춤)를 차지하므로 오른쪽 무리는 72% 밖에 둔다 */
         { "DPAD", 0.13f, 0.64f }, { "WP", 0.78f, 0.82f }, { "WK", 0.90f, 0.72f },         { "TECH", 0.95f, 0.30f }, { "AB", 0.05f, 0.36f }, { "A", 0.80f, 0.78f },
         { "B", 0.92f, 0.62f }, { "SP", 0.94f, 0.36f }, { "OPT", 0.50f, 0.96f }, { "FF", 0.965f, 0.10f },
-        { "EXIT", 0.035f, 0.10f },
     };
     private int dragIdx = -1, dragPid = -1, selIdx = -1;
     /* 배치 모드 두 손가락 핀치 — 고른 상자(없으면 게임 화면)의 크기 (유저 2026-09-05 「두 손 드래그로 크기 변경」) */
@@ -221,14 +216,9 @@ public class PadView extends View {
 
     public void setListener(Listener l) { listener = l; }
     public void setSlotLabel(int n) { utilLabel[0] = "슬롯" + n; invalidate(); }
-    /** 「보간」 칸 라벨 — 끔/섞기/움직임 이 칸만 봐도 지금 모드가 보이게. */
-    public void setFrameGenLabel(String s) { utilLabel[UTIL_FG] = s; invalidate(); }
-    /** 「코어120」 칸 — 있느냐(사무쇼2)와 라벨. */
-    public void setCoreFg(boolean has, String label) {
-        utilLabel[UTIL_CFG_FG] = label;
-        if (has != hasCoreFg) { hasCoreFg = has; if (getWidth() > 0) layoutBar(getWidth(), getHeight()); }
-        invalidate();
-    }
+    /** (옛 「앱보간」·「코어120」 칸 — 2026-10-10 상단바에서 뺐다. 부르는 쪽이 남아 있어도 아무 일 없게) */
+    public void setFrameGenLabel(String s) { }
+    public void setCoreFg(boolean has, String label) { hasCoreFg = has; }
 
     /** "ss2"·"svc"·"ngp" — 롬 헤더로 EmuActivity 가 정한다 */
     /** 화면에 전용 강P·강K 버튼을 둘 것인가 — 「SVC 강약 버튼 구분」과 짝(EmuActivity 가 알려 준다). */
@@ -272,14 +262,8 @@ public class PadView extends View {
         invalidate();
     }
 
-    /** 상단바 i번 칸이 이 게임에 존재하는가. 없는 칸은 그리지도 누르지도 않는다. */
-    private boolean utilVisible(int i) {
-        switch (utilAct[i]) {
-        case ACT_BAND:  return hasBand;
-        case ACT_COREFG: return hasCoreFg;
-        default:        return true;
-        }
-    }
+    /** 상단바 i번 칸이 이 게임에 존재하는가 — 지금은 모든 칸이 모든 게임에 있다(게임별 칸은 설정으로 옮겼다). */
+    private boolean utilVisible(int i) { return i >= 0 && i < util.length; }
 
     /** 배치 파일 — 세로 pad_<게임>.txt / 가로 pad_<게임>_land.txt 로 따로 둔다. */
     private File cfg() { return new File(MainActivity.root(), "pad_" + profName + (land ? "_land" : "") + ".txt"); }
@@ -375,22 +359,24 @@ public class PadView extends View {
         skin.clear();                             /* 크기별로 구운 그림 — 새 크기로 다시 */
     }
 
-    /** 상단바 배치. 여섯 칸이 넘으면 «두 줄»로 접는다 —
-     *  한 줄로 아홉 칸을 늘어놓으면 폭의 98% 를 먹어 칸마다 글자가 두 자도 안 들어갔다.
-     *  두 줄로 접으면 같은 자리에서 칸이 60% 넓어진다. */
+    /** 상단바 배치 — 한 줄에 칸마다 52dp 이상 들어가면 한 줄(폴드 큰 화면·가로), 아니면 두 줄로 접는다(덮개 화면).
+     *  바는 「메뉴」 알약 바로 아래. 열려 있는 동안 칸 뒤에 어두운 판을 깔아 게임 그림 위에서도 글자가 읽히게 한다. */
+    private final RectF barPlate = new RectF();
     private void layoutBar(int w, int h) {
         float base = Math.min(w, h);              /* 가로에서도 짧은 변 기준 — 알약·유틸 칸이 반토막 나지 않게(리뷰 F12) */
-        float uh = base * 0.056f, gap = w * 0.006f, gapY = base * 0.010f;
+        float dp = getResources().getDisplayMetrics().density;
+        float uh = Math.max(base * 0.050f, 34 * dp), gap = Math.max(w * 0.006f, 4 * dp), gapY = base * 0.010f;
         int vis = 0;
         for (int i = 0; i < util.length; i++) if (utilVisible(i)) vis++;
-        int rows = vis > 6 ? 2 : 1;
-        int perRow = (vis + rows - 1) / rows;      /* 두 줄이면 위가 한 칸 더 많을 수 있다 */
-        float maxw = (w > h) ? base * 0.15f : w * 0.20f;
-        float uw = Math.min(maxw, (w * 0.90f - gap * (perRow - 1)) / perRow);
-        /* 바는 「메뉴」 버튼 바로 아래 — 버튼이 커지면서 겹치던 것을 층으로 분리 */
+        float rowW = w * 0.96f;
+        int rows = (rowW - gap * (vis - 1)) / vis >= 52 * dp ? 1 : 2;
+        int perRow = (vis + rows - 1) / rows;
+        float maxw = (w > h) ? base * 0.16f : w * 0.22f;
+        float uw = Math.min(maxw, (rowW - gap * (perRow - 1)) / perRow);
         float y = base * 0.052f;
         int nThis = Math.min(perRow, vis), placed = 0, inRow = 0;
         float x = (w - (uw * nThis + gap * (nThis - 1))) / 2f;
+        float left = x;
         for (int i = 0; i < util.length; i++) {
             if (!utilVisible(i)) { util[i].setEmpty(); continue; }   /* 빈 칸 = 히트도 없다 */
             util[i].set(x, y, x + uw, y + uh); x += uw + gap; placed++; inRow++;
@@ -401,6 +387,8 @@ public class PadView extends View {
             }
         }
         barBottom = y + uh;
+        float pad = gap * 1.5f;
+        barPlate.set(left - pad, base * 0.052f - pad, w - left + pad, barBottom + pad);
         /* 메뉴 버튼 — [≡] 실핸들이 너무 작다는 제보. 항상 보이는 알약 버튼으로. */
         barHandle.set(w * 0.5f - base * 0.08f, 0, w * 0.5f + base * 0.08f, base * 0.046f);
     }
@@ -484,6 +472,11 @@ public class PadView extends View {
             }
         }
 
+        if (barOpen || edit) {                       /* 칸 뒤 어두운 판 — 게임 그림 위에서도 칸이 또렷하게 */
+            fill.setColor(0xb0101014);
+            float pr = Math.min(barPlate.height() * 0.25f, 18f * getResources().getDisplayMetrics().density);
+            c.drawRoundRect(barPlate, pr, pr, fill);
+        }
         if (art) {
             skin.pill(c, "menu", barHandle, false, barOpen || edit, 1,
                     barOpen || edit ? "\uba54\ub274 \u25b4" : "\uba54\ub274 \u25be");
