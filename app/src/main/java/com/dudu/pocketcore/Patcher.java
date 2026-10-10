@@ -78,6 +78,23 @@ public final class Patcher {
                     saveTag.append('.').append(md.saveTag);
             }
         }
+        /* 사무쇼2 배경음악 — 폰에 있는 사무쇼1 롬에서 곡을 꺼내 사본에 심는다(Ss1Music). 옵션 pocketcore_ss2_music:
+           ss1 = SS1 음악(기본) · same = 같은 곡만 SS1 판 · off = 원래. SS1 롬이 없으면 원래 음악. */
+        byte[] ss1rom = null;
+        boolean musicAll = true;
+        String musicSig = "";
+        if (game != null && "ss2".equals(game.id)) {
+            String mv = Settings.load().get("pocketcore_ss2_music");
+            if (mv == null) mv = "ss1";
+            if (!"off".equals(mv)) {
+                File f1 = Ss1Music.findSs1Rom();
+                if (f1 != null) {
+                    ss1rom = readFile(f1);
+                    musicAll = !"same".equals(mv);
+                    if (ss1rom != null) musicSig = mv + "," + f1.length() + "," + f1.lastModified();
+                }
+            }
+        }
         try {
             File rom = new File(romPath);
             File pdir = new File(MainActivity.root(), "patch");
@@ -108,7 +125,7 @@ public final class Patcher {
                     ips = readAsset(ctx, "patch/" + name);
                 }
             }
-            if (ips == null && extra == null && mods.isEmpty())
+            if (ips == null && extra == null && mods.isEmpty() && ss1rom == null)
                 return romPath;                               /* 쓸 패치가 하나도 없다 */
 
             /* 사본 이름은 원본과 같게 둔다 — 상태저장·세이브 파일 이름이 롬 이름에서 나오므로,
@@ -134,7 +151,8 @@ public final class Patcher {
                         + (ips != null ? ips.length : 0)
                         + ":F" + (extra != null ? extra.length : 0)
                         + ":M" + modSig
-                        + ":P" + pver;                        /* 새 판 받으면 다시 입힌다 */
+                        + ":P" + pver                         /* 새 판 받으면 다시 입힌다 */
+                        + ":S" + musicSig;                     /* 사무쇼2 배경음악(SS1) */
 
             if (out.exists() && want.equals(readText(stamp))) return out.getPath();
 
@@ -153,6 +171,10 @@ public final class Patcher {
             for (byte[] modb : mods) {                       /* 조작 패치 — 한패·서로 간 겹침 없음이 원칙 */
                 byte[] d3 = apply(done, modb);
                 if (d3 != null) done = d3;
+            }
+            if (ss1rom != null) {                            /* 맨 마지막 — 한패·조작 패치가 쓰고 남은 빈칸에 심는다 */
+                byte[] d4 = Ss1Music.apply(done, ss1rom, musicAll);
+                if (d4 != null) done = d4;
             }
             if (java.util.Arrays.equals(done, data)) return romPath;  /* 아무 변화 없음 */
 
