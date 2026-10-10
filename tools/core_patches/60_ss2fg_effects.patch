@@ -1,6 +1,6 @@
 diff -ruN a/src/libretro.c b/src/libretro.c
---- a/src/libretro.c	2026-10-10 18:13:17.241986479 +0900
-+++ b/src/libretro.c	2026-10-10 18:13:17.243957364 +0900
+--- a/src/libretro.c	2026-10-10 19:12:14.532661525 +0900
++++ b/src/libretro.c	2026-10-10 19:12:14.534867529 +0900
 @@ -981,6 +981,11 @@
        var.value = NULL;
        if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -21,8 +21,8 @@ diff -ruN a/src/libretro.c b/src/libretro.c
 +/* debug export: 이펙트 판정 계기 8칸 (시험 하네스) */
 +void retro_ngp_fx_stats(int *out8) { ss2fg_fx_stats(out8); }
 diff -ruN a/src/libretro_core_options.h b/src/libretro_core_options.h
---- a/src/libretro_core_options.h	2026-10-10 18:13:17.245813942 +0900
-+++ b/src/libretro_core_options.h	2026-10-10 18:13:17.247699199 +0900
+--- a/src/libretro_core_options.h	2026-10-10 19:12:14.537492588 +0900
++++ b/src/libretro_core_options.h	2026-10-10 19:12:14.539610902 +0900
 @@ -138,6 +138,21 @@
        "4"
     },
@@ -65,8 +65,8 @@ diff -ruN a/src/libretro_core_options.h b/src/libretro_core_options.h
     },
     { NULL, NULL, NULL, { NULL, NULL }, NULL },
 diff -ruN a/src/ss2fg.c b/src/ss2fg.c
---- a/src/ss2fg.c	2026-10-10 18:13:17.234073513 +0900
-+++ b/src/ss2fg.c	2026-10-10 18:13:17.236251602 +0900
+--- a/src/ss2fg.c	2026-10-10 19:12:14.542586888 +0900
++++ b/src/ss2fg.c	2026-10-10 19:12:14.551977750 +0900
 @@ -234,6 +234,38 @@
     }
  }
@@ -106,7 +106,7 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
  static void draw_scroll(const ss2fg_frame *f, const ss2fg_regs *r, uint16_t *scan, uint8_t *zbuf,
                          int y, int plane /*1·2*/, uint8_t sx, uint8_t sy, uint8_t depth)
  {
-@@ -509,12 +541,239 @@
+@@ -509,12 +541,260 @@
     }
  }
  
@@ -251,23 +251,36 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
 +   return 1;
 +}
 +
++static int fx_on_body(const ss2fg_frame *f, int o)
++{
++   int p;
++   for (p = 0; p < 2; p++)
++      if ((f->ob_act >> p) & 1 && abs((int)f->ob_x[o] - (int)f->ob_x[p]) <= 1)
++         return 1;
++   return 0;
++}
++
 +/* ③ RAM 물체로 나는 장풍 — 돌면서 날아가는 삼각 장풍처럼 그림 테두리는 회전 때문에 들쭉날쭉해도, 게임의 물체 자리(RAM)는
-+   한 걸음에 -8px 씩 똑같이 간다(나찰 판 실측: 101→93→85→77…). 그래서 «앞 걸음과 이번 걸음의 물체 이동이 1px 안으로 같고»,
-+   다음 그림 테두리 가운데도 대략(8px 안) 같이 갔을 때만 물체 이동량으로 옮긴다. 물체만 움직이고 그림은 제자리인
-+   폭발(카즈키 판 +18)은 테두리 검사에서, 한 번 튀는 물체는 두 걸음 검사에서 걸린다. */
++   한 걸음에 -8px 씩 똑같이 간다(나찰 판 실측: 101→93→85→77…). 이펙트 근처(48px)의 물체 «모두»를 보고,
++   앞 걸음과 이번 걸음의 이동이 1px 안으로 같으면서 다음 그림 테두리 가운데가 그 이동과 가장 잘 맞는(8px 안) 물체를 고른다.
++   가까운 물체 하나만 보면 옆을 지나는 캐릭터 그림자(+2~3px)를 잡아 장풍을 거꾸로 끌고 가는 일이 생겼다(나찰 판 2255). */
 +static int fx_objpath(const ss2fg_frame *base, const ss2fg_frame *to, const ss2fg_frame *prev, int gstart, int g,
 +                      int *vx, int *vy)
 +{
 +   const ss2fg_regs *rb = &base->line[0];
 +   uint16_t key = ld16(base->spr + gstart * 4) & 0x1800;
 +   uint8_t pal = base->sprcol[gstart];
-+   int o, k, best = -1, bd = 999, bx0, bx1, by0, by1, tx0, tx1, ty0, ty1, d1x, d1y, d2x, d2y;
++   int o, k, best = 999, bvx = 0, bvy = 0, bx0, bx1, by0, by1;
 +   if (!prev || !base->body_ok || !to->body_ok || !prev->body_ok) return 0;
++   fx_base_box(base, gstart, g, &bx0, &bx1, &by0, &by1);
++   if (bx0 > bx1) return 0;
 +   for (o = 2; o < SS2FG_OBJS; o++)
 +   {
-+      int l = 999, r = -999, t = 999, b = -999, ex, ey, d;
++      int l = 999, r = -999, t = 999, b = -999, ex, ey, d, d1x, d1y, d2x, d2y, tx0, tx1, ty0, ty1, err;
 +      if (!(base->ob_act & to->ob_act & prev->ob_act & (1u << o))) continue;
 +      if (base->ob_t[o] != to->ob_t[o] || base->ob_t[o] != prev->ob_t[o]) continue;
++      /* 몸과 같은 x 에 붙어 다니는 물체(그림자·몸에 딸린 이펙트)는 몸 이동 그대로라 장풍 길잡이가 못 됨 — 몸에 붙은 이펙트는 ② 가 맡음 */
++      if (fx_on_body(base, o) || fx_on_body(to, o)) continue;
 +      for (k = gstart; k < g; k++)
 +      {
 +         int sx, sy;
@@ -279,43 +292,47 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
 +         if (sy < t) t = sy;
 +         if (sy + 8 > b) b = sy + 8;
 +      }
-+      if (l > r) return 0;
++      if (l > r) continue;
 +      ex = l > 0 ? l : r < 0 ? -r : 0;
 +      ey = t > 0 ? t : b < 0 ? -b : 0;
 +      d = ex > ey ? ex : ey;
-+      if (d < bd) { bd = d; best = o; }
++      if (d > 8) continue;                                     /* 장풍은 제 물체 자리를 감싸고(8px 안) 그려진다 */
++      d2x = (int8_t)(uint8_t)(to->ob_x[o] - base->ob_x[o]);  d2y = (int8_t)(uint8_t)(to->ob_y[o] - base->ob_y[o]);
++      d1x = (int8_t)(uint8_t)(base->ob_x[o] - prev->ob_x[o]); d1y = (int8_t)(uint8_t)(base->ob_y[o] - prev->ob_y[o]);
++      if (abs(d2x - d1x) > 1 || abs(d2y - d1y) > 1) continue;
++      if (abs(d2x) + abs(d2y) < 1) continue;
++      if (d2x > SS2FG_SPR_MAX_STEP || d2x < -SS2FG_SPR_MAX_STEP || d2y > SS2FG_SPR_MAX_STEP || d2y < -SS2FG_SPR_MAX_STEP) continue;
++      if (!fx_box(to, key, pal, bx0 - 24 + d2x, bx1 + 24 + d2x, by0 - 24 + d2y, by1 + 24 + d2y, &tx0, &tx1, &ty0, &ty1)) continue;
++      ex = abs((tx0 + tx1) - (bx0 + bx1) - 2 * d2x); ey = abs((ty0 + ty1) - (by0 + by1) - 2 * d2y);
++      err = ex > ey ? ex : ey;
++      if (err <= 16 && err < best) { best = err; bvx = d2x; bvy = d2y; }
 +   }
-+   if (best < 0 || bd > 48) return 0;
-+   d2x = (int8_t)(uint8_t)(to->ob_x[best] - base->ob_x[best]);  d2y = (int8_t)(uint8_t)(to->ob_y[best] - base->ob_y[best]);
-+   d1x = (int8_t)(uint8_t)(base->ob_x[best] - prev->ob_x[best]); d1y = (int8_t)(uint8_t)(base->ob_y[best] - prev->ob_y[best]);
-+   if (abs(d2x - d1x) > 1 || abs(d2y - d1y) > 1) return 0;
-+   if (abs(d2x) + abs(d2y) < 1) return 0;
-+   if (d2x > SS2FG_SPR_MAX_STEP || d2x < -SS2FG_SPR_MAX_STEP || d2y > SS2FG_SPR_MAX_STEP || d2y < -SS2FG_SPR_MAX_STEP) return 0;
-+   fx_base_box(base, gstart, g, &bx0, &bx1, &by0, &by1);
-+   if (bx0 > bx1) return 0;
-+   if (!fx_box(to, key, pal, bx0 - 24 + d2x, bx1 + 24 + d2x, by0 - 24 + d2y, by1 + 24 + d2y, &tx0, &tx1, &ty0, &ty1)) return 0;
-+   if (abs((tx0 + tx1) - (bx0 + bx1) - 2 * d2x) > 16 || abs((ty0 + ty1) - (by0 + by1) - 2 * d2y) > 16) return 0;
-+   *vx = d2x; *vy = d2y;
++   if (best == 999) return 0;
++   *vx = bvx; *vy = bvy;
 +   return 1;
 +}
 +
 +/* ② 몸에 붙은 이펙트(칼 궤적·기 모으기 등) — 몸이 움직이는데 이펙트만 제자리면 중간 그림에서 몸에서 떨어져 보인다.
-+   이펙트가 몸 근처이고, 다음 프레임의 같은 팔레트 이펙트 테두리 가운데가 몸 이동과 6px 안으로 같이 움직였으면
-+   몸 이동량(RAM — 정확)으로 옮긴다. 맞은 자리에 고정된 불똥은 몸만 밀려나고 불똥은 제자리라 걸리지 않는다. */
-+static int fx_attach(const ss2fg_frame *base, const ss2fg_frame *to, int gstart, int g, int *vx, int *vy)
++   이펙트가 몸 근처이고, «앞 걸음과 이번 걸음 둘 다» 같은 팔레트 이펙트 테두리 가운데가 몸 이동과 6px 안으로 같이 움직였으면
++   몸 이동량(RAM — 정확)으로 옮긴다. 한 걸음만 보면 몸 옆을 지나 날아가는 장풍이 우연히 맞아 몸에 붙어 끌려갔다(나찰 판 2255).
++   맞은 자리에 고정된 불똥은 몸만 밀려나고 불똥은 제자리라 걸리지 않는다. */
++static int fx_attach(const ss2fg_frame *base, const ss2fg_frame *to, const ss2fg_frame *prev, int gstart, int g,
++                     int *vx, int *vy)
 +{
 +   uint16_t key = ld16(base->spr + gstart * 4) & 0x1800;
 +   uint8_t pal = base->sprcol[gstart];
-+   int bx0, bx1, by0, by1, tx0, tx1, ty0, ty1, p, best = 99, bvx = 0, bvy = 0;
-+   if (!base->body_ok || !to->body_ok) return 0;
++   int bx0, bx1, by0, by1, tx0, tx1, ty0, ty1, px0, px1, py0, py1, p, best = 99, bvx = 0, bvy = 0;
++   if (!prev || !base->body_ok || !to->body_ok || !prev->body_ok) return 0;
 +   fx_base_box(base, gstart, g, &bx0, &bx1, &by0, &by1);
 +   if (bx0 > bx1) return 0;
 +   for (p = 0; p < 2; p++)
 +   {
-+      int dx, dy, ex, ey, rx0, rx1, ry0, ry1, err;
-+      if (!(base->ob_act & to->ob_act & (1u << p))) continue;
++      int dx, dy, d1x, d1y, ex, ey, rx0, rx1, ry0, ry1, err, err1;
++      if (!(prev->ob_act & base->ob_act & to->ob_act & (1u << p))) continue;
 +      dx = (int8_t)(uint8_t)(to->ob_x[p] - base->ob_x[p]);
 +      dy = (int8_t)(uint8_t)(to->ob_y[p] - base->ob_y[p]);
++      d1x = (int8_t)(uint8_t)(base->ob_x[p] - prev->ob_x[p]);
++      d1y = (int8_t)(uint8_t)(base->ob_y[p] - prev->ob_y[p]);
 +      if (abs(dx) + abs(dy) < 2) continue;                       /* 몸이 안 움직이면 붙일 이유 없음 */
 +      if (dx > SS2FG_SPR_MAX_STEP || dx < -SS2FG_SPR_MAX_STEP || dy > SS2FG_SPR_MAX_STEP || dy < -SS2FG_SPR_MAX_STEP) continue;
 +      /* 몸(발 가운데) 기준 상대 테두리 — 옆 56px, 위 80px ~ 아래 24px 안에 걸쳐야 «몸 근처» */
@@ -323,8 +340,12 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
 +      ry0 = by0 - (int)base->ob_y[p]; ry1 = by1 - (int)base->ob_y[p];
 +      if (rx0 > 56 || rx1 < -56 || ry0 > 24 || ry1 < -80) continue;
 +      if (!fx_box(to, key, pal, bx0 - 24 + dx, bx1 + 24 + dx, by0 - 24 + dy, by1 + 24 + dy, &tx0, &tx1, &ty0, &ty1)) continue;
++      if (!fx_box(prev, key, pal, bx0 - 24 - d1x, bx1 + 24 - d1x, by0 - 24 - d1y, by1 + 24 - d1y, &px0, &px1, &py0, &py1)) continue;
 +      ex = (tx0 + tx1) - (bx0 + bx1) - 2 * dx; ey = (ty0 + ty1) - (by0 + by1) - 2 * dy;
 +      err = abs(ex) > abs(ey) ? abs(ex) : abs(ey);
++      ex = (bx0 + bx1) - (px0 + px1) - 2 * d1x; ey = (by0 + by1) - (py0 + py1) - 2 * d1y;
++      err1 = abs(ex) > abs(ey) ? abs(ex) : abs(ey);
++      if (err1 > err) err = err1;
 +      if (err <= 12 && err < best) { best = err; bvx = dx; bvy = dy; }
 +   }
 +   if (best == 99) return 0;
@@ -346,7 +367,7 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
     for (i = 0; i < 64; i++) { lb[i] = piece_look(base, i); lt[i] = piece_look(to, i); }
  
     for (i = 0; i < 64; i++)
-@@ -570,7 +829,7 @@
+@@ -570,7 +850,7 @@
           if (mv[k].dy < miny) miny = mv[k].dy;
           if (mv[k].dy > maxy) maxy = mv[k].dy;
        }
@@ -355,7 +376,7 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
        body = body_vec(base, to, gstart, g, &bvx, &bvy);
        objv = body ? 0 : obj_vec(base, to, gstart, g, &ovx, &ovy);
        if (n < 2)
-@@ -578,6 +837,8 @@
+@@ -578,6 +858,8 @@
           /* 외톨이 조각(돌며 날아갈 때 몸에서 떨어져 나온 조각, 이펙트 한 조각 등) — 몸·물체 위치를 알면 슬롯 번호 짝
              (엉뚱한 +22px 따위) 대신, 겉모습 짝이 딱 하나면 그 거리, 아니면 몸·물체 위치로 */
           if (objv) { bvx = ovx; bvy = ovy; }
@@ -364,7 +385,7 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
           if ((body || objv) && n == 1)
              for (k = gstart; k < g; k++)
                 if (ld16(base->spr + k * 4) & 0x1800)
-@@ -597,12 +858,14 @@
+@@ -597,12 +879,14 @@
               !(slot_ok && (vx < minx || vx > maxx || vy < miny || vy > maxy)) &&  /* 둘이 어긋나면(드묾) 슬롯 합의 쪽 */
               !(body && (bvx || bvy) && (abs(vx - bvx) > 4 || abs(vy - bvy) > 4)))  /* 몸이 움직였는데 딴 데를 가리키면 우연한 짝 */
           {
@@ -379,7 +400,7 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
           set_group(base, mv, gstart, g, bvx, bvy);
           continue;
        }
-@@ -610,6 +873,8 @@
+@@ -610,6 +894,8 @@
        if (m == 0)
        {
           if (objv) set_group(base, mv, gstart, g, ovx, ovy);
@@ -388,7 +409,7 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
           continue;
        }
        if (m * 2 < n || maxx - minx > 1 || maxy - miny > 1)
-@@ -641,6 +906,8 @@
+@@ -641,6 +927,8 @@
              { mv[k].dx = (int16_t)bdx; mv[k].dy = (int16_t)bdy; mv[k].has = 1; }
              else mv[k].has = 0;
           }
@@ -397,7 +418,7 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
           continue;
        }
        {
-@@ -650,10 +917,12 @@
+@@ -650,10 +938,12 @@
           if (layout_only(base, to, gstart, g, cx, cy))
           {
              if (objv) set_group(base, mv, gstart, g, ovx, ovy);
@@ -411,7 +432,7 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
        for (k = gstart; k < g; k++)
           if (!mv[k].has && (ld16(base->spr + k * 4) & 0x1800))
           {
-@@ -662,6 +931,36 @@
+@@ -662,6 +952,36 @@
              mv[k].has = 1;
           }
     }
@@ -431,7 +452,7 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
 +         int ok;
 +         if (fx_objpath(base, to, prev, gstart, und[gstart], &vx, &vy))
 +         { set_group(base, mv, gstart, und[gstart], vx, vy); why[gstart] = 'R'; continue; }
-+         if (fx_attach(base, to, gstart, und[gstart], &vx, &vy))
++         if (fx_attach(base, to, prev, gstart, und[gstart], &vx, &vy))
 +         { set_group(base, mv, gstart, und[gstart], vx, vy); why[gstart] = 'A'; fx_stats[2]++; continue; }
 +         ok = fx_vec(base, to, prev, gstart, und[gstart], &vx, &vy);
 +         if (ok) { set_group(base, mv, gstart, und[gstart], vx, vy); why[gstart] = 'F'; }
@@ -448,7 +469,7 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
     /* 체인 그룹: 슬롯 k 에 체인 비트(0x0600)가 있으면 k-1 과 같은 그룹 */
     for (gstart = 0; gstart < 64; gstart = g)
     {
-@@ -757,6 +1056,7 @@
+@@ -757,6 +1077,7 @@
           sx = lerp_i(sx, mv[spr].dx, ts);
           sy = lerp_i(sy, mv[spr].dy, ts);
        }
@@ -456,7 +477,7 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
        if (y >= sy && y <= sy + 7)
        {
           unsigned row = (unsigned)(y - sy) & 7;
-@@ -764,6 +1064,42 @@
+@@ -764,6 +1085,42 @@
                        d & 0x8000, base->pal, base->sprcol[spr] & 0xF, (uint8_t)(priority << 1));
        }
     }
@@ -499,7 +520,7 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
  }
  
  /* 4배(게임 박자 맞춤)용 — 스프라이트와 스크롤의 목표 프레임·진행도를 따로 준다.
-@@ -788,7 +1124,36 @@
+@@ -788,7 +1145,36 @@
     if (t_scr > 256) t_scr = 256;
     if (to_spr && t_spr == 0) to_spr = 0;
     if (to_scr && t_scr == 0) to_scr = 0;
@@ -538,8 +559,8 @@ diff -ruN a/src/ss2fg.c b/src/ss2fg.c
     for (y = 0; y < SS2FG_H; y++)
     {
 diff -ruN a/src/ss2fg.h b/src/ss2fg.h
---- a/src/ss2fg.h	2026-10-10 18:13:17.238147259 +0900
-+++ b/src/ss2fg.h	2026-10-10 18:13:17.240137673 +0900
+--- a/src/ss2fg.h	2026-10-10 19:12:14.554595410 +0900
++++ b/src/ss2fg.h	2026-10-10 19:12:14.556695360 +0900
 @@ -92,6 +92,9 @@
                      void *dst, int pitch_px, int bpp, const uint32_t *colormap);
  
