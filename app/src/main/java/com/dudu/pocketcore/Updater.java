@@ -22,6 +22,12 @@ import java.net.URL;
  *  서버에는 version.json({"versionCode":..,"versionName":"..","apk":".."})과 APK 가 있다. */
 public final class Updater {
 
+    /* Legacito(com.dudu.legacito) 전용 색인 — 옛 PocketCore(1.x~4.04, dudu 키)는 version.json·cores.json 을 계속 본다.
+       옛 서명 키를 잃어(2026-10-10) 새 앱으로 갈라섰다. 같은 릴리즈 태그 app 에 이름만 다른 색인을 둔다.
+       legacito-cores.json 이 따로인 이유: 옛 cores.json 의 ss2 코어(3.71)는 프레임 생성이 없어, 받으면 동봉 코어를 덮어 기능이 사라진다. */
+    static final String VERSION_INDEX = "legacito-version.json";
+    static final String CORES_INDEX   = "legacito-cores.json";
+
     static String baseUrl() {
         String v = null;
         try { v = Settings2.readOpt("pocketcore_update_url"); } catch (Throwable ignored) { }
@@ -153,7 +159,7 @@ public final class Updater {
      *  덕분에 코어만 바뀐 날은 APK 재설치(옆설치 경고) 없이 여기서 끝난다. */
     private static void syncCores(Activity act, String base) {
         try {
-            byte[] jb = fetch(base + "/cores.json", 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
+            byte[] jb = fetch(base + "/" + CORES_INDEX, 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
             JSONObject root = new JSONObject(new String(jb, "UTF-8"));
             StringBuilder got = new StringBuilder();
 
@@ -238,7 +244,7 @@ public final class Updater {
 
     /** 앱 새 판 확인. 설치·설정 화면으로 넘어가면 false, 이미 최신이면 true. */
     private static boolean checkApk(Activity act, String base) throws Exception {
-        byte[] jb = fetch(base + "/version.json", 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
+        byte[] jb = fetch(base + "/" + VERSION_INDEX, 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
         JSONObject j = new JSONObject(new String(jb, "UTF-8"));
         boolean useTest = testLevel() && j.optJSONObject("test") != null;
         if (useTest) j = j.getJSONObject("test");            /* 시험 레벨이면 시험 항목 — 없으면 정식 */

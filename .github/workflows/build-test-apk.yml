@@ -20,7 +20,7 @@ jobs:
         with:
           gradle-version: '8.9'
       - name: Build debug APK (side-by-side test id)
-        run: gradle :app:assembleDebug -PpcSuffix=.fgtest "-PpcLabel=PocketCore 시험" --no-daemon --stacktrace
+        run: gradle :app:assembleDebug -PpcSuffix=.fgtest "-PpcLabel=Legacito 시험" --no-daemon --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: PocketCore-fgtest
@@ -34,3 +34,70 @@ jobs:
           gh release create fgtest PocketCore-fgtest.apk --prerelease --target "${GITHUB_SHA}" \
             --title "시험판 — 프레임 생성 + 버튼 아트 (${GITHUB_SHA::7})" \
             --notes "feat/framegen-art ${GITHUB_SHA::7} 자동 빌드. 정식판과 따로 깔린다(앱 이름 「PocketCore 시험」). 디버그 서명."
+
+  # Legacito 정식 서명용 — 서명 안 한 릴리즈 APK(zipalign 끝)와 apksigner.jar 를 태그 ci-release 에 둔다.
+  # 서명 키는 저장소에 없다(공개 저장소). 클로드 세션이 받아서 새 키로 서명한 뒤 태그 app 에 올린다 — tools/SIGNING.md
+  release-unsigned:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build unsigned release APK
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+      - name: Align and collect signer
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "build-tools: $BT"
+          "$BT/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk Legacito-unsigned.apk
+          cp "$BT/lib/apksigner.jar" apksigner.jar
+          sha256sum Legacito-unsigned.apk apksigner.jar > SHA256SUMS
+      - name: Publish to release ci-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ci-release -y --cleanup-tag || true
+          gh release create ci-release Legacito-unsigned.apk apksigner.jar SHA256SUMS --prerelease --target "${GITHUB_SHA}" \
+            --title "CI — 서명 전 릴리즈 APK (${GITHUB_SHA::7})" \
+            --notes "설치용 아님. 서명 전 원료. 서명·배포 절차는 tools/SIGNING.md."
+
+  # 사무쇼2 코어(ss2-sp-core)를 고정 커밋 + 앱 방 패치로 직접 굽는다 — 코어 방이 패치를 넣기 전 임시 다리.
+  # 결과 .so 는 태그 ci-core 에 올리고, 사람이(세션이) 받아 jniLibs 에 넣어 커밋한다(빌드마다 코어가 바뀌지 않게).
+  core-ss2:
+    runs-on: ubuntu-latest
+    env:
+      CORE_COMMIT: 1cb33c9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch core source
+        run: |
+          git clone https://github.com/rmdkdkr-png/ss2-sp-core core
+          git -C core checkout "$CORE_COMMIT"
+      - name: Apply app-room patches
+        run: |
+          cd core
+          for p in "$GITHUB_WORKSPACE"/tools/core_patches/*.patch; do
+            echo "== $p"
+            sed 's#\([ab]\)/src/#\1/build/#g' "$p" | git apply -v
+          done
+          git diff --stat
+      - name: ndk-build
+        run: |
+          cd core/build/jni
+          "$ANDROID_NDK_ROOT/ndk-build" -j4 APP_ABI="arm64-v8a armeabi-v7a x86_64" APP_PLATFORM=android-21
+          ls -la ../libs/*/
+      - name: Publish to release ci-core
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir out
+          for a in arm64-v8a armeabi-v7a x86_64; do cp core/build/libs/$a/libretro.so out/libretro_ss2_$a.so; done
+          (cd out && sha256sum *.so > SHA256SUMS && echo "core $CORE_COMMIT + $(ls "$GITHUB_WORKSPACE"/tools/core_patches | tr '\n' ' ')" > SOURCE.txt)
+          gh release delete ci-core -y --cleanup-tag || true
+          gh release create ci-core out/* --prerelease --target "${GITHUB_SHA}" \
+            --title "CI — 사무쇼2 코어 ($CORE_COMMIT + 앱 방 패치)" --notes "$(cat out/SOURCE.txt)"
