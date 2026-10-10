@@ -8,7 +8,38 @@
  #include "ss2fg.h"
  
  /* ───────────── 캡처 ───────────── */
-@@ -226,6 +227,76 @@
+@@ -206,6 +207,30 @@
+    일치하면 그 값을 그룹 벡터로 삼아, 타일이 바뀐(애니메이션) 조각도 같이 움직인다. */
+ typedef struct { int16_t dx, dy; uint8_t has; } fg_move;
+ 
++
++/* 무리 벡터 검증용 — base 무리의 조각 중, 그 자리 + (vx,vy) 에 to 의 «같은 우선순위·팔레트» 조각이
++   (슬롯 번호와 상관없이) 놓여 있는 개수. 슬롯 번호로 짝지은 벡터가 진짜 이동인지, 조각 하나가 끼어들어
++   번호가 한 칸씩 밀린 것(배치는 그대로)인지 가른다. */
++static int grp_overlap(const ss2fg_frame *base, const ss2fg_frame *to, int gstart, int g, int vx, int vy)
++{
++   const ss2fg_regs *rb = &base->line[0], *rt = &to->line[0];
++   int k, j, c = 0;
++   for (k = gstart; k < g; k++)
++   {
++      uint16_t wb = ld16(base->spr + k * 4);
++      int bx, by;
++      if (!(wb & 0x1800)) continue;
++      bx = wrapx(base->ax[k] + rb->spx) + vx; by = wrapc(base->ay[k] + rb->spy) + vy;
++      for (j = 0; j < 64; j++)
++      {
++         uint16_t wt = ld16(to->spr + j * 4);
++         if (!(wt & 0x1800) || (wt & 0x1800) != (wb & 0x1800) || to->sprcol[j] != base->sprcol[k]) continue;
++         if (wrapx(to->ax[j] + rt->spx) == bx && wrapc(to->ay[j] + rt->spy) == by) { c++; break; }
++      }
++   }
++   return c;
++}
++
+ static void sprite_moves(const ss2fg_frame *base, const ss2fg_frame *to, fg_move mv[64])
+ {
+    const ss2fg_regs *rb = &base->line[0], *rt = &to->line[0];
+@@ -226,6 +251,92 @@
        mv[i].dx = (int16_t)dx; mv[i].dy = (int16_t)dy; mv[i].has = 1;
     }
  
@@ -66,6 +97,12 @@
 +               if (mv[j].has && mv[j].dx == mv[k].dx && mv[j].dy == mv[k].dy) c++;
 +            if (c > best) { best = c; bdx = mv[k].dx; bdy = mv[k].dy; }
 +         }
++         /* 70% 가 같은 벡터여도, 조각 «자리들»이 제자리에서 더 많이 겹치면 진짜 이동이 아니다 —
++            사무쇼2 카즈키(나찰) 유파선택 대기: 머리 조각 하나가 슬롯 0 에 끼어들면 나머지 번호가 한 칸씩 밀려
++            13 조각 중 9 개가 «-8px» 로 짝지어진다(타일 간격). 배치는 그대로라 제자리 겹침 14 vs -8 겹침 10. */
++         if (best * 10 >= n * 7 && (bdx || bdy) &&
++             grp_overlap(base, to, gstart, g, 0, 0) >= grp_overlap(base, to, gstart, g, bdx, bdy))
++            best = 0;
 +         for (k = gstart; k < g; k++)
 +         {
 +            if (best * 10 >= n * 7 && (ld16(base->spr + k * 4) & 0x1800))
@@ -73,6 +110,16 @@
 +            else mv[k].has = 0;
 +         }
 +         continue;
++      }
++      {
++         /* 합의된 벡터도 같은 검증 — 번호 밀림이 무리 전체에 고르게 걸리면 «합의»처럼 보인다 */
++         int cx = (minx + maxx) >= 0 ? (minx + maxx + 1) / 2 : -((-(minx + maxx) + 1) / 2);
++         int cy = (miny + maxy) >= 0 ? (miny + maxy + 1) / 2 : -((-(miny + maxy) + 1) / 2);
++         if ((cx || cy) && grp_overlap(base, to, gstart, g, 0, 0) >= grp_overlap(base, to, gstart, g, cx, cy))
++         {
++            for (k = gstart; k < g; k++) mv[k].has = 0;
++            continue;
++         }
 +      }
 +      for (k = gstart; k < g; k++)
 +         if (!mv[k].has && (ld16(base->spr + k * 4) & 0x1800))
