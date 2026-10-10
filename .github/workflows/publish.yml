@@ -1,0 +1,23 @@
+# Legacito 배포 — 이 갈래(publish/legacito)의 publish/ 안 파일을 릴리즈 태그 app 에 올린다(같은 이름은 갈아 끼움).
+# 옛 PocketCore 의 version.json·cores.json·PocketCore-v*.apk 는 건드리지 않는다 — 올리는 건 legacito-* / Legacito-* 뿐.
+name: publish-legacito
+on:
+  push:
+    branches: [publish/legacito]
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify files
+        run: |
+          cd publish && sha256sum -c SHA256SUMS
+          for f in *; do case "$f" in Legacito-*|legacito-*|SHA256SUMS) ;; *) echo "unexpected $f"; exit 1;; esac; done
+      - name: Upload to release app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd publish
+          gh release upload app Legacito-*.apk legacito-version.json legacito-cores.json --clobber -R "$GITHUB_REPOSITORY"
