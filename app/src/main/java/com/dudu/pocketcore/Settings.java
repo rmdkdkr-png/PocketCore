@@ -115,6 +115,13 @@ public final class Settings {
                 + " 보간 = 이전↔현재 사이를 먼저 보여 줌(+8ms).",
                 new String[]{ "predict", "interp" },
                 new String[]{ "예측", "보간" }, "predict").g("ss2").l(),
+            new Item("ngp_framegen_mult", "코어 방식 — 배수 (사무쇼2)",
+                "4배 = 게임 박자 맞춤. 사무쇼2 는 캐릭터·배경을 2프레임에 한 번(초당 30번)만 움직여서, 2배로는"
+                + " 새 그림 사이 빈칸 셋 중 하나만 채웁니다. 4배는 다음에 바뀌는 프레임까지 미리 돌려 120Hz 네 장에"
+                + " 고르게 나눕니다(예측 모드에서만 — 보간 모드는 2배로 돎. 에뮬 계산 약 1.5배)."
+                + " 2배 = 실제 프레임마다 반 지점 하나만 끼웁니다(이전 방식).",
+                new String[]{ "4", "2" },
+                new String[]{ "4배 (게임 박자)", "2배" }, "4").g("ss2").l(),
             /* 「기둥 아트」(ngp_ss2sp_sides) 는 2026-09-07 유저 지시로 폐기했다.
                해설·더빙(ngp_ss2sp_comm 계열)은 3.90 에 이미 뺐고, 남은 배관도 같이 걷어냈다. */
             new Item("ngp_svcsp_band", "기술명 띠",
@@ -209,6 +216,16 @@ public final class Settings {
         public boolean grouped() { return group != null && !group.isEmpty(); }
     }
     public static File modsDir()  { return new File(MainActivity.root(), "mods"); }
+    /** 폐기한 조작 패치 — 원격 색인(InputPatch 태그 mods)에 남아 있어도 Legacito 는 안 보이고 안 얹는다.
+     *  묶음(group) 이름이나 id 로 건다. 옛 PocketCore 가 같은 색인을 읽으므로 색인은 그대로 둔다.
+     *  ss2_lightrecover(약베기 후경직 감소 −2~−8): 2026-10-10 유저 지시로 폐기. */
+    static final java.util.Set<String> RETIRED_MODS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "ss2_lightrecover"));
+    static boolean retired(String id, String group) {
+        if (RETIRED_MODS.contains(id) || (group != null && RETIRED_MODS.contains(group))) return true;
+        for (String r : RETIRED_MODS) if (id.startsWith(r + "_")) return true;
+        return false;
+    }
     public static List<Mod> mods() {
         List<Mod> out = new ArrayList<>();
         File f = new File(modsDir(), "mods.json");
@@ -223,6 +240,7 @@ public final class Settings {
                 org.json.JSONObject m = arr.getJSONObject(i);
                 String id = m.optString("id", ""), game = m.optString("game", "");
                 if (id.isEmpty() || game.isEmpty() || !id.matches("[A-Za-z0-9_]+")) continue;
+                if (retired(id, m.optString("group", ""))) continue;
                 out.add(new Mod(id, game, m.optString("ko", id), m.optString("ver", ""),
                                 m.optString("help", ""), m.optString("default", "disabled"),
                                 m.optString("group", ""), m.optString("group_ko", ""), m.optString("pick", ""),
