@@ -466,7 +466,10 @@ public class EmuActivity extends Activity {
         int hz = Math.round(Emu.nativePanelHz());
         boolean coreOut = Emu.nativeCoreFps() > 90;          /* 코어가 120.5 를 선언했다 */
         StringBuilder sb = new StringBuilder("화면 " + hz + "Hz");
-        if (coreFg()) sb.append(" · 코어: ").append(!coreFgOn() ? "끔" : coreOut ? "120Hz 출력 중" : "대기(아직 60)");
+        if (coreFg()) {
+            boolean four = "4".equals(readOpt("ngp_framegen_mult", "4")) && !"interp".equals(readOpt("ngp_framegen_mode", "predict"));
+            sb.append(" · 코어: ").append(!coreFgOn() ? "끔" : coreOut ? (four ? "120Hz 출력 중(4배)" : "120Hz 출력 중(2배)") : "대기(아직 60)");
+        }
         sb.append(" · 앱: ");
         if (fgMode == 0) sb.append("끔");
         else if (coreOut) sb.append("비켜섬(코어가 이미 120)");

@@ -29,11 +29,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk PocketCore-fgtest.apk
+          cp app/build/outputs/apk/debug/app-debug.apk Legacito-test.apk
           gh release delete fgtest -y --cleanup-tag || true
-          gh release create fgtest PocketCore-fgtest.apk --prerelease --target "${GITHUB_SHA}" \
-            --title "시험판 — 프레임 생성 + 버튼 아트 (${GITHUB_SHA::7})" \
-            --notes "feat/framegen-art ${GITHUB_SHA::7} 자동 빌드. 정식판과 따로 깔린다(앱 이름 「PocketCore 시험」). 디버그 서명."
+          gh release create fgtest Legacito-test.apk --prerelease --target "${GITHUB_SHA}" \
+            --title "Legacito 시험판 (${GITHUB_SHA::7})" \
+            --notes "feat/framegen-art ${GITHUB_SHA::7} 자동 빌드. 정식판과 따로 깔린다(앱 이름 「Legacito 시험」, com.dudu.legacito.fgtest). 시험 서명 — 판번호 안 올림."
 
   # Legacito 정식 서명용 — 서명 안 한 릴리즈 APK(zipalign 끝)와 apksigner.jar 를 태그 ci-release 에 둔다.
   # 서명 키는 저장소에 없다(공개 저장소). 클로드 세션이 받아서 새 키로 서명한 뒤 태그 app 에 올린다 — tools/SIGNING.md
