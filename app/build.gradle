@@ -8,7 +8,7 @@ android {
         applicationId "com.dudu.legacito"   // Legacito — 옛 PocketCore(com.dudu.pocketcore, 서명 키 분실)의 뒤를 잇는 새 앱. 나란히 깔린다
         minSdk 26            // AAudio
         targetSdk 34
-        versionCode 96          // 0.5 → 50, 0.6 → 60 … 1.0 → 100 (판번호 × 100)
+        versionCode 97          // 0.5 → 50, 0.6 → 60 … 1.0 → 100 (판번호 × 100)
         versionName "0.9"
         // 시험판은 정식판과 «나란히» 깔리게 패키지 이름·표시 이름을 바꿔 굽는다
         // (CI: -PpcSuffix=.fgtest -PpcLabel="PocketCore 시험"). 안 주면 정식 그대로.

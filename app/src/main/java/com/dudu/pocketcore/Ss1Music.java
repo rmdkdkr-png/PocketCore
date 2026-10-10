@@ -238,7 +238,9 @@ final class Ss1Music {
         return b;
     }
 
-    /** 롬 폴더에서 사무쇼1 롬(헤더 SAMURAI, SAMURAI2 아님)을 찾는다. 없으면 null */
+    /** 롬 폴더에서 사무쇼1 롬(헤더 SAMURAI, SAMURAI2 아님)을 찾는다. 없으면 null.
+     *  롬 폴더에 압축(.zip/.7z)째로 넣어 뒀으면 안의 SS1 롬을 꺼내 옆에 풀어 두고 그걸 쓴다
+     *  (유저 2026-10-10 — SS1 롬이 7z 째라 못 찾음). */
     static java.io.File findSs1Rom() {
         java.io.File dir = MainActivity.romsDir();
         java.io.File[] fs = dir.listFiles();
@@ -249,6 +251,24 @@ final class Ss1Music {
             if (!(n.endsWith(".ngp") || n.endsWith(".ngc") || n.endsWith(".npc"))) continue;
             Games.Game g = Games.identify(f.getAbsolutePath());
             if (g != null && "ss1".equals(g.id)) return f;
+        }
+        for (java.io.File f : fs) {
+            if (!f.isFile() || !Archives.isArchiveName(f.getName())) continue;
+            final java.io.File[] got = new java.io.File[1];
+            final java.io.File d0 = dir;
+            Archives.forEachRom(f, new Archives.Visitor() {
+                @Override public boolean rom(String e, byte[] data) {
+                    Games.Game g = Games.identifyBytes(data);
+                    if (g == null || !"ss1".equals(g.id)) return true;
+                    java.io.File out = new java.io.File(d0, Archives.baseName(e));
+                    if (out.exists()) out = new java.io.File(d0, "SS1 " + System.currentTimeMillis() + ".ngp");
+                    try (java.io.FileOutputStream o = new java.io.FileOutputStream(out)) { o.write(data); }
+                    catch (Exception x) { return true; }
+                    got[0] = out;
+                    return false;
+                }
+            });
+            if (got[0] != null) return got[0];
         }
         return null;
     }

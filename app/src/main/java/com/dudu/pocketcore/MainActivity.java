@@ -303,7 +303,7 @@ public class MainActivity extends Activity {
             hint.setTextColor(0xff8b93a6);
             hint.setTextSize(12);
             hint.setPadding(0, 24, 0, 0);
-            hint.setText("넣는 롬은 한글패치 전 순정 롬(.ngc/.ngp)이면 됩니다 —\n"
+            hint.setText("넣는 롬은 한글패치 전 순정 롬(.ngc/.ngp, zip·7z 안도 꺼냄)이면 됩니다 —\n"
                     + "실행할 때 최신 한글패치를 받아 사본에 입힙니다.");
             empty.addView(hint);
 
@@ -559,9 +559,13 @@ public class MainActivity extends Activity {
     @Override protected void onActivityResult(int rc, int res, Intent data) {
         super.onActivityResult(rc, res, data);
         if (rc == RomImport.REQ_PICK && res == RESULT_OK) {
-            RomImport.onPicked(this, data);
-            if (RomImport.changed) { RomImport.changed = false; showList(listRoms()); }
+            RomImport.onPicked(this, data);     /* 복사는 작업 스레드 — 끝나면 romsChanged() */
         }
+    }
+
+    /** 롬 가져오기(골라 오기·스캔)가 끝났을 때 RomImport.report 가 부른다(UI 스레드). */
+    void romsChanged() {
+        if (RomImport.changed && started) { RomImport.changed = false; showList(listRoms()); }
     }
 
     /* ── 런처 보조 ──────────────────────────────────────────────── */
