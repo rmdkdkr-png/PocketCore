@@ -147,6 +147,9 @@ public class PadView extends View {
        게임 표에 이미 있는 사실을 모양으로 되짚은 것이라 진실이 두 벌이 됐다.
        이제 EmuActivity 가 게임 표를 읽어 알려 준다. */
     private boolean hasBand = false;
+    private final RectF hintPlate = new RectF();   /* 배치 모드 안내 글 뒤 어두운 판 */
+    private static final String[] HINT_ONE = { "끌어서 옮기기 · 두 손가락·[－][＋]로 크기 · 「배치」로 저장" };
+    private static final String[] HINT_TWO = { "끌어서 옮기기 · 두 손가락·[－][＋]로 크기", "「배치」를 다시 누르면 저장" };
     private float barBottom = 0;   /* 두 줄로 접히므로 편집 안내문은 «마지막 줄» 아래에 놓는다 */
     private final RectF minus = new RectF(), plus = new RectF();
     private final RectF barHandle = new RectF();
@@ -509,10 +512,21 @@ public class PadView extends View {
         }
 
         if (edit) {
-            text.setTextSize(getHeight() * 0.019f);
-            c.drawText("편집: 버튼·게임화면 끌어서 이동 · [－][＋]는 고른 것(없으면 게임 화면) 크기 · 「배치」로 저장",
-                    w / 2f, barBottom + getHeight() * 0.032f, text);
-            float bw = w * 0.10f, bh = getHeight() * 0.038f, byy = barBottom + getHeight() * 0.042f;
+            /* 안내 — 화면 자동 맞춤으로 게임 그림이 위에 붙어 이 글이 그림 위에 얹힌다(흰 화면이면 안 보였다).
+               어두운 판을 깔고, 오른쪽 위 ▶▶ 를 가리지 않게 가운데 72% 안에 넣는다 — 안 들어가면 두 줄, 그래도 넘치면 글자를 줄인다(덮개 화면). */
+            float ts = getHeight() * 0.017f, lim = w * 0.72f;
+            text.setTextSize(ts);
+            String[] hint = text.measureText(HINT_ONE[0]) <= lim ? HINT_ONE : HINT_TWO;
+            float tw = 0;
+            for (String s : hint) tw = Math.max(tw, text.measureText(s));
+            if (tw > lim) { ts *= lim / tw; text.setTextSize(ts); tw = lim; }
+            float pad = ts * 0.45f, lh = ts * 1.35f, top = barBottom + getHeight() * 0.008f;
+            hintPlate.set(w / 2f - tw / 2f - pad, top, w / 2f + tw / 2f + pad, top + lh * hint.length + pad * 2);
+            fill.setColor(0xc0101014);
+            c.drawRoundRect(hintPlate, pad, pad, fill);
+            for (int k = 0; k < hint.length; k++)
+                c.drawText(hint[k], w / 2f, top + pad + ts + lh * k, text);
+            float bw = w * 0.10f, bh = getHeight() * 0.038f, byy = hintPlate.bottom + getHeight() * 0.010f;
             minus.set(w * 0.30f, byy, w * 0.30f + bw, byy + bh);
             plus.set(w * 0.60f, byy, w * 0.60f + bw, byy + bh);
             fill.setColor(0xe0202020);                       /* 불투명 — 게임 화면 위에서도 버튼으로 보이게 */

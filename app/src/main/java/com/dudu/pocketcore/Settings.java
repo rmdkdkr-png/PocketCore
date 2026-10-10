@@ -241,7 +241,7 @@ public final class Settings {
                 "SS1 음악 = 사무라이 쇼다운!(1편) 롬이 롬 폴더에 있으면 인트로·타이틀·라운드 시작·엔딩·SS2 에만 있는 상대 곡을 SS1 것으로(크기는 SS2 곡에 맞춤)."
                 + " 같은 곡만 = 물려받은 10곡만 SS1 판 · SS2 원래 · 끔 = 효과음만. 게임을 다시 열 때 반영.",
                 new String[]{ "ss1", "same", "off", "mute" },
-                new String[]{ "SS1 음악", "같은 곡만", "SS2 원래", "끔(효과음만)" }, "ss1").g("ss2").l(),
+                new String[]{ "SS1 음악", "같은 곡만", "SS2 원래", "끔" }, "ss1").g("ss2").l(),
         });
         /* ── 업데이트 ── */
         GROUPS.put("업데이트", new Item[]{
