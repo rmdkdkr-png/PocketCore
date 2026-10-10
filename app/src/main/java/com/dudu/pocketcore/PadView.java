@@ -147,6 +147,7 @@ public class PadView extends View {
        게임 표에 이미 있는 사실을 모양으로 되짚은 것이라 진실이 두 벌이 됐다.
        이제 EmuActivity 가 게임 표를 읽어 알려 준다. */
     private boolean hasBand = false;
+    private final RectF labPlate = new RectF();    /* 배치 모드 「화면」 이름표 판 */
     private final RectF hintPlate = new RectF();   /* 배치 모드 안내 글 뒤 어두운 판 */
     private static final String[] HINT_ONE = { "끌어서 옮기기 · 두 손가락·[－][＋]로 크기 · 「배치」로 저장" };
     private static final String[] HINT_TWO = { "끌어서 옮기기 · 두 손가락·[－][＋]로 크기", "「배치」를 다시 누르면 저장" };
@@ -416,9 +417,17 @@ public class PadView extends View {
         if (edit && !screenBox.isEmpty()) {   /* 편집 모드: 게임 화면 상자 — 끌어서 이동 */
             line.setColor(selScreen ? 0xccffcc44 : 0x8844ccff);
             c.drawRect(screenBox, line);
-            text.setTextSize(h * 0.020f);
-            c.drawText("화면" + (selScreen ? " (선택됨 — [－][＋] 또는 두 손가락으로 크기)" : ""),
-                    screenBox.centerX(), screenBox.top + h * 0.028f, text);
+            /* 이름표는 상자 «아래쪽» 안에 — 위쪽은 화면 자동 맞춤으로 열린 메뉴 줄·안내 판 밑에 깔린다(찍은 판 확인).
+               게임 그림 위에서도 읽히게 어두운 판. 크기 조절 방법은 위 안내 판에 있으니 여기선 «선택됨» 만. */
+            String lab = selScreen ? "화면 (선택됨)" : "화면";
+            float ts = h * 0.018f, pad = ts * 0.4f;
+            text.setTextSize(ts);
+            float tw = text.measureText(lab), by = screenBox.bottom - pad - ts * 0.35f;
+            labPlate.set(screenBox.centerX() - tw / 2f - pad, by - ts - pad * 0.5f,
+                    screenBox.centerX() + tw / 2f + pad, by + ts * 0.3f + pad * 0.5f);
+            fill.setColor(0xc0101014);
+            c.drawRoundRect(labPlate, pad, pad, fill);
+            c.drawText(lab, screenBox.centerX(), by, text);
         }
 
         int btnColorIdx = 0;
