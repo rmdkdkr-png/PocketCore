@@ -34,6 +34,9 @@ public class MainActivity extends Activity {
     public static final String ROOT = "PocketCore";
     private static final String PREFS = "pc";
     private static final String KEY_LAST = "lastRom";
+    /* 마지막에 한 게임 — 목록(런처)을 열 때 그 카드를 먼저 보여 준다(유저 2026-10-11 「처음에 게임 선택창 이전에 한 게임 기억했다가 뜨도록」).
+       KEY_LAST 는 「목록」·「종료」 때 지워지므로(다음 실행 때 게임으로 바로 들어가지 않게) 따로 둔다. */
+    private static final String KEY_PLAYED = "lastPlayed";
 
     public static File root()    { return new File(Environment.getExternalStorageDirectory(), ROOT); }
     public static File romsDir() { return new File(root(), "roms"); }
@@ -341,6 +344,10 @@ public class MainActivity extends Activity {
                 items.add(it);
             }
             lv.setItems(items);
+            String played = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_PLAYED, null);
+            if (played != null)
+                for (int k = 0; k < roms.size(); k++)
+                    if (roms.get(k).getAbsolutePath().equals(played)) { lv.select(k); break; }
             if (Updater.testLevel()) {          /* 시험 레벨이면 런처에 배지 — 정식이면 아무것도 안 붙는다 */
                 String vn = "";
                 try { vn = " v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
@@ -499,7 +506,7 @@ public class MainActivity extends Activity {
            멈추라고 표시하고, 진행 중인 한 개가 끝나기를 잠깐 기다린다. */
         Thumbs.stop = true;
         synchronized (Thumbs.LOCK) { }
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST, romPath).apply();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST, romPath).putString(KEY_PLAYED, romPath).apply();
         Intent i = new Intent(this, EmuActivity.class);
         i.putExtra("rom", romPath);
         startActivity(i);

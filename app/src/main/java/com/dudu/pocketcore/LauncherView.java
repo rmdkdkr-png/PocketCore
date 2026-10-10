@@ -108,6 +108,8 @@ public final class LauncherView extends View {
     @Override protected void onSizeChanged(int w, int h, int ow, int oh) { skin.clear(); }
 
     public void setItems(List<Item> it) { items = it; sel = 0; invalidate(); }
+    /** 처음 보여 줄 카드(마지막에 한 게임) — 넘기는 손맛(진동)은 없이 */
+    public void select(int i) { if (items != null && i >= 0 && i < items.size()) { sel = i; invalidate(); } }
     public void setListener(Listener l) { listener = l; }
     public void startIntro() { introAt = System.currentTimeMillis(); invalidate(); }
     public void thumbReady() { postInvalidate(); }

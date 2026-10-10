@@ -88,7 +88,7 @@ final class Ss1Music {
      *       맞닿은 것끼리 합쳐 씀. 짧은 0xFF 줄은 그림(색 3 통 칸)·표·대사의 빈 줄일 수 있다. 2026-10-10 유저 「프리징 뜸」:
      *       한패 v1.01 이 대사 칸을 0xFF 로 채워 «빈 줄»로 가리키는 자리(0x038EC5~ 등)를 빈칸으로 알고 곡을 써서,
      *       그 장면 대사 엔진이 곡 바이트를 글자로 읽다 엉뚱한 주소로 튀어 0xFF 를 찾아 끝없이 돌았다) */
-    static final int VER = 4;   /* 4 = SS1 곡 크기 맞춤(SnkScore) + 배경음악 끔 */
+    static final int VER = 5;   /* 4 = SS1 곡 크기 맞춤(SnkScore) + 배경음악 끔 · 5 = 곡 번호를 SS2 원래 것으로(유가·9번째·엔딩 무음 고침) */
 
     /** 사무쇼2 원판([!]·[h1] 같음)의 끝 채움 두 곳 — 이 안에서만 빈칸을 찾는다.
      *  0x04F38A~0x050000(블록 끝까지 3,190B) · 0x1DF762~0x1F0000(소리 자료 뒤, 세이브 구역 앞 67,742B).
@@ -312,6 +312,12 @@ final class Ss1Music {
                 System.arraycopy(sr, 0, out, recAt[i], sr.length);
             } else {
                 System.arraycopy(ss1, t.bgm, out, recAt[i], 3 + lb);
+                /* 곡 번호(레코드 첫 바이트)는 SS2 원래 것 — 메인 CPU 는 덩어리를 올린 뒤 이 번호가 장면이 부른 곡 번호와
+                   같아야 «배경음 시작»(0x03)을 보낸다. SS1 번호를 그대로 두면 번호가 다른 칸(엔딩 4·5, 9번째 상대 21,
+                   최종 보스 유가 22, 같은 곡만의 6)은 덩어리만 올라가고 음악이 안 나왔다(유저 2026-10-11 「유가 스테이지에서
+                   배경음이 안 나와요」 — 봇으로 최종전까지 돌려 NMI 0x03 이 빠지는 것, 번호만 되돌리면 원판처럼 나오는 것 확인).
+                   번호는 Z80 덩어리에 안 들어가므로(레코드 머리 3바이트는 메인 CPU 만 읽음) 소리에는 영향 없다. */
+                out[recAt[i]] = ss2[s.bgm];
                 SnkScore.shiftVolume(out, recAt[i], VOL_K[s.slot]);      /* SS2 곡 크기에 맞춤(해석 못 하면 그대로) */
             }
             System.arraycopy(desc[i], 0, out, setAt[i], desc[i].length);
