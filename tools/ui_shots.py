@@ -198,8 +198,8 @@ def run(tag, size, density, bar_labels, with_settings):
             sh("input keyevent 4")
             time.sleep(1.5)
     shot(tag + "_08_game_after")
-    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(base * 0.023)))   # 메뉴 열기
-    time.sleep(1)
+    # 메뉴 줄은 「설정」 칸을 눌러도 열린 채다(순수 토글 — 목록·종료만 접힘). 여기서 알약을 또 누르면 닫혀 버려
+    # 「배치」 칸이 헛손질이 된다(2026-10-11 찍은 판에서 확인).
     if "배치" in cells:
         cx, cy = cells["배치"]
         sh("input tap %d %d" % (pv[0] + int(cx), pv[1] + int(cy)))       # 배치(편집) 켜기
