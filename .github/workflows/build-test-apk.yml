@@ -61,11 +61,15 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: python3 tools/ui_shots.py apk/app-debug.apk shots
-      - uses: actions/upload-artifact@v4
+      - name: Publish shots to release ui-shots
         if: always()
-        with:
-          name: ui-shots
-          path: shots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd shots && zip -q -r ../ui-shots.zip .) || true
+          gh release delete ui-shots -y --cleanup-tag || true
+          gh release create ui-shots ui-shots.zip --prerelease --target "${GITHUB_SHA}" \
+            --title "CI — UI 스크린샷 (${GITHUB_SHA::7})" --notes "가짜 롬(제자리 돌기)으로 찍은 앱 화면. 설치·배포물 아님."
 
   # Legacito 정식 서명용 — 서명 안 한 릴리즈 APK(zipalign 끝)와 apksigner.jar 를 태그 ci-release 에 둔다.
   # 서명 키는 저장소에 없다(공개 저장소). 클로드 세션이 받아서 새 키로 서명한 뒤 태그 app 에 올린다 — tools/SIGNING.md
