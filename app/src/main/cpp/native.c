@@ -15,6 +15,8 @@
 #include <time.h>
 #include "libretro.h"
 #include "framegen.h"
+#include "display_shaders.h"
+#include <math.h>
 
 #define TAG "PocketCore"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
@@ -94,6 +96,22 @@ static GLuint g_prog = 0, g_tex = 0, g_tex_mid = 0;
 static GLint  a_pos, a_uv, u_tex;
 static int    g_vw = 1, g_vh = 1;
 static int    g_integer_scale = 1;
+
+/* 화면 표시 — 업스케일러(도트를 키우는 방식) 하나 + 필터(덧입히기) 여럿, 둘 다 세기(%).
+   Java 가 설정에서 nativeSetDisplay 로 넣는다(GL 스레드에서). 전부 0 이면 예전 단순 셰이더 그대로. */
+typedef struct {
+   GLuint prog; int failed;
+   GLint a_pos, a_uv, u_tex, u_size, u_out, u_mix, u_grid, u_scan, u_color, u_soft;
+} disp_prog;
+static disp_prog g_dp[DISP_N_UP];
+static int g_d_up = 0, g_d_mix = 100, g_d_grid = 0, g_d_scan = 0, g_d_ghost = 0, g_d_color = 0, g_d_soft = 0;
+/* 잔상(LCD 응답 느림 흉내) — 셰이더가 아니라 CPU 누적: 화면에 낸 그림을 지수 평균한다.
+   acc 는 값×256(16비트)이라 끝까지 따라간다(8비트로 섞으면 희미한 찌꺼기가 남는다). */
+static uint16_t *g_gh = NULL;
+static uint8_t  *g_gh_out = NULL;
+static unsigned  g_gh_cap = 0, g_gh_w = 0, g_gh_h = 0;
+static int       g_gh_valid = 0;
+static GLuint    g_tex_gh = 0;
 
 /* audio ring buffer (stereo int16) */
 #define ARING_FRAMES 16384
@@ -391,6 +409,74 @@ static GLuint compile(GLenum type, const char *src)
    return s;
 }
 
+static GLuint compile_ok(GLenum type, const char *src)
+{
+   GLuint sh = compile(type, src);
+   GLint ok = 0; glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+   if (!ok) { glDeleteShader(sh); return 0; }
+   return sh;
+}
+
+/* 업스케일러 k 의 프로그램 — 처음 쓸 때 만든다. 못 만들면(옛 GPU) 0 → 단순 셰이더로 그린다. */
+static disp_prog *disp_get(int k)
+{
+   if (k < 0 || k >= DISP_N_UP) k = 0;
+   disp_prog *d = &g_dp[k];
+   if (d->prog || d->failed) return d->prog ? d : NULL;
+   GLuint vs = compile_ok(GL_VERTEX_SHADER, VS), fs = compile_ok(GL_FRAGMENT_SHADER, FS_UP[k]);
+   if (!vs || !fs) { d->failed = 1; LOGE("display shader %d: compile failed", k); return NULL; }
+   GLuint pr = glCreateProgram();
+   glAttachShader(pr, vs); glAttachShader(pr, fs);
+   glLinkProgram(pr);
+   glDeleteShader(vs); glDeleteShader(fs);
+   GLint ok = 0; glGetProgramiv(pr, GL_LINK_STATUS, &ok);
+   if (!ok) {
+      char log[512]; glGetProgramInfoLog(pr, 512, NULL, log);
+      LOGE("display shader %d: link failed: %s", k, log);
+      glDeleteProgram(pr); d->failed = 1; return NULL;
+   }
+   d->prog = pr;
+   d->a_pos = glGetAttribLocation(pr, "aPos");   d->a_uv = glGetAttribLocation(pr, "aUV");
+   d->u_tex = glGetUniformLocation(pr, "uTex");  d->u_size = glGetUniformLocation(pr, "uSize");
+   d->u_out = glGetUniformLocation(pr, "uOut");  d->u_mix = glGetUniformLocation(pr, "uUpMix");
+   d->u_grid = glGetUniformLocation(pr, "uGrid"); d->u_scan = glGetUniformLocation(pr, "uScan");
+   d->u_color = glGetUniformLocation(pr, "uColor"); d->u_soft = glGetUniformLocation(pr, "uSoft");
+   LOGI("display shader %d ready", k);
+   return d;
+}
+
+/* 잔상 — src(지금 화면에 낼 그림)를 누적에 섞어 g_gh_out 으로. 세기는 «60Hz 한 프레임에 이전 그림이 남는 몫»으로
+   정하고, 실제 vsync 간격만큼 거듭제곱해 120Hz 화면에서도 같은 길이로 남게 한다. */
+static const uint8_t *ghost_apply(const uint8_t *src, unsigned w, unsigned h)
+{
+   unsigned n = w * h * 4;
+   if (n > g_gh_cap) {
+      free(g_gh); free(g_gh_out);
+      g_gh = (uint16_t *)malloc(n * sizeof(uint16_t)); g_gh_out = (uint8_t *)malloc(n);
+      g_gh_cap = (g_gh && g_gh_out) ? n : 0; g_gh_valid = 0;
+      if (!g_gh_cap) return src;
+   }
+   if (!g_gh_valid || g_gh_w != w || g_gh_h != h) {
+      for (unsigned i = 0; i < n; i++) g_gh[i] = (uint16_t)(src[i] << 8);
+      g_gh_w = w; g_gh_h = h; g_gh_valid = 1;
+   }
+   double dv = (g_vsync_ema > 0.002 && g_vsync_ema < 0.1) ? g_vsync_ema : 1.0 / 60.0;
+   double k60 = g_d_ghost / 100.0 * 0.80;                   /* 100% = 60Hz 한 프레임에 80% 남음 */
+   double k = pow(k60, dv * 60.0);
+   int a = (int)((1.0 - k) * 65536.0);                       /* 새 그림이 들어오는 몫 */
+   for (unsigned i = 0; i < n; i += 4) {
+      for (int c = 0; c < 3; c++) {
+         int acc = g_gh[i + c];
+         acc += (int)(((int64_t)(((int)src[i + c] << 8) - acc) * a) >> 16);
+         if (acc < 0) acc = 0; else if (acc > 65535) acc = 65535;
+         g_gh[i + c] = (uint16_t)acc;
+         g_gh_out[i + c] = (uint8_t)((acc + 128) >> 8 > 255 ? 255 : (acc + 128) >> 8);
+      }
+      g_gh_out[i + 3] = 255;
+   }
+   return g_gh_out;
+}
+
 static void gl_setup(void)
 {
    GLuint vs = compile(GL_VERTEX_SHADER, VS);
@@ -415,6 +501,14 @@ static void gl_setup(void)
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glGenTextures(1, &g_tex_gh);
+   glBindTexture(GL_TEXTURE_2D, g_tex_gh);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   memset(g_dp, 0, sizeof(g_dp));   /* 새 컨텍스트 — 예전 프로그램은 이미 사라졌다. 쓸 때 다시 만든다 */
+   g_gh_valid = 0;
    g_mid_dirty = g_mid_ready;   /* 표면이 새로 생기면 텍스처도 새것 — 다시 올린다 */
    g_fb_dirty = 1;
    glClearColor(0.f, 0.f, 0.f, 1.f);
@@ -468,14 +562,38 @@ static void gl_draw(int show_mid)
    static const GLfloat pos[] = { -1,-1,  1,-1, -1, 1,  1, 1 };
    static const GLfloat uv[]  = {  0, 1,  1, 1,  0, 0,  1, 0 };
 
-   glUseProgram(g_prog);
-   glUniform1i(u_tex, 0);
+   GLuint tex = show_mid ? g_tex_mid : g_tex;
+   if (g_d_ghost > 0) {           /* 잔상 — 화면에 낼 그림(중간 그림 포함)을 누적해 따로 올린다 */
+      const uint8_t *gs = ghost_apply(show_mid ? g_mid : g_fb, g_fb_w, g_fb_h);
+      glBindTexture(GL_TEXTURE_2D, g_tex_gh);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_fb_w, g_fb_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, gs);
+      tex = g_tex_gh;
+   } else g_gh_valid = 0;
+
+   int up = (g_d_mix > 0) ? g_d_up : 0;
+   disp_prog *d = (up || g_d_grid || g_d_scan || g_d_color || g_d_soft) ? disp_get(up) : NULL;
+   GLint ap = a_pos, au = a_uv;
+   if (d) {
+      glUseProgram(d->prog);
+      glUniform1i(d->u_tex, 0);
+      glUniform2f(d->u_size, (float)g_fb_w, (float)g_fb_h);
+      glUniform2f(d->u_out, (float)dw, (float)dh);
+      glUniform1f(d->u_mix, up ? g_d_mix / 100.f : 0.f);
+      glUniform1f(d->u_grid, g_d_grid / 100.f);
+      glUniform1f(d->u_scan, g_d_scan / 100.f);
+      glUniform1f(d->u_color, g_d_color / 100.f);
+      glUniform1f(d->u_soft, g_d_soft / 100.f);
+      ap = d->a_pos; au = d->a_uv;
+   } else {
+      glUseProgram(g_prog);
+      glUniform1i(u_tex, 0);
+   }
    glActiveTexture(GL_TEXTURE0);
-   glBindTexture(GL_TEXTURE_2D, show_mid ? g_tex_mid : g_tex);
-   glVertexAttribPointer(a_pos, 2, GL_FLOAT, GL_FALSE, 0, pos);
-   glVertexAttribPointer(a_uv,  2, GL_FLOAT, GL_FALSE, 0, uv);
-   glEnableVertexAttribArray(a_pos);
-   glEnableVertexAttribArray(a_uv);
+   glBindTexture(GL_TEXTURE_2D, tex);
+   glVertexAttribPointer(ap, 2, GL_FLOAT, GL_FALSE, 0, pos);
+   glVertexAttribPointer(au, 2, GL_FLOAT, GL_FALSE, 0, uv);
+   glEnableVertexAttribArray(ap);
+   glEnableVertexAttribArray(au);
    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 }
 
@@ -771,6 +889,22 @@ JNI(void, nativeReset)(JNIEnv *env, jclass cls)
 
 JNI(void, nativeSetIntegerScale)(JNIEnv *env, jclass cls, jboolean on)
 { (void)env; (void)cls; g_integer_scale = on ? 1 : 0; }
+
+/* 화면 표시 설정 — GL 스레드에서 부를 것(Java 는 queueEvent). up: 0 끔 · 1 샤프 · 2 Scale2x · 3 xBR · 4 OmniScale.
+   나머지는 세기 0..100. */
+JNI(void, nativeSetDisplay)(JNIEnv *env, jclass cls, jint up, jint mix, jint grid, jint scan,
+                            jint ghost, jint color, jint soft, jboolean integer)
+{
+   (void)env; (void)cls;
+#define PCT(v) ((v) < 0 ? 0 : (v) > 100 ? 100 : (int)(v))
+   g_d_up = (up >= 0 && up < DISP_N_UP) ? (int)up : 0;
+   g_d_mix = PCT(mix); g_d_grid = PCT(grid); g_d_scan = PCT(scan);
+   g_d_ghost = PCT(ghost); g_d_color = PCT(color); g_d_soft = PCT(soft);
+#undef PCT
+   g_integer_scale = integer ? 1 : 0;
+   LOGI("display up %d mix %d grid %d scan %d ghost %d color %d soft %d int %d",
+        g_d_up, g_d_mix, g_d_grid, g_d_scan, g_d_ghost, g_d_color, g_d_soft, g_integer_scale);
+}
 
 JNI(void, nativeSetTurbo)(JNIEnv *env, jclass cls, jboolean on)
 { (void)env; (void)cls; g_turbo = on ? 1 : 0; }

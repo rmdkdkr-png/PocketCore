@@ -32,6 +32,8 @@ public final class Settings {
         public String game;
         /** 실행 전 선택창(LaunchSheet)에도 보이는 항목인가 — 그 게임에 「적용할 것」으로 고를 만한 토글만. */
         public boolean launch;
+        /** 세기(%) 항목 — 슬라이더로 그린다 */
+        public boolean pct;
         Item(String key, String label, String help, String[] vals, String[] names, String def) {
             this.key = key; this.label = label; this.help = help;
             this.vals = vals; this.names = names; this.def = def;
@@ -52,32 +54,35 @@ public final class Settings {
     private static final String[] ONOFF   = { "enabled", "disabled" };
     private static final String[] ONOFF_K = { "켬", "끔" };
 
-    /** 묶음 이름 → 항목들. 순서가 곧 화면 순서다. */
+    /** 세기(%) 항목 — 0..100 을 5 단위로. 설정 화면이 슬라이더로 그린다(값이 많아 다이얼로는 좁다). */
+    static Item pct(String key, String label, String help, int def) {
+        String[] v = new String[21], n = new String[21];
+        for (int i = 0; i <= 20; i++) { v[i] = String.valueOf(i * 5); n[i] = (i * 5) + "%"; }
+        Item it = new Item(key, label, help, v, n, String.valueOf(def));
+        it.pct = true;
+        return it;
+    }
+    /** 세기 항목 값을 0..100 정수로 (없거나 깨졌으면 기본값). */
+    public static int pctOf(Map<String, String> m, String key, int def) {
+        try { return Math.max(0, Math.min(100, Integer.parseInt(m.get(key).trim()))); }
+        catch (Exception e) { return def; }
+    }
+
+    /** 업스케일러 값 → native 번호(native.c · display_shaders.h 의 순서와 같다). */
+    public static final String[] UPSCALERS = { "none", "sharp", "scale2x", "xbr", "omni" };
+    public static int upscalerIndex(String v) {
+        for (int i = 0; i < UPSCALERS.length; i++) if (UPSCALERS[i].equals(v)) return i;
+        return 0;
+    }
+
+    /** 소절 이름 → 항목들. 순서가 곧 화면 순서다. 어느 쪽(페이지)에 들어가는지는 아래 PAGES 가 정한다.
+     *  실행 전 선택창(LaunchSheet)은 이 표 전체에서 .l() 표시된 것만 뽑아 쓴다. */
     public static final LinkedHashMap<String, Item[]> GROUPS = new LinkedHashMap<>();
     static {
-        GROUPS.put("게임", new Item[]{
-            new Item("pocketcore_autosave", "오토세이브",
-                "게임을 벗어날 때(홈·롬 바꾸기) 자동으로 상태를 저장하고, 같은 롬을 다시 열면"
-                + " 그 자리에서 이어합니다. 수동 슬롯(1~3)과는 별개의 자리를 씁니다.",
-                ONOFF, ONOFF_K, "enabled"),
-            new Item("pocketcore_lang", "언어",
-                "일본어·영어는 롬에 원래 들어 있어 설정만 바뀝니다. 한국어는 번역 패치를 롬 사본에 입힙니다 —"
-                + " 원본 롬은 건드리지 않습니다. 패치가 어느 쪽 표를 덮었는지는 게임마다 다른데, 그건 앱이"
-                + " 게임마다 알아서 맞춥니다. 실행 전 선택창에서 게임별로 고른 「한글패치」가 있으면 그쪽이"
-                + " 우선하며, 여기 값을 바꾸면 게임별 선택은 지워집니다.",
-                Games.LANGS, Games.LANGS_KO, "ko"),
-        });
-        GROUPS.put("업데이트", new Item[]{
-            new Item("pocketcore_level", "배포 레벨",
-                "정식 = 검증을 거친 판만 받습니다. 시험 = 새 판이 나오는 대로 바로 받습니다(실험 기능 포함, 문제가 있으면"
-                + " 다음 판으로 되돌립니다). 바꾼 뒤 「업데이트 확인」을 누르세요. 앱·코어 모두에 적용됩니다.",
-                new String[]{ "stable", "test" }, new String[]{ "정식", "시험" }, "stable"),
-        });
-        GROUPS.put("화면", new Item[]{
+        /* ── 화면 ── */
+        GROUPS.put("크기·자리", new Item[]{
             /* 화면 크기·자리 — 손가락 패드가 그림을 가리는 문제 때문에 필요하다.
-               코어가 아니라 **앱이** 그리는 자리를 정하는 값이라 options.txt 에만 남고
-               코어는 이 키를 모른다. 화면을 줄이면 코어에는 줄어든 크기가 그대로 전달되어
-               (nativeResize) 코어가 알아서 비율을 맞춘다. */
+               코어가 아니라 **앱이** 그리는 자리를 정하는 값이라 options.txt 에만 남고 코어는 이 키를 모른다. */
             new Item("pocketcore_screen_size", "화면 크기",
                 "화면에서 게임 그림이 차지할 비율입니다. 게임 안 상단바 「키」 편집에서"
                 + " 게임 화면을 **직접 끌어 옮기고** [－][＋]로 크기를 바꿀 수도 있습니다.",
@@ -95,27 +100,70 @@ public final class Settings {
                 "자동은 기기 회전을 따릅니다. 가로는 게임기·거치 플레이용 — 기둥 아트도 양옆에 다 들어갑니다.",
                 new String[]{ "auto", "portrait", "landscape" },
                 new String[]{ "자동", "세로", "가로" }, "auto"),
-            /* 프레임 생성 — 시험판이라 두 방식을 «따로» 켜고 끈다. 둘 다 켜면 코어 우선, 앱은 대타
+            new Item("pocketcore_integer", "정수배 맞춤",
+                "도트 한 칸을 화면 몇 칸으로 «딱 맞춰» 키웁니다 — 칸 크기가 고릅니다."
+                + " 끄면 화면을 더 꽉 채우지만 칸 크기가 들쭉날쭉할 수 있어, 그때는 업스케일러 「샤프」를 쓰면 고르게 보입니다.",
+                ONOFF, ONOFF_K, "enabled"),
+        });
+        GROUPS.put("업스케일러", new Item[]{
+            /* 업스케일러 = 작은 도트 그림을 큰 화면으로 «키우는 방식». 필터(아래)와는 따로다 — 업스케일러는 하나만 고르고,
+               필터는 그 위에 여러 개를 겹친다. 셰이더는 app/src/main/cpp/shaders (생성기 tools/gen_shaders.py). */
+            new Item("pocketcore_upscaler", "업스케일러",
+                "도트를 큰 화면으로 키우는 방식입니다."
+                + " 끔 = 도트 그대로(네모 칸)."
+                + " 샤프 = 칸 크기를 고르게 맞추고 칸 경계만 살짝 부드럽게."
+                + " Scale2x = 계단을 한 단계 깎음."
+                + " xBR = 곡선을 매끈하게(가장 부드러움)."
+                + " Omni = xBR 처럼 매끈하되 가는 선과 대각선을 더 살림."
+                + " 게임으로 돌아가면 바로 바뀝니다.",
+                UPSCALERS, new String[]{ "끔", "샤프", "Scale2x", "xBR", "Omni" }, "none").l(),
+            pct("pocketcore_upscaler_mix", "업스케일러 세기",
+                "키운 결과를 원래 도트와 섞는 비율입니다. 100% = 업스케일러 그대로 · 50% = 반반 · 0% = 도트 그대로.", 100),
+        });
+        GROUPS.put("필터", new Item[]{
+            /* 필터 = 키운 그림 «위에 덧입히는» 효과. 각자 세기(섞는 비율)가 있고 여러 개를 함께 켤 수 있다. 0% = 끔. */
+            pct("pocketcore_flt_grid", "LCD 격자",
+                "칸 사이에 가는 어두운 줄을 넣어 휴대기 액정처럼 보이게 합니다. 화면이 클수록 잘 보입니다. 0% = 끔.", 0),
+            pct("pocketcore_flt_scan", "스캔라인",
+                "가로줄마다 위아래를 어둡게 해 브라운관처럼 보이게 합니다. 0% = 끔.", 0),
+            pct("pocketcore_flt_ghost", "잔상",
+                "움직이는 그림이 잠깐 남습니다 — 실제 기기 액정의 느린 반응을 흉내 냅니다. 0% = 끔.", 0),
+            pct("pocketcore_flt_color", "LCD 색감",
+                "채도와 대비를 조금 눌러 실제 기기 화면 색처럼 보이게 합니다. 0% = 끔.", 0),
+            pct("pocketcore_flt_soft", "번짐",
+                "그림 전체를 살짝 흐리게 합니다. 0% = 끔.", 0),
+        });
+        GROUPS.put("게임 화면", new Item[]{
+            new Item("ngp_svcsp_band", "기술명 띠",
+                "기술 이름을 화면 **밖** 띠에 띄웁니다. 끄면 게임 그림 위에 겹칩니다."
+                + " 세로가 32px 늘어납니다.",
+                ONOFF, ONOFF_K, "enabled").f(Games.F_BAND),
+            /* 「기둥 아트」(ngp_ss2sp_sides) 는 2026-09-07 유저 지시로 폐기했다.
+               해설·더빙(ngp_ss2sp_comm 계열)은 3.90 에 이미 뺐고, 남은 배관도 같이 걷어냈다. */
+        });
+        /* ── 움직임·반응 ── */
+        GROUPS.put("프레임 생성", new Item[]{
+            /* 프레임 생성 — 두 방식을 «따로» 켜고 끈다. 둘 다 켜면 코어 우선, 앱은 대타
                (코어가 120 을 내보내는 동안 앱은 끼울 빈 vsync 가 없어 저절로 비켜선다). */
-            new Item("pocketcore_framegen", "프레임 생성 — 앱 방식",
+            new Item("pocketcore_framegen", "앱 방식",
                 "모든 게임. 120Hz 화면에서 완성된 화면의 움직임을 찾아 중간 그림을 끼웁니다(약 8ms 늦음)."
                 + " 움직임 = 반만큼 옮긴 그림(잔상 없음, 겹치는 데 테두리가 가끔 깨짐)."
                 + " 섞기 = 앞뒤 반반 섞음(가볍지만 잔상)."
                 + " 사무쇼2에서 코어 방식이 켜져 120 을 내보내는 동안은 저절로 비켜섭니다.",
                 new String[]{ "off", "motion", "blend" },
                 new String[]{ "끔", "움직임", "섞기" }, "off").l(),
-            new Item("ngp_framegen", "프레임 생성 — 코어 방식 (사무쇼2)",
-                "사무쇼2 전용. 코어가 캐릭터·배경 위치를 직접 보간해 같은 타일로 다시 그립니다 — 도트가 안 깨지고"
+            new Item("ngp_framegen", "코어 방식",
+                "코어가 캐릭터·배경 위치를 직접 보간해 같은 타일로 다시 그립니다 — 도트가 안 깨지고"
                 + " 예측 모드면 지연도 없습니다. 자동 = 화면이 실제 120Hz 일 때만(60 으로 떨어지면 스스로 끄고 돌아오면 켬)."
                 + " 켬 = 강제(60Hz 화면이면 화면이 찢어질 수 있음).",
                 new String[]{ "auto", "enabled", "disabled" },
                 new String[]{ "자동", "켬", "끔" }, "auto").g("ss2").l(),
-            new Item("ngp_framegen_mode", "코어 방식 — 예측/보간 (사무쇼2)",
+            new Item("ngp_framegen_mode", "코어 방식 — 예측/보간",
                 "예측 = 다음 프레임을 미리 돌려 그 사이를 그림(지연 없음, 입력이 바뀌는 순간만 반 프레임 어긋날 수 있음)."
                 + " 보간 = 이전↔현재 사이를 먼저 보여 줌(+8ms).",
                 new String[]{ "predict", "interp" },
                 new String[]{ "예측", "보간" }, "predict").g("ss2").l(),
-            new Item("ngp_framegen_mult", "코어 방식 — 배수 (사무쇼2)",
+            new Item("ngp_framegen_mult", "코어 방식 — 배수",
                 "4배 = 게임 박자 맞춤. 사무쇼2 는 캐릭터·배경을 2프레임에 한 번(초당 30번)만 움직여서, 2배로는"
                 + " 새 그림 사이 빈칸 셋 중 하나만 채웁니다. 4배는 다음에 바뀌는 프레임까지 미리 돌려 120Hz 네 장에"
                 + " 고르게 나눕니다. 예측 모드 = 두 프레임 앞까지 미리(지연 없음, 계산 약 1.5배)."
@@ -123,21 +171,22 @@ public final class Settings {
                 + " 2배 = 실제 프레임마다 반 지점 하나만 끼웁니다(이전 방식).",
                 new String[]{ "4", "2" },
                 new String[]{ "4배 (게임 박자)", "2배" }, "4").g("ss2").l(),
-            /* 「기둥 아트」(ngp_ss2sp_sides) 는 2026-09-07 유저 지시로 폐기했다.
-               해설·더빙(ngp_ss2sp_comm 계열)은 3.90 에 이미 뺐고, 남은 배관도 같이 걷어냈다. */
-            new Item("ngp_svcsp_band", "기술명 띠",
-                "기술 이름을 화면 **밖** 띠에 띄웁니다. 끄면 게임 그림 위에 겹칩니다."
-                + " 세로가 32px 늘어납니다.",
-                ONOFF, ONOFF_K, "enabled").f(Games.F_BAND),
         });
-        GROUPS.put("소리", new Item[]{
-            new Item("pocketcore_launcher_snd", "런처 소리",
-                "롬 고르는 화면의 부팅음과 테마곡. 게임에 들어가면 멈춥니다.",
-                ONOFF, ONOFF_K, "enabled"),
+        GROUPS.put("입력 지연", new Item[]{
+            /* 런어헤드 — 코어(50_runahead.patch)가 게임을 몰래 몇 프레임 앞서 돌려 그 결과를 보여 준다. 소리는 진짜 프레임 것.
+               대전·메뉴 구분 없이 늘(유저 2026-10-10 「대전중에만 켤 필요가 있나 그냥 하면 되지」). */
+            new Item("ngp_runahead", "입력 지연 줄이기 (런어헤드)",
+                "버튼을 누르고 화면에 나오기까지의 시간을 줄입니다 — 게임을 몰래 몇 프레임 앞서 돌려 그 결과를 보여 줍니다."
+                + " 2프레임 = 약 33ms 빨라짐 · 1프레임 = 약 17ms."
+                + " 입력이 바뀌는 순간 아주 가끔 한 프레임 동안 직전 동작이 보일 수 있습니다."
+                + " 프레임 생성 코어 방식 2배에서는 쉽니다.",
+                new String[]{ "2", "1", "0" },
+                new String[]{ "2프레임", "1프레임", "끔" }, "2").g("ss2").l(),
         });
-        GROUPS.put("조작", new Item[]{
+        /* ── 조작 ── */
+        GROUPS.put("터치 패드", new Item[]{
             new Item("pocketcore_touchpad", "터치 패드",
-                "자동은 물리 게임패드가 연결되면 터치 버튼을 숨기고 메뉴 알약만 남깁니다. 버튼 배정은 설정 아래 「물리 패드 매핑」.",
+                "자동은 물리 게임패드가 연결되면 터치 버튼을 숨기고 메뉴 알약만 남깁니다. 버튼 배정은 아래 「물리 패드 매핑」.",
                 new String[]{ "auto", "on", "off" },
                 new String[]{ "자동", "항상 표시", "숨김" }, "auto"),
             new Item("pocketcore_padskin", "버튼 모양",
@@ -146,32 +195,29 @@ public final class Settings {
                 + " (눌림은 a_on.png).",
                 new String[]{ "art", "flat" },
                 new String[]{ "아트", "단순" }, "art").l(),
+        });
+        GROUPS.put("원버튼 필살기", new Item[]{
             new Item("ngp_svcsp_engine", "원버튼 필살기",
-                "SvC 전용. 기술키 하나로 커맨드를 대신 넣습니다. 방향에 따라 다른 기술이 나갑니다.",
+                "기술키 하나로 커맨드를 대신 넣습니다. 방향에 따라 다른 기술이 나갑니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC).l(),
-            new Item("ngp_kofsp_engine", "KOF 원버튼 필살기",
-                "KOF R-2 전용. SP 버튼(패드의 R) 하나로 커맨드를 대신 넣습니다 —"
+            new Item("ngp_svcsp_toast", "기술명 표시",
+                "원버튼으로 기술이 나갈 때 이름을 띄웁니다.",
+                ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC),
+            new Item("ngp_kofsp_engine", "원버튼 필살기",
+                "SP 버튼(패드의 R) 하나로 커맨드를 대신 넣습니다 —"
                 + " 방향없음=장풍 · 앞=대공 · 앞아래=초필살기 · 공중에서도 나갑니다."
                 + " 탭=약 / 꾹=강. 끄면 R 은 A+B 로 동작합니다."
                 + " A+B 는 켜든 끄든 «항상 L 로도» 낼 수 있습니다.",
                 new String[]{ "disabled", "enabled" },
                 new String[]{ "끔", "켬" }, "disabled").f(Games.F_SP_KOF).l(),
-            new Item("ngp_kofsp_toast", "KOF 기술 표기 표시",
-                "KOF R-2 원버튼으로 기술이 나갈 때 커맨드 표기(↓↘→ + 펀치)를 띄웁니다."
+            new Item("ngp_kofsp_toast", "기술 표기 표시",
+                "원버튼으로 기술이 나갈 때 커맨드 표기(↓↘→ + 펀치)를 띄웁니다."
                 + " 같은 슬롯이라도 캐릭터마다 다른 기술이라 이름 대신 표기를 적습니다 —"
                 + " 손으로 치는 법이 그대로 보입니다.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_KOF).l(),
-            new Item("ngp_svcsp_toast", "기술명 표시",
-                "원버튼으로 기술이 나갈 때 이름을 띄웁니다.",
-                ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SVC),
             /* ngp_svcsp_basics(강약 4버튼 구분)·ngp_svcsp_land(착지 선입력) 는
                2026-09-06 유저 지시로 코어에서 «통째로» 빠졌다(이식소 ec4fc34).
                기본기는 이제 게임 원판정 — 탭=약 / 꾹=강. 스위치가 없으니 항목도 없다. */
-            new Item("pocketcore_svc_actshow", "판독 오버레이 (동작번호)",
-                "SvC 전용. 화면 왼쪽 위에 「내 동작번호|상대반응」을 상시 표시합니다."
-                + " 영상만 찍어도 무슨 기술이 나갔는지(약·강 구분 포함) 확정할 수 있는"
-                + " 검증용 표시입니다. 바꾸면 게임을 다시 시작해야 적용됩니다.",
-                ONOFF, ONOFF_K, "disabled").f(Games.F_ACTSHOW),
             /* faststrong(pocketcore_svc_fastrom)은 문턱을 낮추는 연구용 패치로 부작용
                (공중 강공격 불발)이 있어 메뉴에서 뺐다 — 빠른 기본기는 이제 FastCD 가
                부작용 없이 대신한다. 배관(EmuActivity·Patcher)은 남겨 두어 연구 시
@@ -179,21 +225,77 @@ public final class Settings {
             /* 월화 SP — 이식소가 코어에 넣은 ngp_lbsp_engine 하나만 건다.
                토스트(ngp_lbsp_toast)는 코어에 아직 없다 — 생기면 그때 만든다.
                ★ 설명은 «지금 실제로 되는 것»만 적는다. 슬롯 일곱이 서면 고친다. */
-            new Item("ngp_lbsp_engine", "월화 원버튼 필살기",
-                "월화 전용. 켜면 R 이 기술키가 됩니다 — 방향+R 로 필살기가 나갑니다"
+            new Item("ngp_lbsp_engine", "원버튼 필살기",
+                "켜면 R 이 기술키가 됩니다 — 방향+R 로 필살기가 나갑니다"
                 + " (방향없음=질풍 · 앞=대공 · 뒤·아래·앞아래=각각 다른 기술)."
                 + " 끄면 R 은 A+B 로 동작합니다."
                 + " A+B 는 켜든 끄든 «항상 L 로도» 낼 수 있습니다."
                 + " ★ 아직 만드는 중이라 «카에데»만 됩니다 — 다른 캐릭터는 커맨드가 달라"
                 + " 안 나가거나 엉뚱한 기술이 나갈 수 있습니다.",
                 ONOFF, ONOFF_K, "disabled").f(Games.F_SP_LB).l(),
-            new Item("ngp_ss2sp", "SS2 원버튼",
-                "SS2 전용. 켜면 기술키 하나로 커맨드를 대신 넣습니다 — 방향에 따라 다른 기술이 나갑니다."
+            new Item("ngp_ss2sp", "원버튼",
+                "켜면 기술키 하나로 커맨드를 대신 넣습니다 — 방향에 따라 다른 기술이 나갑니다."
                 + " 끄면 그 버튼은 A+B 로 동작합니다."
                 + " A+B 는 켜든 끄든 «항상 L 로도» 낼 수 있습니다."
                 + " (SS2 는 기술키가 X·R 둘 다, A+B 가 Y·L 둘 다입니다.)",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SS2).l(),
         });
+        /* ── 게임 ── */
+        GROUPS.put("게임 공통", new Item[]{
+            new Item("pocketcore_lang", "언어",
+                "일본어·영어는 롬에 원래 들어 있어 설정만 바뀝니다. 한국어는 번역 패치를 롬 사본에 입힙니다 —"
+                + " 원본 롬은 건드리지 않습니다. 패치가 어느 쪽 표를 덮었는지는 게임마다 다른데, 그건 앱이"
+                + " 게임마다 알아서 맞춥니다. 실행 전 선택창에서 게임별로 고른 「한글패치」가 있으면 그쪽이"
+                + " 우선하며, 여기 값을 바꾸면 게임별 선택은 지워집니다.",
+                Games.LANGS, Games.LANGS_KO, "ko"),
+            new Item("pocketcore_autosave", "오토세이브",
+                "게임을 벗어날 때(홈·롬 바꾸기) 자동으로 상태를 저장하고, 같은 롬을 다시 열면"
+                + " 그 자리에서 이어합니다. 수동 슬롯(1~3)과는 별개의 자리를 씁니다.",
+                ONOFF, ONOFF_K, "enabled"),
+        });
+        GROUPS.put("검증용", new Item[]{
+            new Item("pocketcore_svc_actshow", "판독 오버레이 (동작번호)",
+                "화면 왼쪽 위에 「내 동작번호|상대반응」을 상시 표시합니다."
+                + " 영상만 찍어도 무슨 기술이 나갔는지(약·강 구분 포함) 확정할 수 있는"
+                + " 검증용 표시입니다. 바꾸면 게임을 다시 시작해야 적용됩니다.",
+                ONOFF, ONOFF_K, "disabled").f(Games.F_ACTSHOW),
+        });
+        /* ── 소리 ── */
+        GROUPS.put("소리", new Item[]{
+            new Item("pocketcore_launcher_snd", "런처 소리",
+                "롬 고르는 화면의 부팅음과 테마곡. 게임에 들어가면 멈춥니다.",
+                ONOFF, ONOFF_K, "enabled"),
+        });
+        /* ── 업데이트 ── */
+        GROUPS.put("업데이트", new Item[]{
+            new Item("pocketcore_level", "배포 레벨",
+                "정식 = 검증을 거친 판만 받습니다. 시험 = 새 판이 나오는 대로 바로 받습니다(실험 기능 포함, 문제가 있으면"
+                + " 다음 판으로 되돌립니다). 바꾼 뒤 「업데이트 확인」을 누르세요. 앱·코어 모두에 적용됩니다.",
+                new String[]{ "stable", "test" }, new String[]{ "정식", "시험" }, "stable"),
+        });
+    }
+
+    /** 설정의 큰 갈래 — 첫 화면에 한 줄씩, 누르면 그 갈래 화면. (유저 2026-10-10 「각론 메뉴 말고 전체 메뉴를 체계화해서」)
+     *  sections = 위 GROUPS 의 소절 이름들. 행동 줄(패드 매핑·롬 가져오기)과 조작 패치는 SettingsActivity 가 id 로 붙인다. */
+    public static final class Page {
+        public final String id, title, sub;
+        public final String[] sections;
+        Page(String id, String title, String sub, String... sections) {
+            this.id = id; this.title = title; this.sub = sub; this.sections = sections;
+        }
+    }
+    public static final Page[] PAGES = {
+        new Page("screen",  "화면",        "크기·자리 · 업스케일러 · 필터",                "크기·자리", "업스케일러", "필터", "게임 화면"),
+        new Page("motion",  "움직임·반응", "프레임 생성 · 입력 지연 줄이기",               "프레임 생성", "입력 지연"),
+        new Page("control", "조작",        "터치 패드 · 물리 패드 · 원버튼 · 조작 패치",  "터치 패드", "원버튼 필살기"),
+        new Page("game",    "게임",        "언어(한글패치) · 오토세이브",                  "게임 공통", "검증용"),
+        new Page("sound",   "소리",        "런처 소리",                                    "소리"),
+        new Page("rom",     "롬",          "롬 가져오기 · 롬 폴더"),
+        new Page("update",  "업데이트",    "정식 / 시험",                                  "업데이트"),
+    };
+    public static Page page(String id) {
+        for (Page p : PAGES) if (p.id.equals(id)) return p;
+        return null;
     }
 
     /* ── 조작 패치(mods) ──────────────────────────────────────────
