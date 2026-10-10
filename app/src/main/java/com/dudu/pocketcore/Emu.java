@@ -21,6 +21,9 @@ public final class Emu {
     public static native void nativeSetOption(String key, String value);
     public static native void nativeSetIntegerScale(boolean on);
     public static native void nativeSetTurbo(boolean on);
+    /** 화면 표시 — up: 0 끔 · 1 샤프 · 2 Scale2x · 3 xBR · 4 OmniScale (Settings.UPSCALERS 순서), 나머지 세기 0..100.
+     *  GL 스레드에서 부를 것(queueEvent). */
+    public static native void nativeSetDisplay(int up, int mix, int grid, int scan, int ghost, int color, int soft, boolean integer);
     public static native int  nativeSaveState(String path);
     public static native int  nativeLoadState(String path);
     public static native int  nativeFrameWidth();

@@ -11,4 +11,4 @@ find_library(aaudio-lib aaudio)
 find_library(android-lib android)
 
 target_link_libraries(pocketcore
-        ${log-lib} ${gles-lib} ${aaudio-lib} ${android-lib} dl)
+        ${log-lib} ${gles-lib} ${aaudio-lib} ${android-lib} dl m)

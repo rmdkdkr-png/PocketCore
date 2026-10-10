@@ -1,7 +1,7 @@
 diff -ruN a/src/libretro.c b/src/libretro.c
---- a/src/libretro.c	2026-10-10 17:01:51.261556730 +0900
-+++ b/src/libretro.c	2026-10-10 17:01:51.265409913 +0900
-@@ -566,59 +566,116 @@
+--- a/src/libretro.c	2026-10-10 17:18:54.496180965 +0900
++++ b/src/libretro.c	2026-10-10 17:18:54.498695036 +0900
+@@ -566,59 +566,117 @@
     return ok;
  }
  
@@ -99,6 +99,7 @@ diff -ruN a/src/libretro.c b/src/libretro.c
 +   다음 프레임에 바로 맞는다(누적 없음). 소리는 실제 프레임의 것 — 그림보다 그만큼 늦다.
 +   프레임 생성 4배와 같이 돌 때는 «보여 주는 시간줄» 자체가 2 프레임 앞(예측 4배: N+1~N+4, 반반: N+1~N+3 을 숨겨 돌림).
 +   사무쇼2 롬에서만(다른 게임은 반응 프레임을 안 쟀다). 링크 플레이·2배 프레임 생성 중엔 끈다. */
++extern int ss2comm_rom_is_ss2(void);              /* ss2comm.h 는 아래에서 들어온다 — clang 은 암묵 선언을 오류로 본다 */
 +static int ra_opt = 2;                           /* 코어 옵션 ngp_runahead: 0 끔 · 1 · 2 */
 +static int ra_frames(void)
 +{
@@ -148,7 +149,7 @@ diff -ruN a/src/libretro.c b/src/libretro.c
     Ks = (m01 & 1) ? 1 : (m12 & 1) ? 2 : 0;
     rel = (int)fg_last_spr - (int)fg_realn;
     Ls = Ks ? (rel > Ks - 2 ? rel : Ks - 2) : 0;
-@@ -632,20 +689,14 @@
+@@ -632,20 +690,14 @@
     ts0 = fg_tpos(Ks, Ls, 0); ts1 = fg_tpos(Ks, Ls, 1);
     tb0 = fg_tpos(Kb, Lb, 0); tb1 = fg_tpos(Kb, Lb, 1);
  
@@ -174,7 +175,7 @@ diff -ruN a/src/libretro.c b/src/libretro.c
     return 1;
  }
  
-@@ -659,75 +710,50 @@
+@@ -659,75 +711,50 @@
     if (K <= L) return 0;
     return (256 * (tau2 - 2 * L)) / (2 * (K - L));
  }
@@ -265,7 +266,7 @@ diff -ruN a/src/libretro.c b/src/libretro.c
     return 1;
  }
  
-@@ -949,6 +975,11 @@
+@@ -949,6 +976,11 @@
        var.value = NULL;
        if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
           fg_mult = !strcmp(var.value, "2") ? 2 : 4;
@@ -277,7 +278,7 @@ diff -ruN a/src/libretro.c b/src/libretro.c
        if (!cv_booted || fg_opt != opt0 || fg_mode != mode0)
        { fg_rate_block = 0; fg_block_n = 0; }   /* 프레임 생성 옵션을 바꿨다 — 다시 판정 */
     }
-@@ -1397,16 +1428,21 @@
+@@ -1397,16 +1429,21 @@
        width  = spec.DisplayRect.w;
        height = spec.DisplayRect.h;
  
@@ -309,8 +310,8 @@ diff -ruN a/src/libretro.c b/src/libretro.c
  
        {
 diff -ruN a/src/libretro_core_options.h b/src/libretro_core_options.h
---- a/src/libretro_core_options.h	2026-10-10 17:01:51.263525603 +0900
-+++ b/src/libretro_core_options.h	2026-10-10 17:01:51.265461942 +0900
+--- a/src/libretro_core_options.h	2026-10-10 17:18:54.496246040 +0900
++++ b/src/libretro_core_options.h	2026-10-10 17:18:54.498757499 +0900
 @@ -137,6 +137,21 @@
        },
        "4"

@@ -122,6 +122,7 @@ public class EmuActivity extends Activity {
         /* 상단바의 게임별 칸 — 코어가 이 게임에서 실제로 쓰는 기능만. 게임 표가 단일 출처다. */
         pad.setCoreFeatures(game != null && game.has(Games.F_BAND));
         applyFrameGen(false);
+        applyDisplay();
         pad.setListener(new PadView.Listener() {
             @Override public void onMask(int mask) { padMask = mask; }
             @Override public void onAction(int action) { handleAction(action); }
@@ -325,6 +326,7 @@ public class EmuActivity extends Activity {
                 MainActivity.saveDir().getAbsolutePath(),
                 MainActivity.optsFile().getAbsolutePath());
         loaded = rc == 0;
+        snapCoreOpts();
         romMtime = new File(romPath).lastModified();
         toast(loaded ? coreLabel : "코어/롬 로드 실패 (code " + rc + ")");
         /* 이어하기 — 옵션 바꾸고 다시 연 경우는 그 직전 상태(resume), 아니면 나갈 때 자동 저장해 둔 자리. 로드와 같은 스레드라 안전하다. */
@@ -406,6 +408,7 @@ public class EmuActivity extends Activity {
             String v = coreFgOn() ? "disabled" : "auto";
             persistOption("ngp_framegen", v);
             if (loaded) Emu.nativeSetOption("ngp_framegen", v);
+            synchronized (coreOptSnap) { coreOptSnap.put("ngp_framegen", v); }
             applyFrameGen(true);
             break; }
         case PadView.ACT_CFG: {
@@ -419,7 +422,9 @@ public class EmuActivity extends Activity {
                     new Runnable() { @Override public void run() { applyLive(orig); } },
                     new Runnable() { @Override public void run() {
                         startActivity(new Intent(EmuActivity.this, SettingsActivity.class).putExtra("rom", orig)); } });
-            sheet.onClose = new Runnable() { @Override public void run() { Emu.nativeSetPaused(false); } };
+            sheet.onClose = new Runnable() { @Override public void run() {
+                Emu.nativeSetPaused(false);
+                applyDisplay(); pushCoreOpts(); } };
             break; }
         case PadView.ACT_PICK:
             goList();
@@ -512,6 +517,51 @@ public class EmuActivity extends Activity {
         }
     }
 
+    /* ── 화면 표시(업스케일러·필터) ──────────────────────────────
+       업스케일러 = 도트를 키우는 방식 하나, 필터 = 그 위에 덧입히는 효과 여럿(각자 세기). 셰이더는 native.c.
+       값은 GL 스레드로 넘긴다 — 그리는 쪽이 읽는 값이라 그리는 도중에 바뀌지 않게. */
+    private void applyDisplay() {
+        if (gl == null) return;
+        java.util.Map<String, String> m = Settings.load();
+        final int up = Settings.upscalerIndex(m.get("pocketcore_upscaler"));
+        final int mix = Settings.pctOf(m, "pocketcore_upscaler_mix", 100);
+        final int grid = Settings.pctOf(m, "pocketcore_flt_grid", 0);
+        final int scan = Settings.pctOf(m, "pocketcore_flt_scan", 0);
+        final int ghost = Settings.pctOf(m, "pocketcore_flt_ghost", 0);
+        final int color = Settings.pctOf(m, "pocketcore_flt_color", 0);
+        final int soft = Settings.pctOf(m, "pocketcore_flt_soft", 0);
+        final boolean integer = !"disabled".equals(m.get("pocketcore_integer"));
+        gl.queueEvent(new Runnable() { @Override public void run() {
+            Emu.nativeSetDisplay(up, mix, grid, scan, ghost, color, soft, integer);
+        }});
+    }
+
+    /* ── 게임 중에 바로 바꿀 수 있는 코어 옵션 ──
+       코어는 로드할 때 options.txt 를 읽는다. 설정 화면에서 이 값들을 바꾸고 돌아오면 «로드 때와 다른 것만»
+       코어에 다시 넣는다(nativeSetOption → 코어가 다음 프레임에 다시 읽음). 롬을 다시 굽는 언어·조작 패치는 여기 없다. */
+    private static final String[] LIVE_CORE_OPTS = {
+        "ngp_framegen", "ngp_framegen_mode", "ngp_framegen_mult", "ngp_runahead", "ngp_svcsp_band" };
+    private final java.util.Map<String, String> coreOptSnap = new java.util.HashMap<>();
+    private void snapCoreOpts() {
+        java.util.Map<String, String> m = Settings.load();
+        synchronized (coreOptSnap) {
+            coreOptSnap.clear();
+            for (String k : LIVE_CORE_OPTS) coreOptSnap.put(k, m.get(k));
+        }
+    }
+    private void pushCoreOpts() {
+        if (!loaded || gl == null) return;
+        java.util.Map<String, String> m = Settings.load();
+        synchronized (coreOptSnap) {
+            for (final String k : LIVE_CORE_OPTS) {
+                final String v = m.get(k);
+                if (v == null || v.equals(coreOptSnap.get(k))) continue;
+                coreOptSnap.put(k, v);
+                gl.queueEvent(new Runnable() { @Override public void run() { if (loaded) Emu.nativeSetOption(k, v); }});
+            }
+        }
+    }
+
     /** 코어 옵션을 게임 중에 즉시 뒤집는다. 화면 크기가 바뀌는 것(띠·기둥)은
      *  onDrawFrame 이 프레임 크기 변화를 보고 화면 상자를 다시 잡는다. */
     private void toggleCoreOpt(String key, String ko) {
@@ -519,6 +569,7 @@ public class EmuActivity extends Activity {
         String v = on ? "disabled" : "enabled";
         Emu.nativeSetOption(key, v);
         persistOption(key, v);
+        synchronized (coreOptSnap) { if (coreOptSnap.containsKey(key)) coreOptSnap.put(key, v); }
         toast(ko + (on ? " 끔" : " 켬"));
     }
 
@@ -781,7 +832,9 @@ public class EmuActivity extends Activity {
         super.onResume(); Orient.apply(this); immersive(); gl.onResume();
         if (loaded) Emu.nativeAudioResume();
         keymap = KeyMap.load();   /* 매핑 화면에서 돌아온 경우 */
+        pushCoreOpts();           /* 설정에서 코어 옵션(프레임 생성·런어헤드·띠)을 바꾸고 돌아온 경우 — 게임 중에 바로 */
         applyFrameGen(false);     /* 설정에서 프레임 생성을 바꾸고 돌아온 경우 */
+        applyDisplay();           /* 업스케일러·필터 */
         applyScreenLayout();      /* 설정에서 돌아온 경우 바로 반영 (터치 패드 모드 포함) */
         try { ((android.hardware.input.InputManager) getSystemService(INPUT_SERVICE))
                 .registerInputDeviceListener(devListener, h); } catch (Exception ignored) { }
