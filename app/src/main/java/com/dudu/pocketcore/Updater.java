@@ -263,10 +263,10 @@ public final class Updater {
                 toast(act, "지금 깔린 것은 시험 판(v" + myName(act) + ")입니다 — 정식 v" + rn
                         + " 으로 되돌리려면 앱을 지우고 다시 설치하세요 (저장 파일은 남습니다)");
             else
-                toast(act, "앱은 최신 " + (testLevel() ? "시험 판" : "정식 판") + "입니다 (v" + rn + ")");
+                toast(act, "앱은 최신 " + (testLevel() ? "시험 판" : "정식 판") + "입니다 (v" + rn + " · 내부 " + my + ")");
             return true;
         }
-        toast(act, "v" + rn + " 다운로드 중…");
+        toast(act, "v" + rn + " 다운로드 중… (내부 " + my + " → " + rc + ")");   /* 보이는 판은 0.9 그대로라 내부 번호로 구분 */
         byte[] ab = fetch(base + "/" + Uri.encode(apk), 60000);
         File out = new File(act.getCacheDir(), "update.apk");
         FileOutputStream fo = new FileOutputStream(out);

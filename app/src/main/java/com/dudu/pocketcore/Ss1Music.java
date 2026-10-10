@@ -31,12 +31,50 @@ final class Ss1Music {
 
     /** 같은 곡: SS2 가 SS1 에서 물려받은 10곡 (SS2 칸, SS1 칸) — 내용 비교 0.85 이상 */
     static final int[][] MAP_SAME = { {6, 4}, {7, 7}, {8, 8}, {10, 10}, {11, 11}, {12, 12}, {13, 13}, {14, 14}, {18, 18}, {19, 19} };
-    /** 전부: 같은 곡 + 장면이 같은 칸(인트로·타이틀·라운드 시작·막간·엔딩) + SS2 에만 있는 무대 ← SS1 에만 있는 대전곡.
-     *  장면은 두 게임을 자동 진행시켜 확인(SS2: 21판 → 엔딩, SS1: 9무대 → 엔딩). */
+    /** SS1 음악(기본): 유저가 비교 페이지(장면마다 SS2 원곡·SS1 곡 듣기)로 고른 표 — 2026-10-10 유저
+     *  「분홍 거인은 SS2 곡 쓰고, 나머지는 같은 건 SS2, 아닌 건 SS1」.
+     *  · 같은 곡 10개(MAP_SAME — SS2 가 SS1 에서 물려받은 곡)는 SS2 원곡 그대로
+     *  · 8번째 상대 분홍 거인(SS2 칸 23)도 SS2 원곡
+     *  · 나머지 = 인트로·타이틀·라운드 시작(전·후반)·엔딩 둘 + SS2 에만 있는 상대 곡(9·15·16·17·20·21·22)은 SS1 곡.
+     *  장면은 두 게임을 자동 진행시켜 확인(SS2: 상대 캐릭터마다 곡이 다름, SS1: 9무대 → 엔딩).
+     *  (내부 95~101 은 24칸 전부였음.) */
     static final int[][] MAP_ALL = {
-        {6, 4}, {7, 7}, {8, 8}, {10, 10}, {11, 11}, {12, 12}, {13, 13}, {14, 14}, {18, 18}, {19, 19},
         {0, 0}, {1, 1}, {2, 2}, {3, 3}, {4, 5}, {5, 6},
-        {9, 9}, {15, 15}, {16, 16}, {17, 17}, {20, 20}, {23, 23}, {21, 9}, {22, 10} };
+        {9, 9}, {15, 15}, {16, 16}, {17, 17}, {20, 20}, {21, 9}, {22, 10} };
+
+    /** SS1 곡 크기 맞춤 — SS2 칸마다 음량 명령을 몇 단계(2dB) 크게 할지. 바꿀 SS2 곡의 30초 RMS 에 가장 가깝게 고르되,
+     *  가장 큰 트랙이 0(최대)에 걸려 트랙 사이 균형이 1단계 넘게 무너지지 않게(k ≤ 최소 음량 + 1). 음수 = 작게.
+     *  유저 2026-10-10 「SS1 판 데시벨 맞춰 트는 건 됨?」. 렌더로 잰 값(세션 도구 loud.py): 맞춘 뒤 차이 −2.8~+0.8dB,
+     *  20(가면 신전 ← SS1 #20)만 곡 자체가 작아 −7.7dB. */
+    static final int[] VOL_K = new int[24];
+    static {
+        int[][] k = { {0, 1}, {1, 2}, {2, 3}, {3, 3}, {4, 2}, {5, 3}, {9, 3}, {15, 2}, {16, 1}, {17, 2}, {20, 4}, {21, -1}, {22, 1},
+                      /* 같은 곡만(MAP_SAME) — SS2 판과 같은 크기로 */
+                      {6, 2}, {7, 1}, {8, 1}, {10, 1}, {11, 2}, {12, 2}, {13, 3}, {14, 2}, {18, 3}, {19, 3} };
+        for (int[] e : k) VOL_K[e[0]] = e[1];
+    }
+
+    /** 배경음악 끔(효과음만) — 24칸 모두 소리 없는 곡으로. SS1 롬 없이도 된다. 실패하면 null. */
+    static byte[] mute(byte[] ss2, boolean[] spare) {
+        lastPlaced = 0; lastWanted = 24;
+        if (spare == null) spare = spare(ss2, null, null);
+        try {
+            int[] l2 = layout(ss2);
+            if (l2 == null) return null;
+            List<Set1> s2 = parseSets(ss2, l2[2]);
+            if (s2.size() < 24) return null;
+            List<int[]> want = new ArrayList<>();
+            for (int i = 0; i < 24; i++) want.add(new int[]{ i, -1 });
+            byte[] out = build(ss2, null, l2, null, s2, null, want, spare);
+            if (out != null) lastPlaced = 24;
+            return out;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** 짝 표의 지문 — Patcher 도장에 넣어, 표를 바꾸면 구워 둔 사본을 다시 굽게 한다 */
+    static int mapSig(boolean all) { return Arrays.deepHashCode(all ? MAP_ALL : MAP_SAME); }
 
     private static final class Set1 {
         int slot, at, end, bgm, id;
@@ -44,118 +82,242 @@ final class Ss1Music {
         List<int[]> sfx = new ArrayList<>();   /* [ptr(rom off), slots...] */
     }
 
-    /** ss2 사본에 SS1 곡을 심은 새 배열. all=false 면 같은 곡만. 못 하면 null. */
-    static byte[] apply(byte[] ss2, byte[] ss1, boolean all) {
+    /** 심는 방법의 판 — Patcher 도장에 들어간다. 바뀌면 예전에 구워 둔 사본을 다시 굽는다
+     *  (2 = 빈칸이 모자라면 통째 포기하던 것을 «들어가는 만큼» + 꼭 맞는 자리 배치로, 2026-10-10)
+     *  (3 = 빈칸을 «원래 게임의 끝 채움 두 곳(KNOWN_PAD)의 앞머리·꼬리 중 패치가 안 건드린 곳»으로만 + 풀린 옛 곡·세트·은행 자리를
+     *       맞닿은 것끼리 합쳐 씀. 짧은 0xFF 줄은 그림(색 3 통 칸)·표·대사의 빈 줄일 수 있다. 2026-10-10 유저 「프리징 뜸」:
+     *       한패 v1.01 이 대사 칸을 0xFF 로 채워 «빈 줄»로 가리키는 자리(0x038EC5~ 등)를 빈칸으로 알고 곡을 써서,
+     *       그 장면 대사 엔진이 곡 바이트를 글자로 읽다 엉뚱한 주소로 튀어 0xFF 를 찾아 끝없이 돌았다) */
+    static final int VER = 4;   /* 4 = SS1 곡 크기 맞춤(SnkScore) + 배경음악 끔 */
+
+    /** 사무쇼2 원판([!]·[h1] 같음)의 끝 채움 두 곳 — 이 안에서만 빈칸을 찾는다.
+     *  0x04F38A~0x050000(블록 끝까지 3,190B) · 0x1DF762~0x1F0000(소리 자료 뒤, 세이브 구역 앞 67,742B).
+     *  이미 한패가 입혀진 롬이 들어와도(패치 전 모습을 모름) 한패가 0xFF 로 비운 다른 칸을 빈칸으로 오인하지 않게. */
+    static final int[][] KNOWN_PAD = { {0x04F38A, 0x050000}, {0x1DF762, 0x1F0000} };
+
+    /** 빈칸으로 써도 되는 바이트 표. orig = 패치 전 롬(없으면 ss2 자체로 판단), touched = 패치가 쓴 바이트(없으면 null).
+     *  끝 채움마다 «앞머리»와 «꼬리»에 남은 0xFF 만 쓴다 — 패치 자료 사이에 낀 0xFF 줄은 IPS 가 안 적었을 뿐
+     *  패치 자료(빈 줄·통 칸)일 수 있다(IPS 는 원래 값과 같은 0xFF 를 건너뛴다). 세이브 구역(0x1F0000~)은 늘 뺀다. */
+    static boolean[] spare(byte[] ss2, byte[] orig, boolean[] touched) {
+        byte[] o = (orig != null && orig.length == ss2.length) ? orig : ss2;
+        boolean[] ok = new boolean[ss2.length];
+        for (int[] pad : KNOWN_PAD) {
+            int a = pad[0], b = Math.min(Math.min(ss2.length, pad[1]), 0x1F0000);
+            if (a >= b) continue;
+            /* 원판에서도 그 칸 전체가 0xFF 여야(판이 다르면 끝 채움 자리가 아닐 수 있다) */
+            int run = 0;
+            for (int k = a; k < b; k++) if ((o[k] & 0xFF) == 0xFF) run++;
+            if (run < b - a || b - a < 64) continue;
+            int h = a;
+            while (h < b && free1(ss2, touched, h)) h++;
+            for (int k = a; k < h; k++) ok[k] = true;
+            int t = b;
+            while (t > h && free1(ss2, touched, t - 1)) t--;
+            for (int k = t; k < b; k++) ok[k] = true;
+        }
+        return ok;
+    }
+
+    private static boolean free1(byte[] r, boolean[] touched, int k) {
+        return (r[k] & 0xFF) == 0xFF && (touched == null || k >= touched.length || !touched[k]);
+    }
+
+    static byte[] apply(byte[] ss2, byte[] ss1, boolean all) { return apply(ss2, ss1, all, null); }
+
+    /** 마지막 apply 가 심은 곡 수 / 시도한 곡 수 (토스트용) */
+    static volatile int lastPlaced, lastWanted;
+
+    /** ss2 사본에 SS1 곡을 심은 새 배열. all=false 면 같은 곡만. 하나도 못 하면 null.
+     *  빈칸이 모자라면(한패 v1.01 은 빈칸을 12K 더 쓴다 — 유저 2026-10-10 「SS1 뮤직을 들려주는 것 같지가 않아」의 원인:
+     *  예전엔 하나라도 안 들어가면 통째로 포기해서 원래 음악이 나왔다) 우선순위가 낮은 장면부터 원래 곡으로 남기고 나머지는 심는다. */
+    static byte[] apply(byte[] ss2, byte[] ss1, boolean all, boolean[] spare) {
+        lastPlaced = 0; lastWanted = 0;
+        if (spare == null) spare = spare(ss2, null, null);
         try {
             int[] l2 = layout(ss2), l1 = layout(ss1);
             if (l2 == null || l1 == null) return null;
             List<Set1> s2 = parseSets(ss2, l2[2]), s1 = parseSets(ss1, l1[2]);
             if (s2.size() < 24 || s1.size() < 24) return null;
-            byte[] out = ss2.clone();
-            int b2 = l2[0], b1 = l1[0];
-            int nBank2 = 0;
-            for (Set1 s : s2) for (int x : s.ins) nBank2 = Math.max(nBank2, x + 1);
-            List<byte[]> bank = new ArrayList<>();
-            for (int i = 0; i < nBank2; i++) bank.add(Arrays.copyOfRange(ss2, b2 + 9 * i, b2 + 9 * i + 9));
-
             int[][] pairs = all ? MAP_ALL : MAP_SAME;
-            List<Object[]> plans = new ArrayList<>();
-            for (int[] pr : pairs) {
-                Set1 s = s2.get(pr[0]), t = s1.get(pr[1]);
-                int lb = entryLen(ss1, t.bgm);
-                Set<Integer> keep = new HashSet<>();
-                for (int i = 0; i < Math.min(10, s.ins.length); i++) keep.add(i);
-                for (int[] sf : s.sfx) for (int j = 1; j < sf.length; j++) keep.add(sf[j]);
-                List<Integer> ins = new ArrayList<>();
-                for (int x : s.ins) ins.add(x);
-                List<Integer> freePos = new ArrayList<>();
-                for (int i = 0; i < ins.size(); i++) if (!keep.contains(i)) freePos.add(i);
-                int[] refs = new int[t.refs.length];
-                for (int j = 0; j < t.refs.length; j++) {
-                    int bi1 = t.ins[t.refs[j]];
-                    byte[] defn = Arrays.copyOfRange(ss1, b1 + 9 * bi1, b1 + 9 * bi1 + 9);
-                    int bi = -1;
-                    for (int q = 0; q < bank.size(); q++) if (Arrays.equals(bank.get(q), defn)) { bi = q; break; }
-                    if (bi < 0) { bank.add(defn); bi = bank.size() - 1; }
-                    int loc = -1;
-                    for (int q = 0; q < ins.size(); q++)
-                        if (ins.get(q) == bi && (keep.contains(q) || !freePos.contains(q))) { loc = q; break; }
-                    if (loc < 0) {
-                        if (!freePos.isEmpty()) { loc = freePos.remove(0); ins.set(loc, bi); }
-                        else { ins.add(bi); loc = ins.size() - 1; }
-                    }
-                    refs[j] = loc;
-                }
-                int sfxLen = 0;
-                for (int[] sf : s.sfx) sfxLen += entryLen(ss2, sf[0]);
-                int size = 14 + 9 * ins.size() + lb + sfxLen;
-                if (size > Z80_TOP - BLOB_AT) continue;            /* Z80 램에 안 들어감 — 그 장면은 원래 곡 */
-                plans.add(new Object[]{ s, t, ins, refs, lb });
+            lastWanted = pairs.length;
+            /* 우선순위 순(앞일수록 중요) — 뒤에서부터 빼 보며 빈칸에 들어가는 가장 큰 묶음을 찾는다 */
+            List<int[]> want = new ArrayList<>(Arrays.asList(pairs));
+            want.sort((x, y) -> Integer.compare(prio(x[0]), prio(y[0])));
+            while (!want.isEmpty()) {
+                byte[] out = build(ss2, ss1, l2, l1, s2, s1, want, spare);
+                if (out != null) { lastPlaced = want.size(); return out; }
+                want.remove(want.size() - 1);
             }
-            if (plans.isEmpty()) return null;
-            if (bank.size() > 255) return null;
-
-            /* 빈 자리: 0xFF 빈칸(세이브 구역 0x1F0000~ 은 피함) + 갈아 끼워 안 쓰게 된 SS2 곡 레코드·세트 */
-            Set<Integer> moved = new HashSet<>();
-            for (Object[] p : plans) moved.add(((Set1) p[0]).slot);
-            List<int[]> regions = new ArrayList<>();
-            int lim = Math.min(out.length, 0x1F0000);
-            for (int i = 0; i < lim; ) {
-                if ((out[i] & 0xFF) == 0xFF) {
-                    int j = i;
-                    while (j < lim && (out[j] & 0xFF) == 0xFF) j++;
-                    if (j - i >= 64) regions.add(new int[]{ i + 8, j - 8 });
-                    i = j;
-                } else i++;
-            }
-            for (Set1 s : s2) {
-                if (!moved.contains(s.slot)) continue;
-                boolean shared = false;
-                for (Set1 o : s2) if (o.bgm == s.bgm && !moved.contains(o.slot)) shared = true;
-                if (shared) continue;
-                regions.add(new int[]{ s.bgm, s.bgm + 3 + entryLen(ss2, s.bgm) });
-                regions.add(new int[]{ s.at, s.end });
-            }
-            regions.sort((a, b) -> Integer.compare(a[0], b[0]));
-
-            byte[] bankB = new byte[bank.size() * 9];
-            for (int i = 0; i < bank.size(); i++) System.arraycopy(bank.get(i), 0, bankB, 9 * i, 9);
-            int bankAt = alloc(regions, bankB.length);
-            if (bankAt < 0) return null;
-            System.arraycopy(bankB, 0, out, bankAt, bankB.length);
-            put32(out, l2[1], bankAt + ROMBASE);
-
-            for (Object[] p : plans) {
-                Set1 s = (Set1) p[0], t = (Set1) p[1];
-                @SuppressWarnings("unchecked") List<Integer> ins = (List<Integer>) p[2];
-                int[] refs = (int[]) p[3];
-                int lb = (Integer) p[4];
-                int ra = alloc(regions, 3 + lb);
-                if (ra < 0) return null;
-                System.arraycopy(ss1, t.bgm, out, ra, 3 + lb);
-                int pb = BLOB_AT + 14 + 9 * ins.size(), ps = pb + lb;
-                java.io.ByteArrayOutputStream d = new java.io.ByteArrayOutputStream();
-                d.write(0xC3); d.write(0x0A);
-                d.write(pb & 0xFF); d.write(pb >> 8); d.write(ps & 0xFF); d.write(ps >> 8);
-                d.write(ins.size());
-                for (int x : ins) d.write(x);
-                w32(d, ra + ROMBASE); d.write(refs.length);
-                for (int x : refs) d.write(x);
-                for (int[] sf : s.sfx) {
-                    w32(d, sf[0] + ROMBASE); d.write(sf.length - 1);
-                    for (int j = 1; j < sf.length; j++) d.write(sf[j]);
-                }
-                w32(d, 0);
-                byte[] db = d.toByteArray();
-                int da = alloc(regions, db.length);
-                if (da < 0) return null;
-                System.arraycopy(db, 0, out, da, db.length);
-                put32(out, l2[2] + 4 * s.slot, da + ROMBASE);
-            }
-            return out;
+            return null;
         } catch (RuntimeException e) {
             return null;
         }
+    }
+
+    /** 장면 우선순위(작을수록 먼저) — 들어서 바로 «SS1 곡»이라고 알 수 있는 것부터:
+     *  타이틀 → SS2 에만 있는 무대(SS1 대전곡으로 바뀜) → 라운드 시작·막간 → 물려받은 같은 곡 → 엔딩·인트로 */
+    private static int prio(int ss2slot) {
+        switch (ss2slot) {
+            case 1: return 0;                                   /* 타이틀 */
+            case 15: case 16: case 17: case 20: case 23: case 21: case 22: case 9: return 10;
+            case 2: case 3: return 20;
+            case 6: case 7: case 8: case 10: case 11: case 12: case 13: case 14: case 18: case 19: return 30;
+            default: return 40;                                 /* 0 인트로 · 4·5 엔딩 */
+        }
+    }
+
+    /** pairs 를 전부 심어 본다. 빈칸이 모자라면 null(원본은 건드리지 않음). */
+    private static byte[] build(byte[] ss2, byte[] ss1, int[] l2, int[] l1, List<Set1> s2, List<Set1> s1, List<int[]> pairs,
+                                boolean[] spare) {
+        byte[] out = ss2.clone();
+        int b2 = l2[0], b1 = l1 != null ? l1[0] : 0;
+        int nBank2 = 0;
+        for (Set1 s : s2) for (int x : s.ins) nBank2 = Math.max(nBank2, x + 1);
+        List<byte[]> bank = new ArrayList<>();
+        for (int i = 0; i < nBank2; i++) bank.add(Arrays.copyOfRange(ss2, b2 + 9 * i, b2 + 9 * i + 9));
+
+        List<Object[]> plans = new ArrayList<>();
+        for (int[] pr : pairs) {
+            Set1 s = s2.get(pr[0]);
+            if (pr[1] < 0) {                                   /* 소리 없는 곡 — 악기는 그대로, 곡 악기칸 1개(0 이면 메인 CPU 복사가 넘친다: SnkScore) */
+                List<Integer> ins0 = new ArrayList<>();
+                for (int x : s.ins) ins0.add(x);
+                plans.add(new Object[]{ s, null, ins0, new int[]{ 0 }, SnkScore.silentRecord(0).length - 3 });
+                continue;
+            }
+            Set1 t = s1.get(pr[1]);
+            int lb = entryLen(ss1, t.bgm);
+            /* 메인 CPU 는 항목을 [자리만큼][악기칸 k][나머지] 세 번의 LDIR 로 옮긴다 — 하나라도 0 이면 65,536 바이트가
+               넘쳐 멈춘다(SnkScore.silentRecord). 원래 게임 곡은 늘 셋 다 1 이상이지만 이상한 덤프에 대비해 거른다. */
+            int pos1 = ss1[t.bgm + 2] & 0xFF;
+            if (pos1 < 1 || t.refs.length < 1 || lb - pos1 - t.refs.length < 1) continue;
+            Set<Integer> keep = new HashSet<>();
+            for (int i = 0; i < Math.min(10, s.ins.length); i++) keep.add(i);
+            for (int[] sf : s.sfx) for (int j = 1; j < sf.length; j++) keep.add(sf[j]);
+            List<Integer> ins = new ArrayList<>();
+            for (int x : s.ins) ins.add(x);
+            List<Integer> freePos = new ArrayList<>();
+            for (int i = 0; i < ins.size(); i++) if (!keep.contains(i)) freePos.add(i);
+            int[] refs = new int[t.refs.length];
+            for (int j = 0; j < t.refs.length; j++) {
+                int bi1 = t.ins[t.refs[j]];
+                byte[] defn = Arrays.copyOfRange(ss1, b1 + 9 * bi1, b1 + 9 * bi1 + 9);
+                int bi = -1;
+                for (int q = 0; q < bank.size(); q++) if (Arrays.equals(bank.get(q), defn)) { bi = q; break; }
+                if (bi < 0) { bank.add(defn); bi = bank.size() - 1; }
+                int loc = -1;
+                for (int q = 0; q < ins.size(); q++)
+                    if (ins.get(q) == bi && (keep.contains(q) || !freePos.contains(q))) { loc = q; break; }
+                if (loc < 0) {
+                    if (!freePos.isEmpty()) { loc = freePos.remove(0); ins.set(loc, bi); }
+                    else { ins.add(bi); loc = ins.size() - 1; }
+                }
+                refs[j] = loc;
+            }
+            int sfxLen = 0;
+            for (int[] sf : s.sfx) sfxLen += entryLen(ss2, sf[0]);
+            int size = 14 + 9 * ins.size() + lb + sfxLen;
+            if (size > Z80_TOP - BLOB_AT) continue;            /* Z80 램에 안 들어감 — 그 장면은 원래 곡 */
+            plans.add(new Object[]{ s, t, ins, refs, lb });
+        }
+        if (plans.isEmpty()) return null;
+        if (bank.size() > 255) return null;
+
+        /* 빈 자리: 원래 게임의 끝 채움 중 패치가 안 건드린 0xFF(spare) + 갈아 끼워 안 쓰게 된 SS2 곡 레코드·세트 */
+        Set<Integer> moved = new HashSet<>();
+        for (Object[] p : plans) moved.add(((Set1) p[0]).slot);
+        List<int[]> regions = new ArrayList<>();
+        int lim = Math.min(Math.min(out.length, spare.length), 0x1F0000);
+        for (int i = 0; i < lim; ) {
+            if (spare[i] && (out[i] & 0xFF) == 0xFF) {
+                int j = i;
+                while (j < lim && spare[j] && (out[j] & 0xFF) == 0xFF) j++;
+                if (j - i >= 64) regions.add(new int[]{ i + 8, j - 8 });
+                i = j;
+            } else i++;
+        }
+        Set<Integer> freedRec = new HashSet<>(), freedSet = new HashSet<>();
+        for (Set1 s : s2) {
+            if (!moved.contains(s.slot)) continue;
+            boolean sharedRec = false, sharedSet = false;
+            for (Set1 o : s2) {
+                if (moved.contains(o.slot)) continue;
+                if (o.bgm == s.bgm) sharedRec = true;
+                if (o.at == s.at) sharedSet = true;
+            }
+            if (!sharedRec && freedRec.add(s.bgm)) regions.add(new int[]{ s.bgm, s.bgm + 3 + entryLen(ss2, s.bgm) });
+            if (!sharedSet && freedSet.add(s.at)) regions.add(new int[]{ s.at, s.end });
+        }
+        /* 옛 은행 — 새 은행으로 옮기고 즉시값을 고치므로 비게 된다 */
+        regions.add(new int[]{ b2, b2 + 9 * nBank2 });
+        /* 맞닿은 빈자리는 하나로 — 풀린 SS2 곡 레코드들은 거의 줄지어 있어 합치면 큰 SS1 곡도 들어간다 */
+        regions.sort((x, y) -> Integer.compare(x[0], y[0]));
+        List<int[]> merged = new ArrayList<>();
+        for (int[] rg : regions) {
+            if (rg[1] <= rg[0]) continue;
+            int[] last = merged.isEmpty() ? null : merged.get(merged.size() - 1);
+            if (last != null && rg[0] <= last[1]) last[1] = Math.max(last[1], rg[1]);
+            else merged.add(new int[]{ rg[0], rg[1] });
+        }
+        regions = merged;
+
+        byte[] bankB = new byte[bank.size() * 9];
+        for (int i = 0; i < bank.size(); i++) System.arraycopy(bank.get(i), 0, bankB, 9 * i, 9);
+        /* 큰 것부터 «꼭 맞는 자리»에 — 조각난 빈칸을 덜 낭비한다. 쓰기는 자리를 다 정한 뒤에 한 번에 */
+        int bankAt = alloc(regions, bankB.length);
+        if (bankAt < 0) return null;
+        int np = plans.size();
+        int[] recAt = new int[np], setAt = new int[np];
+        byte[][] desc = new byte[np][];
+        Integer[] order = new Integer[np];
+        for (int i = 0; i < np; i++) order[i] = i;
+        Arrays.sort(order, (x, y) -> Integer.compare((Integer) plans.get(y)[4], (Integer) plans.get(x)[4]));
+        for (int oi : order) {
+            int lb = (Integer) plans.get(oi)[4];
+            recAt[oi] = alloc(regions, 3 + lb);
+            if (recAt[oi] < 0) return null;
+        }
+        for (int i = 0; i < np; i++) {
+            Object[] p = plans.get(i);
+            Set1 s = (Set1) p[0];
+            @SuppressWarnings("unchecked") List<Integer> ins = (List<Integer>) p[2];
+            int[] refs = (int[]) p[3];
+            int lb = (Integer) p[4];
+            int pb = BLOB_AT + 14 + 9 * ins.size(), ps = pb + lb;
+            java.io.ByteArrayOutputStream d = new java.io.ByteArrayOutputStream();
+            d.write(0xC3); d.write(0x0A);
+            d.write(pb & 0xFF); d.write(pb >> 8); d.write(ps & 0xFF); d.write(ps >> 8);
+            d.write(ins.size());
+            for (int x : ins) d.write(x);
+            w32(d, recAt[i] + ROMBASE); d.write(refs.length);
+            for (int x : refs) d.write(x);
+            for (int[] sf : s.sfx) {
+                w32(d, sf[0] + ROMBASE); d.write(sf.length - 1);
+                for (int j = 1; j < sf.length; j++) d.write(sf[j]);
+            }
+            w32(d, 0);
+            desc[i] = d.toByteArray();
+            setAt[i] = alloc(regions, desc[i].length);
+            if (setAt[i] < 0) return null;
+        }
+        /* 자리가 다 정해졌다 — 이제 쓴다 */
+        System.arraycopy(bankB, 0, out, bankAt, bankB.length);
+        put32(out, l2[1], bankAt + ROMBASE);
+        for (int i = 0; i < np; i++) {
+            Object[] p = plans.get(i);
+            Set1 s = (Set1) p[0], t = (Set1) p[1];
+            int lb = (Integer) p[4];
+            if (t == null) {
+                byte[] sr = SnkScore.silentRecord(ss2[s.bgm] & 0xFF);   /* 곡 번호는 원래 곡 것 */
+                System.arraycopy(sr, 0, out, recAt[i], sr.length);
+            } else {
+                System.arraycopy(ss1, t.bgm, out, recAt[i], 3 + lb);
+                SnkScore.shiftVolume(out, recAt[i], VOL_K[s.slot]);      /* SS2 곡 크기에 맞춤(해석 못 하면 그대로) */
+            }
+            System.arraycopy(desc[i], 0, out, setAt[i], desc[i].length);
+            put32(out, l2[2] + 4 * s.slot, setAt[i] + ROMBASE);
+        }
+        return out;
     }
 
     /** [은행 시작, 은행 즉시값 자리, 세트표] — 조립 코드 서명으로. 서명이 하나씩만 있어야 한다. */
@@ -209,10 +371,14 @@ final class Ss1Music {
         return ((r[rec + 3] & 0xFF) | ((r[rec + 4] & 0xFF) << 8)) & 0x3FFF;
     }
 
+    /** 들어가는 빈칸 중 가장 작은 곳(꼭 맞는 자리)에 */
     private static int alloc(List<int[]> regions, int n) {
+        int[] best = null;
         for (int[] rg : regions)
-            if (rg[1] - rg[0] >= n) { int a = rg[0]; rg[0] += n; return a; }
-        return -1;
+            if (rg[1] - rg[0] >= n && (best == null || rg[1] - rg[0] < best[1] - best[0])) best = rg;
+        if (best == null) return -1;
+        int a = best[0]; best[0] += n;
+        return a;
     }
 
     private static int find(byte[] r, byte[] sig, int from) {
