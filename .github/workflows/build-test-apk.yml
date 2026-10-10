@@ -65,3 +65,39 @@ jobs:
           gh release create ci-release Legacito-unsigned.apk apksigner.jar SHA256SUMS --prerelease --target "${GITHUB_SHA}" \
             --title "CI — 서명 전 릴리즈 APK (${GITHUB_SHA::7})" \
             --notes "설치용 아님. 서명 전 원료. 서명·배포 절차는 tools/SIGNING.md."
+
+  # 사무쇼2 코어(ss2-sp-core)를 고정 커밋 + 앱 방 패치로 직접 굽는다 — 코어 방이 패치를 넣기 전 임시 다리.
+  # 결과 .so 는 태그 ci-core 에 올리고, 사람이(세션이) 받아 jniLibs 에 넣어 커밋한다(빌드마다 코어가 바뀌지 않게).
+  core-ss2:
+    runs-on: ubuntu-latest
+    env:
+      CORE_COMMIT: 1cb33c9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch core source
+        run: |
+          git clone https://github.com/rmdkdkr-png/ss2-sp-core core
+          git -C core checkout "$CORE_COMMIT"
+      - name: Apply app-room patches
+        run: |
+          cd core
+          for p in "$GITHUB_WORKSPACE"/tools/core_patches/*.patch; do
+            echo "== $p"
+            sed 's#\([ab]\)/src/#\1/build/#g' "$p" | git apply -v
+          done
+          git diff --stat
+      - name: ndk-build
+        run: |
+          cd core/build/jni
+          "$ANDROID_NDK_ROOT/ndk-build" -j4 APP_ABI="arm64-v8a armeabi-v7a x86_64" APP_PLATFORM=android-21
+          ls -la ../libs/*/
+      - name: Publish to release ci-core
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir out
+          for a in arm64-v8a armeabi-v7a x86_64; do cp core/build/libs/$a/libretro.so out/libretro_ss2_$a.so; done
+          (cd out && sha256sum *.so > SHA256SUMS && echo "core $CORE_COMMIT + $(ls "$GITHUB_WORKSPACE"/tools/core_patches | tr '\n' ' ')" > SOURCE.txt)
+          gh release delete ci-core -y --cleanup-tag || true
+          gh release create ci-core out/* --prerelease --target "${GITHUB_SHA}" \
+            --title "CI — 사무쇼2 코어 ($CORE_COMMIT + 앱 방 패치)" --notes "$(cat out/SOURCE.txt)"

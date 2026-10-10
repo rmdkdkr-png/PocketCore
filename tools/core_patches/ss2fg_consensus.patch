@@ -1,0 +1,87 @@
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -6,6 +6,7 @@
+  *     우선순위일 때만 — 아니면 b 자리).
+  * 타일·타일맵·팔레트는 b 의 것. 창(window)·배경색·반전·플레인 순서도 b 의 것. */
+ #include <string.h>
++#include <stdlib.h>
+ #include "ss2fg.h"
+ 
+ /* ───────────── 캡처 ───────────── */
+@@ -226,6 +227,76 @@
+       mv[i].dx = (int16_t)dx; mv[i].dy = (int16_t)dy; mv[i].has = 1;
+    }
+ 
++   /* 비체인 무리 합의 — 사무쇼2 처럼 체인 없이 «슬롯마다 고정 타일 번호(0x57+슬롯)»를 쓰고 포즈가 바뀔 때
++      타일 «내용»과 배치를 새로 쓰는 게임은, 같은 번호·속성이 «다른 조각»을 가리킨다. 번호만 같다고 이어 붙이면
++      조각마다 제각각인 가짜 이동량(-7, -15, (9,-8) …)이 생겨 숨쉬기 같은 제자리 포즈에서 몸이 흩어졌다.
++      이웃 슬롯(속성 상위 비트·팔레트가 같은 연속 구간 = 한 캐릭터)의 이동량이 1px 안에 모이지 않으면
++      «배치가 바뀌었다»로 보고 그 무리 전원을 보간하지 않는다(base 자리). 모이면 안 맞은 조각도 그 벡터로. */
++   for (gstart = 0; gstart < 64; gstart = g)
++   {
++      /* 무리 = 우선순위·팔레트가 같고, 지금까지 모인 무리의 테두리에서 16px 안에 붙는 연속 슬롯 = 한 캐릭터.
++         (반전 비트는 조각마다 달라 무시. 줄 바뀜으로 앞 슬롯과는 멀어도 몸통 테두리 안이면 같은 무리 —
++          줄 단위로 끊으면 줄마다 «그 줄만 일관된» 가짜 이동량이 살아나 다시 깨진다) */
++      uint16_t key = ld16(base->spr + gstart * 4) & 0x1800;
++      uint8_t  pal = base->sprcol[gstart];
++      int n = 0, m = 0, k, any_chain = 0;
++      int minx = 999, maxx = -999, miny = 999, maxy = -999;
++      int bx0 = base->ax[gstart], bx1 = base->ax[gstart] + 8, by0 = base->ay[gstart], by1 = base->ay[gstart] + 8;
++      for (g = gstart + 1; g < 64; g++)
++      {
++         uint16_t w = ld16(base->spr + g * 4);
++         int sx = base->ax[g], sy = base->ay[g];
++         if ((w & 0x1800) != key || base->sprcol[g] != pal) break;
++         if (sx + 8 < bx0 - 16 || sx > bx1 + 16 || sy + 8 < by0 - 16 || sy > by1 + 16) break;
++         if (sx < bx0) bx0 = sx;
++         if (sx + 8 > bx1) bx1 = sx + 8;
++         if (sy < by0) by0 = sy;
++         if (sy + 8 > by1) by1 = sy + 8;
++      }
++      for (k = gstart; k < g; k++)
++      {
++         uint16_t w = ld16(base->spr + k * 4);
++         if (w & 0x0600) any_chain = 1;
++         if (!(w & 0x1800)) continue;
++         n++;
++         if (!mv[k].has) continue;
++         m++;
++         if (mv[k].dx < minx) minx = mv[k].dx;
++         if (mv[k].dx > maxx) maxx = mv[k].dx;
++         if (mv[k].dy < miny) miny = mv[k].dy;
++         if (mv[k].dy > maxy) maxy = mv[k].dy;
++      }
++      if (any_chain || n < 2) continue;                        /* 체인 무리는 아래 체인 규칙에 맡긴다 */
++      if (m == 0) continue;
++      if (m * 2 < n || maxx - minx > 1 || maxy - miny > 1)
++      {
++         /* 합의 없음. 다만 보이는 조각의 70% 이상이 «같은 벡터»면 그게 몸의 이동이고 나머지는 배치가 바뀐
++            조각이다(걷기 -2px 에 일부 조각만 재배치) → 무리 전체를 그 벡터로 단단히. 아니면 무리 전체 제자리. */
++         int best = 0, bdx = 0, bdy = 0, j;
++         for (k = gstart; k < g; k++)
++         {
++            int c = 0;
++            if (!mv[k].has) continue;
++            for (j = gstart; j < g; j++)
++               if (mv[j].has && mv[j].dx == mv[k].dx && mv[j].dy == mv[k].dy) c++;
++            if (c > best) { best = c; bdx = mv[k].dx; bdy = mv[k].dy; }
++         }
++         for (k = gstart; k < g; k++)
++         {
++            if (best * 10 >= n * 7 && (ld16(base->spr + k * 4) & 0x1800))
++            { mv[k].dx = (int16_t)bdx; mv[k].dy = (int16_t)bdy; mv[k].has = 1; }
++            else mv[k].has = 0;
++         }
++         continue;
++      }
++      for (k = gstart; k < g; k++)
++         if (!mv[k].has && (ld16(base->spr + k * 4) & 0x1800))
++         {
++            mv[k].dx = (int16_t)((minx + maxx) >= 0 ? (minx + maxx + 1) / 2 : -((-(minx + maxx) + 1) / 2));
++            mv[k].dy = (int16_t)((miny + maxy) >= 0 ? (miny + maxy + 1) / 2 : -((-(miny + maxy) + 1) / 2));
++            mv[k].has = 1;
++         }
++   }
+    /* 체인 그룹: 슬롯 k 에 체인 비트(0x0600)가 있으면 k-1 과 같은 그룹 */
+    for (gstart = 0; gstart < 64; gstart = g)
+    {
