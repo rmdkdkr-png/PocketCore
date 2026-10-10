@@ -48,6 +48,8 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        /* 볼륨 키 = 미디어(게임 소리) 음량 — 안 정하면 삼성은 «재생 중»을 못 알아챌 때 벨소리 음량을 바꾼다(유저 2026-10-10 「볼륨 조절이 앱에서 안 되던데」) */
+        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         /* 내려받은 게임표를 먼저 읽는다 — 롬을 알아보기 «전»이어야 한다.
            파일이 없거나 깨져 있으면 아무 일도 안 일어난다(내장표로 돈다). */
         Games.loadExtras(new java.io.File(root(), "design"));
@@ -429,7 +431,7 @@ public class MainActivity extends Activity {
 
     /** 런처 패드 키 — 좌우 = 카드, A(펀치 자리)·DPAD_CENTER·ENTER·START = 선택창. 선택창이 떠 있으면 그쪽 창이 받는다. */
     @Override public boolean dispatchKeyEvent(android.view.KeyEvent e) {
-        if (curLv == null) return super.dispatchKeyEvent(e);
+        if (curLv == null || KeyMap.isVolume(e.getKeyCode())) return super.dispatchKeyEvent(e);   /* 음량은 늘 시스템으로 */
         if (curSheet != null && curSheet.isShowing()) {          /* 선택창이 떠 있으면 키는 창의 몫 */
             if (curSheet.handleKey(e)) return true;
             if (KeyMap.isPadButton(e.getKeyCode())) return true;   /* 배정 없는 패드 버튼은 삼킨다 */

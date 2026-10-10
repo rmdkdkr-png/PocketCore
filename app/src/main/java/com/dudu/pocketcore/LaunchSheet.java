@@ -155,6 +155,7 @@ public final class LaunchSheet {
     private void open(File rom, Bitmap thumb, String title) {
         dlg = new Dialog(a);
         dlg.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dlg.setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);   /* 창이 떠 있어도 볼륨 키 = 게임 소리 */
         dlg.setContentView(build(rom, thumb, title));
         Window w = dlg.getWindow();
         if (w != null) {
@@ -346,6 +347,7 @@ public final class LaunchSheet {
     /* ── 패드 ─────────────────────────────────────────────────────── */
 
     private boolean key(int code, KeyEvent e) {
+        if (KeyMap.isVolume(code)) return false;                   /* 음량은 시스템으로 */
         /* 패드 버튼은 **KeyMap 기능**으로만 읽는다(펀치 자리 b=확인, 킥 자리 a=취소 — 게임 안 유틸 바와 같은 규칙).
            날 키코드 BUTTON_A/B 를 폴백으로 두면 기능과 반대로 걸려 충돌한다(실측). 날 폴백은 기능이 없는 DPAD·ENTER·BACK·START 만. */
         String f = (keymap != null && KeyMap.isGamepad(e)) ? keymap.funcOf(code) : null;

@@ -46,6 +46,8 @@ public class SettingsActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        /* 볼륨 키 = 미디어(게임 소리) 음량 — 안 정하면 삼성은 «재생 중»을 못 알아챌 때 벨소리 음량을 바꾼다(유저 2026-10-10 「볼륨 조절이 앱에서 안 되던데」) */
+        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         Orient.apply(this);
         vals = Settings.load();
         rom = getIntent().getStringExtra("rom");

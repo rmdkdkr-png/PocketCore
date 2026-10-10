@@ -50,6 +50,8 @@ public class EmuActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        /* 볼륨 키 = 미디어(게임 소리) 음량 — 안 정하면 삼성은 «재생 중»을 못 알아챌 때 벨소리 음량을 바꾼다(유저 2026-10-10 「볼륨 조절이 앱에서 안 되던데」) */
+        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         romPath = getIntent().getStringExtra("rom");
         game = Games.identify(romPath);
         romType = (game != null) ? game.id : "svc";
@@ -746,6 +748,7 @@ public class EmuActivity extends Activity {
     private int mapKey(int code) { return keymap != null ? keymap.bitOf(code) : 0; }
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
+        if (KeyMap.isVolume(e.getKeyCode())) return super.dispatchKeyEvent(e);   /* 음량은 늘 시스템으로 — 창이 떠 있어도 */
         if (sheet != null && sheet.isShowing()) {           /* 옵션 창이 떠 있으면 패드는 창을 조작한다 */
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) return sheet.handleKey(e) || true;
             return true;
