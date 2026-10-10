@@ -30,6 +30,9 @@ static int8_t  *g_mv = NULL;                 /* 블록별 벡터 (x,y) 쌍 */
 static uint8_t *g_ok = NULL;                 /* 블록별 신뢰 */
 static int g_cap_px = 0, g_cap_bk = 0;
 
+static uint8_t *g_amb = NULL;      /* 정지(0)도 «완전히 맞는» 블록 — 디더·민무늬라 움직임을 스스로 못 정한다 */
+static int g_amb_cap = 0;
+
 static int ensure(int w, int h)
 {
    int px = w * h, bk = ((w + BS - 1) / BS) * ((h + BS - 1) / BS);
@@ -42,6 +45,11 @@ static int ensure(int w, int h)
       free(g_mv); free(g_ok);
       g_mv = (int8_t *)malloc((size_t)bk * 2); g_ok = (uint8_t *)malloc((size_t)bk);
       g_cap_bk = (g_mv && g_ok) ? bk : 0;
+   }
+   if (bk > g_amb_cap) {
+      free(g_amb);
+      g_amb = (uint8_t *)malloc((size_t)bk);
+      g_amb_cap = g_amb ? bk : 0;
    }
    return g_cap_px >= px && g_cap_bk >= bk;
 }
@@ -89,6 +97,7 @@ static void search(int w, int h)
       int x0 = bx * BS, y0 = by * BS, k = by * nbx + bx;
       int bw = (x0 + BS <= w) ? BS : w - x0, bh = (y0 + BS <= h) ? BS : h - y0;
       int best = sad(g_lp, g_lc, w, h, x0, y0, bw, bh, 0, 0, 1 << 30), bdx = 0, bdy = 0;
+      if (g_amb) g_amb[k] = (best == 0);
       /* 1) 예측 후보 — 왼쪽·위 블록, 지난 프레임의 같은 블록. 스크롤·같은 물체는 대개 여기서 끝난다.
             «완전히 같으면» 바로 받는다(전수 탐색 생략 — 폰에서 시간 대부분이 여기서 준다). */
       if (best > 0) {
@@ -121,6 +130,36 @@ static void search(int w, int h)
       g_mv[k * 2] = (int8_t)bdx; g_mv[k * 2 + 1] = (int8_t)bdy;
       g_ok[k] = best <= BAD_SAD * bw * bh;
    }
+   /* 모호한 블록은 이웃의 움직임을 빌린다 — 체크 디더 바닥이 2px 스크롤되면 정지도 완전히 맞아
+      그 블록만 멈춰 있고 이웃 바닥은 움직여, 중간 그림에서 바닥이 자글자글 깨졌다.
+      «모호하지 않은» 이웃(무늬가 있어 움직임이 확실한 블록)의 다수 벡터가 이 블록에도 완전히 맞으면 그걸 쓴다.
+      정지 HUD 처럼 이웃이 다 0 이면 0 그대로라 멀쩡한 정지 디더를 흔들지 않는다. 두 번 돌려 안쪽까지 번지게. */
+   if (g_amb) for (int pass = 0; pass < 2; pass++)
+   for (int by = 0; by < nby; by++)
+   for (int bx = 0; bx < nbx; bx++) {
+      int k = by * nbx + bx;
+      if (!g_amb[k]) continue;
+      int nk[4], nn = 0;
+      if (bx > 0) nk[nn++] = k - 1;
+      if (bx < nbx - 1) nk[nn++] = k + 1;
+      if (by > 0) nk[nn++] = k - nbx;
+      if (by < nby - 1) nk[nn++] = k + nbx;
+      int bestc = 0, mx = 0, my = 0;
+      for (int i = 0; i < nn; i++) {
+         if (g_amb[nk[i]]) continue;
+         int vx = g_mv[nk[i] * 2], vy = g_mv[nk[i] * 2 + 1], c = 0;
+         for (int j = 0; j < nn; j++)
+            if (!g_amb[nk[j]] && g_mv[nk[j] * 2] == vx && g_mv[nk[j] * 2 + 1] == vy) c++;
+         if (c > bestc) { bestc = c; mx = vx; my = vy; }
+      }
+      if (bestc < 2 || (!mx && !my)) continue;   /* 이웃 «둘 이상»이 같은 벡터일 때만 — 캐릭터 한 블록 벡터를 옆 정지 바닥이 빌려 가지 않게 */
+      int x0 = bx * BS, y0 = by * BS;
+      int bw = (x0 + BS <= w) ? BS : w - x0, bh = (y0 + BS <= h) ? BS : h - y0;
+      if (sad(g_lp, g_lc, w, h, x0, y0, bw, bh, mx, my, 1) == 0) {
+         g_mv[k * 2] = (int8_t)mx; g_mv[k * 2 + 1] = (int8_t)my;
+         g_amb[k] = 0;                      /* 정해졌다 — 다음 판에서 이웃에게 빌려줄 수 있다 */
+      }
+   }
    if (g_last_bk == nb) memcpy(g_mv_last, g_mv, (size_t)nb * 2);
 }
 
@@ -149,8 +188,11 @@ void fg_build(const uint8_t *prev, const uint8_t *cur, uint8_t *out, int w, int 
          if (!g_ok[k]) { memcpy(o, cur + (y * w + x) * 4, 4); continue; }
          /* 후보: 정지 · 제 블록 · 상하좌우 이웃 블록 */
          int cand[6][2], nc = 0;
-         cand[nc][0] = 0; cand[nc][1] = 0; nc++;
+         /* 제 블록 벡터가 «먼저» — 동점이면 먼저 것이 이긴다. 정지(0)를 먼저 두면
+            NGPC 체크 디더(2px 주기)가 2px 스크롤될 때 정지도 «완전히 맞아» 그 픽셀만 안 움직이고
+            이웃은 움직여 자글자글한 노이즈가 됐다(실기 제보 2026-10-10 「움직임 — 노이즈 같은 게」). */
          cand[nc][0] = g_mv[k * 2]; cand[nc][1] = g_mv[k * 2 + 1]; nc++;
+         if (g_mv[k * 2] || g_mv[k * 2 + 1]) { cand[nc][0] = 0; cand[nc][1] = 0; nc++; }
          if (bx > 0)       { int j = k - 1;   cand[nc][0] = g_mv[j*2]; cand[nc][1] = g_mv[j*2+1]; nc++; }
          if (bx < nbx - 1) { int j = k + 1;   cand[nc][0] = g_mv[j*2]; cand[nc][1] = g_mv[j*2+1]; nc++; }
          if (by > 0)       { int j = k - nbx; cand[nc][0] = g_mv[j*2]; cand[nc][1] = g_mv[j*2+1]; nc++; }
@@ -181,7 +223,7 @@ void fg_build(const uint8_t *prev, const uint8_t *cur, uint8_t *out, int w, int 
 
 void fg_free(void)
 {
-   free(g_lp); free(g_lc); free(g_mv); free(g_ok); free(g_mv_last);
+   free(g_lp); free(g_lc); free(g_mv); free(g_ok); free(g_mv_last); free(g_amb); g_amb = NULL; g_amb_cap = 0;
    g_lp = g_lc = NULL; g_mv = NULL; g_ok = NULL; g_mv_last = NULL;
    g_cap_px = g_cap_bk = 0; g_last_bk = 0;
 }

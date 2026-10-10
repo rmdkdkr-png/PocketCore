@@ -10,7 +10,10 @@
 #define H 152
 static uint32_t pal[8] = {0x101820,0x2a4060,0x5080a0,0xa0c0d0,0x603020,0xc06040,0xf0d080,0xffffff};
 static void put(uint8_t*f,int x,int y,uint32_t c){ if(x<0||y<0||x>=W||y>=H)return; uint8_t*p=f+(y*W+x)*4; p[0]=c>>16;p[1]=c>>8;p[2]=c;p[3]=255; }
-static uint32_t bgcol(int x,int y){ unsigned hsh=((unsigned)(x>>2)*73856093u)^((unsigned)(y>>2)*19349663u); return pal[(hsh>>5)%4]; }
+static int dither=0;
+static uint32_t bgcol(int x,int y){ unsigned hsh=((unsigned)(x>>2)*73856093u)^((unsigned)(y>>2)*19349663u);
+  if (dither && ((hsh>>9)&1)) return ((x+y)&1) ? pal[1] : pal[3];   /* NGPC 식 체크 디더 */
+  return pal[(hsh>>5)%4]; }
 /* 위치는 «정수»로 — a=mv/2 를 trunc 하는 생성기와 같은 규칙으로 정답을 그린다 */
 static void scene(uint8_t*f,int bgx,int s1x,int s1y,int s2x,int s2y){
   for(int y=0;y<H;y++)for(int x=0;x<W;x++){ uint32_t c=bgcol(x+bgx,y); if(y<16) c=pal[7]; /* 고정 HUD */ put(f,x,y,c);}
@@ -22,6 +25,7 @@ static double match(const uint8_t*a,const uint8_t*b){int ok=0;for(int i=0;i<W*H;
 int main(void){
   static uint8_t p[W*H*4],c[W*H*4],gt[W*H*4],o[W*H*4];
   /* 경우: {배경 스크롤, 스프1 dx, 스프1 dy, 스프2 dx, 스프2 dy} */
+  for(dither=0;dither<2;dither++){ printf("-- dither %d\n",dither);
   int cases[][5]={{0,0,0,0,0},{2,0,0,0,0},{0,4,0,-2,0},{2,4,2,-6,0},{1,3,-3,5,1},{3,-6,0,2,2}};
   for(unsigned k=0;k<sizeof cases/sizeof cases[0];k++){
     int*q=cases[k]; int s1x=40,s1y=70,s2x=100,s2y=90;
@@ -33,6 +37,6 @@ int main(void){
     double mm=match(o,gt); fg_build(p,c,o,W,H,FG_BLEND); double mb=match(o,gt);
     printf("case %u bg%+d s1(%+d,%+d) s2(%+d,%+d): motion %.1f%%  blend %.1f%%  prev %.1f%%  cur %.1f%%  [%.2f ms]\n",
       k,q[0],q[1],q[2],q[3],q[4],mm,mb,match(p,gt),match(c,gt),ms);
-  }
+  }}
   return 0;
 }
