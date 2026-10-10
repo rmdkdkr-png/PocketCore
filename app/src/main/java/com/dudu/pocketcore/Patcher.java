@@ -98,7 +98,8 @@ public final class Patcher {
                 if (f1 != null) {
                     ss1rom = readFile(f1);
                     musicAll = !"same".equals(mv);
-                    if (ss1rom != null) musicSig = mv + "," + f1.length() + "," + f1.lastModified() + ",v" + Ss1Music.VER;
+                    if (ss1rom != null) musicSig = mv + "," + f1.length() + "," + f1.lastModified() + ",v" + Ss1Music.VER
+                            + ",m" + Integer.toHexString(Ss1Music.mapSig(musicAll));
                 }
                 musicNote = ss1rom == null ? MUSIC_NO_ROM : MUSIC_OK;
             }
