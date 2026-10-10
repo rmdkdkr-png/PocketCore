@@ -209,6 +209,16 @@ public final class Settings {
         public boolean grouped() { return group != null && !group.isEmpty(); }
     }
     public static File modsDir()  { return new File(MainActivity.root(), "mods"); }
+    /** 폐기한 조작 패치 — 원격 색인(InputPatch 태그 mods)에 남아 있어도 Legacito 는 안 보이고 안 얹는다.
+     *  묶음(group) 이름이나 id 로 건다. 옛 PocketCore 가 같은 색인을 읽으므로 색인은 그대로 둔다.
+     *  ss2_lightrecover(약베기 후경직 감소 −2~−8): 2026-10-10 유저 지시로 폐기. */
+    static final java.util.Set<String> RETIRED_MODS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "ss2_lightrecover"));
+    static boolean retired(String id, String group) {
+        if (RETIRED_MODS.contains(id) || (group != null && RETIRED_MODS.contains(group))) return true;
+        for (String r : RETIRED_MODS) if (id.startsWith(r + "_")) return true;
+        return false;
+    }
     public static List<Mod> mods() {
         List<Mod> out = new ArrayList<>();
         File f = new File(modsDir(), "mods.json");
@@ -223,6 +233,7 @@ public final class Settings {
                 org.json.JSONObject m = arr.getJSONObject(i);
                 String id = m.optString("id", ""), game = m.optString("game", "");
                 if (id.isEmpty() || game.isEmpty() || !id.matches("[A-Za-z0-9_]+")) continue;
+                if (retired(id, m.optString("group", ""))) continue;
                 out.add(new Mod(id, game, m.optString("ko", id), m.optString("ver", ""),
                                 m.optString("help", ""), m.optString("default", "disabled"),
                                 m.optString("group", ""), m.optString("group_ko", ""), m.optString("pick", ""),
