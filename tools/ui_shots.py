@@ -17,6 +17,14 @@ import xml.etree.ElementTree as ET
 PKG = "com.dudu.legacito.fgtest"
 APK, OUT = sys.argv[1], sys.argv[2]
 os.makedirs(OUT, exist_ok=True)
+_LOG = open(os.path.join(OUT, "log.txt"), "a", encoding="utf-8")
+_print = print
+
+
+def print(*a):                      # 로그를 결과 묶음에도 남긴다(CI 로그는 세션에서 못 받음)
+    _print(*a)
+    _LOG.write(" ".join(str(x) for x in a) + "\n")
+    _LOG.flush()
 
 
 def adb(*a, check=False, out=False):
@@ -140,7 +148,7 @@ def settings_pages(tag, pages):
             time.sleep(1.5)
 
 
-PAGES = ["화면", "움직임·반응", "조작", "게임", "소리", "롬", "업데이트"]
+PAGES = ["화면", "움직임·반응", "조작", "게임", "소리", "업데이트"]
 
 
 def run(tag, size, density, bar_labels, with_settings):
@@ -190,20 +198,52 @@ def run(tag, size, density, bar_labels, with_settings):
             sh("input keyevent 4")
             time.sleep(1.5)
     shot(tag + "_08_game_after")
+    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(base * 0.023)))   # 메뉴 열기
+    time.sleep(1)
+    if "배치" in cells:
+        cx, cy = cells["배치"]
+        sh("input tap %d %d" % (pv[0] + int(cx), pv[1] + int(cy)))       # 배치(편집) 켜기
+        time.sleep(1.5)
+        shot(tag + "_09_edit")
+        sh("input tap %d %d" % (pv[0] + int(cx), pv[1] + int(cy)))       # 배치 끄기(저장)
+        time.sleep(1)
+
+
+def wait_ready():
+    adb("wait-for-device")
+    for i in range(120):
+        if sh("getprop sys.boot_completed").strip() == "1" and "Android" in sh("ls /sdcard/"):
+            break
+        time.sleep(2)
+    time.sleep(5)
+    print("ready", sh("getprop sys.boot_completed").strip(), sh("ls /sdcard/").split())
+
+
+def push_checked(src, dst):
+    for i in range(10):
+        adb("push", src, dst, check=True)
+        if os.path.basename(dst) in sh("ls %s" % os.path.dirname(dst)):
+            return True
+        time.sleep(3)
+    print("push failed", dst)
+    return False
 
 
 def main():
-    adb("install", "-r", "-g", APK, check=True)
+    wait_ready()
+    print("install", adb("install", "-r", "-g", APK, check=True))
     sh("appops set --uid %s MANAGE_EXTERNAL_STORAGE allow" % PKG)
     fake_rom("/tmp/a_ss2.ngc", "SAMURAI2")
     fake_rom("/tmp/b_test.ngc", "UITESTROM")
     sh("mkdir -p /sdcard/PocketCore/roms")
-    adb("push", "/tmp/a_ss2.ngc", "/sdcard/PocketCore/roms/a_ss2.ngc", check=True)
-    adb("push", "/tmp/b_test.ngc", "/sdcard/PocketCore/roms/b_test.ngc", check=True)
+    push_checked("/tmp/a_ss2.ngc", "/sdcard/PocketCore/roms/a_ss2.ngc")
+    push_checked("/tmp/b_test.ngc", "/sdcard/PocketCore/roms/b_test.ngc")
     opts = ("pocketcore_lang=ja\npocketcore_ss2_music=off\npocketcore_launcher_snd=disabled\n"
             "pocketcore_padskin=art\npocketcore_level=test\n")
     open("/tmp/options.txt", "w").write(opts)
-    adb("push", "/tmp/options.txt", "/sdcard/PocketCore/options.txt", check=True)
+    push_checked("/tmp/options.txt", "/sdcard/PocketCore/options.txt")
+    print("roms", sh("ls -l /sdcard/PocketCore/roms"))
+    print("opts", sh("cat /sdcard/PocketCore/options.txt"))
     labels = os.environ.get("BAR_LABELS", "슬롯1,저장,로드,리셋,설정,배치,목록,종료").split(",")
     run("main", "1856x2160", 420, labels, True)
     run("cover", "904x2160", 420, labels, False)
