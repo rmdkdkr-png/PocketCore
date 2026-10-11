@@ -244,7 +244,8 @@ public final class Settings {
                 "방향+R 로 필살기(방향없음=질풍 · 앞=대공 …). 끄면 R 은 A+B. ★ 아직 «카에데»만 됩니다.",
                 ONOFF, ONOFF_K, "disabled").f(Games.F_SP_LB).l(),
             new Item("ngp_ss2sp", "원버튼",
-                "기술키(X·R) 하나로 커맨드 — 방향에 따라 다른 기술. 끄면 그 버튼은 A+B. A+B 는 언제나 Y·L 로도.",
+                "기술키(X·R) 하나로 커맨드 — 방향에 따라 다른 기술. 사무쇼2 는 커맨드를 게임의 입력 기록에 바로 써 넣어 누르자마자 나갑니다(최속)."
+                + " 끄면 그 버튼은 A+B. A+B 는 언제나 Y·L 로도.",
                 ONOFF, ONOFF_K, "enabled").f(Games.F_SP_SS2).l(),
         });
         /* ── 게임 ── */
