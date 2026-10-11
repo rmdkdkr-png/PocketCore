@@ -217,7 +217,15 @@ def settings_pages(tag, pages, custom_check=False):
 PAGES = ["화면", "움직임·반응", "조작", "게임", "소리", "업데이트"]
 
 
+def save_logcat(tag):
+    """앱 로그(오류·ANR·네이티브 로그)를 결과 묶음에 — 109 덮개 화면에서 게임이 검게 멈춘 원인 보려고"""
+    out = adb("logcat", "-d", "-v", "time", out=True)
+    open(os.path.join(OUT, "logcat_%s.txt" % tag), "wb").write(out)
+    adb("logcat", "-c")
+
+
 def run(tag, size, density, bar_labels, with_settings):
+    adb("logcat", "-c")
     sh("wm size %s" % size)
     sh("wm density %d" % density)
     sh("am force-stop %s" % PKG)
@@ -302,6 +310,7 @@ def run(tag, size, density, bar_labels, with_settings):
     sh("input swipe %d %d %d %d 900" % (hx, hy, hx, hy))                 # 알약 길게 = 빠른 저장
     time.sleep(0.6)
     shot(tag + "_10_qsave")
+    save_logcat(tag)
 
 
 def played_check(tag, size, density, bar_labels):
