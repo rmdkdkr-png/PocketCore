@@ -1,0 +1,123 @@
+diff --git a/src/libretro.c b/src/libretro.c
+index e42129a..2e77802 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -93,7 +93,15 @@ static int32 z80_runtime;
+ /* 프레임 생성 예측용 가벼운 스냅샷 — StateAction 에서 건너뛸 섹션 (정의는 아래 ss2fg 배관 참고) */
+ #define FG_SKIP_SND   1
+ #define FG_SKIP_FLASH 2
+-static int fg_state_skip = 0;
++/* 스레드마다 따로(패치 99d) — 앱이 GL 스레드가 숨은 프레임을 돌리는 도중에 다른 스레드(onPause 오토세이브)에서
++   retro_serialize 를 부르면, 이 표시가 전역이라 오토세이브에서도 소리·플래시 칸이 빠졌다 → 이어하기 하면 소리칩이 꺼진 채
++   (리셋해야 나옴). 유저 2026-10-11 「사운드가 자주 안 나옴 // 리셋하면 나옴」. 숨은 프레임은 늘 같은 스레드에서 저장·복원한다. */
++#if defined(_MSC_VER)
++#define FG_TLS __declspec(thread)
++#else
++#define FG_TLS __thread
++#endif
++static FG_TLS int fg_state_skip = 0;
+ 
+ extern int32_t ngpc_soundTS;
+ 
+@@ -323,7 +331,10 @@ void StateAction(StateMem *sm, int load, int data_only)
+    MDFNSS_StateAction(sm, load, data_only, TLCS_StateRegs, "TLCS", false);
+    MDFNNGPCDMA_StateAction(sm, load, data_only);
+    if (!(fg_state_skip & FG_SKIP_SND))     /* 예측 스냅샷: 소리는 뮤트라 안 바뀐다 — 로드가 Blip 버퍼를 비우는 것도 피한다 */
+-      MDFNNGPCSOUND_StateAction(sm, load, data_only);
++   {
++      if (!MDFNNGPCSOUND_StateAction(sm, load, data_only) && load)
++         MDFNNGPCSOUND_Recover();   /* 소리 칸이 없는 상태(예전 앱이 숨은 프레임과 겹쳐 뜬 오토세이브) — 소리칩을 켠 채로 (99d) */
++   }
+    ngpgfx_StateAction(NGPGfx, sm, load, data_only);
+    MDFNNGPCZ80_StateAction(sm, load, data_only);
+    int_timer_StateAction(sm, load, data_only);
+@@ -1821,6 +1832,9 @@ bool retro_serialize(void *data, size_t size)
+ 
+    ret = MDFNSS_SaveSM(&st, 0, 0, NULL, NULL, NULL);
+ 
++   /* 크기를 잰 뒤 상태가 커졌으면 잘린 상태다 — 실패로 알린다. 작아졌으면 꼬리를 0 으로(쓰레기가 칸 머리로 읽히지 않게) (99d) */
++   if (st.len > size) ret = false;                 /* st.loc 은 머리(크기)를 고쳐 쓴 자리라 끝이 아니다 — st.len 이 쓴 길이 */
++   else if (st.len < size) memset(st.data + st.len, 0, size - st.len);
+    memcpy(data, st.data, size);
+    free(st.data);
+ 
+diff --git a/src/mednafen/ngp/sound.cpp b/src/mednafen/ngp/sound.cpp
+index 1b32f99..9263655 100644
+--- a/src/mednafen/ngp/sound.cpp
++++ b/src/mednafen/ngp/sound.cpp
+@@ -98,6 +98,18 @@ extern "C" void MDFNNGPC_SetSoundRate(void)
+    buf.set_sample_rate(44100, 60);
+ }
+ 
++/* 상태에 소리 칸이 없을 때(패치 99d) — 게임은 켤 때 소리칩을 한 번 켜고(0xB8=0x55) 다시 안 켠다. 소리 칸이 빠진 상태를
++   막 켠 코어에 불러오면 소리칩이 꺼진 채(부팅 전 값) 남아 리셋할 때까지 무음이었다. 켜 두고 레지스터는 처음 값으로 —
++   드라이버가 다음 음부터 다시 쓴다. */
++extern "C" void MDFNNGPCSOUND_Recover(void)
++{
++   schipenable = 1;
++   apu.reset();
++   buf.clear();
++   CurrentDACLeft = CurrentDACRight = 0;
++   LastDACLeft = LastDACRight = 0;
++}
++
+ extern "C" int MDFNNGPCSOUND_StateAction(void *data, int load, int data_only)
+ {
+    T6W28_ApuState sn_state;
+diff --git a/src/mednafen/ngp/sound.h b/src/mednafen/ngp/sound.h
+index 5ee6e71..a6e7d2e 100644
+--- a/src/mednafen/ngp/sound.h
++++ b/src/mednafen/ngp/sound.h
+@@ -30,6 +30,7 @@ void dac_write_right(uint8_t);
+ void MDFNNGPCSOUND_SetEnable(bool set);
+ void MDFNNGPCSOUND_Init(void);
+ int MDFNNGPCSOUND_StateAction(void *data, int load, int data_only);
++void MDFNNGPCSOUND_Recover(void);   /* 99d: 소리 칸 없는 상태 — 소리칩 켜기 */
+ void MDFNNGPC_SetSoundRate(void);
+ int32_t MDFNNGPCSOUND_Flush(int16_t *SoundBuf, const int32_t MaxSoundFrames);
+ 
+diff --git a/src/mednafen/state.c b/src/mednafen/state.c
+index 38e8bcd..1d9272e 100644
+--- a/src/mednafen/state.c
++++ b/src/mednafen/state.c
+@@ -407,32 +407,30 @@ static int MDFNSS_StateAction_internal(
+ 
+       uint32_t tmp_size = 0;
+       int found         = 0;
+-      uint32_t total    = 0;
++      /* 찾기를 시작한 자리 — 실패해도 늘 여기로 되돌린다(패치 99d). 예전엔 칸 머리가 깨졌거나(쓰레기 꼬리) 크기가 끝을 넘으면
++         되돌리지 않고 0 을 돌려줘서, 뒤에 찾는 칸(그림·Z80·타이머…)이 전부 «없음»이 됐다. */
++      uint32_t start    = st->loc;
+ 
+       while(smem_read(st, (uint8_t *)sname, 32) == 32)
+       {
+          if(smem_read32le(st, &tmp_size) != 4)
+-            return 0;
+-
+-         total += tmp_size + 32 + 4;
++            break;
+ 
+          /* Yay, we found the section */
+          if(!strncmp(sname, section->name, 32))
+          {
+-            if(!ReadStateChunk(st, section->sf, tmp_size))
+-               return 0;
+-            found = 1;
++            if(tmp_size <= st->len - st->loc && ReadStateChunk(st, section->sf, tmp_size))
++               found = 1;
+             break;
+          } 
+          else
+          {
+             if(smem_seek(st, tmp_size, SSEEK_CUR) < 0)
+-               return 0;
++               break;
+          }
+       }
+ 
+-      if(smem_seek(st, -total, SSEEK_CUR) < 0)
+-         return 0;
++      st->loc = start;
+ 
+       if(!found) /* Not found.  We are sad! */
+          return 0;

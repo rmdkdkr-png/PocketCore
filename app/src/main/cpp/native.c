@@ -120,6 +120,16 @@ static int16_t g_ring[ARING_FRAMES * 2];
 static volatile uint32_t g_rd = 0, g_wr = 0;
 static AAudioStream *g_stream = NULL;
 
+/* 코어 자물쇠(116) — libretro 코어는 한 스레드에서만 불려야 한다. 예전엔 onPause 오토세이브·SRAM 저장·옵션 바꾸기를
+   UI 스레드에서 바로 불러, GL 스레드가 retro_run 을 도는 도중과 겹쳤다. 숨은 프레임(런어헤드·프레임 생성)이 «소리 칸을
+   뺀 가벼운 저장» 표시를 세운 순간과 겹치면 오토세이브에 소리 칸이 빠져, 다음에 이어하기 하면 소리칩이 꺼진 채였다
+   (유저 2026-10-11 「사운드가 자주 안 나옴 // 리셋하면 나옴」 — 하니스로 겹쳐 저장 40번 중 34번 무음 재현).
+   코어로 들어가는 모든 호출(retro_run 한 번 단위)을 이 자물쇠 안에서 한다. 콜백 안에서는 잡지 않는다(이미 잡혀 있다). */
+static pthread_mutex_t g_core_mx  = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_audio_mx = PTHREAD_MUTEX_INITIALIZER;   /* 오디오 스트림 열고 닫기 — GL·UI 스레드가 같이 만진다 */
+#define CORE_LOCK()   pthread_mutex_lock(&g_core_mx)
+#define CORE_UNLOCK() pthread_mutex_unlock(&g_core_mx)
+
 /* core options loaded from a plain key=value text file (no menus)
    114: 64 → 256 + 같은 키는 한 칸(뒤 줄이 이긴다). 앱은 새 키를 options.txt 끝에 붙이는데(Settings.put), 64 칸이 차면
    그 뒤 키가 코어에 조용히 안 넘어갔다 — 설정을 많이 만진 기기에서 111 의 «동작 사이 그림» 같은 새 키가 빠질 수 있었다(검수 2026-10-11) */
@@ -395,9 +405,11 @@ static void audio_err_cb(AAudioStream *s, void *ud, aaudio_result_t err)
 static void audio_start(int rate)
 {
    AAudioStreamBuilder *b = NULL;
+   pthread_mutex_lock(&g_audio_mx);
+   if (g_stream) { pthread_mutex_unlock(&g_audio_mx); return; }   /* 이미 열려 있다 — 두 번 열면 앞 스트림이 샌다 */
    g_audio_rate = rate;
    g_audio_dead = 0;
-   if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) return;
+   if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) { pthread_mutex_unlock(&g_audio_mx); return; }
    AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_I16);
    AAudioStreamBuilder_setChannelCount(b, 2);
    AAudioStreamBuilder_setSampleRate(b, rate);
@@ -408,14 +420,18 @@ static void audio_start(int rate)
       AAudioStream_requestStart(g_stream);
    AAudioStreamBuilder_delete(b);
    LOGI("audio started @%d Hz (%s)", rate, g_stream ? "ok" : "failed");
+   pthread_mutex_unlock(&g_audio_mx);
 }
 
 static void audio_stop(void)
 {
-   if (!g_stream) return;
-   AAudioStream_requestStop(g_stream);
-   AAudioStream_close(g_stream);
-   g_stream = NULL;
+   pthread_mutex_lock(&g_audio_mx);
+   if (g_stream) {
+      AAudioStream_requestStop(g_stream);
+      AAudioStream_close(g_stream);
+      g_stream = NULL;
+   }
+   pthread_mutex_unlock(&g_audio_mx);
 }
 
 /* ------------------------------------------------------------------ */
@@ -722,19 +738,20 @@ JNI(void, nativeSetOption)(JNIEnv *env, jclass cls, jstring jkey, jstring jval)
    char k[64], v[96]; int i;
    jstr(env, jkey, k, sizeof(k));
    jstr(env, jval, v, sizeof(v));
+   CORE_LOCK();                                   /* 코어가 retro_run 안에서 옵션 표를 읽는 중일 수 있다 */
    for (i = 0; i < g_nopt; i++)
-      if (!strcmp(g_opt[i].k, k)) { snprintf(g_opt[i].v, sizeof(g_opt[i].v), "%s", v); g_var_dirty = 1; return; }
+      if (!strcmp(g_opt[i].k, k)) { snprintf(g_opt[i].v, sizeof(g_opt[i].v), "%s", v); g_var_dirty = 1; CORE_UNLOCK(); return; }
    if (g_nopt < MAX_OPTS) {
       snprintf(g_opt[g_nopt].k, sizeof(g_opt[g_nopt].k), "%s", k);
       snprintf(g_opt[g_nopt].v, sizeof(g_opt[g_nopt].v), "%s", v);
       g_nopt++; g_var_dirty = 1;
    }
+   CORE_UNLOCK();
 }
 
-JNI(jint, nativeLoad)(JNIEnv *env, jclass cls, jstring jcore, jstring jrom,
-                      jstring jsys, jstring jsave, jstring jopts)
+static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
+                        jstring jsys, jstring jsave, jstring jopts)
 {
-   (void)cls;
    char core[512], opts[600];
    jstr(env, jcore, core, sizeof(core));
    jstr(env, jrom,  g_rom_path, sizeof(g_rom_path));
@@ -790,9 +807,18 @@ JNI(jint, nativeLoad)(JNIEnv *env, jclass cls, jstring jcore, jstring jrom,
    return 0;
 }
 
-JNI(void, nativeUnload)(JNIEnv *env, jclass cls)
+JNI(jint, nativeLoad)(JNIEnv *env, jclass cls, jstring jcore, jstring jrom,
+                      jstring jsys, jstring jsave, jstring jopts)
 {
-   (void)env; (void)cls;
+   (void)cls;
+   CORE_LOCK();
+   jint rc = load_locked(env, jcore, jrom, jsys, jsave, jopts);
+   CORE_UNLOCK();
+   return rc;
+}
+
+static void unload_locked(void)
+{
    if (!g_loaded) return;
    sram_save();
    audio_stop();
@@ -802,6 +828,12 @@ JNI(void, nativeUnload)(JNIEnv *env, jclass cls)
    g_lib = NULL;
    g_loaded = 0;
    g_mid_ready = 0; g_mid_dirty = 0; g_prev_w = g_prev_h = 0;
+}
+
+JNI(void, nativeUnload)(JNIEnv *env, jclass cls)
+{
+   (void)env; (void)cls;
+   CORE_LOCK(); unload_locked(); CORE_UNLOCK();
 }
 
 JNI(void, nativeSurfaceCreated)(JNIEnv *env, jclass cls) { (void)env; (void)cls; gl_setup(); }
@@ -852,6 +884,7 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             && g_fb_w <= 320;                       /* 4배 그림(서기 그리기)엔 앱 보간을 안 돌린다 — 16배 일 */
    if (g_paused) { g_next_t = t; maxsteps = 0; fg_on = 0; }   /* 멈춤 — 풀리면 시계를 지금부터 다시 */
    while (g_next_t <= t && steps < maxsteps) {
+      CORE_LOCK();                       /* retro_run 한 번 단위 — 그 사이에 UI 스레드의 저장이 끼어들 수 있게 */
       if (g_loaded) {
          if (fg_on && g_fb && g_fb_w) {      /* 코어가 덮어쓰기 전에 지금 그림을 «직전»으로 */
             unsigned need = g_fb_w * g_fb_h * 4;
@@ -864,6 +897,7 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
          }
          c_run();
       }
+      CORE_UNLOCK();
       g_next_t += dt; steps++;
    }
    /* 이번 vsync 에 새 프레임이 나왔으면 «중간 그림»을 먼저 보여 주고, 다음 vsync 에 새 프레임.
@@ -912,7 +946,7 @@ JNI(void, nativeRunFrames)(JNIEnv *env, jclass cls, jint n)
 {
    (void)env; (void)cls;
    if (!g_loaded) return;
-   for (jint i = 0; i < n; i++) c_run();
+   for (jint i = 0; i < n; i++) { CORE_LOCK(); if (g_loaded) c_run(); CORE_UNLOCK(); }
 }
 
 /* 백그라운드에서 오디오 장치를 놓았다가 복귀 때 새로 연다 —
@@ -924,7 +958,7 @@ JNI(void, nativeAudioResume)(JNIEnv *env, jclass cls)
 { (void)env; (void)cls; if (g_loaded && !g_stream) audio_start(g_audio_rate); }
 
 JNI(void, nativeReset)(JNIEnv *env, jclass cls)
-{ (void)env; (void)cls; if (g_loaded) c_reset(); }
+{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); CORE_UNLOCK(); }
 
 JNI(void, nativeSetIntegerScale)(JNIEnv *env, jclass cls, jboolean on)
 { (void)env; (void)cls; g_integer_scale = on ? 1 : 0; }
@@ -951,11 +985,13 @@ JNI(void, nativeSetTurbo)(JNIEnv *env, jclass cls, jboolean on)
 JNI(jint, nativeSaveState)(JNIEnv *env, jclass cls, jstring jpath)
 {
    (void)cls;
-   if (!g_loaded || !c_serialize_size) return -1;
+   CORE_LOCK();
+   if (!g_loaded || !c_serialize_size) { CORE_UNLOCK(); return -1; }
    size_t sz = c_serialize_size();
-   if (!sz) return -1;
-   void *buf = malloc(sz);
-   if (!c_serialize(buf, sz)) { free(buf); return -1; }
+   void *buf = sz ? malloc(sz) : NULL;
+   int ok = buf && c_serialize(buf, sz);
+   CORE_UNLOCK();
+   if (!ok) { free(buf); return -1; }
    char p[600]; jstr(env, jpath, p, sizeof(p));
    FILE *f = fopen(p, "wb");
    if (!f) { free(buf); return -1; }
@@ -966,7 +1002,7 @@ JNI(jint, nativeSaveState)(JNIEnv *env, jclass cls, jstring jpath)
 JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
 {
    (void)cls;
-   if (!g_loaded || !c_unserialize) return -1;
+   if (!c_unserialize) return -1;
    char p[600]; jstr(env, jpath, p, sizeof(p));
    FILE *f = fopen(p, "rb");
    if (!f) return -1;
@@ -974,7 +1010,9 @@ JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
    void *buf = malloc((size_t)sz);
    if (fread(buf, 1, (size_t)sz, f) != (size_t)sz) { fclose(f); free(buf); return -1; }
    fclose(f);
-   int ok = c_unserialize(buf, (size_t)sz);
+   CORE_LOCK();
+   int ok = g_loaded && c_unserialize(buf, (size_t)sz);
+   CORE_UNLOCK();
    free(buf);
    return ok ? 0 : -1;
 }
@@ -990,4 +1028,4 @@ JNI(jobject, nativeFrameBuffer)(JNIEnv *env, jclass cls)
    return (*env)->NewDirectByteBuffer(env, g_fb, (jlong)(g_fb_w * g_fb_h * 4));
 }
 
-JNI(void, nativeSaveSram)(JNIEnv *env, jclass cls) { (void)env; (void)cls; if (g_loaded) sram_save(); }
+JNI(void, nativeSaveSram)(JNIEnv *env, jclass cls) { (void)env; (void)cls; CORE_LOCK(); if (g_loaded) sram_save(); CORE_UNLOCK(); }
