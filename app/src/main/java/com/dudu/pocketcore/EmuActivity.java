@@ -566,7 +566,7 @@ public class EmuActivity extends Activity {
             boolean four = "4".equals(readOpt("ngp_framegen_mult", "4"));
             boolean interp = "interp".equals(readOpt("ngp_framegen_mode", "predict"));
             sb.append(" · 코어: ").append(!coreFgOn() ? "끔" : coreOut
-                    ? "120Hz 출력 중(" + (four ? "4배" : "2배") + "·" + (interp ? "보간" : "예측") + ")" : "대기(아직 60)");
+                    ? "120Hz 출력 중(" + (four ? "4배" : "2배") + "·" + (interp ? "보간" : "예측") + ")" : "60Hz 사이 그림(예측)");
         }
         sb.append(" · 앱: ");
         if (fgMode == 0) sb.append("끔");
@@ -577,7 +577,8 @@ public class EmuActivity extends Activity {
     }
 
     /** 120Hz 를 요청할 이유 — 프레임 생성이 켜졌을 때(앱이든 코어든). 삼성은 요청이 없으면 60 으로 내린다. */
-    private boolean wantHighRefresh() { return fgMode != 0 || coreFgOn(); }
+    /* 「60Hz」(코어 사이 그림)은 120Hz 를 요청하지 않는다 — 60Hz 화면용·배터리 */
+    private boolean wantHighRefresh() { return fgMode != 0 || (coreFgOn() && !"60".equals(readOpt("ngp_framegen", "auto"))); }
 
     /** 창에는 최고 주사율 모드를, 표면에는 120fps 를 요청한다(끄면 기본으로). */
     private void applyFrameRate() {

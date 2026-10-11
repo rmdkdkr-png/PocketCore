@@ -139,7 +139,9 @@ public final class Settings {
         GROUPS.put("보간", new Item[]{
             new Item(MOTION, "보간",
                 "120Hz = 화면이 120Hz 일 때 가장 좋은 조합 — 사무쇼2 는 코어 보간 4배·예측·이펙트 옮기기·날아가는 몸 섞기,"
-                + " 다른 게임은 앱 보간(움직임, 약 8ms 늦음). 60Hz = 보간 끔(화면이 60Hz 거나 배터리 아낄 때). 직접 = 「고급」에서 하나씩.",
+                + " 다른 게임은 앱 보간(움직임, 약 8ms 늦음). 60Hz = 화면이 60Hz 일 때 — 사무쇼2 는 30Hz 로 움직이는 캐릭터·배경의"
+                + " 사이 그림을 2프레임 미리 돌려(예측) 60 에 맞춤, 지연 없음·120Hz 안 씀(배터리). 다른 게임은 아직 보간 없음."
+                + " 직접 = 「고급」에서 하나씩.",
                 new String[]{ "120", "60", "custom" },
                 new String[]{ "120Hz", "60Hz", "직접" }, "120").l(),
         });
@@ -147,9 +149,10 @@ public final class Settings {
             /* 프레임 생성 — 두 방식을 «따로» 켜고 끈다. 둘 다 켜면 코어 우선, 앱은 대타
                (코어가 120 을 내보내는 동안 앱은 끼울 빈 vsync 가 없어 저절로 비켜선다). */
             new Item("ngp_framegen", "코어 보간",
-                "사무쇼2 전용. 코어가 캐릭터·배경 위치를 직접 보간해 같은 도트로 다시 그립니다(도트 안 깨짐). 자동 = 화면이 120Hz 일 때만.",
-                new String[]{ "auto", "enabled", "disabled" },
-                new String[]{ "자동", "켬", "끔" }, "auto").g("ss2"),
+                "사무쇼2 전용. 코어가 캐릭터·배경 위치를 직접 보간해 같은 도트로 다시 그립니다(도트 안 깨짐)."
+                + " 자동 = 화면이 120Hz 면 120 출력, 아니면 60Hz 사이 그림 · 120Hz = 120 출력 고정 · 60Hz = 120 없이 사이 그림만(코어 패치 90).",
+                new String[]{ "auto", "enabled", "60", "disabled" },
+                new String[]{ "자동", "120Hz", "60Hz", "끔" }, "auto").g("ss2"),
             new Item("pocketcore_framegen", "앱 보간",
                 "모든 게임. 완성된 화면의 움직임을 찾아 중간 그림을 끼웁니다(약 8ms 늦음). 코어 보간이 도는 동안은 저절로 쉽니다."
                 + " 움직임 = 반만큼 옮김 · 섞기 = 앞뒤 반반(잔상). 2배까지 — 4배는 다음 그림을 미리 알아야 해서 코어 보간만 됩니다.",
@@ -294,7 +297,9 @@ public final class Settings {
     /* ── 보간 묶음 ── (MOTION 열쇠는 맨 위 — GROUPS 초기화가 먼저 쓴다) */
     static final String[] MOTION_KEYS = { "ngp_framegen", "pocketcore_framegen", "ngp_framegen_mode", "ngp_framegen_mult", "ngp_framegen_fx", "ngp_framegen_pose" };
     static final String[] MOTION_120  = { "auto", "motion", "predict", "4", "move", "blend" };
-    static final String[] MOTION_60   = { "disabled", "off", null, null, null, null };     /* null = 그대로 둔다 */
+    /* 60Hz = 사무쇼2 코어 «60Hz 사이 그림»(패치 90 — 4배의 2프레임 예측을 그대로, 120 출력 없이) + 앱 보간 끔(60Hz 화면엔 끼울 빈 vsync 가 없다).
+       유저 2026-10-11 「60Hz 도 넣어야지 … 4배 하던 거에서(2프레임 미리) 60 프레임에 맞출 만한 노력만 하면 되잖어」 */
+    static final String[] MOTION_60   = { "60", "off", "predict", "4", "move", "blend" };
     private static Item itemOf(String key) {
         for (Item[] arr : GROUPS.values()) for (Item it : arr) if (it.key.equals(key)) return it;
         return null;
@@ -329,6 +334,8 @@ public final class Settings {
      *  유저 2026-10-11 「우월한 세팅은 정해져 있으니」 — 손대지 않은 사람은 가장 좋은 조합으로 시작. */
     public static void migrateMotion() {
         Map<String, String> m = load();
+        /* 내부 106 의 60Hz 는 «보간 끔»이었다 — 107 부터 사이 그림. 106 에서 60Hz 를 골라 둔 사람은 새 묶음으로 다시 깐다 */
+        if ("60".equals(m.get(MOTION)) && "disabled".equals(m.get("ngp_framegen"))) { putUser(MOTION, "60"); return; }
         if (m.containsKey(MOTION)) return;
         boolean untouched = true;
         for (String k : MOTION_KEYS) if (m.containsKey(k)) {
