@@ -134,6 +134,25 @@ def bar_cells(w, h, labels, density=420):
     return out
 
 
+def dismiss_anr():
+    """에뮬레이터의 시스템 앱(Pixel Launcher 등)이 「isn't responding」 창을 띄우면 모든 탭이 막힌다 — 「Wait」 를 눌러 치운다."""
+    for _ in range(3):
+        root = dump()
+        if root is None:
+            return
+        hit = any("isn't responding" in (n.get("text") or "") for n in root.iter("node"))
+        if not hit:
+            return
+        for n in root.iter("node"):
+            if (n.get("text") or "") in ("Wait", "Close app"):
+                b = bounds(n)
+                if b:
+                    print("dismiss anr", n.get("text"))
+                    sh("input tap %d %d" % ((b[0] + b[2]) // 2, (b[1] + b[3]) // 2))
+                    time.sleep(1.5)
+                    break
+
+
 def opt_chip():
     """런처 카드 아래 실행 옵션 칩 자리 — LauncherView 가 logcat(PocketUi)에 남긴다(캔버스라 접근성 노드가 없다)."""
     out = adb("logcat", "-d", "-s", "PocketUi:I", out=True).decode(errors="replace")
@@ -169,6 +188,7 @@ def run(tag, size, density, bar_labels, with_settings):
     sh("rm -f /sdcard/PocketCore/saves/*.auto")
     adb("shell", "am", "start", "-n", PKG + "/com.dudu.pocketcore.MainActivity", "--ez", "menu", "true")
     time.sleep(8)
+    dismiss_anr()
     shot(tag + "_01_launcher")
     sw, sh_ = screen_box()[2], screen_box()[3]
     if with_settings and tap_text("설정"):                       # 런처 아래 줄 「설정」
@@ -191,6 +211,7 @@ def run(tag, size, density, bar_labels, with_settings):
     else:
         print("no start button")
     time.sleep(9)
+    dismiss_anr()
     shot(tag + "_03_game")
     pv = view_bounds("PadView") or screen_box()
     print("PadView", pv)
