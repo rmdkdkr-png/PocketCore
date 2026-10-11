@@ -415,6 +415,7 @@ public class MainActivity extends Activity {
                 final int nc = Updater.peekNewer(MainActivity.this);
                 newerCode = nc > 0 ? nc : -1;
                 if (nc > 0) runOnUiThread(new Runnable() { @Override public void run() { markUpdate(upd); } });
+                else Updater.autoPacks(MainActivity.this);      /* 앱이 최신이면 팩(모션 캐시 등)은 알아서 — 와이파이일 때만 */
             }}).start();
         } else if (newerCode > 0) markUpdate(upd);
         LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);

@@ -1,0 +1,303 @@
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index 8f50637..e56f508 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -1399,6 +1399,7 @@ typedef struct { int on; id_pair *pr; int t256, ax, ay;
+                  int kind;                    /* 0 = 서기(배운 바뀜, id_pair) · 1 = 모션 캐시 */
+                  struct mc_ent *e; int ti; const struct id_pose_s *A, *B;
+                  int gx, gy, gw, gh, depth, first; /* 4배 조각 틀: 몸 자리 기준 왼쪽 위·크기(1배), 깊이, 첫 슬롯 */
++                 int sx4, sy4;                /* 캐시 사이 그림을 더 미는 양(4배 화소) — 포즈 자리 어긋남을 t 만큼 나눠 메운다(패치 99c) */
+                } id_req_t;
+ typedef struct { int on, x0, y0, w, h; uint16_t px[(ID_W * ID_S) * (ID_H * ID_S)]; } id_patch_t;
+ 
+@@ -1854,6 +1855,11 @@ static mc_ent *mc_get(uint64_t sa, uint64_t sb)
+       e->ro[t] = at + 2; e->mo[t] = e->ro[t] + rb; e->fo[t] = e->mo[t] + ((n + 7) >> 3);
+       at = e->fo[t] + n * 2;
+       if (at > rawlen) { free(raw); e->buf = 0; return 0; }
++      {  /* 칸 비트 수 = n 이어야(패치 99c) — 아니면 mc_draw 가 이동값 뒤를 넘어 읽는다(일부러 만든 파일만 — zlib 검사합이 우연한 깨짐은 막는다) */
++         uint32_t c, cnt = 0, nb = (uint32_t)e->w * e->h;
++         for (c = 0; c < nb; c++) cnt += (raw[e->ro[t] + (c >> 3)] >> (c & 7)) & 1;
++         if (cnt != n) { free(raw); e->buf = 0; return 0; }
++      }
+    }
+    e->buf = raw; e->blen = rawlen;
+    return e;
+@@ -1892,6 +1898,23 @@ static void mc_draw(const mc_ent *e, int ti, const id_pose *A, const id_pose *B,
+             }
+       }
+ }
++/* 몸 p 의 그림 왼쪽 위(몸 조각 최소 − 물체 자리) — 포즈 그림(id_capture)과 같은 셈. 몸이 없으면 0 */
++static int mc_top_left(const ss2fg_frame *f, int p, int *x, int *y)
++{
++   uint8_t m[64];
++   int k, x0 = 9999, y0 = 9999;
++   if (!f || !f->body_ok || !body_mask(f, p, m)) return 0;
++   for (k = 0; k < 64; k++)
++      if (m[k])
++      {
++         int sx = wrapx(f->ax[k] + f->line[0].spx) - f->ob_x[p], sy = wrapc(f->ay[k] + f->line[0].spy) - f->ob_y[p];
++         if (sx < x0) x0 = sx;
++         if (sy < y0) y0 = sy;
++      }
++   if (x0 == 9999) return 0;
++   *x = x0; *y = y0;
++   return 1;
++}
+ /* 출력 칸 slot 의 몸 p — D+1·D+2 에서 포즈가 바뀌면(제자리) 캐시로. 1 = 계획함 */
+ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_frame *f2, unsigned realn, int h, int slot, int p)
+ {
+@@ -1953,12 +1976,24 @@ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+    A = id_find_pose(p, id_cur[p]);
+    B = id_find_pose(p, sb);
+    if (!B && fk) { id_capture(fk, p, mm, sb); B = id_find_pose(p, sb); }
+-   if (!A || !B || A->depth != B->depth || A->w != e->aw || A->h != e->ah || B->w != e->bw || B->h != e->bh
+-       || B->ox - A->ox != e->bdx || B->oy - A->oy != e->bdy) { mc_stats[3]++; return 0; }
++   if (!A || !B || A->depth != B->depth || A->w != e->aw || A->h != e->ah || B->w != e->bw || B->h != e->bh) { mc_stats[3]++; return 0; }
++   {  /* 자리(패치 99c) — 전엔 기억한 두 포즈의 «물체 자리 기준 왼쪽 위» 차가 캐시의 B 자리(bdx·bdy)와 한 픽셀이라도 다르면 버렸다.
++         물체 자리(RAM)와 스프라이트가 움직일 때 한 박자 어긋나 같은 포즈라도 잡힌 때마다 1~3 픽셀 달라, 바뀜의 10% 가 사이 그림 없이 툭 바뀌었다(검수 2026-10-11).
++         이제 A 는 지금 D 의 실제 자리에 놓고, B 는 D+K 의 실제 자리(K 를 모르는 되풀이 동작은 기억한 자리)와 캐시 자리의 차를 t 만큼 나눠 밀어 메운다.
++         차가 4 픽셀을 넘으면 다른 상황으로 보고 예전처럼 툭 */
++      int ax0, ay0, bx0, by0, rbx, rby, dx, dy;
++      if (!mc_top_left(f0, p, &ax0, &ay0)) { ax0 = A->ox; ay0 = A->oy; }
++      if (fk && mc_top_left(fk, p, &bx0, &by0)) { rbx = bx0 - ax0; rby = by0 - ay0; }
++      else { rbx = B->ox - A->ox; rby = B->oy - A->oy; }
++      dx = rbx - e->bdx; dy = rby - e->bdy;
++      if (dx < -4 || dx > 4 || dy < -4 || dy > 4) { mc_stats[3]++; return 0; }
++      rq->gx = ax0 + e->cx; rq->gy = ay0 + e->cy;
++      rq->sx4 = (ti + 1) * dx; rq->sy4 = (ti + 1) * dy;   /* t = (ti+1)/4 → 4배 화소로 t·차·4 */
++   }
+    rq->on = 1; rq->kind = 1; rq->pr = 0; rq->t256 = 64 * (ti + 1);
+    rq->e = e; rq->ti = ti; rq->A = A; rq->B = B;
+    rq->ax = f0->ob_x[p]; rq->ay = f0->ob_y[p];              /* 몸 자리는 보여 줄 D 의 것 — 움직이는 몸은 그리기에서 몸 조각의 옮김만큼 더 민다(패치 98) */
+-   rq->gx = A->ox + e->cx; rq->gy = A->oy + e->cy; rq->gw = e->w; rq->gh = e->h;
++   rq->gw = e->w; rq->gh = e->h;
+    rq->depth = A->depth; rq->first = A->first < B->first ? A->first : B->first;
+    return 1;
+ }
+@@ -2040,7 +2075,7 @@ static int id_plan_learned(const ss2fg_frame *f0, const ss2fg_frame *f1, const s
+       /* 큰 바뀜(사이 그림이 반쯤에서 뒤 그림으로 넘어감)은 되풀이 동작(서기)일 때만 — 착지→서기·공격 끝 자세→서기처럼 한 번 지나가는
+          바뀜이면 그 자세가 끝나는 때가 앞당겨 보인다 */
+       if (!pr->small && !id_loop(p, id_cur[p], sb)) return 0;
+-      rq->on = 1; rq->kind = 0; rq->pr = pr; rq->t256 = t256;
++      rq->on = 1; rq->kind = 0; rq->pr = pr; rq->t256 = t256; rq->sx4 = rq->sy4 = 0;
+       rq->ax = id_ax[p]; rq->ay = id_ay[p];
+       rq->gx = pr->ox; rq->gy = pr->oy; rq->gw = pr->w; rq->gh = pr->h; rq->depth = pr->depth; rq->first = pr->first;
+       id_stats[1]++;
+@@ -2061,7 +2096,7 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+       uint8_t m[64], zrow[256];
+       int16_t srow[256];
+       uint16_t scan[256];
+-      int k, ux0, uy0, x0, y0, x1, y1, y, x, sx, sy, W4, mvx, mvy;
++      int k, ux0, uy0, x0, y0, x1, y1, y, x, sx, sy, W4, mvx, mvy, sh4x = 0, sh4y = 0;
+       pt->on = 0;
+       if (!rq->on || pp_on || fx_fade_on) continue;           /* 포즈·이펙트 섞기 중엔 몸 뺀 줄을 같게 못 만든다 */
+       if (!body_mask(base, p, m)) continue;
+@@ -2082,9 +2117,16 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+       else id_draw(rq->pr, rq->t256, id_tc);
+       W4 = rq->gw * ID_S;
+       ux0 = rq->ax + rq->gx + mvx; uy0 = rq->ay + rq->gy + mvy;
+-      x0 = ux0 < 0 ? 0 : ux0; y0 = uy0 < 0 ? 0 : uy0;
+-      x1 = ux0 + rq->gw > SS2FG_W ? SS2FG_W : ux0 + rq->gw;
+-      y1 = uy0 + rq->gh > SS2FG_H ? SS2FG_H : uy0 + rq->gh;
++      {  /* 캐시 사이 그림의 4배 밀기(패치 99c) — 틀이 그만큼 한두 픽셀 넓어진다. 조각 버퍼를 넘으면 밀지 않는다 */
++         int s4x = rq->sx4, s4y = rq->sy4;
++         int ex0 = s4x < 0 ? -((-s4x + ID_S - 1) / ID_S) : 0, ex1 = s4x > 0 ? (s4x + ID_S - 1) / ID_S : 0;
++         int ey0 = s4y < 0 ? -((-s4y + ID_S - 1) / ID_S) : 0, ey1 = s4y > 0 ? (s4y + ID_S - 1) / ID_S : 0;
++         if ((rq->gw + ex1 - ex0) * (rq->gh + ey1 - ey0) > ID_W * ID_H) { s4x = s4y = 0; ex0 = ex1 = ey0 = ey1 = 0; }
++         sh4x = s4x; sh4y = s4y;
++         x0 = ux0 + ex0 < 0 ? 0 : ux0 + ex0; y0 = uy0 + ey0 < 0 ? 0 : uy0 + ey0;
++         x1 = ux0 + rq->gw + ex1 > SS2FG_W ? SS2FG_W : ux0 + rq->gw + ex1;
++         y1 = uy0 + rq->gh + ey1 > SS2FG_H ? SS2FG_H : uy0 + rq->gh + ey1;
++      }
+       if (x1 <= x0 || y1 <= y0) continue;
+       rl_skip = m; rl_zout = zrow; rl_slot = srow;
+       for (y = y0; y < y1; y++)
+@@ -2096,11 +2138,13 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+          for (sy = 0; sy < ID_S; sy++)
+          {
+             uint16_t *dst = pt->px + ((y - y0) * ID_S + sy) * ((x1 - x0) * ID_S);
+-            const uint16_t *tw = id_tc + ((y - uy0) * ID_S + sy) * W4;
++            int ty = (y - uy0) * ID_S + sy - sh4y;
++            const uint16_t *tw = (ty >= 0 && ty < rq->gh * ID_S) ? id_tc + ty * W4 : 0;
+             for (x = x0; x < x1; x++)
+                for (sx = 0; sx < ID_S; sx++)
+                {
+-                  uint16_t c = scan[x], v = tw[(x - ux0) * ID_S + sx];
++                  int tx = (x - ux0) * ID_S + sx - sh4x;
++                  uint16_t c = scan[x], v = (tw && tx >= 0 && tx < W4) ? tw[tx] : ID_NONE;
+                   if (v != ID_NONE && in_win && x >= wx0 && x < wx1
+                       && (rq->depth > zrow[x] || (rq->depth == zrow[x] && srow[x] > rq->first)))
+                   {
+diff --git a/src/ss2sp.c b/src/ss2sp.c
+index b501eb0..9e632a9 100644
+--- a/src/ss2sp.c
++++ b/src/ss2sp.c
+@@ -40,6 +40,7 @@ extern uint8_t CPUExRAM[16384];
+ #define OFF_MODE       0x00A7   /* 메뉴/전투 판별 */
+ #define OFF_HP1        0x1A46
+ #define OFF_HP2        0x1C46
++#define OFF_CMDRING    0x1DD0   /* 커맨드 고리 — [0x1DD0] = 커서(0~0x7F), 칸 k 는 0x1DD0+k (0 칸은 게임이 안 쓴다) */
+ 
+ /* ── 패드 비트 (libretro.c의 input_buf 인코딩과 동일) ────────────── */
+ #define PAD_UP    0x01
+@@ -50,10 +51,12 @@ extern uint8_t CPUExRAM[16384];
+ #define PAD_B     0x20          /* NGP B = 강베기 */
+ 
+ /* ── 타이밍 (프레임) ────────────────────────────────────────────── */
+-static int ss2_step_frames(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_STEP"); v=e?atoi(e):3;} return v; }
++/* 99c: 3 → 2 — 게임은 2 프레임(1 틱)마다 패드를 읽는다. 1 은 틱 사이에 빠져 안 되고, 2 는 실측 76/76(15인·두 유파) */
++static int ss2_step_frames(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_STEP"); v=e?atoi(e):2;} return v; }
+ #define STEP_FRAMES   ss2_step_frames()   /* 방향 1개 유지 */
+-/* 버튼 유지 프레임 — 실험용으로 SS2SP_HOLD 로 바꿔 볼 수 있다(브라우저 최속은 3) */
+-static int ss2_hold_frames(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_HOLD"); v=e?atoi(e):6;} return v; }
++/* 버튼 유지 프레임 — 실험용으로 SS2SP_HOLD 로 바꿔 볼 수 있다(브라우저 최속은 3).
++   99c: 6 → 2 — 약은 버튼을 떼야 나가서(강약을 누른 길이로 가른다) 오래 잡을수록 늦었다. 2 = 한 틱은 꼭 보인다(실측 76/76) */
++static int ss2_hold_frames(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_HOLD"); v=e?atoi(e):2;} return v; }
+ #define HOLD_FRAMES   ss2_hold_frames()
+ /* ── 강/약 ────────────────────────────────────────────────────────
+    게임은 버튼을 얼마나 오래 잡고 있었는지로 강·약을 가른다.
+@@ -166,11 +169,77 @@ static uint8_t ss2_mirror(uint8_t pad)
+    게임이 버튼을 점프 준비 프레임 너머로 버퍼링해서 이륙 즉시(저공) 발동한다.
+    실측(우쿄 나찰 츠바메, 간다라전): 모션 직후 ↑+A 동시(t=0)부터 t=9까지 전부 성공,
+    t=0이 최저공. 사람 손의 2368/2369 입력(유저 제보)을 그대로 기계화한 것. */
++/* ── 최속 발동(코어 패치 99c) — 모션을 손 대신 게임의 커맨드 고리에 바로 적는다 ───────────────────────
++   게임은 1 틱(2 프레임)마다 패드 바이트를 128칸 고리(0x1DD0 + 커서)에 적고, 버튼이 들어온 틱에 매처가 커서에서 뒤로 훑는다.
++   리셋(0x1DCD=1)이 하는 일은 «지금 칸 바로 앞에 0xFF(센티널)» 하나다(실측). 그래서 SP 를 누른 프레임에
++   고리의 바로 앞 칸들에 모션 방향(방향마다 2칸 = 사람이 4 프레임씩 잡은 것)을 적고 그 앞에 센티널을 적은 뒤,
++   이번 프레임부터 «마지막 방향+버튼» 만 낸다 → 모션을 치는 프레임이 없다.
++   실측(15인·두 유파, 같은 기술이 나오는지 매크로와 대조): 눌러서 필살기 액션까지 중앙 3 프레임(예전 매크로 3·6 은 16, 2·2 는 10).
++   유저 2026-10-11 「그 커맨드 입력 자리 메모리를 알아서 커맨드 때려 넣어서 최속 발동으로는 안 되나」.
++   센티널·모션·버튼 칸이 고리의 0 칸에 걸리면(커서가 한 바퀴 도는 자리, 드물다) 예전 매크로로. SS2SP_INJECT=0 = 늘 매크로(대조용) */
++#define INJ_REP 2
++static int ss2_inject_on(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_INJECT"); v=e?atoi(e):1;} return v; }
++/* 자기 기본기를 막 낸 참이면 게임이 필살기 버튼을 아직 안 받는다(실측: 약베기 3~5 프레임 뒤에 누르면 불발, 7 부터 됨 —
++   예전 매크로는 모션을 치느라 버튼이 늦게 들어가 우연히 맞았다). 그 나이가 될 때까지 미뤘다가 써 넣는다 */
++static int ss2_atk_wait(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_ATKWAIT"); v=e?atoi(e):7;} return v; }
++static const ss2_move *deferred;   /* 미룬 기술 */
++static int       deferred_tk, deferred_left;
++static uint32_t  atk_since;        /* 지금 자기 기본기(0x50~0xFF)가 시작된 프레임 */
++static int       atk_prev = -1;
++static uint32_t  btn_since = (uint32_t)-1000;   /* 유저가 A·B 를 마지막으로 새로 누른 프레임 — 액션이 바뀌기 전 1~2 프레임도 기본기로 본다 */
++static uint8_t   prev_btn;
++static const ss2_move *retry_m;    /* 기본기 중에 써 넣었는데 안 나가면 기본기가 끝날 때 한 번 더 */
++static int       retry_tk, retry_left;
++static int ss2_atk_young(int act)
++{
++   int w = ss2_atk_wait();
++   if ((int)(frame_no - btn_since) < w) return 1;
++   return act >= 0x50 && act <= 0xFF && (int)(frame_no - atk_since) < w;
++}
++static int ss2_inject(const ss2_move *m, int tk, int mirror)
++{
++   uint8_t dirs[16], fin;
++   int nd = 0, ne, c, k, last = tk ? m->len : m->len - 1;
++   if (!ss2_inject_on() || last < 0) return 0;
++   {
++      int act = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8);
++      if (ss2_atk_young(act)) { deferred = m; deferred_tk = tk; deferred_left = 40; return -1; }
++      /* 기본기 중이면(받아 줄 수도, 안 받아 줄 수도) — 안 나가면 기본기가 끝날 때 한 번 더 */
++      if (act >= 0x50 && act <= 0xFF) { retry_m = m; retry_tk = tk; retry_left = 60; }
++      else retry_m = 0;
++   }
++   for (k = 0; k < last; k++)
++   {
++      uint8_t d = m->motion[k];
++      if (mirror) d = ss2_mirror(d);
++      if (nd >= 16) return 0;
++      dirs[nd++] = d;
++   }
++   ne = nd * INJ_REP;
++   c = CPUExRAM[OFF_CMDRING] & 0x7F;
++   for (k = -ne; k <= 2; k++) if (((c + k) & 0x7F) == 0) return 0;   /* 0 칸에 걸림 — 매크로로 */
++   CPUExRAM[OFF_CMDRING + ((c - ne) & 0x7F)] = 0xFF;                   /* 센티널 = 게임 리셋과 같은 것 */
++   for (k = 0; k < ne; k++) CPUExRAM[OFF_CMDRING + ((c - ne + 1 + k) & 0x7F)] = dirs[k / INJ_REP];
++   if (tk) { uint8_t d9 = PAD_UP | PAD_RIGHT; if (mirror) d9 = ss2_mirror(d9); fin = (uint8_t)(d9 | m->btn); }
++   else    { uint8_t d = m->len ? m->motion[m->len - 1] : 0; if (mirror) d = ss2_mirror(d); fin = (uint8_t)(d | m->btn); }
++   q_n = q_i = 0;
++   q[q_n].pad = fin; q[q_n].frames = HOLD_FRAMES; q[q_n].sustain = 1; q_n++;   /* 트리거를 잡고 있으면 늘어난다(강) */
++   q[q_n].pad = 0; q[q_n].frames = TAIL_FRAMES; q[q_n].sustain = 0; q_n++;
++   if (ss2_dbg()) fprintf(stderr, "[ss2sp] inject %s c=%d ne=%d fin=%02x\n", m->name, c, ne, fin);
++   return 1;
++}
++
+ static void ss2_compile_ex(const ss2_move *m, int tk)
+ {
+    int i, mirror = (CPUExRAM[OFF_FACING] == 1);
+    q_n = q_i = 0;
+ 
++   {
++      int r = ss2_inject(m, tk, mirror);
++      if (r > 0) goto started;
++      if (r < 0) return;                       /* 미뤘다 — ss2sp_frame 이 때가 되면 다시 부른다 */
++   }
++
+    /* 방향 오염 보정 — ⚠️ **조건부**로만 넣는다.
+       좌/우로 시작하는 커맨드는 걷던 입력과 이어붙어 매처가 엉뚱하게 물린다.
+       그래서 중립 프레임을 앞에 넣는데, 이걸 **항상** 넣으면 발동이 12프레임(0.2초) 느려진다.
+@@ -226,6 +295,7 @@ static void ss2_compile_ex(const ss2_move *m, int tk)
+       if (!noreset) CPUExRAM[OFF_CMDRESET] = 1;   /* ★ 입력 이력 리셋 */
+    }
+ 
++started:
+    q_left = q[0].frames;
+    hold_elapsed = 0;
+    ss2sp_last_strong = 0;
+@@ -358,6 +428,42 @@ uint8_t ss2sp_frame(uint8_t pad, uint16_t trig)
+    frame_no++;
+    if (CPUExRAM[OFF_MODE] == 241) { if (ss2_mode_warm < 1000) ss2_mode_warm++; }
+    else ss2_mode_warm = 0;
++   {  /* 자기 기본기 나이 — 새 기본기(다른 액션)로 바뀌면 다시 0 부터. 유저가 A·B 를 새로 누른 때도 */
++      int act = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8);
++      int a = (act >= 0x50 && act <= 0xFF) ? act : -1;
++      uint8_t b = (uint8_t)(pad & (PAD_A | PAD_B));
++      if (a >= 0 && a != atk_prev) atk_since = frame_no;
++      atk_prev = a;
++      if (b & ~prev_btn) btn_since = frame_no;
++      prev_btn = b;
++   }
++   /* 기본기 중에 써 넣은 기술이 안 나갔다 — 기본기가 끝나 서면 한 번 더(그때는 늘 받아 준다) */
++   if (retry_m && !ss2_active() && !deferred)
++   {
++      int act = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8);
++      if (act >= 0x180 || act >= 0x100 || CPUExRAM[OFF_MODE] != 241 || --retry_left <= 0 || edge) retry_m = 0;   /* 나갔거나 맞았거나 새 입력 */
++      else if (act < 0x50 && CPUExRAM[OFF_Y] == 128 && ss2_actable())
++      {
++         const ss2_move *rm = retry_m;
++         retry_m = 0;
++         ss2_compile_ex(rm, retry_tk);
++         if (ss2_active()) return ss2_step_out(hold_bit && (trig & hold_bit));
++      }
++   }
++   /* 미룬 기술(최속 발동이 자기 기본기 직후라 기다리는 중) — 때가 되면 써 넣고, 그동안은 중립 */
++   if (deferred && !ss2_active())
++   {
++      int act = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8);
++      if (CPUExRAM[OFF_MODE] != 241 || act >= 0x100 || --deferred_left <= 0) deferred = 0;   /* 판이 끝났거나 맞았다 */
++      else if (!ss2_atk_young(act))
++      {
++         const ss2_move *dm = deferred;
++         deferred = 0;
++         ss2_compile_ex(dm, deferred_tk);
++      }
++      if (deferred) return 0;
++      if (ss2_active()) return ss2_step_out(hold_bit && (trig & hold_bit));
++   }
+    /* v0.5.4: 전투가 끝났는데 보류(pending)가 남아 있으면 버린다.
+       라운드가 끝나는 순간 누른 입력이 다음 라운드에서 뒤늦게 터지는 것을 막는다
+       (브라우저판 사용자 제보: "SP가 귀신터치마냥 눌린다"). */
+@@ -399,6 +505,7 @@ uint8_t ss2sp_frame(uint8_t pad, uint16_t trig)
+       if (ab && !prev_ab && back && !ss2_active() && !pending)
+       {
+          hold_bit = 0;                       /* 비오의는 강약이 없다 */
++         btn_since = (uint32_t)-1000;        /* 이 A+B 는 비오의 트리거 — 기본기로 보고 미루지 않는다(게임엔 안 들어간다) */
+          if (CPUExRAM[OFF_Y] == 128 && ss2_actable()) ss2_compile(&ss2_super);
+          else { pending = &ss2_super; pending_left = 40;   /* v0.5.4: 90f(1.5초) → 40f(0.67초) */ }
+       }
+@@ -623,6 +730,7 @@ void ss2sp_reset(void)
+    hold_bit = 0; hold_elapsed = 0; ss2sp_last_strong = 0;
+    verify_left = 0;
+    ss2_mode_warm = 0;
++   deferred = 0; deferred_left = 0; atk_prev = -1; retry_m = 0; btn_since = (uint32_t)-1000; prev_btn = 0;
+    ss2sp_last_ok = -1;
+    ss2sp_last_name = 0;
+ }

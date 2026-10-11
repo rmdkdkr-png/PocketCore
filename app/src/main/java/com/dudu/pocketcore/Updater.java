@@ -218,6 +218,32 @@ public final class Updater {
         }
     }
 
+    /** 런처가 켜질 때(앱이 최신일 때) 팩만 조용히 — 와이파이 같은 무제한 연결일 때만. 받을 게 없으면 아무 말도 안 한다.
+     *  113: 시험 판 사무쇼2 모션 캐시가 «업데이트 확인»을 한 번 더 눌러야 받혀, 받은 줄 모르고 «효과가 있는 거임?»(유저 2026-10-11) */
+    static void autoPacks(Activity act) {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) act.getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+            if (cm == null || cm.isActiveNetworkMetered()) return;
+            byte[] jb = fetch(baseUrl() + "/" + CORES_INDEX, 10000);
+            JSONObject root = new JSONObject(new String(jb, "UTF-8"));
+            StringBuilder got = new StringBuilder();
+            long my = 0;
+            try { my = act.getPackageManager().getPackageInfo(act.getPackageName(), 0).getLongVersionCode(); }
+            catch (Throwable t) { try { my = act.getPackageManager().getPackageInfo(act.getPackageName(), 0).versionCode; } catch (Throwable ignored) { } }
+            JSONObject ext = root.optJSONObject("packs_ext");
+            if (ext != null) {
+                java.util.Iterator<String> it = ext.keys();
+                while (it.hasNext()) {
+                    JSONObject e = ext.getJSONObject(it.next());
+                    if (my < e.optLong("min", Long.MAX_VALUE)) continue;
+                    syncPack(act, e, got);
+                }
+            }
+            if (got.length() > 0)
+                toast(act, "새로 받음: " + got + " — 게임을 다시 열면 적용됩니다");
+        } catch (Throwable ignored) { /* 조용히 — 다음에 업데이트 확인 때 받는다 */ }
+    }
+
     /** 팩 하나 — 시스템 폴더에 file 로 받는다(같은 ver 면 건너뜀, size 가 다르면 버림). */
     private static void syncPack(Activity act, JSONObject e, StringBuilder got) throws Exception {
         String ver = e.getString("ver");
