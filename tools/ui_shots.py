@@ -258,6 +258,8 @@ def run(tag, size, density, bar_labels, with_settings):
     time.sleep(9)
     dismiss_anr()
     shot(tag + "_03_game")
+    foc = sh("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'").strip().replace("\n", " | ")
+    print("focus", tag, foc)
     pv = view_bounds("PadView") or screen_box()
     print("PadView", pv)
     w, h = pv[2] - pv[0], pv[3] - pv[1]
@@ -397,6 +399,13 @@ def main():
     run("main", "1856x2160", 420, labels, True)
     run("cover", "904x2160", 420, labels, False)
     played_check("played", "1856x2160", 420, labels)
+    # 109: 덮개 화면 게임이 검게 멈춘(포커스 없음 ANR) 것 가르기 — 서기 그리기(4배 출력)를 끄고 한 번, 다시 켜고 한 번 더
+    sh("sed -i 's/^ngp_framegen_idle=draw/ngp_framegen_idle=off/' /sdcard/PocketCore/options.txt")
+    print("opts idle", sh("grep ngp_framegen_idle /sdcard/PocketCore/options.txt").strip())
+    run("coveroff", "904x2160", 420, labels, False)
+    sh("sed -i 's/^ngp_framegen_idle=off/ngp_framegen_idle=draw/' /sdcard/PocketCore/options.txt")
+    print("opts idle", sh("grep ngp_framegen_idle /sdcard/PocketCore/options.txt").strip())
+    run("coveragain", "904x2160", 420, labels, False)
     sh("wm size reset")
     sh("wm density reset")
 
