@@ -475,6 +475,7 @@ public final class LauncherView extends View {
         int n = items.size();
         if (n == 0) return;
         sel = (sel + d % n + n) % n;
+        android.util.Log.i("PocketUi", "sel " + (sel + 1) + " / " + n);     /* ui_shots 가 카드가 넘어갔는지 본다(캔버스라 노드가 없다) */
         performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
         invalidate();
     }

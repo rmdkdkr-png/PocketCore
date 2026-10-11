@@ -315,8 +315,15 @@ def played_check(tag, size, density, bar_labels):
     time.sleep(6)
     dismiss_anr()
     shot(tag + "_1_before")
-    sh("input keyevent 22")                                            # 오른쪽 = 다음 카드
+    adb("logcat", "-c")
+    sh("input keyevent 22")                                            # 십자 오른쪽 = 다음 카드(터치 뒤 첫 입력도 먹혀야 — 109)
     time.sleep(1)
+    moved = "sel 2 / 2" in adb("logcat", "-d", "-s", "PocketUi:I", out=True).decode(errors="replace")
+    print("dpad moved", moved)
+    if not moved:                                                      # 안 넘어갔으면 오른쪽 카드를 눌러 넘긴다
+        sw, sh_ = screen_box()[2], screen_box()[3]
+        sh("input tap %d %d" % (int(sw * 0.87), int(sh_ * 0.27)))
+        time.sleep(1)
     shot(tag + "_2_moved")
     sh("input keyevent 66")                                            # 확인 = 바로 시작
     time.sleep(8)
