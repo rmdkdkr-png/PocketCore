@@ -167,7 +167,23 @@ def screen_box():
     return (0, 0, int(m.group(1)), int(m.group(2))) if m else (0, 0, 1080, 1920)
 
 
-def settings_pages(tag, pages):
+def dial_under(help_prefix, density=420):
+    """설명 글 바로 아래 다이얼 바(DialBar 는 캔버스라 노드가 없다) — SettingsActivity.row: 설명 아래 8dp, 높이 36dp."""
+    b = find(lambda n: (n.get("text") or "").startswith(help_prefix))
+    if not b:
+        print("no help", help_prefix)
+        return None
+    dp = density / 160.0
+    return (b[0], int(b[3] + 8 * dp), b[2], int(b[3] + 44 * dp))
+
+
+def scroll_top():
+    for _ in range(3):
+        sh("input swipe 500 500 500 1700 200")
+        time.sleep(0.6)
+
+
+def settings_pages(tag, pages, custom_check=False):
     shot(tag + "_06_settings_top")
     for page in pages:
         if tap_text(page):
@@ -175,9 +191,25 @@ def settings_pages(tag, pages):
             scroll_shots("%s_07_%s" % (tag, page), 3)
             if page == "움직임·반응" and tap_text("보간 고급"):      # 숨은 쪽(고급)
                 time.sleep(2)
+                if custom_check and tap_text("배수"):                 # 세부 하나를 바꾸면 보간 = 「커스텀」(108)
+                    time.sleep(1)
                 scroll_shots("%s_07_adv" % tag, 2)
                 sh("input keyevent 4")
                 time.sleep(1.5)
+                if custom_check:
+                    # 돌아온 「움직임·반응」 — 다시 짜여 「커스텀」 칸이 켜져야 한다(107 까지는 옛 칸이 켜진 채)
+                    scroll_top()
+                    shot("%s_07c_custom" % tag)
+                    bar = dial_under("120Hz = ")
+                    if bar:                                            # 120Hz 칸을 눌러 묶음으로 되돌린다
+                        sh("input tap %d %d" % (bar[0] + (bar[2] - bar[0]) // 6, (bar[1] + bar[3]) // 2))
+                        time.sleep(1)
+                        shot("%s_07d_back120" % tag)
+                        if tap_text("보간 고급"):                      # 배수가 4배로 돌아왔나
+                            time.sleep(2)
+                            shot("%s_07e_adv_after" % tag)
+                            sh("input keyevent 4")
+                            time.sleep(1.5)
             sh("input keyevent 4")
             time.sleep(1.5)
 
@@ -198,7 +230,7 @@ def run(tag, size, density, bar_labels, with_settings):
     sw, sh_ = screen_box()[2], screen_box()[3]
     if with_settings and tap_text("설정"):                       # 런처 아래 줄 「설정」
         time.sleep(2.5)
-        settings_pages(tag, PAGES)
+        settings_pages(tag, PAGES, custom_check=(tag == "main"))
         sh("input keyevent 4")
         time.sleep(2)
     chip = opt_chip()                                              # 카드 아래 「옵션 ›」 칩 → 실행 전 선택창
@@ -272,6 +304,44 @@ def run(tag, size, density, bar_labels, with_settings):
     shot(tag + "_10_qsave")
 
 
+def played_check(tag, size, density, bar_labels):
+    """지난번 게임에 커서 — 두 번째 카드로 옮겨 켠 뒤 「목록」으로 나와도, 앱을 새로 켜도 그 카드(2 / 2)에 있어야 한다
+    (유저 2026-10-11 「앞에 했던 게임에 커서 두는 거(처음 프론트엔드 때) 되냥」 — 105 에 넣은 것 확인)."""
+    sh("wm size %s" % size)
+    sh("wm density %d" % density)
+    sh("am force-stop %s" % PKG)
+    time.sleep(1)
+    adb("shell", "am", "start", "-n", PKG + "/com.dudu.pocketcore.MainActivity", "--ez", "menu", "true")
+    time.sleep(6)
+    dismiss_anr()
+    shot(tag + "_1_before")
+    sh("input keyevent 22")                                            # 오른쪽 = 다음 카드
+    time.sleep(1)
+    shot(tag + "_2_moved")
+    sh("input keyevent 66")                                            # 확인 = 바로 시작
+    time.sleep(8)
+    dismiss_anr()
+    shot(tag + "_3_game")
+    pv = screen_box()
+    w, h = pv[2] - pv[0], pv[3] - pv[1]
+    base = min(w, h)
+    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(max(base * 0.046, 30 * density / 160.0) / 2)))   # 메뉴 알약
+    time.sleep(1.5)
+    cells = bar_cells(w, h, bar_labels, density)
+    if "목록" in cells:
+        cx, cy = cells["목록"]
+        sh("input tap %d %d" % (pv[0] + int(cx), pv[1] + int(cy)))
+    time.sleep(6)
+    dismiss_anr()
+    shot(tag + "_4_list")                                              # 「목록」으로 나옴
+    sh("am force-stop %s" % PKG)
+    time.sleep(1)
+    adb("shell", "am", "start", "-n", PKG + "/com.dudu.pocketcore.MainActivity")   # 앱을 새로 켬(목록 표시 없이)
+    time.sleep(9)
+    dismiss_anr()
+    shot(tag + "_5_cold")
+
+
 def wait_ready():
     adb("wait-for-device")
     for i in range(120):
@@ -310,6 +380,7 @@ def main():
     labels = os.environ.get("BAR_LABELS", "슬롯 1,저장,로드,리셋,설정,배치,목록,종료").split(",")
     run("main", "1856x2160", 420, labels, True)
     run("cover", "904x2160", 420, labels, False)
+    played_check("played", "1856x2160", 420, labels)
     sh("wm size reset")
     sh("wm density reset")
 

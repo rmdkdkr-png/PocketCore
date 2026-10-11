@@ -315,7 +315,7 @@ public final class LaunchSheet {
                 @Override public void onPick(int k) {
                     o.cur = o.vals[k];
                     if (o.kind == 0) { Map<String, String> m = Settings.load(); Settings.put(o.key, "on".equals(o.cur) ? onLang(m, o.g) : offLang(m, o.g)); }
-                    else Settings.put(o.key, o.cur);
+                    else Settings.putUser(o.key, o.cur);   /* 보간 묶음이면 세부 값도 같이 — 107 까지 put 이라 바로 고른 60Hz 가 이름만 바뀌었다 */
                     val.setText(o.name());
                 }
             });
