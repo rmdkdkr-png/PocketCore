@@ -50,6 +50,8 @@ public class EmuActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        /* 볼륨 키 = 미디어(게임 소리) 음량 — 안 정하면 삼성은 «재생 중»을 못 알아챌 때 벨소리 음량을 바꾼다(유저 2026-10-10 「볼륨 조절이 앱에서 안 되던데」) */
+        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         romPath = getIntent().getStringExtra("rom");
         game = Games.identify(romPath);
         romType = (game != null) ? game.id : "svc";
@@ -128,6 +130,7 @@ public class EmuActivity extends Activity {
             @Override public void onAction(int action) { handleAction(action); }
             @Override public void onTurbo(boolean on) { Emu.nativeSetTurbo(on); }
             @Override public void onScreenDrag(float dxFrac, float dyFrac) {
+                freezeAutoFit();
                 int w = root.getWidth(), hgt = root.getHeight();
                 int gw = w * scrPct / 100, gh = hgt * scrPct / 100;
                 if (w > gw)  scrX = clamp(scrX + Math.round(dxFrac * w * 100f / (w - gw)), 0, 100);
@@ -135,10 +138,17 @@ public class EmuActivity extends Activity {
                 placeScreen();
             }
             @Override public void onScreenScale(int dPct) {
+                freezeAutoFit();
                 scrPct = clamp(scrPct + dPct, 20, 100);
                 placeScreen(); persistScreen();
             }
             @Override public void onScreenDrop() { persistScreen(); }
+            /* 메뉴가 열려 있는 동안 게임을 멈춘다 — 고르는 사이 맞지 않게(Delta 의 멈춤 메뉴). 옵션 창이 떠 있으면 그 창이 멈춤을 쥔다 */
+            @Override public void onMenu(boolean open) {
+                if (open) { releasePhysical(); refreshSlotInfo(); }
+                if (!loaded) return;
+                Emu.nativeSetPaused(open || (sheet != null && sheet.isShowing()));
+            }
         });
 
         root = new FrameLayout(this);
@@ -183,6 +193,11 @@ public class EmuActivity extends Activity {
         }
         java.util.Map<String, String> m = Settings.load();
         scrPct = clamp(intOf(m.get("pocketcore_screen_size"), 100), 20, 100);
+        /* 크기·자리를 한 번도 안 정했으면(옵션 없음) 세로 화면에서 «패드 위에 맞춤» — 폴드 큰 화면처럼 정사각에 가까우면
+           가로 꽉 채운 게임이 높이의 80% 를 먹어 패드가 그림을 반쯤 덮었다(유저 2026-10-10 「인터페이스 좀 손봐 줘」).
+           배치에서 끌거나 크기를 바꾸면 그 값이 저장돼 이 자동 맞춤은 꺼진다. */
+        autoFit = m.get("pocketcore_screen_size") == null && m.get("pocketcore_screen_x") == null
+               && m.get("pocketcore_screen_y") == null && m.get("pocketcore_screen_v") == null;
         /* 자리: x·y 퍼센트(남는 공간 대비 0~100). 없으면 옛 top/center 계열에서 변환.
            「키」 편집에서 화면 상자를 끌면 이 값이 갱신·저장된다. */
         String v = or(m.get("pocketcore_screen_v"), "center");
@@ -214,6 +229,19 @@ public class EmuActivity extends Activity {
     }
 
     private int scrPct = 100, scrX = 50, scrY = 50;
+    private boolean autoFit = false;       /* 크기·자리 미설정 — 세로에서 게임을 위쪽, 패드 자리(아래 44%) 위에 맞춘다 */
+    /** 자동 맞춤 상자를 같은 자리의 크기·자리 값으로 바꿔 넣는다 — 배치에서 끌기 시작할 때 튀지 않게. */
+    private void freezeAutoFit() {
+        if (!autoFit || gl == null || root == null) return;
+        autoFit = false;
+        int w = root.getWidth(), hgt = root.getHeight();
+        android.view.ViewGroup.LayoutParams lp0 = gl.getLayoutParams();
+        if (w <= 0 || hgt <= 0 || !(lp0 instanceof FrameLayout.LayoutParams)) return;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) lp0;
+        scrPct = clamp(Math.round(lp.width * 100f / w), 20, 100);
+        scrX = 50;
+        scrY = hgt > lp.height ? clamp(Math.round(lp.topMargin * 100f / (hgt - lp.height)), 0, 100) : 50;
+    }
     private KeyMap keymap;                 /* 물리 패드 매핑 표 */
     private volatile int axisMask;         /* 스틱·HAT 십자 → 방향 비트 (장치별 합, 리뷰 F3) */
     private final android.util.SparseIntArray axisByDev = new android.util.SparseIntArray();
@@ -242,13 +270,22 @@ public class EmuActivity extends Activity {
         int gw = w * scrPct / 100;
         int gh = gw * fh / gameW;
         /* 가로에선 메뉴 알약 띠(짧은 변의 4.6%)를 게임 상자 위에 예약 — 알약이 HUD 를 덮지 않게(리뷰 F14) */
-        int top = (w > hgt) ? Math.round(Math.min(w, hgt) * 0.05f) : 0;
+        float dpx = getResources().getDisplayMetrics().density;
+        int pillGap = Math.round(PadView.handleH(w, hgt, dpx) + 4 * dpx);      /* 메뉴 알약 아래부터 — 알약이 커져도 HUD 를 안 덮게 */
+        int top = (w > hgt) ? Math.max(Math.round(Math.min(w, hgt) * 0.05f), pillGap) : 0;
         int capH = (hgt - top) * scrPct / 100;
         if (gh > capH) { gh = capH; gw = gh * gameW / fh; }
         if (gameW != fw) gw = w;
         android.util.Log.i("PocketCore", "placeScreen root " + w + "x" + hgt + " frame " + fw + "x" + fh + " box " + gw + "x" + gh);
         int mx = (w - gw) * clamp(scrX, 0, 100) / 100;
         int my = top + (hgt - top - gh) * clamp(scrY, 0, 100) / 100;
+        if (autoFit && hgt > w && gameW == fw) {
+            /* 세로·자동: 메뉴 알약 아래(짧은 변 5%)부터 높이 56% 까지 — 그 아래는 패드 자리 */
+            int top2 = Math.max(Math.round(Math.min(w, hgt) * 0.05f), pillGap), maxH = Math.round(hgt * 0.56f) - top2;
+            gw = w; gh = w * fh / gameW;
+            if (gh > maxH) { gh = maxH; gw = gh * gameW / fh; }
+            mx = (w - gw) / 2; my = top2;
+        }
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(gw, gh,
                 android.view.Gravity.TOP | android.view.Gravity.LEFT);
         lp.leftMargin = mx; lp.topMargin = my;
@@ -376,30 +413,77 @@ public class EmuActivity extends Activity {
         return new File(MainActivity.saveDir(), new File(romPath).getName() + ".state.auto");
     }
 
+    /** 되돌리기 자리 — 불러오기·리셋 직전 상태. 슬롯·오토세이브와 따로. */
+    private File undoPath() {
+        return new File(MainActivity.saveDir(), new File(romPath).getName() + ".state.undo");
+    }
+
+    /** 저장 칸·로드 칸 아래 줄 — 지금 슬롯에 뭐가 있는지(«3분 전» / «없음»). 메뉴를 열 때·저장·슬롯 바꿀 때 */
+    private void refreshSlotInfo() {
+        if (pad == null || romPath == null) return;
+        File f = statePath();
+        boolean has = f.exists() && f.length() > 0;
+        pad.setSlotInfo(has ? "덮어쓰기" : "빈 칸", has ? ago(f.lastModified()) : "없음");
+    }
+    private static String ago(long t) {
+        long sec = Math.max(0, (System.currentTimeMillis() - t) / 1000);
+        if (sec < 60) return "방금";
+        if (sec < 3600) return (sec / 60) + "분 전";
+        if (sec < 86400) return (sec / 3600) + "시간 전";
+        return (sec / 86400) + "일 전";
+    }
+
+    /** 지금 자리를 되돌리기 자리에 떠 두고 일(불러오기·리셋)을 한 뒤, 5초 동안 «되돌리기» 칩을 띄운다.
+     *  메뉴는 닫는다(게임이 그 자리에서 바로 이어진다 — 멈춘 채 불러오면 화면이 안 바뀌어 됐는지 모른다). */
+    private void withUndo(final String done, final Runnable work) {
+        pad.barClose();
+        gl.queueEvent(new Runnable() { @Override public void run() {
+            final boolean backed = Emu.nativeSaveState(undoPath().getAbsolutePath()) == 0;
+            work.run();
+            toast(done);
+            if (backed) h.post(new Runnable() { @Override public void run() { pad.offerUndo(); } });
+        }});
+    }
+
     private void handleAction(int action) {
         switch (action) {
         case PadView.ACT_SAVE:
+        case PadView.ACT_QSAVE: {
+            final boolean quick = action == PadView.ACT_QSAVE;
             gl.queueEvent(new Runnable() { @Override public void run() {
                 final int rc = Emu.nativeSaveState(statePath().getAbsolutePath());
-                toast(rc == 0 ? "상태 저장" : "상태 저장 실패");
+                toast(rc != 0 ? "저장 실패" : (quick ? "빠른 저장 · 슬롯 " : "저장 · 슬롯 ") + slot);
+                h.post(new Runnable() { @Override public void run() { refreshSlotInfo(); } });
+            }});
+            break; }
+        case PadView.ACT_LOAD: {
+            final File st = statePath();
+            if (!st.exists()) { toast("슬롯 " + slot + "은 비어 있어요"); break; }
+            withUndo("불러옴 · 슬롯 " + slot, new Runnable() { @Override public void run() {
+                if (Emu.nativeLoadState(st.getAbsolutePath()) != 0) toast("불러오기 실패");
+            }});
+            break; }
+        case PadView.ACT_UNDO:
+            gl.queueEvent(new Runnable() { @Override public void run() {
+                toast(Emu.nativeLoadState(undoPath().getAbsolutePath()) == 0 ? "되돌렸어요" : "되돌리기 실패");
             }});
             break;
-        case PadView.ACT_LOAD:
-            gl.queueEvent(new Runnable() { @Override public void run() {
-                final int rc = Emu.nativeLoadState(statePath().getAbsolutePath());
-                toast(rc == 0 ? "상태 불러옴" : "저장된 상태 없음");
-            }});
+        case PadView.ACT_LAYOUT_DEFAULT:
+            /* 배치 「처음대로」 — 버튼은 PadView 가 되돌렸다. 게임 화면 크기·자리 값을 지워 자동 맞춤으로 */
+            Settings.removePrefix("pocketcore_screen_");
+            applyScreenLayout();
+            toast("버튼과 화면을 처음 자리로");
             break;
         case PadView.ACT_SHOT:
             gl.queueEvent(new Runnable() { @Override public void run() { screenshot(); }});
             break;
         case PadView.ACT_RESET:
-            gl.queueEvent(new Runnable() { @Override public void run() { Emu.nativeReset(); }});
+            withUndo("리셋했어요", new Runnable() { @Override public void run() { Emu.nativeReset(); } });
             break;
         case PadView.ACT_SLOT:
             slot = slot % 3 + 1;
             pad.setSlotLabel(slot);
-            toast("상태 슬롯 " + slot);
+            refreshSlotInfo();
             break;
         case PadView.ACT_BAND:
             toggleCoreOpt("ngp_svcsp_band", "기술명 띠");
@@ -430,7 +514,7 @@ public class EmuActivity extends Activity {
                     new Runnable() { @Override public void run() {
                         startActivity(new Intent(EmuActivity.this, SettingsActivity.class).putExtra("rom", orig)); } });
             sheet.onClose = new Runnable() { @Override public void run() {
-                Emu.nativeSetPaused(false);
+                Emu.nativeSetPaused(pad.isBarOpen());          /* 메뉴가 아직 열려 있으면 계속 멈춤 */
                 applyDisplay(); pushCoreOpts(); } };
             break; }
         case PadView.ACT_PICK:
@@ -482,7 +566,7 @@ public class EmuActivity extends Activity {
             boolean four = "4".equals(readOpt("ngp_framegen_mult", "4"));
             boolean interp = "interp".equals(readOpt("ngp_framegen_mode", "predict"));
             sb.append(" · 코어: ").append(!coreFgOn() ? "끔" : coreOut
-                    ? "120Hz 출력 중(" + (four ? "4배" : "2배") + "·" + (interp ? "보간" : "예측") + ")" : "대기(아직 60)");
+                    ? "120Hz 출력 중(" + (four ? "4배" : "2배") + "·" + (interp ? "보간" : "예측") + ")" : "60Hz 사이 그림(예측)");
         }
         sb.append(" · 앱: ");
         if (fgMode == 0) sb.append("끔");
@@ -493,7 +577,8 @@ public class EmuActivity extends Activity {
     }
 
     /** 120Hz 를 요청할 이유 — 프레임 생성이 켜졌을 때(앱이든 코어든). 삼성은 요청이 없으면 60 으로 내린다. */
-    private boolean wantHighRefresh() { return fgMode != 0 || coreFgOn(); }
+    /* 「60Hz」(코어 사이 그림)은 120Hz 를 요청하지 않는다 — 60Hz 화면용·배터리 */
+    private boolean wantHighRefresh() { return fgMode != 0 || (coreFgOn() && !"60".equals(readOpt("ngp_framegen", "auto"))); }
 
     /** 창에는 최고 주사율 모드를, 표면에는 120fps 를 요청한다(끄면 기본으로). */
     private void applyFrameRate() {
@@ -746,6 +831,7 @@ public class EmuActivity extends Activity {
     private int mapKey(int code) { return keymap != null ? keymap.bitOf(code) : 0; }
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
+        if (KeyMap.isVolume(e.getKeyCode())) return super.dispatchKeyEvent(e);   /* 음량은 늘 시스템으로 — 창이 떠 있어도 */
         if (sheet != null && sheet.isShowing()) {           /* 옵션 창이 떠 있으면 패드는 창을 조작한다 */
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) return sheet.handleKey(e) || true;
             return true;

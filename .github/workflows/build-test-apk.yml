@@ -35,6 +35,42 @@ jobs:
             --title "Legacito 시험판 (${GITHUB_SHA::7})" \
             --notes "feat/framegen-art ${GITHUB_SHA::7} 자동 빌드. 정식판과 따로 깔린다(앱 이름 「Legacito 시험」, com.dudu.legacito.fgtest). 시험 서명 — 판번호 안 올림."
 
+  # UI 스크린샷 — 커밋 메시지에 [shots] 가 있을 때만. 에뮬레이터에 시험판을 깔고 가짜 롬(머리표만 맞춘 제자리 돌기)으로
+  # 런처·실행 전 창·게임 화면 패드·메뉴·설정 화면을 폴드 큰 화면/덮개 화면 크기로 찍어 아티팩트 ui-shots 에 둔다(tools/ui_shots.py).
+  ui-shots:
+    needs: build
+    if: contains(github.event.head_commit.message, '[shots]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: PocketCore-fgtest
+          path: apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Emulator shots
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -skin 1856x2160
+          disable-animations: true
+          script: python3 tools/ui_shots.py apk/app-debug.apk shots
+      - name: Publish shots to release ui-shots
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd shots && zip -q -r ../ui-shots.zip .) || true
+          gh release delete ui-shots -y --cleanup-tag || true
+          gh release create ui-shots ui-shots.zip --prerelease --target "${GITHUB_SHA}" \
+            --title "CI — UI 스크린샷 (${GITHUB_SHA::7})" --notes "가짜 롬(제자리 돌기)으로 찍은 앱 화면. 설치·배포물 아님."
+
   # Legacito 정식 서명용 — 서명 안 한 릴리즈 APK(zipalign 끝)와 apksigner.jar 를 태그 ci-release 에 둔다.
   # 서명 키는 저장소에 없다(공개 저장소). 클로드 세션이 받아서 새 키로 서명한 뒤 태그 app 에 올린다 — tools/SIGNING.md
   release-unsigned:

@@ -26,6 +26,8 @@ public class PadView extends View {
         void onScreenDrag(float dxFrac, float dyFrac);
         void onScreenScale(int dPct);
         void onScreenDrop();
+        /** 메뉴(상단바)나 배치가 열리고 닫힐 때 — 열려 있는 동안 게임을 멈춘다(Delta 처럼 «멈춤 메뉴»). */
+        void onMenu(boolean open);
     }
 
     /* 게임 화면의 현재 자리 — EmuActivity 가 배치 때마다 알려 준다 (편집 상자용) */
@@ -42,6 +44,9 @@ public class PadView extends View {
     public static final int ACT_QUIT = 11;                    /* 앱 종료 — 「목록」(ACT_PICK)과 달라야 한다(유저 2026-09-05) */
     public static final int ACT_FRAMEGEN = 12;                /* 앱 프레임 생성 끔→움직임→섞기 */
     public static final int ACT_COREFG = 13;                  /* 코어 프레임 생성(사무쇼2) 켬/끔 */
+    public static final int ACT_UNDO = 14;                    /* 되돌리기 — 불러오기·리셋 직전 자리로(5초 동안 칩) */
+    public static final int ACT_QSAVE = 15;                   /* 빠른 저장 — 메뉴 알약 길게 누르기 */
+    public static final int ACT_LAYOUT_DEFAULT = 16;          /* 배치 「처음대로」 — 게임 화면 자리도 자동 맞춤으로 */
     public static final int ACT_SAVE = 1, ACT_LOAD = 2, ACT_SHOT = 3, ACT_RESET = 4, ACT_PICK = 5, ACT_SLOT = 6, ACT_SPK = 7,
             /* 설정 — 게임 안에서 바로 연다. 예전에는 「롬」으로 게임을 내리고
                목록 맨 아래까지 가야 닿았다. 설정 하나 보려고 게임을 끄는 건 말이 안 된다. */
@@ -60,8 +65,7 @@ public class PadView extends View {
         { "TECH", "기술", 11, 0.90f, 0.60f, 1.25f },
         { "AB",   "A+B", 10, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
-        { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
-        { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
+        { "FF",   "▶▶",  -3, 0.94f, 0.17f, 0.80f },
     };
     private static final Object[][] P_SS2 = {
         { "DPAD", "",     -1, 0.22f, 0.76f, 1.00f },
@@ -70,8 +74,7 @@ public class PadView extends View {
         { "SP",   "SP",    9, 0.90f, 0.56f, 1.20f },
         { "AB",   "A+B",   1, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
-        { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
-        { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
+        { "FF",   "▶▶",  -3, 0.94f, 0.17f, 0.80f },
     };
     /* KOF R-2 — SP 엔진(설정 「KOF 원버튼」 켬): R(비트11)=SP, 탭=약/홀드=강(문턱 6프레임,
        코어가 잰다 — SVC 의 12 와 다르다, 이식소 실측). L(비트10)=A+B. 슬롯은 잡은 방향:
@@ -85,8 +88,7 @@ public class PadView extends View {
         { "SP",   "SP",   11, 0.90f, 0.56f, 1.20f },
         { "AB",   "A+B",  10, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
-        { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
-        { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
+        { "FF",   "▶▶",  -3, 0.94f, 0.17f, 0.80f },
     };
     /* 순정 NGPC — 원버튼 엔진이 없는 게임(메탈슬러그 등). NGP 실기 그대로 A·B 두 개만.
        기술·강약 버튼을 여기 두면 안 나가는 버튼이 화면만 차지한다는 제보로 분리했다. */
@@ -95,8 +97,7 @@ public class PadView extends View {
         { "A",    "A",     0, 0.68f, 0.80f, 1.15f },
         { "B",    "B",     8, 0.88f, 0.70f, 1.15f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
-        { "FF",   "▶▶",  -3, 0.94f, 0.09f, 0.80f },
-        { "EXIT", "목록", -4, 0.06f, 0.09f, 0.75f },
+        { "FF",   "▶▶",  -3, 0.94f, 0.17f, 0.80f },
     };
     private static final int[] BTN_COL_ON  = { 0x8866aaff, 0x88ff5566, 0x884477cc, 0x88cc3344, 0x88ffcc44, 0x8899eeaa };
     private static final int[] BTN_COL_OFF = { 0x4466aaff, 0x44ff5566, 0x444477cc, 0x44cc3344, 0x44ffcc44, 0x4499eeaa };
@@ -131,26 +132,32 @@ public class PadView extends View {
 
     private float dpadR, btnR;
     private final RectF opt = new RectF();
-    private final RectF[] util = new RectF[11];
+    /* 상단바 칸 — 2026-10-10 유저 「버튼이나 전반적 인터페이스 좀 손봐 줘, 뺄 거 빼고」 로 정리:
+         상태(슬롯·저장·로드·리셋) · 설정·배치 · 나가기(목록·종료). 한 줄로 들어가면 한 줄(폴드 큰 화면), 좁으면 두 줄.
+       뺀 것: 샷(폰 화면 캡처로 충분) · 띠·앱보간·코어120 즉석 토글(설정에 있음, 실험용이었다) ·
+       화면 구석의 둥근 「목록」 버튼(메뉴 칸과 겹쳐 그려졌다 — 이제 메뉴 안 「목록」) */
+    private final RectF[] util = new RectF[8];
     /* 「종료」= 게임을 닫고 고르는 창으로 (제보: 「롬」은 사실 종료 버튼인데 이름이 달랐다).
        「배치」= 버튼 자리·크기 + 게임 화면 상자까지 한꺼번에 편집(제보: 「키」란 이름이 좁았다). */
     /* 세 무리로 묶어 둔다 — 두 줄로 접힐 때 무리가 갈리지 않게 순서가 곧 배치다.
          ① 상태  슬롯·저장·로드·샷·리셋
          ② 이 게임(코어 기능)  띠 — 게임마다 있는 것만 칸이 생긴다 (기둥은 2026-09-07 폐기)
          ③ 마무리  설정·배치·종료 */
-    private final String[] utilLabel = { "슬롯1", "저장", "로드", "샷", "리셋",
-                                         "띠", "앱보간", "코어120", "설정", "배치", "종료" };
-    private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_SHOT, ACT_RESET,
-                                    ACT_BAND, ACT_FRAMEGEN, ACT_COREFG, ACT_CFG, 0, ACT_QUIT };
-    private static final int UTIL_FG = 6;     /* 「앱보간」 칸 — 라벨이 지금 모드를 보여 준다 */
-    private static final int UTIL_CFG_FG = 7; /* 「코어120」 칸 — 코어 프레임 생성이 있는 게임(사무쇼2)만 */
-    private static final int UTIL_EDIT = 9;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
+    private final String[] utilLabel = { "슬롯 1", "저장", "로드", "리셋", "설정", "버튼 배치", "목록", "종료" };
+    /* 칸 아래 작은 줄 — 저장 칸 «빈 칸/덮어쓰기», 로드 칸 «3분 전/없음». 불러오기 전에 무엇을 불러오는지 보이게(2026-10-11) */
+    private final String[] utilSub = new String[8];
+    private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_RESET, ACT_CFG, 0, ACT_PICK, ACT_QUIT };
+    private static final int UTIL_EDIT = 5;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
     private boolean hasCoreFg = false;
     /* 이 게임이 코어에서 쓰는 기능 — 게임별 칸은 여기서만 생긴다.
        전에는 「이 게임에 그 기능이 있나」를 패드 프로필 모양(prof == P_SS2)으로 판단했다.
        게임 표에 이미 있는 사실을 모양으로 되짚은 것이라 진실이 두 벌이 됐다.
        이제 EmuActivity 가 게임 표를 읽어 알려 준다. */
     private boolean hasBand = false;
+    private final RectF labPlate = new RectF();    /* 배치 모드 「화면」 이름표 판 */
+    private final RectF hintPlate = new RectF();   /* 배치 모드 안내 글 뒤 어두운 판 */
+    private static final String[] HINT_ONE = { "끌어서 옮기기 · 두 손가락·[－][＋]로 크기 · 「배치」로 저장" };
+    private static final String[] HINT_TWO = { "끌어서 옮기기 · 두 손가락·[－][＋]로 크기", "「배치」를 다시 누르면 저장" };
     private float barBottom = 0;   /* 두 줄로 접히므로 편집 안내문은 «마지막 줄» 아래에 놓는다 */
     private final RectF minus = new RectF(), plus = new RectF();
     private final RectF barHandle = new RectF();
@@ -171,7 +178,6 @@ public class PadView extends View {
         /* 가로에서 게임 상자는 가운데 약 43%(160:152 를 세로에 맞춤)를 차지하므로 오른쪽 무리는 72% 밖에 둔다 */
         { "DPAD", 0.13f, 0.64f }, { "WP", 0.78f, 0.82f }, { "WK", 0.90f, 0.72f },         { "TECH", 0.95f, 0.30f }, { "AB", 0.05f, 0.36f }, { "A", 0.80f, 0.78f },
         { "B", 0.92f, 0.62f }, { "SP", 0.94f, 0.36f }, { "OPT", 0.50f, 0.96f }, { "FF", 0.965f, 0.10f },
-        { "EXIT", 0.035f, 0.10f },
     };
     private int dragIdx = -1, dragPid = -1, selIdx = -1;
     /* 배치 모드 두 손가락 핀치 — 고른 상자(없으면 게임 화면)의 크기 (유저 2026-09-05 「두 손 드래그로 크기 변경」) */
@@ -220,15 +226,49 @@ public class PadView extends View {
     }
 
     public void setListener(Listener l) { listener = l; }
-    public void setSlotLabel(int n) { utilLabel[0] = "슬롯" + n; invalidate(); }
-    /** 「보간」 칸 라벨 — 끔/섞기/움직임 이 칸만 봐도 지금 모드가 보이게. */
-    public void setFrameGenLabel(String s) { utilLabel[UTIL_FG] = s; invalidate(); }
-    /** 「코어120」 칸 — 있느냐(사무쇼2)와 라벨. */
-    public void setCoreFg(boolean has, String label) {
-        utilLabel[UTIL_CFG_FG] = label;
-        if (has != hasCoreFg) { hasCoreFg = has; if (getWidth() > 0) layoutBar(getWidth(), getHeight()); }
-        invalidate();
+    public void setSlotLabel(int n) { utilLabel[0] = "슬롯 " + n; invalidate(); }
+    /** 지금 슬롯의 저장 상태 — 저장 칸·로드 칸 아래 줄 */
+    public void setSlotInfo(String saveSub, String loadSub) { utilSub[1] = saveSub; utilSub[2] = loadSub; invalidate(); }
+    private String cellLabel(int i) { return utilSub[i] == null ? utilLabel[i] : utilLabel[i] + "\n" + utilSub[i]; }
+
+    /* ── 되돌리기 칩 — 불러오기·리셋은 확인창 대신 «되돌리기»(애플 HIG: 자주 쓰는 동작은 묻지 말고 되돌릴 수 있게).
+       메뉴 알약 바로 아래에 5초 동안 뜨고, 누르면 그 직전 자리로 돌아간다. ── */
+    private static final long UNDO_MS = 5000;
+    private final RectF undoChip = new RectF();
+    private long undoUntil = 0;
+    private final Runnable undoExpire = new Runnable() { @Override public void run() { undoUntil = 0; invalidate(); } };
+    private boolean undoLive() { return android.os.SystemClock.uptimeMillis() < undoUntil; }
+    public void offerUndo() {
+        undoUntil = android.os.SystemClock.uptimeMillis() + UNDO_MS;
+        removeCallbacks(undoExpire); postDelayed(undoExpire, UNDO_MS + 30); invalidate();
     }
+
+    /* ── 메뉴 열림을 EmuActivity 에 알린다(게임 멈춤) — barOpen·edit 가 바뀌는 모든 길에서 부른다 ── */
+    private boolean menuShown = false;
+    private void menuChanged() {
+        boolean open = barOpen || edit;
+        if (open == menuShown) return;
+        menuShown = open;
+        if (listener != null) listener.onMenu(open);
+    }
+
+    /* ── 메뉴 알약 길게 누르기 = 빠른 저장(Delta 의 메뉴 버튼 제스처). 짧게 = 여닫기 ── */
+    private static final long HOLD_MS = 450;
+    private int handlePid = -1;
+    private boolean handleFired = false;
+    private final Runnable handleHold = new Runnable() { @Override public void run() {
+        if (handlePid < 0) return;
+        handleFired = true;
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        if (listener != null) listener.onAction(ACT_QSAVE);
+    } };
+
+    /* ── 배치 「처음대로」 — 두 번 눌러야(2.5초 안) 버튼 자리·크기와 게임 화면 자리를 처음으로 ── */
+    private final RectF resetBtn = new RectF();
+    private long resetArmUntil = 0;
+    /** (옛 「앱보간」·「코어120」 칸 — 2026-10-10 상단바에서 뺐다. 부르는 쪽이 남아 있어도 아무 일 없게) */
+    public void setFrameGenLabel(String s) { }
+    public void setCoreFg(boolean has, String label) { hasCoreFg = has; }
 
     /** "ss2"·"svc"·"ngp" — 롬 헤더로 EmuActivity 가 정한다 */
     /** 화면에 전용 강P·강K 버튼을 둘 것인가 — 「SVC 강약 버튼 구분」과 짝(EmuActivity 가 알려 준다). */
@@ -272,14 +312,8 @@ public class PadView extends View {
         invalidate();
     }
 
-    /** 상단바 i번 칸이 이 게임에 존재하는가. 없는 칸은 그리지도 누르지도 않는다. */
-    private boolean utilVisible(int i) {
-        switch (utilAct[i]) {
-        case ACT_BAND:  return hasBand;
-        case ACT_COREFG: return hasCoreFg;
-        default:        return true;
-        }
-    }
+    /** 상단바 i번 칸이 이 게임에 존재하는가 — 지금은 모든 칸이 모든 게임에 있다(게임별 칸은 설정으로 옮겼다). */
+    private boolean utilVisible(int i) { return i >= 0 && i < util.length; }
 
     /** 배치 파일 — 세로 pad_<게임>.txt / 가로 pad_<게임>_land.txt 로 따로 둔다. */
     private File cfg() { return new File(MainActivity.root(), "pad_" + profName + (land ? "_land" : "") + ".txt"); }
@@ -303,7 +337,7 @@ public class PadView extends View {
         }
         invalidate();
     }
-    public void toggleBar() { barOpen = !barOpen; if (barOpen) barSel = firstVisible(); invalidate(); }
+    public void toggleBar() { barOpen = !barOpen; if (barOpen) barSel = firstVisible(); menuChanged(); invalidate(); }
     public boolean isBarOpen() { return barOpen || edit; }
 
     /* ── 유틸 바 패드 조작 — 물리 패드만 있는 게임기에서 저장·로드·설정·종료에 닿는 길(리뷰 F17) ── */
@@ -331,9 +365,10 @@ public class PadView extends View {
             if (listener != null) listener.onAction(utilAct[barSel]);
             if (utilAct[barSel] == ACT_PICK || utilAct[barSel] == ACT_QUIT) barOpen = false;
         }
+        menuChanged();
         invalidate();
     }
-    public void barClose() { barOpen = false; barSel = -1; invalidate(); }
+    public void barClose() { barOpen = false; barSel = -1; menuChanged(); invalidate(); }
 
     private void load() {
         try (Scanner s = new Scanner(cfg(), "UTF-8")) {
@@ -375,22 +410,36 @@ public class PadView extends View {
         skin.clear();                             /* 크기별로 구운 그림 — 새 크기로 다시 */
     }
 
-    /** 상단바 배치. 여섯 칸이 넘으면 «두 줄»로 접는다 —
-     *  한 줄로 아홉 칸을 늘어놓으면 폭의 98% 를 먹어 칸마다 글자가 두 자도 안 들어갔다.
-     *  두 줄로 접으면 같은 자리에서 칸이 60% 넓어진다. */
+    /** 메뉴 알약 높이 — 짧은 변 4.6% 또는 30dp 중 큰 것. EmuActivity.handleH 와 같은 공식(게임 화면을 그 아래에 둔다). */
+    static float handleH(float w, float h, float dp) { return Math.max(Math.min(w, h) * 0.046f, 30 * dp); }
+    private float handleH(float w, float h) { return handleH(w, h, getResources().getDisplayMetrics().density); }
+    /** 알약을 누르는 자리 — 그림보다 넓게(애플 HIG 44pt·안드로이드 48dp). 메뉴가 열려 있으면 아래 칸과 겹치지 않게 그림 높이까지만 */
+    private boolean handleHit(float x, float y) {
+        float dp = getResources().getDisplayMetrics().density;
+        float bottom = (barOpen || edit) ? barHandle.bottom : Math.max(barHandle.bottom, 48 * dp);
+        return y >= 0 && y <= bottom && x >= barHandle.left - 10 * dp && x <= barHandle.right + 10 * dp;
+    }
+
+    /** 상단바 배치 — 한 줄에 칸마다 52dp 이상 들어가면 한 줄(폴드 큰 화면·가로), 아니면 두 줄로 접는다(덮개 화면).
+     *  바는 「메뉴」 알약 바로 아래. 열려 있는 동안 칸 뒤에 어두운 판을 깔아 게임 그림 위에서도 글자가 읽히게 한다. */
+    private final RectF barPlate = new RectF();
     private void layoutBar(int w, int h) {
         float base = Math.min(w, h);              /* 가로에서도 짧은 변 기준 — 알약·유틸 칸이 반토막 나지 않게(리뷰 F12) */
-        float uh = base * 0.056f, gap = w * 0.006f, gapY = base * 0.010f;
+        float dp = getResources().getDisplayMetrics().density;
+        float uh = Math.max(base * 0.050f, 34 * dp), gap = Math.max(w * 0.006f, 4 * dp), gapY = base * 0.010f;
         int vis = 0;
         for (int i = 0; i < util.length; i++) if (utilVisible(i)) vis++;
-        int rows = vis > 6 ? 2 : 1;
-        int perRow = (vis + rows - 1) / rows;      /* 두 줄이면 위가 한 칸 더 많을 수 있다 */
-        float maxw = (w > h) ? base * 0.15f : w * 0.20f;
-        float uw = Math.min(maxw, (w * 0.90f - gap * (perRow - 1)) / perRow);
-        /* 바는 「메뉴」 버튼 바로 아래 — 버튼이 커지면서 겹치던 것을 층으로 분리 */
-        float y = base * 0.052f;
+        /* 가로에서는 양 끝 10% 를 비운다 — 오른쪽 위 구석 「▶▶」(배속)이 열린 바 끝 칸과 겹치지 않게(폴드 큰 화면 가로처럼 정사각에 가까울 때) */
+        float rowW = w * (w > h ? 0.80f : 0.96f);
+        int rows = (rowW - gap * (vis - 1)) / vis >= 52 * dp ? 1 : 2;
+        int perRow = (vis + rows - 1) / rows;
+        float maxw = (w > h) ? base * 0.16f : w * 0.22f;
+        float uw = Math.min(maxw, (rowW - gap * (perRow - 1)) / perRow);
+        float hh = handleH(w, h);
+        float y = Math.max(base * 0.052f, hh + 4 * dp);
         int nThis = Math.min(perRow, vis), placed = 0, inRow = 0;
         float x = (w - (uw * nThis + gap * (nThis - 1))) / 2f;
+        float left = x;
         for (int i = 0; i < util.length; i++) {
             if (!utilVisible(i)) { util[i].setEmpty(); continue; }   /* 빈 칸 = 히트도 없다 */
             util[i].set(x, y, x + uw, y + uh); x += uw + gap; placed++; inRow++;
@@ -401,8 +450,12 @@ public class PadView extends View {
             }
         }
         barBottom = y + uh;
+        float pad = gap * 1.5f;
+        barPlate.set(left - pad, Math.max(base * 0.052f, hh + 4 * dp) - pad, w - left + pad, barBottom + pad);
         /* 메뉴 버튼 — [≡] 실핸들이 너무 작다는 제보. 항상 보이는 알약 버튼으로. */
-        barHandle.set(w * 0.5f - base * 0.08f, 0, w * 0.5f + base * 0.08f, base * 0.046f);
+        /* 메뉴 알약 — 덮개 화면에서 높이 16dp 라 누르기 힘들었다. 최소 30dp·폭 96dp(그림), 누르는 자리는 더 넓게(handleHit) */
+        float hw = Math.max(base * 0.16f, 96 * dp);
+        barHandle.set(w * 0.5f - hw / 2f, 0, w * 0.5f + hw / 2f, hh);
     }
 
     private boolean bit(int b) { return b >= 0 && (mask & (1 << b)) != 0; }
@@ -424,9 +477,17 @@ public class PadView extends View {
         if (edit && !screenBox.isEmpty()) {   /* 편집 모드: 게임 화면 상자 — 끌어서 이동 */
             line.setColor(selScreen ? 0xccffcc44 : 0x8844ccff);
             c.drawRect(screenBox, line);
-            text.setTextSize(h * 0.020f);
-            c.drawText("화면" + (selScreen ? " (선택됨 — [－][＋] 또는 두 손가락으로 크기)" : ""),
-                    screenBox.centerX(), screenBox.top + h * 0.028f, text);
+            /* 이름표는 상자 «아래쪽» 안에 — 위쪽은 화면 자동 맞춤으로 열린 메뉴 줄·안내 판 밑에 깔린다(찍은 판 확인).
+               게임 그림 위에서도 읽히게 어두운 판. 크기 조절 방법은 위 안내 판에 있으니 여기선 «선택됨» 만. */
+            String lab = selScreen ? "화면 (선택됨)" : "화면";
+            float ts = h * 0.018f, pad = ts * 0.4f;
+            text.setTextSize(ts);
+            float tw = text.measureText(lab), by = screenBox.bottom - pad - ts * 0.35f;
+            labPlate.set(screenBox.centerX() - tw / 2f - pad, by - ts - pad * 0.5f,
+                    screenBox.centerX() + tw / 2f + pad, by + ts * 0.3f + pad * 0.5f);
+            fill.setColor(0xc0101014);
+            c.drawRoundRect(labPlate, pad, pad, fill);
+            c.drawText(lab, screenBox.centerX(), by, text);
         }
 
         int btnColorIdx = 0;
@@ -484,21 +545,44 @@ public class PadView extends View {
             }
         }
 
+        if (barOpen || edit) {                       /* 칸 뒤 어두운 판 — 게임 그림 위에서도 칸이 또렷하게 */
+            fill.setColor(0xb0101014);
+            float pr = Math.min(barPlate.height() * 0.25f, 18f * getResources().getDisplayMetrics().density);
+            c.drawRoundRect(barPlate, pr, pr, fill);
+        }
+        /* 알약 글 = 지금 누르면 일어나는 일 — 닫힘 «메뉴», 열림(게임 멈춤) «이어하기», 배치 중 «배치 중» */
+        String handleLabel = edit ? "배치 중" : barOpen ? "이어하기 \u25b8" : "\uba54\ub274 \u25be";
         if (art) {
-            skin.pill(c, "menu", barHandle, false, barOpen || edit, 1,
-                    barOpen || edit ? "\uba54\ub274 \u25b4" : "\uba54\ub274 \u25be");
+            skin.pill(c, "menu", barHandle, false, barOpen || edit, 1, handleLabel);
         } else {
         fill.setColor(barOpen || edit ? 0x55ffffff : 0x30ffffff);
         c.drawRoundRect(barHandle, 14, 14, fill);
         text.setTextSize(barHandle.height() * 0.52f);
-        c.drawText(barOpen || edit ? "\uba54\ub274 \u25b4" : "\uba54\ub274 \u25be",
-                barHandle.centerX(), barHandle.bottom - barHandle.height() * 0.30f, text);
+        c.drawText(handleLabel, barHandle.centerX(), barHandle.bottom - barHandle.height() * 0.30f, text);
         }
+        /* 되돌리기 칩 — 불러오기·리셋 뒤 5초. 메뉴가 열려 있으면 숨긴다(칸과 겹치지 않게) */
+        if (undoLive() && !(barOpen || edit)) {
+            float base = Math.min(w, getHeight()), dpx = getResources().getDisplayMetrics().density;
+            float chH = Math.max(base * 0.050f, 38 * dpx);
+            text.setTextSize(chH * 0.42f);
+            String ul = "되돌리기";
+            float chW = text.measureText(ul) + chH * 1.2f;
+            float top = barHandle.bottom + base * 0.012f;
+            undoChip.set(w / 2f - chW / 2f, top, w / 2f + chW / 2f, top + chH);
+            fill.setColor(0xe6141418);
+            c.drawRoundRect(undoChip, chH / 2f, chH / 2f, fill);
+            line.setColor(0xffd9a441);
+            c.drawRoundRect(undoChip, chH / 2f, chH / 2f, line);
+            int keep = text.getColor();
+            text.setColor(0xfff3dfb2);
+            c.drawText(ul, undoChip.centerX(), undoChip.centerY() + chH * 0.15f, text);
+            text.setColor(keep);
+        } else undoChip.setEmpty();
         if ((barOpen || edit) && art) {
             for (int i = 0; i < util.length; i++) {
                 if (util[i].isEmpty()) continue;
                 boolean hl = (i == UTIL_EDIT && edit) || i == barSel;
-                skin.pill(c, "bar", util[i], false, hl, 2, utilLabel[i]);
+                skin.pill(c, "bar", util[i], false, hl, 2, cellLabel(i));
             }
         } else if (barOpen || edit) {
             fill.setColor(0x22ffffff);
@@ -509,27 +593,57 @@ public class PadView extends View {
                 if (hl) fill.setColor(0x66ffcc44);
                 c.drawRoundRect(util[i], 10, 10, fill);
                 if (hl) fill.setColor(0x22ffffff);
-                c.drawText(utilLabel[i], util[i].centerX(),
-                        util[i].centerY() + util[i].height() * 0.18f, text);
+                if (utilSub[i] == null)
+                    c.drawText(utilLabel[i], util[i].centerX(), util[i].centerY() + util[i].height() * 0.18f, text);
+                else {                                                /* 두 줄 — 위 이름, 아래 작은 상태 */
+                    float th = text.getTextSize();
+                    text.setTextSize(th * 0.78f);
+                    c.drawText(utilLabel[i], util[i].centerX(), util[i].centerY() - util[i].height() * 0.02f, text);
+                    text.setTextSize(th * 0.52f);
+                    c.drawText(utilSub[i], util[i].centerX(), util[i].centerY() + util[i].height() * 0.32f, text);
+                    text.setTextSize(th);
+                }
             }
         }
 
         if (edit) {
-            text.setTextSize(getHeight() * 0.019f);
-            c.drawText("편집: 버튼·게임화면 끌어서 이동 · [－][＋]는 고른 것(없으면 게임 화면) 크기 · 「배치」로 저장",
-                    w / 2f, barBottom + getHeight() * 0.032f, text);
-            float bw = w * 0.10f, bh = getHeight() * 0.038f, byy = barBottom + getHeight() * 0.042f;
-            minus.set(w * 0.30f, byy, w * 0.30f + bw, byy + bh);
-            plus.set(w * 0.60f, byy, w * 0.60f + bw, byy + bh);
+            /* 안내 — 화면 자동 맞춤으로 게임 그림이 위에 붙어 이 글이 그림 위에 얹힌다(흰 화면이면 안 보였다).
+               어두운 판을 깔고, 오른쪽 위 ▶▶ 를 가리지 않게 가운데 72% 안에 넣는다 — 안 들어가면 두 줄, 그래도 넘치면 글자를 줄인다(덮개 화면). */
+            float ts = getHeight() * 0.017f, lim = w * 0.72f;
+            text.setTextSize(ts);
+            String[] hint = text.measureText(HINT_ONE[0]) <= lim ? HINT_ONE : HINT_TWO;
+            float tw = 0;
+            for (String s : hint) tw = Math.max(tw, text.measureText(s));
+            if (tw > lim) { ts *= lim / tw; text.setTextSize(ts); tw = lim; }
+            float pad = ts * 0.45f, lh = ts * 1.35f, top = barBottom + getHeight() * 0.008f;
+            hintPlate.set(w / 2f - tw / 2f - pad, top, w / 2f + tw / 2f + pad, top + lh * hint.length + pad * 2);
+            fill.setColor(0xc0101014);
+            c.drawRoundRect(hintPlate, pad, pad, fill);
+            for (int k = 0; k < hint.length; k++)
+                c.drawText(hint[k], w / 2f, top + pad + ts + lh * k, text);
+            float bw = w * 0.10f, bh = getHeight() * 0.038f, byy = hintPlate.bottom + getHeight() * 0.010f;
+            minus.set(w * 0.26f, byy, w * 0.26f + bw, byy + bh);
+            resetBtn.set(w * 0.41f, byy, w * 0.59f, byy + bh);
+            plus.set(w * 0.64f, byy, w * 0.64f + bw, byy + bh);
+            boolean armed = android.os.SystemClock.uptimeMillis() < resetArmUntil;
             fill.setColor(0xe0202020);                       /* 불투명 — 게임 화면 위에서도 버튼으로 보이게 */
             c.drawRoundRect(minus, 10, 10, fill);
             c.drawRoundRect(plus, 10, 10, fill);
+            if (armed) fill.setColor(0xe0402a10);
+            c.drawRoundRect(resetBtn, 10, 10, fill);
             line.setColor(0xccffffff);
             c.drawRoundRect(minus, 10, 10, line);
             c.drawRoundRect(plus, 10, 10, line);
+            if (armed) line.setColor(0xffd9a441);
+            c.drawRoundRect(resetBtn, 10, 10, line);
             text.setTextSize(bh * 0.6f);
             c.drawText("－", minus.centerX(), minus.centerY() + bh * 0.2f, text);
             c.drawText("＋", plus.centerX(), plus.centerY() + bh * 0.2f, text);
+            String rl = armed ? "한 번 더" : "처음대로";
+            text.setTextSize(bh * 0.42f);
+            float rw = text.measureText(rl);
+            if (rw > resetBtn.width() * 0.86f) text.setTextSize(bh * 0.42f * resetBtn.width() * 0.86f / rw);
+            c.drawText(rl, resetBtn.centerX(), resetBtn.centerY() + bh * 0.15f, text);
         }
     }
 
@@ -650,6 +764,21 @@ public class PadView extends View {
         if (hidesTouch() && act != MotionEvent.ACTION_DOWN && act != MotionEvent.ACTION_POINTER_DOWN)
             return true;
 
+        if (handlePid >= 0 && (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_POINTER_UP
+                || act == MotionEvent.ACTION_CANCEL)) {
+            if (act == MotionEvent.ACTION_CANCEL || e.getPointerId(e.getActionIndex()) == handlePid) {
+                removeCallbacks(handleHold);
+                boolean fired = handleFired;
+                handlePid = -1; handleFired = false;
+                if (!fired && act != MotionEvent.ACTION_CANCEL) {
+                    barOpen = !barOpen;
+                    if (!barOpen) barSel = -1;
+                    menuChanged();
+                    invalidate();
+                }
+                if (act == MotionEvent.ACTION_POINTER_UP) return true;
+            }
+        }
         if (edit && act == MotionEvent.ACTION_POINTER_DOWN && e.getPointerCount() == 2) {
             pinching = true; pinch0 = pinchDist(e); pinchSentPct = 0;
             if (!selScreen && selIdx < 0) selScreen = true;          /* 아무것도 안 골랐으면 게임 화면 */
@@ -660,9 +789,15 @@ public class PadView extends View {
         if (act == MotionEvent.ACTION_DOWN || act == MotionEvent.ACTION_POINTER_DOWN) {
             int idx = e.getActionIndex();
             float x = e.getX(idx), y = e.getY(idx);
-            if (barHandle.contains(x, y)) {            /* [≡] 상단바 토글 */
-                barOpen = !barOpen;
+            if (!undoChip.isEmpty() && undoLive() && !(barOpen || edit) && undoChip.contains(x, y)) {   /* 되돌리기 칩 */
+                undoUntil = 0; removeCallbacks(undoExpire);
+                if (listener != null) listener.onAction(ACT_UNDO);
                 invalidate();
+                return true;
+            }
+            if (handleHit(x, y) && handlePid < 0) {   /* 메뉴 알약 — 짧게 = 여닫기(뗄 때), 길게 = 빠른 저장 */
+                handlePid = e.getPointerId(idx); handleFired = false;
+                removeCallbacks(handleHold); postDelayed(handleHold, HOLD_MS);
                 return true;
             }
             if ((barOpen || edit) && util[UTIL_EDIT].contains(x, y)) {   /* 「키」 */
@@ -671,6 +806,22 @@ public class PadView extends View {
                 mask = 0; dragIdx = -1; selIdx = -1;
                 dpadPid = -1; dpadMask = 0; dpadLast = 0;
                 if (listener != null) listener.onMask(0);
+                menuChanged();
+                invalidate();
+                return true;
+            }
+            if (edit && resetBtn.contains(x, y)) {       /* 「처음대로」 — 두 번째 누름에서만 */
+                long now = android.os.SystemClock.uptimeMillis();
+                if (now < resetArmUntil) {
+                    resetArmUntil = 0;
+                    applyDefaults(); save();
+                    selIdx = -1; selScreen = false;
+                    if (listener != null) listener.onAction(ACT_LAYOUT_DEFAULT);
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                } else {
+                    resetArmUntil = now + 2500;
+                    postDelayed(new Runnable() { @Override public void run() { invalidate(); } }, 2600);
+                }
                 invalidate();
                 return true;
             }
@@ -705,6 +856,7 @@ public class PadView extends View {
                         /* 순수 토글 — [≡]를 다시 눌러야 닫힌다. 저장·로드·샷은 연달아 쓰는데
                            매번 다시 열어야 했다(제보). 다만 화면을 떠나는 「롬」만은 접는다. */
                         if (utilAct[i] == ACT_PICK || utilAct[i] == ACT_QUIT) barOpen = false;
+                        menuChanged();
                         invalidate();
                         return true;
                     }
@@ -798,6 +950,7 @@ public class PadView extends View {
             for (int i = 0; i < e.getPointerCount(); i++) {
                 if (act == MotionEvent.ACTION_POINTER_UP && i == e.getActionIndex()) continue;
                 if (e.getPointerId(i) == ffPid) continue;
+                if (e.getPointerId(i) == handlePid) continue;   /* 메뉴 알약을 누르고 있는 손가락 */
                 if (e.getPointerId(i) == dpadPid) {        /* 소유 손가락 — 어디에 있든 십자만 */
                     dpadMask = dpadDir(e.getX(i), e.getY(i));
                     dpadHeld = true;

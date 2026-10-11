@@ -73,6 +73,25 @@ public final class LaunchSheet {
         s.open(null, null, title);
         return s;
     }
+    /** 런처 카드 아래 한 줄 — 이 게임에 지금 걸린 실행 옵션. 창을 열지 않아도 무엇으로 켜질지 보이게(2026-10-11).
+     *  켜진 것만 짧게: 「한글 · 원버튼 · SS1 음악 · 코어 보간 자동」. */
+    public static String summary(Activity a, Games.Game g) {
+        if (g == null) return "";
+        LaunchSheet s = new LaunchSheet(a, g, null);
+        List<String> parts = new ArrayList<>();
+        for (Opt o : s.opts) {
+            if (!o.enabled) continue;
+            if (o.kind == 0) { parts.add("on".equals(o.cur) ? "한글" : "원판"); continue; }
+            String v = o.names[o.idx()];
+            if ("pocketcore_ss2_music".equals(o.key)) {
+                parts.add("mute".equals(o.cur) ? "배경음 끔" : "off".equals(o.cur) ? "SS2 음악" : v);
+                continue;
+            }
+            if ("off".equals(o.cur) || "disabled".equals(o.cur)) continue;
+            parts.add(o.vals.length == 2 ? o.label : o.label + " " + v);
+        }
+        return android.text.TextUtils.join(" · ", parts);
+    }
     /** 떠 있는가 — 런처가 패드 키를 이 창으로 넘길지 판단하는 데 쓴다. */
     public boolean isShowing() { return dlg != null && dlg.isShowing(); }
     /** 창이 닫힐 때(취소·바깥 탭·적용 모두) — 게임 안에서는 멈춘 코어를 다시 돌린다. */
@@ -144,7 +163,7 @@ public final class LaunchSheet {
         if (o.kind == 0) {
             Map<String, String> m = Settings.load();
             Settings.put(o.key, "on".equals(o.cur) ? onLang(m, o.g) : offLang(m, o.g));
-        } else Settings.put(o.key, o.cur);
+        } else Settings.putUser(o.key, o.cur);   /* 보간 묶음이면 세부 값도 같이 */
         valViews.get(i).setText(o.name());
         DialBar b = dials.get(i); if (b != null) b.setIndex(o.idx());          /* 패드로 돌려도 바가 따라간다 */
         a.getWindow().getDecorView().performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
@@ -155,6 +174,7 @@ public final class LaunchSheet {
     private void open(File rom, Bitmap thumb, String title) {
         dlg = new Dialog(a);
         dlg.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        dlg.setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);   /* 창이 떠 있어도 볼륨 키 = 게임 소리 */
         dlg.setContentView(build(rom, thumb, title));
         Window w = dlg.getWindow();
         if (w != null) {
@@ -265,11 +285,13 @@ public final class LaunchSheet {
             col.addView(more);
         }
 
-        TextView hint = new TextView(a);
-        hint.setText("패드: 위아래 이동 · 펀치 버튼 바꾸기/시작 · 킥 버튼 닫기");
-        hint.setTextColor(0xff5c6478); hint.setTextSize(11); hint.setGravity(Gravity.CENTER);
-        hint.setPadding(0, dp(10), 0, 0);
-        col.addView(hint);
+        if (KeyMap.physicalPresent()) {                             /* 패드가 붙어 있을 때만 — 터치만 쓰면 군더더기 */
+            TextView hint = new TextView(a);
+            hint.setText("패드: 위아래 이동 · 펀치 버튼 바꾸기/시작 · 킥 버튼 닫기");
+            hint.setTextColor(0xff5c6478); hint.setTextSize(11); hint.setGravity(Gravity.CENTER);
+            hint.setPadding(0, dp(10), 0, 0);
+            col.addView(hint);
+        }
         return col;
     }
 
@@ -306,7 +328,7 @@ public final class LaunchSheet {
             TextView help = new TextView(a);
             help.setText(o.help.replace(" 게임을 다시 열면 적용됩니다.", "").replace(" 게임을 다시 열면 적용.", ""));
             help.setTextColor(DIM); help.setTextSize(12);
-            help.setMaxLines(3); help.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            help.setMaxLines(2); help.setEllipsize(android.text.TextUtils.TruncateAt.END);
             help.setPadding(0, dp(3), dp(24), 0);
             row.addView(help);
         }
@@ -346,6 +368,7 @@ public final class LaunchSheet {
     /* ── 패드 ─────────────────────────────────────────────────────── */
 
     private boolean key(int code, KeyEvent e) {
+        if (KeyMap.isVolume(code)) return false;                   /* 음량은 시스템으로 */
         /* 패드 버튼은 **KeyMap 기능**으로만 읽는다(펀치 자리 b=확인, 킥 자리 a=취소 — 게임 안 유틸 바와 같은 규칙).
            날 키코드 BUTTON_A/B 를 폴백으로 두면 기능과 반대로 걸려 충돌한다(실측). 날 폴백은 기능이 없는 DPAD·ENTER·BACK·START 만. */
         String f = (keymap != null && KeyMap.isGamepad(e)) ? keymap.funcOf(code) : null;

@@ -23,6 +23,8 @@ public class KeymapActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        /* 볼륨 키 = 미디어(게임 소리) 음량 — 안 정하면 삼성은 «재생 중»을 못 알아챌 때 벨소리 음량을 바꾼다(유저 2026-10-10 「볼륨 조절이 앱에서 안 되던데」) */
+        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         Orient.apply(this);
         km = KeyMap.load();
         setContentView(build());
@@ -126,6 +128,7 @@ public class KeymapActivity extends Activity {
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
+        if (KeyMap.isVolume(e.getKeyCode())) return super.dispatchKeyEvent(e);   /* 음량 키는 배정 대상이 아니다 — 시스템으로 */
         if ((e.getFlags() & KeyEvent.FLAG_FALLBACK) != 0) return true;   /* 스틱→DPAD 합성 키는 게임 화면에선 안 오므로 배우지 않는다(리뷰 F4) */
         if (waiting != null && e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
             int code = e.getKeyCode();
