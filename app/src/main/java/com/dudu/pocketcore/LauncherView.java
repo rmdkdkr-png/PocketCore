@@ -33,11 +33,14 @@ public final class LauncherView extends View {
         public String sub = "";
         public Bitmap thumb;
         public boolean pat, sp, dub;
+        public String opt = "";           /* 실행 옵션 한 줄(LaunchSheet.summary) — 카드 아래 칩 */
+        public boolean resume;            /* 오토세이브가 있다 — A 아래 글이 「이어하기」 */
         public Item(File rom, String title) { this.rom = rom; this.title = title; }
     }
 
     public interface Listener {
         void onLaunch(File rom);
+        void onOptions(File rom);         /* 카드 아래 옵션 칩 — 실행 전 선택창 */
         void onSettings();
         void onUpdate();
     }
@@ -274,6 +277,36 @@ public final class LauncherView extends View {
                 while (fn.length() > 8 && tp.measureText(fn) > w * 0.9f) fn = fn.substring(0, fn.length() - 2);   /* 너무 길면 자른다 */
                 cv.drawText(fn, w / 2, ly2, tp);
             }
+            {   /* 실행 옵션 칩 — 무엇으로 켜질지 늘 보이고, 누르면 바꾸는 창(실행 전 선택창). 카드·A 는 바로 시작(2026-10-11) */
+                String ot = (cur.opt == null || cur.opt.isEmpty()) ? "실행 옵션" : cur.opt;
+                String tail = "  옵션 \u203a";
+                float ts = h * 0.017f;
+                tp.setTextSize(ts);
+                float lim = w * 0.86f;
+                while (ot.length() > 4 && tp.measureText(ot + tail) > lim) {          /* 넘치면 뒤 항목부터 줄임 */
+                    int cut = ot.lastIndexOf(" · ");
+                    ot = cut > 0 ? ot.substring(0, cut) + " …" : ot.substring(0, ot.length() - 2);
+                    if (ot.endsWith(" … …")) ot = ot.substring(0, ot.length() - 2);
+                }
+                float cw = tp.measureText(ot + tail) + ts * 1.6f, ch = ts * 2.1f;
+                float cyTop = ly2 + h * 0.020f;
+                optChip.set(w / 2 - cw / 2, cyTop, w / 2 + cw / 2, cyTop + ch);
+                tp.setColor(withA(0xff191b22, la));
+                cv.drawRoundRect(optChip, ch / 2, ch / 2, tp);
+                tp.setStyle(Paint.Style.STROKE); tp.setStrokeWidth(Math.max(1.5f, h * 0.0015f));
+                tp.setColor(withA(0xff4a3d22, la));
+                cv.drawRoundRect(optChip, ch / 2, ch / 2, tp);
+                tp.setStyle(Paint.Style.FILL);
+                float tx0 = optChip.centerX() - tp.measureText(ot + tail) / 2, by = optChip.centerY() + ts * 0.36f;
+                tp.setTextAlign(Paint.Align.LEFT);
+                tp.setColor(withA(0xffc9cfdb, la));
+                cv.drawText(ot, tx0, by, tp);
+                tp.setColor(withA(0xffd9a441, la));
+                cv.drawText(tail, tx0 + tp.measureText(ot), by, tp);
+                tp.setTextAlign(Paint.Align.CENTER);
+                String log = optChip.toShortString();
+                if (!log.equals(lastChipLog)) { lastChipLog = log; android.util.Log.i("PocketUi", "optchip " + Math.round(optChip.centerX()) + " " + Math.round(optChip.centerY())); }
+            }
             tp.setColor(withA(0xff777788, la));
             tp.setTextSize(h * 0.015f);
             cv.drawText((sel + 1) + " / " + n, w * 0.5f, top - h * 0.006f, tp);
@@ -342,6 +375,8 @@ public final class LauncherView extends View {
     /* ── 패드식 컨트롤 — A(실행)=안쪽 아래 · B(업뎃)=바깥 위 ── */
     private float dcx, dcy, dR, aX, aY, aR, bX, bY, bR;
     private final RectF optR = new RectF();
+    private final RectF optChip = new RectF();      /* 카드 아래 실행 옵션 칩 */
+    private String lastChipLog = "";
 
     /* 런처 패드 — 십자(카드 넘기기) + A(실행)만. B(업뎃)·OPTION(설정)은 아래 줄 「설정 · 업데이트 확인」과 같은 일을 해서
        뺐다(유저 2026-10-10 「뺄 거 빼고」). 버튼 모양은 게임 안 터치 패드와 같은 아트(설정 「버튼 모양」). */
@@ -375,7 +410,8 @@ public final class LauncherView extends View {
         tp.setTextAlign(Paint.Align.CENTER);
         tp.setTextSize(mn * 0.026f);
         tp.setColor(0x99ffffff);
-        c.drawText("실행", aX, aY + aR + aR * 0.62f, tp);
+        Item cur = (items == null || items.isEmpty()) ? null : items.get(sel);
+        c.drawText(cur != null && cur.resume ? "이어하기" : "시작", aX, aY + aR + aR * 0.62f, tp);
         tp.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -409,6 +445,11 @@ public final class LauncherView extends View {
             }
             if (optR.contains(x, y)) {
                 if (listener != null) listener.onSettings();
+                downX = -1;
+                return true;
+            }
+            if (!items.isEmpty() && !optChip.isEmpty() && optChip.contains(x, y)) {
+                if (listener != null) listener.onOptions(items.get(sel).rom);
                 downX = -1;
                 return true;
             }

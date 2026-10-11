@@ -342,6 +342,23 @@ final class PadSkin {
 
     private void pillLabel(Canvas c, RectF box, String s, boolean lit) {
         if (s == null || s.isEmpty()) return;
+        int nl = s.indexOf('\n');
+        if (nl >= 0) {                     /* 두 줄 — 위 이름(크게), 아래 상태(작고 흐리게): 「로드 / 3분 전」 */
+            String a = s.substring(0, nl), b = s.substring(nl + 1);
+            float sa = box.height() * 0.36f, sb = box.height() * 0.25f, lim = box.width() * 0.86f;
+            tx.setTextSize(sa); float wa = tx.measureText(a); if (wa > lim) sa *= lim / wa;
+            tx.setTextSize(sb); float wb = tx.measureText(b); if (wb > lim) sb *= lim / wb;
+            float ya = box.centerY() - box.height() * 0.03f, yb = box.centerY() + box.height() * 0.30f;
+            tx.setTextSize(sa);
+            tx.setColor(0x90000000);
+            c.drawText(a, box.centerX(), ya + Math.max(1f, sa * 0.07f), tx);
+            tx.setColor(lit ? 0xfffff3d6 : 0xd8e8e4da);
+            c.drawText(a, box.centerX(), ya, tx);
+            tx.setTextSize(sb);
+            tx.setColor(lit ? 0xd0fff3d6 : 0x9ad8d4ca);
+            c.drawText(b, box.centerX(), yb, tx);
+            return;
+        }
         float size = box.height() * 0.48f;
         tx.setTextSize(size);
         /* 칸이 좁으면 글자를 줄인다 — 「보간:움직임」처럼 긴 라벨 */

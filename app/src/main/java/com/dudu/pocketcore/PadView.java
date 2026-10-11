@@ -26,6 +26,8 @@ public class PadView extends View {
         void onScreenDrag(float dxFrac, float dyFrac);
         void onScreenScale(int dPct);
         void onScreenDrop();
+        /** 메뉴(상단바)나 배치가 열리고 닫힐 때 — 열려 있는 동안 게임을 멈춘다(Delta 처럼 «멈춤 메뉴»). */
+        void onMenu(boolean open);
     }
 
     /* 게임 화면의 현재 자리 — EmuActivity 가 배치 때마다 알려 준다 (편집 상자용) */
@@ -42,6 +44,9 @@ public class PadView extends View {
     public static final int ACT_QUIT = 11;                    /* 앱 종료 — 「목록」(ACT_PICK)과 달라야 한다(유저 2026-09-05) */
     public static final int ACT_FRAMEGEN = 12;                /* 앱 프레임 생성 끔→움직임→섞기 */
     public static final int ACT_COREFG = 13;                  /* 코어 프레임 생성(사무쇼2) 켬/끔 */
+    public static final int ACT_UNDO = 14;                    /* 되돌리기 — 불러오기·리셋 직전 자리로(5초 동안 칩) */
+    public static final int ACT_QSAVE = 15;                   /* 빠른 저장 — 메뉴 알약 길게 누르기 */
+    public static final int ACT_LAYOUT_DEFAULT = 16;          /* 배치 「처음대로」 — 게임 화면 자리도 자동 맞춤으로 */
     public static final int ACT_SAVE = 1, ACT_LOAD = 2, ACT_SHOT = 3, ACT_RESET = 4, ACT_PICK = 5, ACT_SLOT = 6, ACT_SPK = 7,
             /* 설정 — 게임 안에서 바로 연다. 예전에는 「롬」으로 게임을 내리고
                목록 맨 아래까지 가야 닿았다. 설정 하나 보려고 게임을 끄는 건 말이 안 된다. */
@@ -138,7 +143,9 @@ public class PadView extends View {
          ① 상태  슬롯·저장·로드·샷·리셋
          ② 이 게임(코어 기능)  띠 — 게임마다 있는 것만 칸이 생긴다 (기둥은 2026-09-07 폐기)
          ③ 마무리  설정·배치·종료 */
-    private final String[] utilLabel = { "슬롯1", "저장", "로드", "리셋", "설정", "배치", "목록", "종료" };
+    private final String[] utilLabel = { "슬롯 1", "저장", "로드", "리셋", "설정", "버튼 배치", "목록", "종료" };
+    /* 칸 아래 작은 줄 — 저장 칸 «빈 칸/덮어쓰기», 로드 칸 «3분 전/없음». 불러오기 전에 무엇을 불러오는지 보이게(2026-10-11) */
+    private final String[] utilSub = new String[8];
     private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_RESET, ACT_CFG, 0, ACT_PICK, ACT_QUIT };
     private static final int UTIL_EDIT = 5;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
     private boolean hasCoreFg = false;
@@ -219,7 +226,46 @@ public class PadView extends View {
     }
 
     public void setListener(Listener l) { listener = l; }
-    public void setSlotLabel(int n) { utilLabel[0] = "슬롯" + n; invalidate(); }
+    public void setSlotLabel(int n) { utilLabel[0] = "슬롯 " + n; invalidate(); }
+    /** 지금 슬롯의 저장 상태 — 저장 칸·로드 칸 아래 줄 */
+    public void setSlotInfo(String saveSub, String loadSub) { utilSub[1] = saveSub; utilSub[2] = loadSub; invalidate(); }
+    private String cellLabel(int i) { return utilSub[i] == null ? utilLabel[i] : utilLabel[i] + "\n" + utilSub[i]; }
+
+    /* ── 되돌리기 칩 — 불러오기·리셋은 확인창 대신 «되돌리기»(애플 HIG: 자주 쓰는 동작은 묻지 말고 되돌릴 수 있게).
+       메뉴 알약 바로 아래에 5초 동안 뜨고, 누르면 그 직전 자리로 돌아간다. ── */
+    private static final long UNDO_MS = 5000;
+    private final RectF undoChip = new RectF();
+    private long undoUntil = 0;
+    private final Runnable undoExpire = new Runnable() { @Override public void run() { undoUntil = 0; invalidate(); } };
+    private boolean undoLive() { return android.os.SystemClock.uptimeMillis() < undoUntil; }
+    public void offerUndo() {
+        undoUntil = android.os.SystemClock.uptimeMillis() + UNDO_MS;
+        removeCallbacks(undoExpire); postDelayed(undoExpire, UNDO_MS + 30); invalidate();
+    }
+
+    /* ── 메뉴 열림을 EmuActivity 에 알린다(게임 멈춤) — barOpen·edit 가 바뀌는 모든 길에서 부른다 ── */
+    private boolean menuShown = false;
+    private void menuChanged() {
+        boolean open = barOpen || edit;
+        if (open == menuShown) return;
+        menuShown = open;
+        if (listener != null) listener.onMenu(open);
+    }
+
+    /* ── 메뉴 알약 길게 누르기 = 빠른 저장(Delta 의 메뉴 버튼 제스처). 짧게 = 여닫기 ── */
+    private static final long HOLD_MS = 450;
+    private int handlePid = -1;
+    private boolean handleFired = false;
+    private final Runnable handleHold = new Runnable() { @Override public void run() {
+        if (handlePid < 0) return;
+        handleFired = true;
+        performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        if (listener != null) listener.onAction(ACT_QSAVE);
+    } };
+
+    /* ── 배치 「처음대로」 — 두 번 눌러야(2.5초 안) 버튼 자리·크기와 게임 화면 자리를 처음으로 ── */
+    private final RectF resetBtn = new RectF();
+    private long resetArmUntil = 0;
     /** (옛 「앱보간」·「코어120」 칸 — 2026-10-10 상단바에서 뺐다. 부르는 쪽이 남아 있어도 아무 일 없게) */
     public void setFrameGenLabel(String s) { }
     public void setCoreFg(boolean has, String label) { hasCoreFg = has; }
@@ -291,7 +337,7 @@ public class PadView extends View {
         }
         invalidate();
     }
-    public void toggleBar() { barOpen = !barOpen; if (barOpen) barSel = firstVisible(); invalidate(); }
+    public void toggleBar() { barOpen = !barOpen; if (barOpen) barSel = firstVisible(); menuChanged(); invalidate(); }
     public boolean isBarOpen() { return barOpen || edit; }
 
     /* ── 유틸 바 패드 조작 — 물리 패드만 있는 게임기에서 저장·로드·설정·종료에 닿는 길(리뷰 F17) ── */
@@ -319,9 +365,10 @@ public class PadView extends View {
             if (listener != null) listener.onAction(utilAct[barSel]);
             if (utilAct[barSel] == ACT_PICK || utilAct[barSel] == ACT_QUIT) barOpen = false;
         }
+        menuChanged();
         invalidate();
     }
-    public void barClose() { barOpen = false; barSel = -1; invalidate(); }
+    public void barClose() { barOpen = false; barSel = -1; menuChanged(); invalidate(); }
 
     private void load() {
         try (Scanner s = new Scanner(cfg(), "UTF-8")) {
@@ -490,21 +537,39 @@ public class PadView extends View {
             float pr = Math.min(barPlate.height() * 0.25f, 18f * getResources().getDisplayMetrics().density);
             c.drawRoundRect(barPlate, pr, pr, fill);
         }
+        /* 알약 글 = 지금 누르면 일어나는 일 — 닫힘 «메뉴», 열림(게임 멈춤) «이어하기», 배치 중 «배치 중» */
+        String handleLabel = edit ? "배치 중" : barOpen ? "이어하기 \u25b8" : "\uba54\ub274 \u25be";
         if (art) {
-            skin.pill(c, "menu", barHandle, false, barOpen || edit, 1,
-                    barOpen || edit ? "\uba54\ub274 \u25b4" : "\uba54\ub274 \u25be");
+            skin.pill(c, "menu", barHandle, false, barOpen || edit, 1, handleLabel);
         } else {
         fill.setColor(barOpen || edit ? 0x55ffffff : 0x30ffffff);
         c.drawRoundRect(barHandle, 14, 14, fill);
         text.setTextSize(barHandle.height() * 0.52f);
-        c.drawText(barOpen || edit ? "\uba54\ub274 \u25b4" : "\uba54\ub274 \u25be",
-                barHandle.centerX(), barHandle.bottom - barHandle.height() * 0.30f, text);
+        c.drawText(handleLabel, barHandle.centerX(), barHandle.bottom - barHandle.height() * 0.30f, text);
         }
+        /* 되돌리기 칩 — 불러오기·리셋 뒤 5초. 메뉴가 열려 있으면 숨긴다(칸과 겹치지 않게) */
+        if (undoLive() && !(barOpen || edit)) {
+            float base = Math.min(w, getHeight()), dpx = getResources().getDisplayMetrics().density;
+            float chH = Math.max(base * 0.050f, 38 * dpx);
+            text.setTextSize(chH * 0.42f);
+            String ul = "되돌리기";
+            float chW = text.measureText(ul) + chH * 1.2f;
+            float top = barHandle.bottom + base * 0.012f;
+            undoChip.set(w / 2f - chW / 2f, top, w / 2f + chW / 2f, top + chH);
+            fill.setColor(0xe6141418);
+            c.drawRoundRect(undoChip, chH / 2f, chH / 2f, fill);
+            line.setColor(0xffd9a441);
+            c.drawRoundRect(undoChip, chH / 2f, chH / 2f, line);
+            int keep = text.getColor();
+            text.setColor(0xfff3dfb2);
+            c.drawText(ul, undoChip.centerX(), undoChip.centerY() + chH * 0.15f, text);
+            text.setColor(keep);
+        } else undoChip.setEmpty();
         if ((barOpen || edit) && art) {
             for (int i = 0; i < util.length; i++) {
                 if (util[i].isEmpty()) continue;
                 boolean hl = (i == UTIL_EDIT && edit) || i == barSel;
-                skin.pill(c, "bar", util[i], false, hl, 2, utilLabel[i]);
+                skin.pill(c, "bar", util[i], false, hl, 2, cellLabel(i));
             }
         } else if (barOpen || edit) {
             fill.setColor(0x22ffffff);
@@ -515,8 +580,16 @@ public class PadView extends View {
                 if (hl) fill.setColor(0x66ffcc44);
                 c.drawRoundRect(util[i], 10, 10, fill);
                 if (hl) fill.setColor(0x22ffffff);
-                c.drawText(utilLabel[i], util[i].centerX(),
-                        util[i].centerY() + util[i].height() * 0.18f, text);
+                if (utilSub[i] == null)
+                    c.drawText(utilLabel[i], util[i].centerX(), util[i].centerY() + util[i].height() * 0.18f, text);
+                else {                                                /* 두 줄 — 위 이름, 아래 작은 상태 */
+                    float th = text.getTextSize();
+                    text.setTextSize(th * 0.78f);
+                    c.drawText(utilLabel[i], util[i].centerX(), util[i].centerY() - util[i].height() * 0.02f, text);
+                    text.setTextSize(th * 0.52f);
+                    c.drawText(utilSub[i], util[i].centerX(), util[i].centerY() + util[i].height() * 0.32f, text);
+                    text.setTextSize(th);
+                }
             }
         }
 
@@ -536,17 +609,28 @@ public class PadView extends View {
             for (int k = 0; k < hint.length; k++)
                 c.drawText(hint[k], w / 2f, top + pad + ts + lh * k, text);
             float bw = w * 0.10f, bh = getHeight() * 0.038f, byy = hintPlate.bottom + getHeight() * 0.010f;
-            minus.set(w * 0.30f, byy, w * 0.30f + bw, byy + bh);
-            plus.set(w * 0.60f, byy, w * 0.60f + bw, byy + bh);
+            minus.set(w * 0.26f, byy, w * 0.26f + bw, byy + bh);
+            resetBtn.set(w * 0.41f, byy, w * 0.59f, byy + bh);
+            plus.set(w * 0.64f, byy, w * 0.64f + bw, byy + bh);
+            boolean armed = android.os.SystemClock.uptimeMillis() < resetArmUntil;
             fill.setColor(0xe0202020);                       /* 불투명 — 게임 화면 위에서도 버튼으로 보이게 */
             c.drawRoundRect(minus, 10, 10, fill);
             c.drawRoundRect(plus, 10, 10, fill);
+            if (armed) fill.setColor(0xe0402a10);
+            c.drawRoundRect(resetBtn, 10, 10, fill);
             line.setColor(0xccffffff);
             c.drawRoundRect(minus, 10, 10, line);
             c.drawRoundRect(plus, 10, 10, line);
+            if (armed) line.setColor(0xffd9a441);
+            c.drawRoundRect(resetBtn, 10, 10, line);
             text.setTextSize(bh * 0.6f);
             c.drawText("－", minus.centerX(), minus.centerY() + bh * 0.2f, text);
             c.drawText("＋", plus.centerX(), plus.centerY() + bh * 0.2f, text);
+            String rl = armed ? "한 번 더" : "처음대로";
+            text.setTextSize(bh * 0.42f);
+            float rw = text.measureText(rl);
+            if (rw > resetBtn.width() * 0.86f) text.setTextSize(bh * 0.42f * resetBtn.width() * 0.86f / rw);
+            c.drawText(rl, resetBtn.centerX(), resetBtn.centerY() + bh * 0.15f, text);
         }
     }
 
@@ -667,6 +751,21 @@ public class PadView extends View {
         if (hidesTouch() && act != MotionEvent.ACTION_DOWN && act != MotionEvent.ACTION_POINTER_DOWN)
             return true;
 
+        if (handlePid >= 0 && (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_POINTER_UP
+                || act == MotionEvent.ACTION_CANCEL)) {
+            if (act == MotionEvent.ACTION_CANCEL || e.getPointerId(e.getActionIndex()) == handlePid) {
+                removeCallbacks(handleHold);
+                boolean fired = handleFired;
+                handlePid = -1; handleFired = false;
+                if (!fired && act != MotionEvent.ACTION_CANCEL) {
+                    barOpen = !barOpen;
+                    if (!barOpen) barSel = -1;
+                    menuChanged();
+                    invalidate();
+                }
+                if (act == MotionEvent.ACTION_POINTER_UP) return true;
+            }
+        }
         if (edit && act == MotionEvent.ACTION_POINTER_DOWN && e.getPointerCount() == 2) {
             pinching = true; pinch0 = pinchDist(e); pinchSentPct = 0;
             if (!selScreen && selIdx < 0) selScreen = true;          /* 아무것도 안 골랐으면 게임 화면 */
@@ -677,8 +776,14 @@ public class PadView extends View {
         if (act == MotionEvent.ACTION_DOWN || act == MotionEvent.ACTION_POINTER_DOWN) {
             int idx = e.getActionIndex();
             float x = e.getX(idx), y = e.getY(idx);
-            if (barHandle.contains(x, y)) {            /* [≡] 상단바 토글 */
-                barOpen = !barOpen;
+            if (barHandle.contains(x, y) && handlePid < 0) {   /* 메뉴 알약 — 짧게 = 여닫기(뗄 때), 길게 = 빠른 저장 */
+                handlePid = e.getPointerId(idx); handleFired = false;
+                removeCallbacks(handleHold); postDelayed(handleHold, HOLD_MS);
+                return true;
+            }
+            if (!undoChip.isEmpty() && undoLive() && undoChip.contains(x, y)) {   /* 되돌리기 칩 */
+                undoUntil = 0; removeCallbacks(undoExpire);
+                if (listener != null) listener.onAction(ACT_UNDO);
                 invalidate();
                 return true;
             }
@@ -688,6 +793,22 @@ public class PadView extends View {
                 mask = 0; dragIdx = -1; selIdx = -1;
                 dpadPid = -1; dpadMask = 0; dpadLast = 0;
                 if (listener != null) listener.onMask(0);
+                menuChanged();
+                invalidate();
+                return true;
+            }
+            if (edit && resetBtn.contains(x, y)) {       /* 「처음대로」 — 두 번째 누름에서만 */
+                long now = android.os.SystemClock.uptimeMillis();
+                if (now < resetArmUntil) {
+                    resetArmUntil = 0;
+                    applyDefaults(); save();
+                    selIdx = -1; selScreen = false;
+                    if (listener != null) listener.onAction(ACT_LAYOUT_DEFAULT);
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                } else {
+                    resetArmUntil = now + 2500;
+                    postDelayed(new Runnable() { @Override public void run() { invalidate(); } }, 2600);
+                }
                 invalidate();
                 return true;
             }
@@ -722,6 +843,7 @@ public class PadView extends View {
                         /* 순수 토글 — [≡]를 다시 눌러야 닫힌다. 저장·로드·샷은 연달아 쓰는데
                            매번 다시 열어야 했다(제보). 다만 화면을 떠나는 「롬」만은 접는다. */
                         if (utilAct[i] == ACT_PICK || utilAct[i] == ACT_QUIT) barOpen = false;
+                        menuChanged();
                         invalidate();
                         return true;
                     }
@@ -815,6 +937,7 @@ public class PadView extends View {
             for (int i = 0; i < e.getPointerCount(); i++) {
                 if (act == MotionEvent.ACTION_POINTER_UP && i == e.getActionIndex()) continue;
                 if (e.getPointerId(i) == ffPid) continue;
+                if (e.getPointerId(i) == handlePid) continue;   /* 메뉴 알약을 누르고 있는 손가락 */
                 if (e.getPointerId(i) == dpadPid) {        /* 소유 손가락 — 어디에 있든 십자만 */
                     dpadMask = dpadDir(e.getX(i), e.getY(i));
                     dpadHeld = true;

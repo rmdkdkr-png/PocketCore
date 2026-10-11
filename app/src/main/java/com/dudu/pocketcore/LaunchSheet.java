@@ -73,6 +73,25 @@ public final class LaunchSheet {
         s.open(null, null, title);
         return s;
     }
+    /** 런처 카드 아래 한 줄 — 이 게임에 지금 걸린 실행 옵션. 창을 열지 않아도 무엇으로 켜질지 보이게(2026-10-11).
+     *  켜진 것만 짧게: 「한글 · 원버튼 · SS1 음악 · 코어 보간 자동」. */
+    public static String summary(Activity a, Games.Game g) {
+        if (g == null) return "";
+        LaunchSheet s = new LaunchSheet(a, g, null);
+        List<String> parts = new ArrayList<>();
+        for (Opt o : s.opts) {
+            if (!o.enabled) continue;
+            if (o.kind == 0) { parts.add("on".equals(o.cur) ? "한글" : "원판"); continue; }
+            String v = o.names[o.idx()];
+            if ("pocketcore_ss2_music".equals(o.key)) {
+                parts.add("mute".equals(o.cur) ? "배경음 끔" : "off".equals(o.cur) ? "SS2 음악" : v);
+                continue;
+            }
+            if ("off".equals(o.cur) || "disabled".equals(o.cur)) continue;
+            parts.add(o.vals.length == 2 ? o.label : o.label + " " + v);
+        }
+        return android.text.TextUtils.join(" · ", parts);
+    }
     /** 떠 있는가 — 런처가 패드 키를 이 창으로 넘길지 판단하는 데 쓴다. */
     public boolean isShowing() { return dlg != null && dlg.isShowing(); }
     /** 창이 닫힐 때(취소·바깥 탭·적용 모두) — 게임 안에서는 멈춘 코어를 다시 돌린다. */

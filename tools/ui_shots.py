@@ -133,6 +133,15 @@ def bar_cells(w, h, labels, density=420):
     return out
 
 
+def opt_chip():
+    """런처 카드 아래 실행 옵션 칩 자리 — LauncherView 가 logcat(PocketUi)에 남긴다(캔버스라 접근성 노드가 없다)."""
+    out = adb("logcat", "-d", "-s", "PocketUi:I", out=True).decode(errors="replace")
+    m = None
+    for m2 in re.finditer(r"optchip (\d+) (\d+)", out):
+        m = m2
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
 def screen_box():
     m = re.search(r"(\d+)x(\d+)", sh("wm size").split("Override size:")[-1])
     return (0, 0, int(m.group(1)), int(m.group(2))) if m else (0, 0, 1080, 1920)
@@ -166,7 +175,13 @@ def run(tag, size, density, bar_labels, with_settings):
         settings_pages(tag, PAGES)
         sh("input keyevent 4")
         time.sleep(2)
-    sh("input tap %d %d" % (sw // 2, int(sh_ * 0.18)))            # 가운데 카드 → 실행 전 선택창
+    chip = opt_chip()                                              # 카드 아래 「옵션 ›」 칩 → 실행 전 선택창
+    print("optchip", chip)
+    lv = view_bounds("LauncherView") or (0, 0, sw, sh_)
+    if chip:
+        sh("input tap %d %d" % (lv[0] + chip[0], lv[1] + chip[1]))
+    else:
+        sh("input keyevent 109")                                   # SELECT = 옵션 창
     time.sleep(2.5)
     shot(tag + "_02_launchsheet")
     b = find(lambda n: (n.get("text") or "").startswith("시작"))         # 「시작  ▶」 단추(설명 글의 «라운드 시작» 말고)
@@ -198,6 +213,21 @@ def run(tag, size, density, bar_labels, with_settings):
             sh("input keyevent 4")
             time.sleep(1.5)
     shot(tag + "_08_game_after")
+    # 저장 → (칸 아래 «방금») → 로드 → 메뉴가 닫히고 «되돌리기» 칩
+    if "저장" in cells:
+        cx, cy = cells["저장"]
+        sh("input tap %d %d" % (pv[0] + int(cx), pv[1] + int(cy)))
+        time.sleep(1.5)
+        shot(tag + "_05b_saved")
+    if "로드" in cells:
+        cx, cy = cells["로드"]
+        sh("input tap %d %d" % (pv[0] + int(cx), pv[1] + int(cy)))
+        time.sleep(1.2)
+        shot(tag + "_06_undo")
+        time.sleep(5)
+    # 메뉴를 다시 연다(로드가 닫았다)
+    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(base * 0.023)))
+    time.sleep(1.2)
     # 메뉴 줄은 「설정」 칸을 눌러도 열린 채다(순수 토글 — 목록·종료만 접힘). 여기서 알약을 또 누르면 닫혀 버려
     # 「배치」 칸이 헛손질이 된다(2026-10-11 찍은 판에서 확인).
     if "배치" in cells:
@@ -207,6 +237,12 @@ def run(tag, size, density, bar_labels, with_settings):
         shot(tag + "_09_edit")
         sh("input tap %d %d" % (pv[0] + int(cx), pv[1] + int(cy)))       # 배치 끄기(저장)
         time.sleep(1)
+    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(base * 0.023)))   # 메뉴 닫기(이어하기)
+    time.sleep(1)
+    hx, hy = pv[0] + w // 2, pv[1] + int(base * 0.023)
+    sh("input swipe %d %d %d %d 900" % (hx, hy, hx, hy))                 # 알약 길게 = 빠른 저장
+    time.sleep(0.6)
+    shot(tag + "_10_qsave")
 
 
 def wait_ready():
@@ -244,7 +280,7 @@ def main():
     push_checked("/tmp/options.txt", "/sdcard/PocketCore/options.txt")
     print("roms", sh("ls -l /sdcard/PocketCore/roms"))
     print("opts", sh("cat /sdcard/PocketCore/options.txt"))
-    labels = os.environ.get("BAR_LABELS", "슬롯1,저장,로드,리셋,설정,배치,목록,종료").split(",")
+    labels = os.environ.get("BAR_LABELS", "슬롯 1,저장,로드,리셋,설정,배치,목록,종료").split(",")
     run("main", "1856x2160", 420, labels, True)
     run("cover", "904x2160", 420, labels, False)
     sh("wm size reset")

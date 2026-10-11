@@ -341,6 +341,8 @@ public class MainActivity extends Activity {
                 File tf = thumbFor(r, g);
                 if (tf != null)
                     it.thumb = android.graphics.BitmapFactory.decodeFile(tf.getPath());
+                try { it.opt = LaunchSheet.summary(this, g); } catch (Exception ignored) { }
+                it.resume = new File(saveDir(), r.getName() + ".state.auto").exists();
                 items.add(it);
             }
             lv.setItems(items);
@@ -359,7 +361,9 @@ public class MainActivity extends Activity {
                 bootedOnce = true;
             }
             lv.setListener(new LauncherView.Listener() {
-                @Override public void onLaunch(File rom) { openSheet(rom); }   /* 실행 전 패치 선택창 */
+                /* 카드·A = 바로 시작(하던 자리부터). 옵션은 카드 아래 칩으로 — 매번 창을 거치면 실행이 두 번 눌러야 됐다(2026-10-11) */
+                @Override public void onLaunch(File rom) { launch(rom.getAbsolutePath()); }
+                @Override public void onOptions(File rom) { openSheet(rom); }   /* 실행 전 패치 선택창 */
                 @Override public void onSettings() {
                     startActivity(new Intent(MainActivity.this, SettingsActivity.class));
                 }
@@ -399,10 +403,19 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(MainActivity.this, SettingsActivity.class));
             }
         });
-        TextView upd = barButton("업데이트 확인", 0xffbfc6d4, 0xff191b22, 0xff2f3442);
+        final TextView upd = barButton("업데이트 확인", 0xffbfc6d4, 0xff191b22, 0xff2f3442);
         upd.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { Updater.check(MainActivity.this); }
         });
+        /* 새 판이 있는지 조용히 본다(색인 한 번, 실패는 무시) — 있으면 버튼이 「새 판 받기」로 바뀐다.
+           직접 눌러 봐야 알던 것을 런처가 알려 준다(2026-10-11). 앱이 켜질 때 한 번만. */
+        if (newerCode == 0) {
+            new Thread(new Runnable() { @Override public void run() {
+                final int nc = Updater.peekNewer(MainActivity.this);
+                newerCode = nc > 0 ? nc : -1;
+                if (nc > 0) runOnUiThread(new Runnable() { @Override public void run() { markUpdate(upd); } });
+            }}).start();
+        } else if (newerCode > 0) markUpdate(upd);
         LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         lp1.rightMargin = gp / 2;
         LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
@@ -411,6 +424,17 @@ public class MainActivity extends Activity {
         bar.addView(upd, lp2);
         col.addView(bar);
         setContentView(col);
+    }
+
+    /** 새 판 번호(내부) — 0 = 아직 안 봄, -1 = 없음/못 봄. 프로세스당 한 번. */
+    private static volatile int newerCode = 0;
+    private void markUpdate(TextView upd) {
+        upd.setText("새 판 받기 · 내부 " + newerCode);
+        upd.setTextColor(0xff101014);
+        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+        d.setColor(0xffd9a441);
+        d.setCornerRadius(14 * getResources().getDisplayMetrics().density);
+        upd.setBackground(d);
     }
 
     /** 런처 아래 줄 버튼 — 둥근 판 + 가는 테. */
@@ -464,7 +488,8 @@ public class MainActivity extends Activity {
         boolean ok    = "b".equals(f) || "start".equals(f)
                      || (!padBtn && (code == android.view.KeyEvent.KEYCODE_DPAD_CENTER || code == android.view.KeyEvent.KEYCODE_ENTER))
                      || (f == null && code == android.view.KeyEvent.KEYCODE_BUTTON_START);
-        if (!(left || right || ok)) {
+        boolean opt   = "select".equals(f) || (f == null && code == android.view.KeyEvent.KEYCODE_BUTTON_SELECT);   /* SELECT = 실행 옵션 창 */
+        if (!(left || right || ok || opt)) {
             /* 배정 없는 패드 버튼은 삼킨다 — 안 그러면 시스템 폴백이 Y 를 BACK 으로 바꿔 앱이 꺼진다(리뷰) */
             if (padBtn) return true;
             return super.dispatchKeyEvent(e);
@@ -472,7 +497,10 @@ public class MainActivity extends Activity {
         if (e.getAction() == android.view.KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
             if (left) curLv.moveSel(-1);
             else if (right) curLv.moveSel(1);
-            else { LauncherView.Item it = curLv.selected(); if (it != null) openSheet(it.rom); }
+            else {
+                LauncherView.Item it = curLv.selected();
+                if (it != null) { if (opt) openSheet(it.rom); else launch(it.rom.getAbsolutePath()); }
+            }
         }
         return true;
     }

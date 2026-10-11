@@ -143,6 +143,12 @@ public class EmuActivity extends Activity {
                 placeScreen(); persistScreen();
             }
             @Override public void onScreenDrop() { persistScreen(); }
+            /* 메뉴가 열려 있는 동안 게임을 멈춘다 — 고르는 사이 맞지 않게(Delta 의 멈춤 메뉴). 옵션 창이 떠 있으면 그 창이 멈춤을 쥔다 */
+            @Override public void onMenu(boolean open) {
+                if (open) { releasePhysical(); refreshSlotInfo(); }
+                if (!loaded) return;
+                Emu.nativeSetPaused(open || (sheet != null && sheet.isShowing()));
+            }
         });
 
         root = new FrameLayout(this);
@@ -405,30 +411,77 @@ public class EmuActivity extends Activity {
         return new File(MainActivity.saveDir(), new File(romPath).getName() + ".state.auto");
     }
 
+    /** 되돌리기 자리 — 불러오기·리셋 직전 상태. 슬롯·오토세이브와 따로. */
+    private File undoPath() {
+        return new File(MainActivity.saveDir(), new File(romPath).getName() + ".state.undo");
+    }
+
+    /** 저장 칸·로드 칸 아래 줄 — 지금 슬롯에 뭐가 있는지(«3분 전» / «없음»). 메뉴를 열 때·저장·슬롯 바꿀 때 */
+    private void refreshSlotInfo() {
+        if (pad == null || romPath == null) return;
+        File f = statePath();
+        boolean has = f.exists() && f.length() > 0;
+        pad.setSlotInfo(has ? "덮어쓰기" : "빈 칸", has ? ago(f.lastModified()) : "없음");
+    }
+    private static String ago(long t) {
+        long sec = Math.max(0, (System.currentTimeMillis() - t) / 1000);
+        if (sec < 60) return "방금";
+        if (sec < 3600) return (sec / 60) + "분 전";
+        if (sec < 86400) return (sec / 3600) + "시간 전";
+        return (sec / 86400) + "일 전";
+    }
+
+    /** 지금 자리를 되돌리기 자리에 떠 두고 일(불러오기·리셋)을 한 뒤, 5초 동안 «되돌리기» 칩을 띄운다.
+     *  메뉴는 닫는다(게임이 그 자리에서 바로 이어진다 — 멈춘 채 불러오면 화면이 안 바뀌어 됐는지 모른다). */
+    private void withUndo(final String done, final Runnable work) {
+        pad.barClose();
+        gl.queueEvent(new Runnable() { @Override public void run() {
+            final boolean backed = Emu.nativeSaveState(undoPath().getAbsolutePath()) == 0;
+            work.run();
+            toast(done);
+            if (backed) h.post(new Runnable() { @Override public void run() { pad.offerUndo(); } });
+        }});
+    }
+
     private void handleAction(int action) {
         switch (action) {
         case PadView.ACT_SAVE:
+        case PadView.ACT_QSAVE: {
+            final boolean quick = action == PadView.ACT_QSAVE;
             gl.queueEvent(new Runnable() { @Override public void run() {
                 final int rc = Emu.nativeSaveState(statePath().getAbsolutePath());
-                toast(rc == 0 ? "상태 저장" : "상태 저장 실패");
+                toast(rc != 0 ? "저장 실패" : (quick ? "빠른 저장 · 슬롯 " : "저장 · 슬롯 ") + slot);
+                h.post(new Runnable() { @Override public void run() { refreshSlotInfo(); } });
+            }});
+            break; }
+        case PadView.ACT_LOAD: {
+            final File st = statePath();
+            if (!st.exists()) { toast("슬롯 " + slot + "은 비어 있어요"); break; }
+            withUndo("불러옴 · 슬롯 " + slot, new Runnable() { @Override public void run() {
+                if (Emu.nativeLoadState(st.getAbsolutePath()) != 0) toast("불러오기 실패");
+            }});
+            break; }
+        case PadView.ACT_UNDO:
+            gl.queueEvent(new Runnable() { @Override public void run() {
+                toast(Emu.nativeLoadState(undoPath().getAbsolutePath()) == 0 ? "되돌렸어요" : "되돌리기 실패");
             }});
             break;
-        case PadView.ACT_LOAD:
-            gl.queueEvent(new Runnable() { @Override public void run() {
-                final int rc = Emu.nativeLoadState(statePath().getAbsolutePath());
-                toast(rc == 0 ? "상태 불러옴" : "저장된 상태 없음");
-            }});
+        case PadView.ACT_LAYOUT_DEFAULT:
+            /* 배치 「처음대로」 — 버튼은 PadView 가 되돌렸다. 게임 화면 크기·자리 값을 지워 자동 맞춤으로 */
+            Settings.removePrefix("pocketcore_screen_");
+            applyScreenLayout();
+            toast("버튼과 화면을 처음 자리로");
             break;
         case PadView.ACT_SHOT:
             gl.queueEvent(new Runnable() { @Override public void run() { screenshot(); }});
             break;
         case PadView.ACT_RESET:
-            gl.queueEvent(new Runnable() { @Override public void run() { Emu.nativeReset(); }});
+            withUndo("리셋했어요", new Runnable() { @Override public void run() { Emu.nativeReset(); } });
             break;
         case PadView.ACT_SLOT:
             slot = slot % 3 + 1;
             pad.setSlotLabel(slot);
-            toast("상태 슬롯 " + slot);
+            refreshSlotInfo();
             break;
         case PadView.ACT_BAND:
             toggleCoreOpt("ngp_svcsp_band", "기술명 띠");
@@ -459,7 +512,7 @@ public class EmuActivity extends Activity {
                     new Runnable() { @Override public void run() {
                         startActivity(new Intent(EmuActivity.this, SettingsActivity.class).putExtra("rom", orig)); } });
             sheet.onClose = new Runnable() { @Override public void run() {
-                Emu.nativeSetPaused(false);
+                Emu.nativeSetPaused(pad.isBarOpen());          /* 메뉴가 아직 열려 있으면 계속 멈춤 */
                 applyDisplay(); pushCoreOpts(); } };
             break; }
         case PadView.ACT_PICK:

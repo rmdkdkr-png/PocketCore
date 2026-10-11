@@ -287,6 +287,21 @@ public final class Updater {
         return false;
     }
 
+    /** 조용한 확인 — 지금 배포 레벨의 새 판이 있으면 그 내부 번호, 없거나 못 닿으면 0. 아무것도 안 띄운다(런처 버튼 표시용). */
+    static int peekNewer(Activity act) {
+        try {
+            byte[] jb = fetch(baseUrl() + "/" + VERSION_INDEX, 8000);
+            JSONObject j = new JSONObject(new String(jb, "UTF-8"));
+            if (testLevel() && j.optJSONObject("test") != null) j = j.getJSONObject("test");
+            int rc = j.getInt("versionCode"), my;
+            try { my = (int) act.getPackageManager().getPackageInfo(act.getPackageName(), 0).getLongVersionCode(); }
+            catch (Throwable t) { my = act.getPackageManager().getPackageInfo(act.getPackageName(), 0).versionCode; }
+            return rc > my ? rc : 0;
+        } catch (Throwable e) {
+            return 0;
+        }
+    }
+
     /** 색인만 받아 둔다 — 롬 스캔이 순정 판별(rom_md5)에 쓴다. 색인이 없는 기기에서 스캔이 직접 부른다.
      *  오류 페이지를 색인으로 남기지 않게 JSON 으로 열리는지 본 뒤 쓴다. 실패는 조용히 false. */
     static boolean fetchIndex() {
