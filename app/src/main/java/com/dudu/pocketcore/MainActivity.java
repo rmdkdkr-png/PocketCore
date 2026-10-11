@@ -110,6 +110,7 @@ public class MainActivity extends Activity {
         romsDir().mkdirs(); saveDir().mkdirs(); sysDir().mkdirs();
         seedOptions();
         seedMods();
+        com.dudu.pocketcore.Settings.migrateMotion();   /* 보간 묶음(120Hz·60Hz) 열쇠가 없으면 한 번 정한다 */
 
         /* 게임에서 「롬 바꾸기」로 온 경우엔 목록을 **반드시** 보여 준다.
            안 그러면 롬이 하나뿐일 때 그 롬으로 바로 되돌아가서 목록도 설정도 영영 못 본다. */

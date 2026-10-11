@@ -204,11 +204,27 @@ public class SettingsActivity extends Activity {
         String note = null;
         if ("screen".equals(p.id) || "motion".equals(p.id))
             note = "게임으로 돌아가면 바로 바뀝니다.";
+        else if ("motion_adv".equals(p.id))
+            note = "여기서 하나라도 바꾸면 보간은 「직접」이 됩니다. 「움직임·반응」에서 120Hz·60Hz 를 다시 고르면 한꺼번에 돌아갑니다.";
         else if ("control".equals(p.id) || "game".equals(p.id) || "sound".equals(p.id))
             note = "조작 패치·언어·배경음악은 게임을 다시 열 때 반영됩니다(게임 안 「설정 › 적용하고 이어하기」로 바로).";
         header(col, p.title, note);
 
         for (String sec : p.sections) section(col, sec, visible(sec));
+
+        if ("motion".equals(p.id)) {
+            /* 고급 — 자주 안 쓰는 세부는 한 칸 안쪽에(유저 2026-10-11 「나머지 조정하려면 고급으로」) */
+            LinearLayout adv = sectionCard(col, "고급");
+            adv.addView(actionRow("보간 고급",
+                    "코어 보간 · 앱 보간 · 방식 · 배수 · 이펙트 · 날아가는 몸을 하나씩",
+                    new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    Intent i = new Intent(SettingsActivity.this, SettingsActivity.class).putExtra("page", "motion_adv");
+                    if (rom != null) i.putExtra("rom", rom);
+                    startActivity(i);
+                }
+            }));
+        }
 
         if ("control".equals(p.id)) {
             /* 조작 패치(mods) — 게임마다 따로라 게임 이름으로 소절을 나눈다 */
@@ -378,7 +394,7 @@ public class SettingsActivity extends Activity {
     }
 
     private void store(Settings.Item it, String v) {
-        Settings.put(it.key, v); vals.put(it.key, v);
+        Settings.putUser(it.key, v); vals = Settings.load();     /* 묶음(보간 120·60)이 세부 값을 같이 바꿀 수 있다 */
         if ("pocketcore_lang".equals(it.key)) {   /* 전역 언어를 바꾸면 게임별 선택(실행 전 선택창)은 지운다 — 여기 값이 다시 보이는 값이 되게 */
             Settings.removePrefix("pocketcore_lang_");
             java.util.Iterator<String> ki = vals.keySet().iterator();

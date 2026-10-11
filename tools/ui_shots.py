@@ -173,6 +173,11 @@ def settings_pages(tag, pages):
         if tap_text(page):
             time.sleep(2)
             scroll_shots("%s_07_%s" % (tag, page), 3)
+            if page == "움직임·반응" and tap_text("보간 고급"):      # 숨은 쪽(고급)
+                time.sleep(2)
+                scroll_shots("%s_07_adv" % tag, 2)
+                sh("input keyevent 4")
+                time.sleep(1.5)
             sh("input keyevent 4")
             time.sleep(1.5)
 

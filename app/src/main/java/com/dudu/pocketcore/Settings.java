@@ -21,6 +21,9 @@ import java.util.Scanner;
 public final class Settings {
 
     /** 한 항목. 고를 수 있는 값과 사람에게 보일 이름을 같이 들고 있다. */
+    /** 보간 묶음 열쇠(120·60·custom) — 아래 putUser·migrateMotion 참고 */
+    public static final String MOTION = "pocketcore_motion";
+
     public static final class Item {
         public final String key, label, help;
         public final String[] vals, names;
@@ -131,18 +134,27 @@ public final class Settings {
                해설·더빙(ngp_ss2sp_comm 계열)은 3.90 에 이미 뺐고, 남은 배관도 같이 걷어냈다. */
         });
         /* ── 움직임·반응 ── */
-        GROUPS.put("프레임 생성", new Item[]{
+        /* 보간 한 줄 — 유저 2026-10-11 「120Hz 세팅·60Hz 세팅으로 맞추고 기본, 나머지 조정하려면 고급으로. 우월한 세팅은 정해져 있으니」.
+           고르면 아래 MOTION_KEYS 를 한꺼번에 쓰고(putUser), 고급에서 하나라도 바꾸면 「직접」이 된다. */
+        GROUPS.put("보간", new Item[]{
+            new Item(MOTION, "보간",
+                "120Hz = 화면이 120Hz 일 때 가장 좋은 조합 — 사무쇼2 는 코어 보간 4배·예측·이펙트 옮기기·날아가는 몸 섞기,"
+                + " 다른 게임은 앱 보간(움직임, 약 8ms 늦음). 60Hz = 보간 끔(화면이 60Hz 거나 배터리 아낄 때). 직접 = 「고급」에서 하나씩.",
+                new String[]{ "120", "60", "custom" },
+                new String[]{ "120Hz", "60Hz", "직접" }, "120").l(),
+        });
+        GROUPS.put("보간 고급", new Item[]{
             /* 프레임 생성 — 두 방식을 «따로» 켜고 끈다. 둘 다 켜면 코어 우선, 앱은 대타
                (코어가 120 을 내보내는 동안 앱은 끼울 빈 vsync 가 없어 저절로 비켜선다). */
             new Item("ngp_framegen", "코어 보간",
                 "사무쇼2 전용. 코어가 캐릭터·배경 위치를 직접 보간해 같은 도트로 다시 그립니다(도트 안 깨짐). 자동 = 화면이 120Hz 일 때만.",
                 new String[]{ "auto", "enabled", "disabled" },
-                new String[]{ "자동", "켬", "끔" }, "auto").g("ss2").l(),
+                new String[]{ "자동", "켬", "끔" }, "auto").g("ss2"),
             new Item("pocketcore_framegen", "앱 보간",
                 "모든 게임. 완성된 화면의 움직임을 찾아 중간 그림을 끼웁니다(약 8ms 늦음). 코어 보간이 도는 동안은 저절로 쉽니다."
-                + " 움직임 = 반만큼 옮김 · 섞기 = 앞뒤 반반(잔상).",
+                + " 움직임 = 반만큼 옮김 · 섞기 = 앞뒤 반반(잔상). 2배까지 — 4배는 다음 그림을 미리 알아야 해서 코어 보간만 됩니다.",
                 new String[]{ "off", "motion", "blend" },
-                new String[]{ "끔", "움직임", "섞기" }, "off").l(),
+                new String[]{ "끔", "움직임", "섞기" }, "off"),
         });
         GROUPS.put("코어 보간 세부", new Item[]{
             new Item("ngp_framegen_mode", "방식",
@@ -262,16 +274,68 @@ public final class Settings {
     }
     public static final Page[] PAGES = {
         new Page("screen",  "화면",        "크기·자리 · 업스케일러 · 필터",                "크기·자리", "업스케일러", "필터", "게임 화면"),
-        new Page("motion",  "움직임·반응", "프레임 보간 · 런어헤드",                      "프레임 생성", "코어 보간 세부", "입력 지연"),
+        new Page("motion",  "움직임·반응", "보간 120Hz·60Hz · 런어헤드",                 "보간", "입력 지연"),
         new Page("control", "조작",        "터치 버튼 · 원버튼 · 조작 패치 · 물리 패드",  "터치 패드", "원버튼 필살기"),
         new Page("game",    "게임",        "언어 · 오토세이브",                            "게임 공통"),
         new Page("sound",   "소리",        "런처 소리 · 사무쇼2 배경음악",                 "소리"),
         new Page("rom",     "롬",          "롬 가져오기 · 롬 폴더"),
         new Page("update",  "업데이트",    "정식 / 시험 · 업데이트 확인",                  "업데이트"),
     };
+    /** 첫 화면 목록에는 안 나오는 쪽 — 다른 쪽의 「고급」 줄로만 간다(애플 설정처럼 자주 안 쓰는 건 한 칸 안쪽에) */
+    public static final Page[] SUBPAGES = {
+        new Page("motion_adv", "보간 고급", "코어 보간 · 앱 보간 · 방식 · 배수 · 이펙트 · 날아가는 몸", "보간 고급", "코어 보간 세부"),
+    };
     public static Page page(String id) {
         for (Page p : PAGES) if (p.id.equals(id)) return p;
+        for (Page p : SUBPAGES) if (p.id.equals(id)) return p;
         return null;
+    }
+
+    /* ── 보간 묶음 ── (MOTION 열쇠는 맨 위 — GROUPS 초기화가 먼저 쓴다) */
+    static final String[] MOTION_KEYS = { "ngp_framegen", "pocketcore_framegen", "ngp_framegen_mode", "ngp_framegen_mult", "ngp_framegen_fx", "ngp_framegen_pose" };
+    static final String[] MOTION_120  = { "auto", "motion", "predict", "4", "move", "blend" };
+    static final String[] MOTION_60   = { "disabled", "off", null, null, null, null };     /* null = 그대로 둔다 */
+    private static Item itemOf(String key) {
+        for (Item[] arr : GROUPS.values()) for (Item it : arr) if (it.key.equals(key)) return it;
+        return null;
+    }
+    private static boolean same(Map<String, String> m, String[] pre) {
+        for (int i = 0; i < MOTION_KEYS.length; i++) {
+            if (pre[i] == null) continue;
+            Item it = itemOf(MOTION_KEYS[i]);
+            String cur = m.get(MOTION_KEYS[i]);
+            if (cur == null && it != null) cur = it.def;
+            if (!pre[i].equals(cur)) return false;
+        }
+        return true;
+    }
+    /** 열쇠가 없을 때 보여 줄 묶음 — 지금 세부 값이 120·60 묶음과 같으면 그것, 아니면 「직접」 */
+    static String motionOf(Map<String, String> m) {
+        if (same(m, MOTION_120)) return "120";
+        if (same(m, MOTION_60)) return "60";
+        return "custom";
+    }
+    /** 사람이 고른 값을 쓴다 — 묶음을 고르면 세부 값을 한꺼번에, 세부를 바꾸면 묶음은 「직접」으로. 설정 화면·실행 전 창 공용 */
+    public static void putUser(String key, String val) {
+        put(key, val);
+        if (MOTION.equals(key)) {
+            String[] pre = "120".equals(val) ? MOTION_120 : "60".equals(val) ? MOTION_60 : null;
+            if (pre != null) for (int i = 0; i < MOTION_KEYS.length; i++) if (pre[i] != null) put(MOTION_KEYS[i], pre[i]);
+            return;
+        }
+        for (String k : MOTION_KEYS) if (k.equals(key)) { put(MOTION, "custom"); return; }
+    }
+    /** 처음 한 번 — 묶음 열쇠가 없으면: 세부를 손댄 적 없으면(모두 옛 기본값) 120Hz 묶음을 깔고, 손댔으면 「직접」으로 적는다.
+     *  유저 2026-10-11 「우월한 세팅은 정해져 있으니」 — 손대지 않은 사람은 가장 좋은 조합으로 시작. */
+    public static void migrateMotion() {
+        Map<String, String> m = load();
+        if (m.containsKey(MOTION)) return;
+        boolean untouched = true;
+        for (String k : MOTION_KEYS) if (m.containsKey(k)) {
+            Item it = itemOf(k);
+            if (it == null || !it.def.equals(m.get(k))) { untouched = false; break; }
+        }
+        putUser(MOTION, untouched ? "120" : motionOf(m));
     }
 
     /* ── 조작 패치(mods) ──────────────────────────────────────────
@@ -461,6 +525,7 @@ public final class Settings {
 
     public static String get(Map<String, String> m, Item it) {
         String v = m.get(it.key);
+        if (v == null && MOTION.equals(it.key)) return motionOf(m);
         return (v != null) ? v : it.def;
     }
 

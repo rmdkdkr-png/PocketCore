@@ -163,7 +163,7 @@ public final class LaunchSheet {
         if (o.kind == 0) {
             Map<String, String> m = Settings.load();
             Settings.put(o.key, "on".equals(o.cur) ? onLang(m, o.g) : offLang(m, o.g));
-        } else Settings.put(o.key, o.cur);
+        } else Settings.putUser(o.key, o.cur);   /* 보간 묶음이면 세부 값도 같이 */
         valViews.get(i).setText(o.name());
         DialBar b = dials.get(i); if (b != null) b.setIndex(o.idx());          /* 패드로 돌려도 바가 따라간다 */
         a.getWindow().getDecorView().performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
