@@ -56,10 +56,19 @@ public class SettingsActivity extends Activity {
         setContentView(build());
     }
 
+    /** 첫 onResume 은 onCreate 가 막 짠 화면 — 다시 짤 필요 없다 */
+    private boolean resumed;
+    private ScrollView sv;
+
     @Override protected void onResume() {
         super.onResume();
-        /* 갈래 화면에서 돌아오면 첫 화면의 «바뀐 것» 요약을 새로 */
-        if (page == null) { vals = Settings.load(); setContentView(build()); }
+        if (!resumed) { resumed = true; return; }
+        /* 안쪽 화면에서 돌아오면 다시 짠다 — 첫 화면은 «바뀐 것» 요약, 「움직임·반응」은 보간 줄
+           (「보간 고급」에서 바꾸고 오면 「커스텀」이 켜져야 하는데 107 까지는 옛 칸이 켜진 채였다). 스크롤 자리는 그대로 */
+        final int y = sv != null ? sv.getScrollY() : 0;
+        vals = Settings.load(); setContentView(build());
+        final ScrollView s = sv;
+        if (s != null && y > 0) s.post(new Runnable() { @Override public void run() { s.scrollTo(0, y); } });
     }
 
     /* ── 거르기 ─────────────────────────────────────────────────── */
@@ -112,7 +121,7 @@ public class SettingsActivity extends Activity {
     /* ── 화면 짜기 ──────────────────────────────────────────────── */
 
     private View build() {
-        ScrollView sv = new ScrollView(this);
+        sv = new ScrollView(this);
         sv.setBackgroundColor(BG);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
@@ -205,7 +214,7 @@ public class SettingsActivity extends Activity {
         if ("screen".equals(p.id) || "motion".equals(p.id))
             note = "게임으로 돌아가면 바로 바뀝니다.";
         else if ("motion_adv".equals(p.id))
-            note = "여기서 하나라도 바꾸면 보간은 「직접」이 됩니다. 「움직임·반응」에서 120Hz·60Hz 를 다시 고르면 한꺼번에 돌아갑니다.";
+            note = "여기서 바꾸면 보간이 「커스텀」이 되고 이 조합을 따로 기억합니다. 120Hz·60Hz 로 갔다가 「커스텀」을 누르면 이대로 돌아옵니다.";
         else if ("control".equals(p.id) || "game".equals(p.id) || "sound".equals(p.id))
             note = "조작 패치·언어·배경음악은 게임을 다시 열 때 반영됩니다(게임 안 「설정 › 적용하고 이어하기」로 바로).";
         header(col, p.title, note);

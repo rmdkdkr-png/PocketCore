@@ -135,15 +135,17 @@ public final class Settings {
         });
         /* ── 움직임·반응 ── */
         /* 보간 한 줄 — 유저 2026-10-11 「120Hz 세팅·60Hz 세팅으로 맞추고 기본, 나머지 조정하려면 고급으로. 우월한 세팅은 정해져 있으니」.
-           고르면 아래 MOTION_KEYS 를 한꺼번에 쓰고(putUser), 고급에서 하나라도 바꾸면 「직접」이 된다. */
+           고르면 아래 MOTION_KEYS 를 한꺼번에 쓰고(putUser), 고급에서 하나라도 바꾸면 「커스텀」이 된다.
+           커스텀 = 내 조합을 따로 기억하는 칸(MOTION_CUSTOM) — 107 까지의 「직접」은 눌러도 아무 일이 없어 헷갈렸다
+           (유저 2026-10-11 「직접은 뭐냐」 → 「커스텀 칸으로 두면 되지」). 값 "custom" 은 그대로라 options.txt 는 안 바뀐다. */
         GROUPS.put("보간", new Item[]{
             new Item(MOTION, "보간",
-                "120Hz = 화면이 120Hz 일 때 가장 좋은 조합 — 사무쇼2 는 코어 보간 4배·예측·이펙트 옮기기·날아가는 몸 섞기,"
+                "120Hz = 화면이 120Hz 일 때 가장 좋은 조합 — 사무쇼2 는 코어 보간 4배·예측·이펙트 옮기기·날아가는 몸 섞기·서기 그리기,"
                 + " 다른 게임은 앱 보간(움직임, 약 8ms 늦음). 60Hz = 화면이 60Hz 일 때 — 사무쇼2 는 30Hz 로 움직이는 캐릭터·배경의"
-                + " 사이 그림을 2프레임 미리 돌려(예측) 60 에 맞춤, 지연 없음·120Hz 안 씀(배터리). 다른 게임은 아직 보간 없음."
-                + " 직접 = 「고급」에서 하나씩.",
+                + " 사이 그림을 2프레임 미리 돌려(예측) 60 에 맞춤 + 서기 그리기, 지연 없음·120Hz 안 씀(배터리). 다른 게임은 아직 보간 없음."
+                + " 커스텀 = 「보간 고급」에서 맞춘 내 조합(따로 기억 — 120Hz·60Hz 로 갔다 와도 그대로 돌아옴).",
                 new String[]{ "120", "60", "custom" },
-                new String[]{ "120Hz", "60Hz", "직접" }, "120").l(),
+                new String[]{ "120Hz", "60Hz", "커스텀" }, "120").l(),
         });
         GROUPS.put("보간 고급", new Item[]{
             /* 프레임 생성 — 두 방식을 «따로» 켜고 끈다. 둘 다 켜면 코어 우선, 앱은 대타
@@ -180,6 +182,13 @@ public final class Settings {
                 "맞고 빙글빙글 날아갈 때 바뀌는 포즈 사이를 반투명으로 이어 덜 깜빡이게(잔상). 끔 = 원래처럼 툭툭.",
                 new String[]{ "blend", "off" },
                 new String[]{ "섞기", "끔" }, "blend").g("ss2"),
+            /* 서기 자세 — 코어 패치 95. 서 있을 때 1~2픽셀씩 바뀌는 포즈 6~8장 사이를 4배 격자에 ¼픽셀씩 옮겨 그린다(섞지 않음).
+               유저 2026-10-11 「뉴트럴 포즈를 … 그리는 거랑도」 → 비교 영상(그리기 ¼픽셀이 제일 나음) → 「ㄱ」 */
+            new Item("ngp_framegen_idle", "서기 자세",
+                "서 있을 때 숨 쉬듯 1~2픽셀씩 바뀌는 포즈 사이를 ¼픽셀씩 옮겨 그려 잇습니다(도트 그대로, 같은 동작을 두 번 본 뒤부터)."
+                + " 켜면 화면을 4배로 그려 내보내 업스케일러는 쉽니다. 칼처럼 크게 도는 순간은 조금 거칠 수 있음.",
+                new String[]{ "draw", "off" },
+                new String[]{ "그리기(¼픽셀)", "끔" }, "draw").g("ss2"),
         });
         GROUPS.put("입력 지연", new Item[]{
             /* 런어헤드 — 코어(50_runahead.patch)가 게임을 몰래 몇 프레임 앞서 돌려 그 결과를 보여 준다. 소리는 진짜 프레임 것.
@@ -295,11 +304,11 @@ public final class Settings {
     }
 
     /* ── 보간 묶음 ── (MOTION 열쇠는 맨 위 — GROUPS 초기화가 먼저 쓴다) */
-    static final String[] MOTION_KEYS = { "ngp_framegen", "pocketcore_framegen", "ngp_framegen_mode", "ngp_framegen_mult", "ngp_framegen_fx", "ngp_framegen_pose" };
-    static final String[] MOTION_120  = { "auto", "motion", "predict", "4", "move", "blend" };
+    static final String[] MOTION_KEYS = { "ngp_framegen", "pocketcore_framegen", "ngp_framegen_mode", "ngp_framegen_mult", "ngp_framegen_fx", "ngp_framegen_pose", "ngp_framegen_idle" };
+    static final String[] MOTION_120  = { "auto", "motion", "predict", "4", "move", "blend", "draw" };
     /* 60Hz = 사무쇼2 코어 «60Hz 사이 그림»(패치 90 — 4배의 2프레임 예측을 그대로, 120 출력 없이) + 앱 보간 끔(60Hz 화면엔 끼울 빈 vsync 가 없다).
        유저 2026-10-11 「60Hz 도 넣어야지 … 4배 하던 거에서(2프레임 미리) 60 프레임에 맞출 만한 노력만 하면 되잖어」 */
-    static final String[] MOTION_60   = { "60", "off", "predict", "4", "move", "blend" };
+    static final String[] MOTION_60   = { "60", "off", "predict", "4", "move", "blend", "draw" };
     private static Item itemOf(String key) {
         for (Item[] arr : GROUPS.values()) for (Item it : arr) if (it.key.equals(key)) return it;
         return null;
@@ -314,28 +323,64 @@ public final class Settings {
         }
         return true;
     }
-    /** 열쇠가 없을 때 보여 줄 묶음 — 지금 세부 값이 120·60 묶음과 같으면 그것, 아니면 「직접」 */
+    /** 커스텀 칸이 기억하는 내 조합 — MOTION_KEYS 순서로 쉼표 이음(예: "auto,motion,predict,2,move,blend") */
+    static final String MOTION_CUSTOM = "pocketcore_motion_custom";
+    /** 지금 세부 값 — 없는 키는 항목 기본값 */
+    private static String[] curDetail(Map<String, String> m) {
+        String[] out = new String[MOTION_KEYS.length];
+        for (int i = 0; i < MOTION_KEYS.length; i++) {
+            String v = m.get(MOTION_KEYS[i]);
+            if (v == null) { Item it = itemOf(MOTION_KEYS[i]); v = it != null ? it.def : ""; }
+            out[i] = v;
+        }
+        return out;
+    }
+    private static void saveCustom(Map<String, String> m) {
+        StringBuilder sb = new StringBuilder();
+        for (String v : curDetail(m)) { if (sb.length() > 0) sb.append(','); sb.append(v); }
+        put(MOTION_CUSTOM, sb.toString());
+    }
+    /** 기억해 둔 내 조합 — 없거나 모양이 틀리면 null */
+    static String[] customSet(Map<String, String> m) {
+        String s = m.get(MOTION_CUSTOM);
+        if (s == null) return null;
+        String[] v = s.split(",", -1);
+        if (v.length != MOTION_KEYS.length) return null;
+        for (String x : v) if (x.isEmpty()) return null;
+        return v;
+    }
+    /** 열쇠가 없을 때 보여 줄 묶음 — 지금 세부 값이 120·60 묶음과 같으면 그것, 아니면 「커스텀」 */
     static String motionOf(Map<String, String> m) {
         if (same(m, MOTION_120)) return "120";
         if (same(m, MOTION_60)) return "60";
         return "custom";
     }
-    /** 사람이 고른 값을 쓴다 — 묶음을 고르면 세부 값을 한꺼번에, 세부를 바꾸면 묶음은 「직접」으로. 설정 화면·실행 전 창 공용 */
+    /** 사람이 고른 값을 쓴다 — 묶음을 고르면 세부 값을 한꺼번에, 세부를 바꾸면 묶음은 「커스텀」으로(그 조합을 기억).
+     *  커스텀을 고르면 기억해 둔 조합으로 돌아간다 — 아직 없으면 지금 값을 그대로 내 조합으로 삼는다. 설정 화면·실행 전 창 공용 */
     public static void putUser(String key, String val) {
         put(key, val);
         if (MOTION.equals(key)) {
             String[] pre = "120".equals(val) ? MOTION_120 : "60".equals(val) ? MOTION_60 : null;
+            if (pre == null && "custom".equals(val)) {
+                pre = customSet(load());
+                if (pre == null) { saveCustom(load()); return; }
+            }
             if (pre != null) for (int i = 0; i < MOTION_KEYS.length; i++) if (pre[i] != null) put(MOTION_KEYS[i], pre[i]);
             return;
         }
-        for (String k : MOTION_KEYS) if (k.equals(key)) { put(MOTION, "custom"); return; }
+        for (String k : MOTION_KEYS) if (k.equals(key)) { put(MOTION, "custom"); saveCustom(load()); return; }
     }
-    /** 처음 한 번 — 묶음 열쇠가 없으면: 세부를 손댄 적 없으면(모두 옛 기본값) 120Hz 묶음을 깔고, 손댔으면 「직접」으로 적는다.
+    /** 처음 한 번 — 묶음 열쇠가 없으면: 세부를 손댄 적 없으면(모두 옛 기본값) 120Hz 묶음을 깔고, 손댔으면 「커스텀」으로 적는다(그 조합을 기억).
      *  유저 2026-10-11 「우월한 세팅은 정해져 있으니」 — 손대지 않은 사람은 가장 좋은 조합으로 시작. */
     public static void migrateMotion() {
         Map<String, String> m = load();
+        /* 109: 서기 자세(ngp_framegen_idle, 코어 패치 95)가 묶음에 들어왔다 — 묶음·커스텀을 이미 쓰던 사람도 켠 채로 시작
+           (커스텀은 아래에서 내 조합을 새 길이로 다시 기억한다) */
+        if (m.containsKey(MOTION) && !m.containsKey("ngp_framegen_idle")) { put("ngp_framegen_idle", "draw"); m = load(); }
         /* 내부 106 의 60Hz 는 «보간 끔»이었다 — 107 부터 사이 그림. 106 에서 60Hz 를 골라 둔 사람은 새 묶음으로 다시 깐다 */
         if ("60".equals(m.get(MOTION)) && "disabled".equals(m.get("ngp_framegen"))) { putUser(MOTION, "60"); return; }
+        /* 107 의 「직접」 → 108 커스텀 칸: 기억해 둔 조합이 없으면 지금 조합을 내 조합으로 */
+        if ("custom".equals(m.get(MOTION)) && customSet(m) == null) { saveCustom(m); return; }
         if (m.containsKey(MOTION)) return;
         boolean untouched = true;
         for (String k : MOTION_KEYS) if (m.containsKey(k)) {

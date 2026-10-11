@@ -453,6 +453,9 @@ public class MainActivity extends Activity {
         g.setStroke(Math.max(1, (int) d), stroke);
         t.setBackground(g);
         t.setClickable(true);
+        /* 패드 십자·A 는 런처가 직접 받는다(dispatchKeyEvent). 버튼이 포커스를 가질 수 있으면 화면을 만진 뒤 첫 십자 입력을
+           안드로이드가 «터치 모드 빠져나가기»로 먹어서 카드는 안 넘어가고 「설정」에 테두리만 생겼다(108 ui_shots 에서 확인). */
+        t.setFocusable(false);
         return t;
     }
 

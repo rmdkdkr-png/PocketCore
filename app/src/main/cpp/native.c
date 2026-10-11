@@ -93,6 +93,7 @@ static int g_loaded = 0;
 
 /* GL */
 static GLuint g_prog = 0, g_tex = 0, g_tex_mid = 0;
+static unsigned g_tex_w = 0, g_tex_h = 0;   /* g_tex 에 지금 잡힌 크기 — 같으면 glTexSubImage2D 로 덮기만 */
 static GLint  a_pos, a_uv, u_tex;
 static int    g_vw = 1, g_vh = 1;
 static int    g_integer_scale = 1;
@@ -490,6 +491,7 @@ static void gl_setup(void)
    u_tex = glGetUniformLocation(g_prog, "uTex");
 
    glGenTextures(1, &g_tex);
+   g_tex_w = g_tex_h = 0;
    glBindTexture(GL_TEXTURE_2D, g_tex);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -521,8 +523,13 @@ static void gl_draw(int show_mid)
    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
    glBindTexture(GL_TEXTURE_2D, g_tex);
    if (g_fb_dirty) {
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_fb_w, g_fb_h, 0,
-                   GL_RGBA, GL_UNSIGNED_BYTE, g_fb);
+      /* 서기 그리기(4배, 640×608) 는 한 장이 1.5MB — 크기가 같으면 텍스처를 다시 잡지 않고 덮기만 */
+      if (g_tex_w != g_fb_w || g_tex_h != g_fb_h) {
+         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_fb_w, g_fb_h, 0,
+                      GL_RGBA, GL_UNSIGNED_BYTE, g_fb);
+         g_tex_w = g_fb_w; g_tex_h = g_fb_h;
+      } else
+         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, g_fb_w, g_fb_h, GL_RGBA, GL_UNSIGNED_BYTE, g_fb);
       g_fb_dirty = 0;
    }
    if (show_mid && g_mid_dirty) {
@@ -536,20 +543,23 @@ static void gl_draw(int show_mid)
       기둥(사이드 아트) 프레임은 288폭이지만 **게임 몫은 160** — 크기는 게임 160폭으로 정하고 기둥은
       남는 옆자리에만 그린다(넘치면 잘린다). 288 전체를 화면 폭에 맞추면 게임이 반토막 나고 아래가
       텅 빈다는 제보(유저: 「양쪽에 붙이면 될 걸 표시영역을 아래로 늘리지 마라」). */
+   /* 서기 그리기(코어 패치 95)를 켜면 코어가 4배(640×608)로 내보낸다 — 화면 상자·정수배·필터는 «게임 칸»(160×152) 기준 */
+   int sub = (g_fb_w >= 320 && g_fb_w % 160 == 0 && g_fb_h == 152u * (g_fb_w / 160)) ? (int)(g_fb_w / 160) : 1;
+   int lw = (int)g_fb_w / sub, lh = (int)g_fb_h / sub;
    float ar = g_av.geometry.aspect_ratio > 0.f
-            ? g_av.geometry.aspect_ratio : (float)g_fb_w / (float)g_fb_h;
-   int game_w = (g_fb_w > 160 && g_fb_w <= 320) ? 160 : (int)g_fb_w;   /* NGP 게임 화면은 늘 160 */
+            ? g_av.geometry.aspect_ratio : (float)lw / (float)lh;
+   int game_w = (lw > 160 && lw <= 320) ? 160 : lw;   /* NGP 게임 화면은 늘 160 */
    int dw, dh;
    if (g_integer_scale) {
       int s = g_vw / game_w;
-      int sy = g_vh / (int)g_fb_h;
+      int sy = g_vh / lh;
       if (sy < s) s = sy;
       if (s < 1) s = 1;
-      dw = (int)g_fb_w * s; dh = (int)g_fb_h * s;
+      dw = lw * s; dh = lh * s;
    } else {
       dh = g_vh; dw = (int)(g_vh * ar);
-      int game_dw = dh * game_w / (int)g_fb_h;
-      if (game_dw > g_vw) { dh = g_vw * (int)g_fb_h / game_w; dw = (int)(dh * ar); }
+      int game_dw = dh * game_w / lh;
+      if (game_dw > g_vw) { dh = g_vw * lh / game_w; dw = (int)(dh * ar); }
    }
    {  /* 위로 붙인다(유틸 줄 여백만 남김) — 가운데 두면 패드에 깔린다(제보) */
       int y0 = g_vh - dh - (int)(g_vh * 0.07f);
@@ -570,13 +580,13 @@ static void gl_draw(int show_mid)
       tex = g_tex_gh;
    } else g_gh_valid = 0;
 
-   int up = (g_d_mix > 0) ? g_d_up : 0;
+   int up = (g_d_mix > 0 && sub == 1) ? g_d_up : 0;    /* 업스케일러는 도트 한 칸 = 텍셀 한 칸일 때만 — 4배 그림엔 쉰다 */
    disp_prog *d = (up || g_d_grid || g_d_scan || g_d_color || g_d_soft) ? disp_get(up) : NULL;
    GLint ap = a_pos, au = a_uv;
    if (d) {
       glUseProgram(d->prog);
       glUniform1i(d->u_tex, 0);
-      glUniform2f(d->u_size, (float)g_fb_w, (float)g_fb_h);
+      glUniform2f(d->u_size, (float)lw, (float)lh);      /* 격자·스캔라인·번짐은 게임 칸 기준 */
       glUniform2f(d->u_out, (float)dw, (float)dh);
       glUniform1f(d->u_mix, up ? g_d_mix / 100.f : 0.f);
       glUniform1f(d->u_grid, g_d_grid / 100.f);
@@ -810,7 +820,8 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
    /* 프레임 생성은 화면이 게임보다 «충분히» 빠를 때만 — 60Hz 화면에선 끼울 빈 vsync 가 없다.
       배속 중에도 끈다(한 vsync 에 여러 프레임이 돈다). */
    int fg_on = g_fg_mode != FG_OFF && !g_turbo && g_loaded
-            && g_vsync_ema > 0.0 && g_vsync_ema < dt * 0.70;
+            && g_vsync_ema > 0.0 && g_vsync_ema < dt * 0.70
+            && g_fb_w <= 320;                       /* 4배 그림(서기 그리기)엔 앱 보간을 안 돌린다 — 16배 일 */
    if (g_paused) { g_next_t = t; maxsteps = 0; fg_on = 0; }   /* 멈춤 — 풀리면 시계를 지금부터 다시 */
    while (g_next_t <= t && steps < maxsteps) {
       if (g_loaded) {
