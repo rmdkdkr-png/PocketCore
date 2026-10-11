@@ -22,6 +22,12 @@ import java.net.URL;
  *  서버에는 version.json({"versionCode":..,"versionName":"..","apk":".."})과 APK 가 있다. */
 public final class Updater {
 
+    /* Legacito(com.dudu.legacito) 전용 색인 — 옛 PocketCore(1.x~4.04, dudu 키)는 version.json·cores.json 을 계속 본다.
+       옛 서명 키를 잃어(2026-10-10) 새 앱으로 갈라섰다. 같은 릴리즈 태그 app 에 이름만 다른 색인을 둔다.
+       legacito-cores.json 이 따로인 이유: 옛 cores.json 의 ss2 코어(3.71)는 프레임 생성이 없어, 받으면 동봉 코어를 덮어 기능이 사라진다. */
+    static final String VERSION_INDEX = "legacito-version.json";
+    static final String CORES_INDEX   = "legacito-cores.json";
+
     static String baseUrl() {
         String v = null;
         try { v = Settings2.readOpt("pocketcore_update_url"); } catch (Throwable ignored) { }
@@ -153,7 +159,7 @@ public final class Updater {
      *  덕분에 코어만 바뀐 날은 APK 재설치(옆설치 경고) 없이 여기서 끝난다. */
     private static void syncCores(Activity act, String base) {
         try {
-            byte[] jb = fetch(base + "/cores.json", 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
+            byte[] jb = fetch(base + "/" + CORES_INDEX, 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
             JSONObject root = new JSONObject(new String(jb, "UTF-8"));
             StringBuilder got = new StringBuilder();
 
@@ -238,7 +244,7 @@ public final class Updater {
 
     /** 앱 새 판 확인. 설치·설정 화면으로 넘어가면 false, 이미 최신이면 true. */
     private static boolean checkApk(Activity act, String base) throws Exception {
-        byte[] jb = fetch(base + "/version.json", 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
+        byte[] jb = fetch(base + "/" + VERSION_INDEX, 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
         JSONObject j = new JSONObject(new String(jb, "UTF-8"));
         boolean useTest = testLevel() && j.optJSONObject("test") != null;
         if (useTest) j = j.getJSONObject("test");            /* 시험 레벨이면 시험 항목 — 없으면 정식 */
@@ -257,10 +263,10 @@ public final class Updater {
                 toast(act, "지금 깔린 것은 시험 판(v" + myName(act) + ")입니다 — 정식 v" + rn
                         + " 으로 되돌리려면 앱을 지우고 다시 설치하세요 (저장 파일은 남습니다)");
             else
-                toast(act, "앱은 최신 " + (testLevel() ? "시험 판" : "정식 판") + "입니다 (v" + rn + ")");
+                toast(act, "앱은 최신 " + (testLevel() ? "시험 판" : "정식 판") + "입니다 (v" + rn + " · 내부 " + my + ")");
             return true;
         }
-        toast(act, "v" + rn + " 다운로드 중…");
+        toast(act, "v" + rn + " 다운로드 중… (내부 " + my + " → " + rc + ")");   /* 보이는 판은 0.9 그대로라 내부 번호로 구분 */
         byte[] ab = fetch(base + "/" + Uri.encode(apk), 60000);
         File out = new File(act.getCacheDir(), "update.apk");
         FileOutputStream fo = new FileOutputStream(out);
@@ -274,11 +280,26 @@ public final class Updater {
             return false;
         }
         Intent i = new Intent(Intent.ACTION_VIEW);
-        i.setDataAndType(Uri.parse("content://com.dudu.pocketcore.apk/update.apk"),
+        i.setDataAndType(Uri.parse("content://" + act.getPackageName() + ".apk/update.apk"),
                 "application/vnd.android.package-archive");
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
         act.startActivity(i);
         return false;
+    }
+
+    /** 조용한 확인 — 지금 배포 레벨의 새 판이 있으면 그 내부 번호, 없거나 못 닿으면 0. 아무것도 안 띄운다(런처 버튼 표시용). */
+    static int peekNewer(Activity act) {
+        try {
+            byte[] jb = fetch(baseUrl() + "/" + VERSION_INDEX, 8000);
+            JSONObject j = new JSONObject(new String(jb, "UTF-8"));
+            if (testLevel() && j.optJSONObject("test") != null) j = j.getJSONObject("test");
+            int rc = j.getInt("versionCode"), my;
+            try { my = (int) act.getPackageManager().getPackageInfo(act.getPackageName(), 0).getLongVersionCode(); }
+            catch (Throwable t) { my = act.getPackageManager().getPackageInfo(act.getPackageName(), 0).versionCode; }
+            return rc > my ? rc : 0;
+        } catch (Throwable e) {
+            return 0;
+        }
     }
 
     /** 색인만 받아 둔다 — 롬 스캔이 순정 판별(rom_md5)에 쓴다. 색인이 없는 기기에서 스캔이 직접 부른다.

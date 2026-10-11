@@ -45,11 +45,13 @@ public class EmuActivity extends Activity {
     private int slot = 1;
     private boolean autoSave = true;  /* 나갈 때 자동 저장, 열 때 이어하기 */
     /* v4 로스터 11인 — 재캐스팅 아웃(샤를로트/소게츠/모로즈미/유가) 제외 */
-    private boolean loaded = false;
+    private volatile boolean loaded = false;   /* GL 스레드(내리기)와 UI 스레드가 같이 본다 */
     private final Handler h = new Handler(Looper.getMainLooper());
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        /* 볼륨 키 = 미디어(게임 소리) 음량 — 안 정하면 삼성은 «재생 중»을 못 알아챌 때 벨소리 음량을 바꾼다(유저 2026-10-10 「볼륨 조절이 앱에서 안 되던데」) */
+        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         romPath = getIntent().getStringExtra("rom");
         game = Games.identify(romPath);
         romType = (game != null) ? game.id : "svc";
@@ -100,6 +102,12 @@ public class EmuActivity extends Activity {
             }
         });
         gl.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
+        /* 표면이 생길 때마다 주사율 요청을 다시 건다 — Surface.setFrameRate 는 표면에 붙는 값이다 */
+        gl.getHolder().addCallback(new android.view.SurfaceHolder.Callback() {
+            @Override public void surfaceCreated(android.view.SurfaceHolder sh) { applyFrameRate(); }
+            @Override public void surfaceChanged(android.view.SurfaceHolder sh, int f, int w, int hh) { }
+            @Override public void surfaceDestroyed(android.view.SurfaceHolder sh) { }
+        });
 
         pad = new PadView(this);
         /* 패드는 네 벌 — SS2 전용, SvC(원버튼 6키), KOF R-2·월화(R=SP · L=A+B), 순정 NGPC(A·B 만).
@@ -115,11 +123,14 @@ public class EmuActivity extends Activity {
         pad.setProfile(profile, (game != null) ? game.id : "ngp");
         /* 상단바의 게임별 칸 — 코어가 이 게임에서 실제로 쓰는 기능만. 게임 표가 단일 출처다. */
         pad.setCoreFeatures(game != null && game.has(Games.F_BAND));
+        applyFrameGen(false);
+        applyDisplay();
         pad.setListener(new PadView.Listener() {
             @Override public void onMask(int mask) { padMask = mask; }
             @Override public void onAction(int action) { handleAction(action); }
             @Override public void onTurbo(boolean on) { Emu.nativeSetTurbo(on); }
             @Override public void onScreenDrag(float dxFrac, float dyFrac) {
+                freezeAutoFit();
                 int w = root.getWidth(), hgt = root.getHeight();
                 int gw = w * scrPct / 100, gh = hgt * scrPct / 100;
                 if (w > gw)  scrX = clamp(scrX + Math.round(dxFrac * w * 100f / (w - gw)), 0, 100);
@@ -127,10 +138,17 @@ public class EmuActivity extends Activity {
                 placeScreen();
             }
             @Override public void onScreenScale(int dPct) {
+                freezeAutoFit();
                 scrPct = clamp(scrPct + dPct, 20, 100);
                 placeScreen(); persistScreen();
             }
             @Override public void onScreenDrop() { persistScreen(); }
+            /* 메뉴가 열려 있는 동안 게임을 멈춘다 — 고르는 사이 맞지 않게(Delta 의 멈춤 메뉴). 옵션 창이 떠 있으면 그 창이 멈춤을 쥔다 */
+            @Override public void onMenu(boolean open) {
+                if (open) { releasePhysical(); refreshSlotInfo(); }
+                if (!loaded) return;
+                Emu.nativeSetPaused(open || (sheet != null && sheet.isShowing()));
+            }
         });
 
         root = new FrameLayout(this);
@@ -175,6 +193,11 @@ public class EmuActivity extends Activity {
         }
         java.util.Map<String, String> m = Settings.load();
         scrPct = clamp(intOf(m.get("pocketcore_screen_size"), 100), 20, 100);
+        /* 크기·자리를 한 번도 안 정했으면(옵션 없음) 세로 화면에서 «패드 위에 맞춤» — 폴드 큰 화면처럼 정사각에 가까우면
+           가로 꽉 채운 게임이 높이의 80% 를 먹어 패드가 그림을 반쯤 덮었다(유저 2026-10-10 「인터페이스 좀 손봐 줘」).
+           배치에서 끌거나 크기를 바꾸면 그 값이 저장돼 이 자동 맞춤은 꺼진다. */
+        autoFit = m.get("pocketcore_screen_size") == null && m.get("pocketcore_screen_x") == null
+               && m.get("pocketcore_screen_y") == null && m.get("pocketcore_screen_v") == null;
         /* 자리: x·y 퍼센트(남는 공간 대비 0~100). 없으면 옛 top/center 계열에서 변환.
            「키」 편집에서 화면 상자를 끌면 이 값이 갱신·저장된다. */
         String v = or(m.get("pocketcore_screen_v"), "center");
@@ -192,6 +215,7 @@ public class EmuActivity extends Activity {
         String v = or(m.get("pocketcore_touchpad"), "auto");
         boolean hide = "off".equals(v) || ("auto".equals(v) && KeyMap.physicalPresent());
         if (pad != null) pad.setPhysicalMode(hide);
+        if (pad != null) pad.setArt(!"flat".equals(or(m.get("pocketcore_padskin"), "art")));
     }
     private final android.hardware.input.InputManager.InputDeviceListener devListener =
             new android.hardware.input.InputManager.InputDeviceListener() {
@@ -205,6 +229,19 @@ public class EmuActivity extends Activity {
     }
 
     private int scrPct = 100, scrX = 50, scrY = 50;
+    private boolean autoFit = false;       /* 크기·자리 미설정 — 세로에서 게임을 위쪽, 패드 자리(아래 44%) 위에 맞춘다 */
+    /** 자동 맞춤 상자를 같은 자리의 크기·자리 값으로 바꿔 넣는다 — 배치에서 끌기 시작할 때 튀지 않게. */
+    private void freezeAutoFit() {
+        if (!autoFit || gl == null || root == null) return;
+        autoFit = false;
+        int w = root.getWidth(), hgt = root.getHeight();
+        android.view.ViewGroup.LayoutParams lp0 = gl.getLayoutParams();
+        if (w <= 0 || hgt <= 0 || !(lp0 instanceof FrameLayout.LayoutParams)) return;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) lp0;
+        scrPct = clamp(Math.round(lp.width * 100f / w), 20, 100);
+        scrX = 50;
+        scrY = hgt > lp.height ? clamp(Math.round(lp.topMargin * 100f / (hgt - lp.height)), 0, 100) : 50;
+    }
     private KeyMap keymap;                 /* 물리 패드 매핑 표 */
     private volatile int axisMask;         /* 스틱·HAT 십자 → 방향 비트 (장치별 합, 리뷰 F3) */
     private final android.util.SparseIntArray axisByDev = new android.util.SparseIntArray();
@@ -233,13 +270,22 @@ public class EmuActivity extends Activity {
         int gw = w * scrPct / 100;
         int gh = gw * fh / gameW;
         /* 가로에선 메뉴 알약 띠(짧은 변의 4.6%)를 게임 상자 위에 예약 — 알약이 HUD 를 덮지 않게(리뷰 F14) */
-        int top = (w > hgt) ? Math.round(Math.min(w, hgt) * 0.05f) : 0;
+        float dpx = getResources().getDisplayMetrics().density;
+        int pillGap = Math.round(PadView.handleH(w, hgt, dpx) + 4 * dpx);      /* 메뉴 알약 아래부터 — 알약이 커져도 HUD 를 안 덮게 */
+        int top = (w > hgt) ? Math.max(Math.round(Math.min(w, hgt) * 0.05f), pillGap) : 0;
         int capH = (hgt - top) * scrPct / 100;
         if (gh > capH) { gh = capH; gw = gh * gameW / fh; }
         if (gameW != fw) gw = w;
         android.util.Log.i("PocketCore", "placeScreen root " + w + "x" + hgt + " frame " + fw + "x" + fh + " box " + gw + "x" + gh);
         int mx = (w - gw) * clamp(scrX, 0, 100) / 100;
         int my = top + (hgt - top - gh) * clamp(scrY, 0, 100) / 100;
+        if (autoFit && hgt > w && gameW == fw) {
+            /* 세로·자동: 메뉴 알약 아래(짧은 변 5%)부터 높이 56% 까지 — 그 아래는 패드 자리 */
+            int top2 = Math.max(Math.round(Math.min(w, hgt) * 0.05f), pillGap), maxH = Math.round(hgt * 0.56f) - top2;
+            gw = w; gh = w * fh / gameW;
+            if (gh > maxH) { gh = maxH; gw = gh * gameW / fh; }
+            mx = (w - gw) / 2; my = top2;
+        }
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(gw, gh,
                 android.view.Gravity.TOP | android.view.Gravity.LEFT);
         lp.leftMargin = mx; lp.topMargin = my;
@@ -309,21 +355,32 @@ public class EmuActivity extends Activity {
 
 
     private void loadCore() {
+        Emu.nativeSetPaused(false);   /* 멈춤 표시는 프로세스 전역이다 — 창이 떠 있던 채로 넘어왔어도 새 판은 돈다 */
+        /* 코어가 로드 중에 주사율을 물을 수 있다 — 실측 전이라 시스템 값을 먼저 넣어 둔다 */
+        try { Emu.nativeSetPanelHz(getWindowManager().getDefaultDisplay().getRefreshRate()); } catch (Exception ignored) { }
         int rc = Emu.nativeLoad(corePath(), romPath,
                 MainActivity.sysDir().getAbsolutePath(),
                 MainActivity.saveDir().getAbsolutePath(),
                 MainActivity.optsFile().getAbsolutePath());
         loaded = rc == 0;
+        snapCoreOpts();
         romMtime = new File(romPath).lastModified();
         toast(loaded ? coreLabel : "코어/롬 로드 실패 (code " + rc + ")");
         /* 이어하기 — 옵션 바꾸고 다시 연 경우는 그 직전 상태(resume), 아니면 나갈 때 자동 저장해 둔 자리. 로드와 같은 스레드라 안전하다. */
         String resume = getIntent().getStringExtra("resume");
+        boolean resumed = false;
         if (loaded && resume != null && new File(resume).exists()) {
-            if (Emu.nativeLoadState(resume) == 0) toast("옵션 적용 — 그 자리에서 이어하기");
+            if (Emu.nativeLoadState(resume) == 0) { toast("옵션 적용 — 그 자리에서 이어하기"); resumed = true; }
             new File(resume).delete();
         } else if (loaded && autoSave && autoStatePath().exists()
-                && Emu.nativeLoadState(autoStatePath().getAbsolutePath()) == 0)
-            toast("이어하기");
+                && Emu.nativeLoadState(autoStatePath().getAbsolutePath()) == 0) {
+            toast("이어하기"); resumed = true;
+        }
+        /* 사무쇼2 배경음악(SS1) 결과를 알려 준다 — 「넣었는데 안 바뀐다」를 눈으로 가릴 수 있게(유저 2026-10-10).
+           이어하기면 지금 울리는 곡은 저장 당시 것이라(소리칩 램에 이미 올라가 있다) 다음 장면부터 바뀐다. */
+        String mn = Patcher.musicNote;
+        if (loaded && mn != null)
+            toast((Patcher.MUSIC_OK.equals(mn) || Patcher.MUSIC_MUTE.equals(mn)) && resumed ? mn + " (이어하기라 다음 장면부터)" : mn);
     }
 
     /** ROM hacking convenience: rebuild the ROM and the emulator picks it up by itself. */
@@ -356,42 +413,109 @@ public class EmuActivity extends Activity {
         return new File(MainActivity.saveDir(), new File(romPath).getName() + ".state.auto");
     }
 
+    /** 되돌리기 자리 — 불러오기·리셋 직전 상태. 슬롯·오토세이브와 따로. */
+    private File undoPath() {
+        return new File(MainActivity.saveDir(), new File(romPath).getName() + ".state.undo");
+    }
+
+    /** 저장 칸·로드 칸 아래 줄 — 지금 슬롯에 뭐가 있는지(«3분 전» / «없음»). 메뉴를 열 때·저장·슬롯 바꿀 때 */
+    private void refreshSlotInfo() {
+        if (pad == null || romPath == null) return;
+        File f = statePath();
+        boolean has = f.exists() && f.length() > 0;
+        pad.setSlotInfo(has ? "덮어쓰기" : "빈 칸", has ? ago(f.lastModified()) : "없음");
+    }
+    private static String ago(long t) {
+        long sec = Math.max(0, (System.currentTimeMillis() - t) / 1000);
+        if (sec < 60) return "방금";
+        if (sec < 3600) return (sec / 60) + "분 전";
+        if (sec < 86400) return (sec / 3600) + "시간 전";
+        return (sec / 86400) + "일 전";
+    }
+
+    /** 지금 자리를 되돌리기 자리에 떠 두고 일(불러오기·리셋)을 한 뒤, 5초 동안 «되돌리기» 칩을 띄운다.
+     *  메뉴는 닫는다(게임이 그 자리에서 바로 이어진다 — 멈춘 채 불러오면 화면이 안 바뀌어 됐는지 모른다). */
+    private void withUndo(final String done, final Runnable work) {
+        pad.barClose();
+        gl.queueEvent(new Runnable() { @Override public void run() {
+            final boolean backed = Emu.nativeSaveState(undoPath().getAbsolutePath()) == 0;
+            work.run();
+            toast(done);
+            if (backed) h.post(new Runnable() { @Override public void run() { pad.offerUndo(); } });
+        }});
+    }
+
     private void handleAction(int action) {
         switch (action) {
         case PadView.ACT_SAVE:
+        case PadView.ACT_QSAVE: {
+            final boolean quick = action == PadView.ACT_QSAVE;
             gl.queueEvent(new Runnable() { @Override public void run() {
                 final int rc = Emu.nativeSaveState(statePath().getAbsolutePath());
-                toast(rc == 0 ? "상태 저장" : "상태 저장 실패");
+                toast(rc != 0 ? "저장 실패" : (quick ? "빠른 저장 · 슬롯 " : "저장 · 슬롯 ") + slot);
+                h.post(new Runnable() { @Override public void run() { refreshSlotInfo(); } });
+            }});
+            break; }
+        case PadView.ACT_LOAD: {
+            final File st = statePath();
+            if (!st.exists()) { toast("슬롯 " + slot + "은 비어 있어요"); break; }
+            withUndo("불러옴 · 슬롯 " + slot, new Runnable() { @Override public void run() {
+                if (Emu.nativeLoadState(st.getAbsolutePath()) != 0) toast("불러오기 실패");
+            }});
+            break; }
+        case PadView.ACT_UNDO:
+            gl.queueEvent(new Runnable() { @Override public void run() {
+                toast(Emu.nativeLoadState(undoPath().getAbsolutePath()) == 0 ? "되돌렸어요" : "되돌리기 실패");
             }});
             break;
-        case PadView.ACT_LOAD:
-            gl.queueEvent(new Runnable() { @Override public void run() {
-                final int rc = Emu.nativeLoadState(statePath().getAbsolutePath());
-                toast(rc == 0 ? "상태 불러옴" : "저장된 상태 없음");
-            }});
+        case PadView.ACT_LAYOUT_DEFAULT:
+            /* 배치 「처음대로」 — 버튼은 PadView 가 되돌렸다. 게임 화면 크기·자리 값을 지워 자동 맞춤으로 */
+            Settings.removePrefix("pocketcore_screen_");
+            applyScreenLayout();
+            toast("버튼과 화면을 처음 자리로");
             break;
         case PadView.ACT_SHOT:
             gl.queueEvent(new Runnable() { @Override public void run() { screenshot(); }});
             break;
         case PadView.ACT_RESET:
-            gl.queueEvent(new Runnable() { @Override public void run() { Emu.nativeReset(); }});
+            withUndo("리셋했어요", new Runnable() { @Override public void run() { Emu.nativeReset(); } });
             break;
         case PadView.ACT_SLOT:
             slot = slot % 3 + 1;
             pad.setSlotLabel(slot);
-            toast("상태 슬롯 " + slot);
+            refreshSlotInfo();
             break;
         case PadView.ACT_BAND:
             toggleCoreOpt("ngp_svcsp_band", "기술명 띠");
             break;
+        case PadView.ACT_FRAMEGEN: {
+            /* 앱 방식: 끔 → 움직임 → 섞기 → 끔 */
+            String cur = readOpt("pocketcore_framegen", "off");
+            persistOption("pocketcore_framegen", "off".equals(cur) ? "motion" : "motion".equals(cur) ? "blend" : "off");
+            applyFrameGen(true);
+            break; }
+        case PadView.ACT_COREFG: {
+            /* 코어 방식(사무쇼2): 자동 ↔ 끔. 게임 중에 바로 — nativeSetOption 이 코어에 «옵션 바뀜»을 알린다 */
+            String v = coreFgOn() ? "disabled" : "auto";
+            persistOption("ngp_framegen", v);
+            if (loaded) Emu.nativeSetOption("ngp_framegen", v);
+            synchronized (coreOptSnap) { coreOptSnap.put("ngp_framegen", v); }
+            applyFrameGen(true);
+            break; }
         case PadView.ACT_CFG: {
             /* 게임 중 옵션 창 — 실행 전 선택 창과 같은 것. 「적용하고 이어하기」= 지금 자리 저장 → 옵션대로 다시 굽기 → 다시 열어 그 자리부터
                (유저 2026-09-05 「게임 중간에도 이 창 되게 — 오토세이브하고 리로드」). 전체 설정은 창 아래 링크로. */
             final String orig = getIntent().getStringExtra("rom");
+            /* 창이 떠 있는 동안 게임을 멈춘다 — 전엔 뒤에서 게임이 계속 돌고, 쥐고 있던 버튼이 눌린 채 남았다 */
+            padMask = 0; releasePhysical();
+            Emu.nativeSetPaused(true);
             sheet = LaunchSheet.showInGame(this, game, game != null ? game.ko : new File(orig).getName(),
                     new Runnable() { @Override public void run() { applyLive(orig); } },
                     new Runnable() { @Override public void run() {
                         startActivity(new Intent(EmuActivity.this, SettingsActivity.class).putExtra("rom", orig)); } });
+            sheet.onClose = new Runnable() { @Override public void run() {
+                Emu.nativeSetPaused(pad.isBarOpen());          /* 메뉴가 아직 열려 있으면 계속 멈춤 */
+                applyDisplay(); pushCoreOpts(); } };
             break; }
         case PadView.ACT_PICK:
             goList();
@@ -404,6 +528,133 @@ public class EmuActivity extends Activity {
         }
     }
 
+    /* ── 프레임 생성 ─────────────────────────────────────────────
+       코어는 60.25fps 그대로 돌리고, 120Hz 화면의 «빈 vsync» 에 중간 그림을 끼운다(native.c · framegen.c).
+       그러려면 화면이 실제로 120Hz 여야 한다 — 삼성은 정적 화면을 60Hz 로 내리므로
+       켜져 있을 때는 창·표면에 최고 주사율을 요청한다. 끄면 요청도 거둔다(배터리). */
+    /* ── 프레임 생성 — 시험판이라 «두 방식을 따로» 켜고 끈다 ──
+       앱 방식(pocketcore_framegen: 끔/움직임/섞기) — 모든 게임. 완성된 화면에서 움직임을 찾아 중간 그림.
+       코어 방식(ngp_framegen: 자동/켬/끔) — 사무쇼2 코어만. 스프라이트·스크롤 위치를 보간해 다시 그림.
+       둘 다 켜면: 코어가 120.5fps 로 내보내는 동안은 120Hz 화면에 빈 vsync 가 없어 앱 방식은 저절로 비켜선다.
+       코어가 60 으로 돌아가면(패널 60·차단) 앱 방식이 대신 끼운다 — 결과적으로 «코어 우선, 앱은 대타». */
+    private int fgMode = 0;   /* 앱 보간 모드(native) 0 끔 · 1 섞기 · 2 움직임 */
+
+    private static int fgModeOf(String v) { return "motion".equals(v) ? 2 : "blend".equals(v) ? 1 : 0; }
+    /** 이 게임은 코어 프레임 생성이 있는가 — ss2 코어(ss2-sp-core framegen). */
+    private boolean coreFg() { return "ss2".equals(romType); }
+    private boolean coreFgOn() { return coreFg() && !"disabled".equals(readOpt("ngp_framegen", "auto")); }
+
+    private void applyFrameGen(boolean announce) {
+        fgMode = fgModeOf(readOpt("pocketcore_framegen", "off"));
+        Emu.nativeSetFrameGen(fgMode);
+        if (pad != null) {
+            pad.setFrameGenLabel(fgMode == 2 ? "앱:움직임" : fgMode == 1 ? "앱:섞기" : "앱:끔");
+            pad.setCoreFg(coreFg(), coreFgOn() ? "코어:켬" : "코어:끔");
+        }
+        applyFrameRate();
+        if (!announce) return;
+        /* 화면이 실제 몇 Hz 인지·코어가 켰는지는 조금 지나야 안다(주사율 전환·코어 판정) */
+        h.postDelayed(new Runnable() { @Override public void run() { toast(fgStatus()); }}, 1800);
+    }
+
+    /** 지금 실제로 무슨 일이 일어나는지 한 줄 — 「켰는데 되는 건가」를 이 토스트로 판정한다. */
+    private String fgStatus() {
+        int hz = Math.round(Emu.nativePanelHz());
+        boolean coreOut = Emu.nativeCoreFps() > 90;          /* 코어가 120.5 를 선언했다 */
+        StringBuilder sb = new StringBuilder("화면 " + hz + "Hz");
+        if (coreFg()) {
+            boolean four = "4".equals(readOpt("ngp_framegen_mult", "4"));
+            boolean interp = "interp".equals(readOpt("ngp_framegen_mode", "predict"));
+            sb.append(" · 코어: ").append(!coreFgOn() ? "끔" : coreOut
+                    ? "120Hz 출력 중(" + (four ? "4배" : "2배") + "·" + (interp ? "보간" : "예측") + ")" : "60Hz 사이 그림(예측)");
+        }
+        sb.append(" · 앱: ");
+        if (fgMode == 0) sb.append("끔");
+        else if (coreOut) sb.append("비켜섬(코어가 이미 120)");
+        else if (Emu.nativeFrameGenActive() > 0) sb.append(fgMode == 2 ? "움직임 보간 중" : "섞기 보간 중");
+        else sb.append("대기(화면이 게임보다 빠르지 않음)");
+        return sb.toString();
+    }
+
+    /** 120Hz 를 요청할 이유 — 프레임 생성이 켜졌을 때(앱이든 코어든). 삼성은 요청이 없으면 60 으로 내린다. */
+    /* 「60Hz」(코어 사이 그림)은 120Hz 를 요청하지 않는다 — 60Hz 화면용·배터리 */
+    private boolean wantHighRefresh() { return fgMode != 0 || (coreFgOn() && !"60".equals(readOpt("ngp_framegen", "auto"))); }
+
+    /** 창에는 최고 주사율 모드를, 표면에는 120fps 를 요청한다(끄면 기본으로). */
+    private void applyFrameRate() {
+        try {
+            android.view.Display d = getWindowManager().getDefaultDisplay();
+            WindowManager.LayoutParams lp = getWindow().getAttributes();
+            int want = 0;
+            float best = 0f;
+            if (wantHighRefresh()) {
+                android.view.Display.Mode cur = d.getMode();
+                for (android.view.Display.Mode m : d.getSupportedModes())
+                    if (m.getPhysicalWidth() == cur.getPhysicalWidth()
+                            && m.getPhysicalHeight() == cur.getPhysicalHeight()
+                            && m.getRefreshRate() > best) { best = m.getRefreshRate(); want = m.getModeId(); }
+            }
+            if (lp.preferredDisplayModeId != want) {
+                lp.preferredDisplayModeId = want;          /* 0 = 시스템에 맡김 */
+                getWindow().setAttributes(lp);
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 30 && gl != null) {
+                android.view.Surface s = gl.getHolder().getSurface();
+                if (s != null && s.isValid())
+                    s.setFrameRate(wantHighRefresh() ? Math.max(best, 120f) : 0f,
+                            android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+            }
+        } catch (Exception e) {
+            android.util.Log.w("PocketCore", "frame rate request: " + e);
+        }
+    }
+
+    /* ── 화면 표시(업스케일러·필터) ──────────────────────────────
+       업스케일러 = 도트를 키우는 방식 하나, 필터 = 그 위에 덧입히는 효과 여럿(각자 세기). 셰이더는 native.c.
+       값은 GL 스레드로 넘긴다 — 그리는 쪽이 읽는 값이라 그리는 도중에 바뀌지 않게. */
+    private void applyDisplay() {
+        if (gl == null) return;
+        java.util.Map<String, String> m = Settings.load();
+        final int up = Settings.upscalerIndex(m.get("pocketcore_upscaler"));
+        final int mix = Settings.pctOf(m, "pocketcore_upscaler_mix", 100);
+        final int grid = Settings.pctOf(m, "pocketcore_flt_grid", 0);
+        final int scan = Settings.pctOf(m, "pocketcore_flt_scan", 0);
+        final int ghost = Settings.pctOf(m, "pocketcore_flt_ghost", 0);
+        final int color = Settings.pctOf(m, "pocketcore_flt_color", 0);
+        final int soft = Settings.pctOf(m, "pocketcore_flt_soft", 0);
+        final boolean integer = !"disabled".equals(m.get("pocketcore_integer"));
+        gl.queueEvent(new Runnable() { @Override public void run() {
+            Emu.nativeSetDisplay(up, mix, grid, scan, ghost, color, soft, integer);
+        }});
+    }
+
+    /* ── 게임 중에 바로 바꿀 수 있는 코어 옵션 ──
+       코어는 로드할 때 options.txt 를 읽는다. 설정 화면에서 이 값들을 바꾸고 돌아오면 «로드 때와 다른 것만»
+       코어에 다시 넣는다(nativeSetOption → 코어가 다음 프레임에 다시 읽음). 롬을 다시 굽는 언어·조작 패치는 여기 없다. */
+    private static final String[] LIVE_CORE_OPTS = {
+        "ngp_framegen", "ngp_framegen_mode", "ngp_framegen_mult", "ngp_framegen_fx", "ngp_framegen_pose", "ngp_framegen_idle", "ngp_runahead",
+        "ngp_svcsp_band" };
+    private final java.util.Map<String, String> coreOptSnap = new java.util.HashMap<>();
+    private void snapCoreOpts() {
+        java.util.Map<String, String> m = Settings.load();
+        synchronized (coreOptSnap) {
+            coreOptSnap.clear();
+            for (String k : LIVE_CORE_OPTS) coreOptSnap.put(k, m.get(k));
+        }
+    }
+    private void pushCoreOpts() {
+        if (!loaded || gl == null) return;
+        java.util.Map<String, String> m = Settings.load();
+        synchronized (coreOptSnap) {
+            for (final String k : LIVE_CORE_OPTS) {
+                final String v = m.get(k);
+                if (v == null || v.equals(coreOptSnap.get(k))) continue;
+                coreOptSnap.put(k, v);
+                gl.queueEvent(new Runnable() { @Override public void run() { if (loaded) Emu.nativeSetOption(k, v); }});
+            }
+        }
+    }
+
     /** 코어 옵션을 게임 중에 즉시 뒤집는다. 화면 크기가 바뀌는 것(띠·기둥)은
      *  onDrawFrame 이 프레임 크기 변화를 보고 화면 상자를 다시 잡는다. */
     private void toggleCoreOpt(String key, String ko) {
@@ -411,34 +662,61 @@ public class EmuActivity extends Activity {
         String v = on ? "disabled" : "enabled";
         Emu.nativeSetOption(key, v);
         persistOption(key, v);
+        synchronized (coreOptSnap) { if (coreOptSnap.containsKey(key)) coreOptSnap.put(key, v); }
         toast(ko + (on ? " 끔" : " 켬"));
     }
 
     /** 옵션을 바꾼 채 이어하기 — 상태를 임시 파일에 저장하고 같은 롬으로 다시 연다.
      *  새 EmuActivity 가 옵션대로 다시 굽고(Patcher.resolve) "resume" 상태를 되읽는다. 세이브 상태에 롬 바이트는 없어 패치가 달라도 이어진다. */
-    private void applyLive(String orig) {
-        File st = new File(getCacheDir(), "live.state");
-        if (loaded && Emu.nativeSaveState(st.getAbsolutePath()) != 0) { toast("상태 저장 실패 — 그대로 둡니다"); return; }
-        if (loaded) Emu.nativeSaveSram();
-        Intent i = new Intent(this, EmuActivity.class).putExtra("rom", orig);
-        if (loaded) i.putExtra("resume", st.getAbsolutePath());
-        MainActivity.forgetLast(this);
-        Emu.nativeUnload(); loaded = false;
-        startActivity(i);
-        finish();
+    private void applyLive(final String orig) {
+        /* 저장·내리기는 «GL 스레드에서» — 예전엔 UI 스레드에서 해서, 코어가 프레임을 도는 도중에
+           상태를 뜨거나 코어를 내려 깨진 상태·튕김이 날 수 있었다(게임 안 「설정」이 불안정하던 원인). */
+        final File st = new File(getCacheDir(), "live.state");
+        gl.queueEvent(new Runnable() { @Override public void run() {
+            final boolean had = loaded;
+            if (had && Emu.nativeSaveState(st.getAbsolutePath()) != 0) {
+                toast("상태 저장 실패 — 그대로 둡니다");
+                Emu.nativeSetPaused(false);
+                return;
+            }
+            if (had) Emu.nativeSaveSram();
+            Emu.nativeUnload(); loaded = false;
+            Emu.nativeSetPaused(false);
+            runOnUiThread(new Runnable() { @Override public void run() {
+                Intent i = new Intent(EmuActivity.this, EmuActivity.class).putExtra("rom", orig);
+                if (had) i.putExtra("resume", st.getAbsolutePath());
+                MainActivity.forgetLast(EmuActivity.this);
+                startActivity(i);
+                finish();
+            }});
+        }});
     }
 
     /** 목록으로 — 「목록」키·뒤로가기 공용. 오토세이브는 onPause 가 챙긴다. */
     private void goList() {
         MainActivity.forgetLast(this);
-        Emu.nativeUnload();
-        /* menu 를 달아야 목록이 뜬다 — 롬이 하나뿐이면 바로 그 롬으로 되돌아가서
-           설정에 닿을 길이 없어진다 */
-        Intent i2 = new Intent(this, MainActivity.class);
-        i2.putExtra("menu", true);
-        startActivity(i2);
-        finish();
+        /* 목록(런처)은 썸네일을 찍느라 같은 코어 자리(Emu)를 쓰므로, 목록을 띄우기 «전에» 내려야 한다.
+           다만 내리기·오토세이브는 GL 스레드에서 — UI 스레드에서 바로 내리면 프레임 도중에 코어가 사라진다.
+           (예전엔 내린 뒤 onPause 가 오토세이브를 시도해 조용히 실패했다 — 목록으로 나가면 이어하기가 옛 자리였다) */
+        if (leaving) return;
+        leaving = true;
+        gl.queueEvent(new Runnable() { @Override public void run() {
+            if (loaded) {
+                Emu.nativeSaveSram();
+                if (autoSave) Emu.nativeSaveState(autoStatePath().getAbsolutePath());
+                Emu.nativeUnload(); loaded = false;
+            }
+            runOnUiThread(new Runnable() { @Override public void run() {
+                /* menu 를 달아야 목록이 뜬다 — 롬이 하나뿐이면 바로 그 롬으로 되돌아가서
+                   설정에 닿을 길이 없어진다 */
+                Intent i2 = new Intent(EmuActivity.this, MainActivity.class);
+                i2.putExtra("menu", true);
+                startActivity(i2);
+                finish();
+            }});
+        }});
     }
+    private boolean leaving = false;   /* 목록으로 나가는 중 — 뒤로가기 연타로 두 번 내리지 않게 */
 
     /** 뒤로가기 = 목록으로 — 예전엔 앱이 그냥 닫혀서 「게임을 닫으면 테마가 다시
      *  나와야 한다」는 흐름 자체가 없었다(제보). */
@@ -553,6 +831,7 @@ public class EmuActivity extends Activity {
     private int mapKey(int code) { return keymap != null ? keymap.bitOf(code) : 0; }
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
+        if (KeyMap.isVolume(e.getKeyCode())) return super.dispatchKeyEvent(e);   /* 음량은 늘 시스템으로 — 창이 떠 있어도 */
         if (sheet != null && sheet.isShowing()) {           /* 옵션 창이 떠 있으면 패드는 창을 조작한다 */
             if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) return sheet.handleKey(e) || true;
             return true;
@@ -647,6 +926,9 @@ public class EmuActivity extends Activity {
         super.onResume(); Orient.apply(this); immersive(); gl.onResume();
         if (loaded) Emu.nativeAudioResume();
         keymap = KeyMap.load();   /* 매핑 화면에서 돌아온 경우 */
+        pushCoreOpts();           /* 설정에서 코어 옵션(프레임 생성·런어헤드·띠)을 바꾸고 돌아온 경우 — 게임 중에 바로 */
+        applyFrameGen(false);     /* 설정에서 프레임 생성을 바꾸고 돌아온 경우 */
+        applyDisplay();           /* 업스케일러·필터 */
         applyScreenLayout();      /* 설정에서 돌아온 경우 바로 반영 (터치 패드 모드 포함) */
         try { ((android.hardware.input.InputManager) getSystemService(INPUT_SERVICE))
                 .registerInputDeviceListener(devListener, h); } catch (Exception ignored) { }

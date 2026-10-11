@@ -21,6 +21,9 @@ public final class Emu {
     public static native void nativeSetOption(String key, String value);
     public static native void nativeSetIntegerScale(boolean on);
     public static native void nativeSetTurbo(boolean on);
+    /** 화면 표시 — up: 0 끔 · 1 샤프 · 2 Scale2x · 3 xBR · 4 OmniScale (Settings.UPSCALERS 순서), 나머지 세기 0..100.
+     *  GL 스레드에서 부를 것(queueEvent). */
+    public static native void nativeSetDisplay(int up, int mix, int grid, int scan, int ghost, int color, int soft, boolean integer);
     public static native int  nativeSaveState(String path);
     public static native int  nativeLoadState(String path);
     public static native int  nativeFrameWidth();
@@ -30,4 +33,16 @@ public final class Emu {
     public static native void nativeAudioPause();   /* 백그라운드 — 오디오 장치를 놓는다 */
     public static native void nativeAudioResume();  /* 복귀 — 새 스트림으로 다시 연다 */
     public static native void nativeRunFrames(int n); /* GL 없이 n프레임 — 썸네일 캡처용 */
+    /* 프레임 생성(중간 프레임 보간) — 0=끔 1=섞기 2=움직임 보정. 120Hz 같은 빠른 화면에서만 실제로 끼운다 */
+    public static native void nativeSetFrameGen(int mode);
+    /** 실측 전 대용 패널 주사율(Display.getRefreshRate) — 코어의 GET_TARGET_REFRESH_RATE 답에 쓴다. */
+    public static native void nativeSetPanelHz(float hz);
+    /** 코어 멈춤 — 게임 안 「설정」 창이 떠 있는 동안. 그림은 마지막 것을 계속 그린다. */
+    public static native void nativeSetPaused(boolean on);
+    /** 지금 끼우고 있으면 화면 Hz, 화면이 느려 못 끼우면 0, 아직 모르면 -1. */
+    public static native int  nativeFrameGenActive();
+    /** 실측 패널 주사율(60/90/120…) — 상태 토스트용. */
+    public static native float  nativePanelHz();
+    /** 코어가 지금 선언한 fps — 사무쇼2 코어가 프레임 생성을 켜면 120.5. */
+    public static native double nativeCoreFps();
 }

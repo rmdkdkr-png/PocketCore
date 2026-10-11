@@ -5,11 +5,15 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.dudu.pocketcore"
+        applicationId "com.dudu.legacito"   // Legacito — 옛 PocketCore(com.dudu.pocketcore, 서명 키 분실)의 뒤를 잇는 새 앱. 나란히 깔린다
         minSdk 26            // AAudio
         targetSdk 34
-        versionCode 126
-        versionName "4.04"
+        versionCode 109         // 보이는 판(versionName)은 0.9 그대로, 시험 갈래 내부 번호만 올림(유저 「0.9로」) — 95, 96 … 106, 107, 108, 109
+        versionName "0.9"
+        // 시험판은 정식판과 «나란히» 깔리게 패키지 이름·표시 이름을 바꿔 굽는다
+        // (CI: -PpcSuffix=.fgtest -PpcLabel="PocketCore 시험"). 안 주면 정식 그대로.
+        if (project.hasProperty('pcSuffix')) applicationIdSuffix project.property('pcSuffix')
+        manifestPlaceholders = [appLabel: project.findProperty('pcLabel') ?: "Legacito"]
         // 세 갈래면 요즘 폰(arm64)·구형 32비트(armv7)·에뮬레이터와 크롬북(x86_64)이 다 덮인다.
         // x86(32비트)와 riscv64 는 뺀다 — 전자는 사실상 죽었고 후자는 쓸 단말이 없다.
         ndk { abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64' }
@@ -27,9 +31,23 @@ android {
     // keep the core .so on disk so dlopen(nativeLibraryDir + "/...") works
     packagingOptions { jniLibs { useLegacyPackaging true } }
 
+    // 시험판 전용 고정 서명 — CI 러너는 돌 때마다 새 디버그 키를 만들어서, 시험판끼리도
+    // 덮어 깔기가 막혔다. 이 키는 .fgtest 패키지만 서명한다(정식판 dudu 키와 무관, 공개돼도 무방).
+    signingConfigs {
+        fgtest {
+            storeFile file('fgtest.keystore')
+            storePassword 'android'
+            keyAlias 'fgtest'
+            keyPassword 'android'
+        }
+    }
+
     buildTypes {
         release { minifyEnabled false }
-        debug   { debuggable true }
+        debug   {
+            debuggable true
+            if (project.hasProperty('pcSuffix')) signingConfig signingConfigs.fgtest
+        }
     }
 
     compileOptions {

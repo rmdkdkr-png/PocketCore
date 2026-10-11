@@ -34,6 +34,9 @@ public class MainActivity extends Activity {
     public static final String ROOT = "PocketCore";
     private static final String PREFS = "pc";
     private static final String KEY_LAST = "lastRom";
+    /* 마지막에 한 게임 — 목록(런처)을 열 때 그 카드를 먼저 보여 준다(유저 2026-10-11 「처음에 게임 선택창 이전에 한 게임 기억했다가 뜨도록」).
+       KEY_LAST 는 「목록」·「종료」 때 지워지므로(다음 실행 때 게임으로 바로 들어가지 않게) 따로 둔다. */
+    private static final String KEY_PLAYED = "lastPlayed";
 
     public static File root()    { return new File(Environment.getExternalStorageDirectory(), ROOT); }
     public static File romsDir() { return new File(root(), "roms"); }
@@ -48,6 +51,8 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        /* 볼륨 키 = 미디어(게임 소리) 음량 — 안 정하면 삼성은 «재생 중»을 못 알아챌 때 벨소리 음량을 바꾼다(유저 2026-10-10 「볼륨 조절이 앱에서 안 되던데」) */
+        setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         /* 내려받은 게임표를 먼저 읽는다 — 롬을 알아보기 «전»이어야 한다.
            파일이 없거나 깨져 있으면 아무 일도 안 일어난다(내장표로 돈다). */
         Games.loadExtras(new java.io.File(root(), "design"));
@@ -105,6 +110,7 @@ public class MainActivity extends Activity {
         romsDir().mkdirs(); saveDir().mkdirs(); sysDir().mkdirs();
         seedOptions();
         seedMods();
+        com.dudu.pocketcore.Settings.migrateMotion();   /* 보간 묶음(120Hz·60Hz) 열쇠가 없으면 한 번 정한다 */
 
         /* 게임에서 「롬 바꾸기」로 온 경우엔 목록을 **반드시** 보여 준다.
            안 그러면 롬이 하나뿐일 때 그 롬으로 바로 되돌아가서 목록도 설정도 영영 못 본다. */
@@ -303,7 +309,7 @@ public class MainActivity extends Activity {
             hint.setTextColor(0xff8b93a6);
             hint.setTextSize(12);
             hint.setPadding(0, 24, 0, 0);
-            hint.setText("넣는 롬은 한글패치 전 순정 롬(.ngc/.ngp)이면 됩니다 —\n"
+            hint.setText("넣는 롬은 한글패치 전 순정 롬(.ngc/.ngp, zip·7z 안도 꺼냄)이면 됩니다 —\n"
                     + "실행할 때 최신 한글패치를 받아 사본에 입힙니다.");
             empty.addView(hint);
 
@@ -336,9 +342,15 @@ public class MainActivity extends Activity {
                 File tf = thumbFor(r, g);
                 if (tf != null)
                     it.thumb = android.graphics.BitmapFactory.decodeFile(tf.getPath());
+                try { it.opt = LaunchSheet.summary(this, g); } catch (Exception ignored) { }
+                it.resume = new File(saveDir(), r.getName() + ".state.auto").exists();
                 items.add(it);
             }
             lv.setItems(items);
+            String played = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_PLAYED, null);
+            if (played != null)
+                for (int k = 0; k < roms.size(); k++)
+                    if (roms.get(k).getAbsolutePath().equals(played)) { lv.select(k); break; }
             if (Updater.testLevel()) {          /* 시험 레벨이면 런처에 배지 — 정식이면 아무것도 안 붙는다 */
                 String vn = "";
                 try { vn = " v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
@@ -350,7 +362,9 @@ public class MainActivity extends Activity {
                 bootedOnce = true;
             }
             lv.setListener(new LauncherView.Listener() {
-                @Override public void onLaunch(File rom) { openSheet(rom); }   /* 실행 전 패치 선택창 */
+                /* 카드·A = 바로 시작(하던 자리부터). 옵션은 카드 아래 칩으로 — 매번 창을 거치면 실행이 두 번 눌러야 됐다(2026-10-11) */
+                @Override public void onLaunch(File rom) { launch(rom.getAbsolutePath()); }
+                @Override public void onOptions(File rom) { openSheet(rom); }   /* 실행 전 패치 선택창 */
                 @Override public void onSettings() {
                     startActivity(new Intent(MainActivity.this, SettingsActivity.class));
                 }
@@ -380,36 +394,69 @@ public class MainActivity extends Activity {
            업데이트는 PC 릴리즈 서버(같은 와이파이)에서 새 판을 받아 설치창까지 간다. */
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        TextView cfg = new TextView(this);
-        cfg.setText("설정");
-        cfg.setTextColor(0xffd9a441);
-        cfg.setTextSize(17);
-        cfg.setGravity(android.view.Gravity.CENTER);
-        cfg.setPadding(0, 46, 0, 46);
-        cfg.setBackgroundColor(0xff191b22);
-        cfg.setClickable(true);
+        bar.setBackgroundColor(0xff0b0b0e);
+        int gp = (int) (12 * getResources().getDisplayMetrics().density);
+        bar.setPadding(gp, gp / 2, gp, gp);
+        /* 런처 바탕과 같은 먹색 위에 둥근 버튼 두 개 — 예전 납작한 색 덩어리 대신(유저 2026-10-10 「인터페이스 좀 손봐 줘」) */
+        TextView cfg = barButton("설정", 0xffd9a441, 0xff191b22, 0xff4a3d22);
         cfg.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
                 startActivity(new Intent(MainActivity.this, SettingsActivity.class));
             }
         });
-        TextView upd = new TextView(this);
-        upd.setText("업데이트 확인");
-        upd.setTextColor(0xff7fc97f);
-        upd.setTextSize(17);
-        upd.setGravity(android.view.Gravity.CENTER);
-        upd.setPadding(0, 46, 0, 46);
-        upd.setBackgroundColor(0xff16211a);
-        upd.setClickable(true);
+        final TextView upd = barButton("업데이트 확인", 0xffbfc6d4, 0xff191b22, 0xff2f3442);
         upd.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { Updater.check(MainActivity.this); }
         });
-        bar.addView(cfg, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        bar.addView(upd, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        /* 새 판이 있는지 조용히 본다(색인 한 번, 실패는 무시) — 있으면 버튼이 「새 판 받기」로 바뀐다.
+           직접 눌러 봐야 알던 것을 런처가 알려 준다(2026-10-11). 앱이 켜질 때 한 번만. */
+        if (newerCode == 0) {
+            new Thread(new Runnable() { @Override public void run() {
+                final int nc = Updater.peekNewer(MainActivity.this);
+                newerCode = nc > 0 ? nc : -1;
+                if (nc > 0) runOnUiThread(new Runnable() { @Override public void run() { markUpdate(upd); } });
+            }}).start();
+        } else if (newerCode > 0) markUpdate(upd);
+        LinearLayout.LayoutParams lp1 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp1.rightMargin = gp / 2;
+        LinearLayout.LayoutParams lp2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp2.leftMargin = gp / 2;
+        bar.addView(cfg, lp1);
+        bar.addView(upd, lp2);
         col.addView(bar);
         setContentView(col);
+    }
+
+    /** 새 판 번호(내부) — 0 = 아직 안 봄, -1 = 없음/못 봄. 프로세스당 한 번. */
+    private static volatile int newerCode = 0;
+    private void markUpdate(TextView upd) {
+        upd.setText("새 판 받기 · 내부 " + newerCode);
+        upd.setTextColor(0xff101014);
+        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+        d.setColor(0xffd9a441);
+        d.setCornerRadius(14 * getResources().getDisplayMetrics().density);
+        upd.setBackground(d);
+    }
+
+    /** 런처 아래 줄 버튼 — 둥근 판 + 가는 테. */
+    private TextView barButton(String label, int fg, int bg, int stroke) {
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextColor(fg);
+        t.setTextSize(16);
+        t.setGravity(android.view.Gravity.CENTER);
+        float d = getResources().getDisplayMetrics().density;
+        t.setPadding(0, (int) (14 * d), 0, (int) (14 * d));
+        android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+        g.setColor(bg);
+        g.setCornerRadius(14 * d);
+        g.setStroke(Math.max(1, (int) d), stroke);
+        t.setBackground(g);
+        t.setClickable(true);
+        /* 패드 십자·A 는 런처가 직접 받는다(dispatchKeyEvent). 버튼이 포커스를 가질 수 있으면 화면을 만진 뒤 첫 십자 입력을
+           안드로이드가 «터치 모드 빠져나가기»로 먹어서 카드는 안 넘어가고 「설정」에 테두리만 생겼다(108 ui_shots 에서 확인). */
+        t.setFocusable(false);
+        return t;
     }
 
     /** 실행 전 패치 선택창 — 카드를 누르면 바로 실행하지 않고 그 게임에 적용할 것을 고른 뒤 「시작」. */
@@ -429,7 +476,7 @@ public class MainActivity extends Activity {
 
     /** 런처 패드 키 — 좌우 = 카드, A(펀치 자리)·DPAD_CENTER·ENTER·START = 선택창. 선택창이 떠 있으면 그쪽 창이 받는다. */
     @Override public boolean dispatchKeyEvent(android.view.KeyEvent e) {
-        if (curLv == null) return super.dispatchKeyEvent(e);
+        if (curLv == null || KeyMap.isVolume(e.getKeyCode())) return super.dispatchKeyEvent(e);   /* 음량은 늘 시스템으로 */
         if (curSheet != null && curSheet.isShowing()) {          /* 선택창이 떠 있으면 키는 창의 몫 */
             if (curSheet.handleKey(e)) return true;
             if (KeyMap.isPadButton(e.getKeyCode())) return true;   /* 배정 없는 패드 버튼은 삼킨다 */
@@ -445,7 +492,8 @@ public class MainActivity extends Activity {
         boolean ok    = "b".equals(f) || "start".equals(f)
                      || (!padBtn && (code == android.view.KeyEvent.KEYCODE_DPAD_CENTER || code == android.view.KeyEvent.KEYCODE_ENTER))
                      || (f == null && code == android.view.KeyEvent.KEYCODE_BUTTON_START);
-        if (!(left || right || ok)) {
+        boolean opt   = "select".equals(f) || (f == null && code == android.view.KeyEvent.KEYCODE_BUTTON_SELECT);   /* SELECT = 실행 옵션 창 */
+        if (!(left || right || ok || opt)) {
             /* 배정 없는 패드 버튼은 삼킨다 — 안 그러면 시스템 폴백이 Y 를 BACK 으로 바꿔 앱이 꺼진다(리뷰) */
             if (padBtn) return true;
             return super.dispatchKeyEvent(e);
@@ -453,7 +501,10 @@ public class MainActivity extends Activity {
         if (e.getAction() == android.view.KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
             if (left) curLv.moveSel(-1);
             else if (right) curLv.moveSel(1);
-            else { LauncherView.Item it = curLv.selected(); if (it != null) openSheet(it.rom); }
+            else {
+                LauncherView.Item it = curLv.selected();
+                if (it != null) { if (opt) openSheet(it.rom); else launch(it.rom.getAbsolutePath()); }
+            }
         }
         return true;
     }
@@ -487,7 +538,7 @@ public class MainActivity extends Activity {
            멈추라고 표시하고, 진행 중인 한 개가 끝나기를 잠깐 기다린다. */
         Thumbs.stop = true;
         synchronized (Thumbs.LOCK) { }
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST, romPath).apply();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST, romPath).putString(KEY_PLAYED, romPath).apply();
         Intent i = new Intent(this, EmuActivity.class);
         i.putExtra("rom", romPath);
         startActivity(i);
@@ -559,9 +610,13 @@ public class MainActivity extends Activity {
     @Override protected void onActivityResult(int rc, int res, Intent data) {
         super.onActivityResult(rc, res, data);
         if (rc == RomImport.REQ_PICK && res == RESULT_OK) {
-            RomImport.onPicked(this, data);
-            if (RomImport.changed) { RomImport.changed = false; showList(listRoms()); }
+            RomImport.onPicked(this, data);     /* 복사는 작업 스레드 — 끝나면 romsChanged() */
         }
+    }
+
+    /** 롬 가져오기(골라 오기·스캔)가 끝났을 때 RomImport.report 가 부른다(UI 스레드). */
+    void romsChanged() {
+        if (RomImport.changed && started) { RomImport.changed = false; showList(listRoms()); }
     }
 
     /* ── 런처 보조 ──────────────────────────────────────────────── */

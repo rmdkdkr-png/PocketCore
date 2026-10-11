@@ -33,11 +33,14 @@ public final class LauncherView extends View {
         public String sub = "";
         public Bitmap thumb;
         public boolean pat, sp, dub;
+        public String opt = "";           /* 실행 옵션 한 줄(LaunchSheet.summary) — 카드 아래 칩 */
+        public boolean resume;            /* 오토세이브가 있다 — A 아래 글이 「이어하기」 */
         public Item(File rom, String title) { this.rom = rom; this.title = title; }
     }
 
     public interface Listener {
         void onLaunch(File rom);
+        void onOptions(File rom);         /* 카드 아래 옵션 칩 — 실행 전 선택창 */
         void onSettings();
         void onUpdate();
     }
@@ -92,15 +95,24 @@ public final class LauncherView extends View {
         }
     }
 
+    /* 런처 버튼도 게임 안 터치 패드와 같은 아트(PadSkin)로 — 설정 「버튼 모양」을 따른다(유저 2026-10-10 「버튼이나 전반적 인터페이스 좀 손봐 줘」) */
+    private final PadSkin skin = new PadSkin();
+    private boolean art = true;
+
     public LauncherView(Context c) {
         super(c);
         px.setAntiAlias(false);
         px.setFilterBitmap(false);
         tp.setAntiAlias(true);
         setBackgroundColor(0xff0b0b0e);
+        try { art = !"flat".equals(Settings.load().get("pocketcore_padskin")); } catch (Exception ignored) { }
+        if (art) skin.reloadUser();
     }
+    @Override protected void onSizeChanged(int w, int h, int ow, int oh) { skin.clear(); }
 
     public void setItems(List<Item> it) { items = it; sel = 0; invalidate(); }
+    /** 처음 보여 줄 카드(마지막에 한 게임) — 넘기는 손맛(진동)은 없이 */
+    public void select(int i) { if (items != null && i >= 0 && i < items.size()) { sel = i; invalidate(); } }
     public void setListener(Listener l) { listener = l; }
     public void startIntro() { introAt = System.currentTimeMillis(); invalidate(); }
     public void thumbReady() { postInvalidate(); }
@@ -265,6 +277,36 @@ public final class LauncherView extends View {
                 while (fn.length() > 8 && tp.measureText(fn) > w * 0.9f) fn = fn.substring(0, fn.length() - 2);   /* 너무 길면 자른다 */
                 cv.drawText(fn, w / 2, ly2, tp);
             }
+            {   /* 실행 옵션 칩 — 무엇으로 켜질지 늘 보이고, 누르면 바꾸는 창(실행 전 선택창). 카드·A 는 바로 시작(2026-10-11) */
+                String ot = (cur.opt == null || cur.opt.isEmpty()) ? "실행 옵션" : cur.opt;
+                String tail = "  옵션 \u203a";
+                float ts = h * 0.017f;
+                tp.setTextSize(ts);
+                float lim = w * 0.86f;
+                while (ot.length() > 4 && tp.measureText(ot + tail) > lim) {          /* 넘치면 뒤 항목부터 줄임 */
+                    int cut = ot.lastIndexOf(" · ");
+                    ot = cut > 0 ? ot.substring(0, cut) + " …" : ot.substring(0, ot.length() - 2);
+                    if (ot.endsWith(" … …")) ot = ot.substring(0, ot.length() - 2);
+                }
+                float cw = tp.measureText(ot + tail) + ts * 1.6f, ch = ts * 2.1f;
+                float cyTop = ly2 + h * 0.020f;
+                optChip.set(w / 2 - cw / 2, cyTop, w / 2 + cw / 2, cyTop + ch);
+                tp.setColor(withA(0xff191b22, la));
+                cv.drawRoundRect(optChip, ch / 2, ch / 2, tp);
+                tp.setStyle(Paint.Style.STROKE); tp.setStrokeWidth(Math.max(1.5f, h * 0.0015f));
+                tp.setColor(withA(0xff4a3d22, la));
+                cv.drawRoundRect(optChip, ch / 2, ch / 2, tp);
+                tp.setStyle(Paint.Style.FILL);
+                float tx0 = optChip.centerX() - tp.measureText(ot + tail) / 2, by = optChip.centerY() + ts * 0.36f;
+                tp.setTextAlign(Paint.Align.LEFT);
+                tp.setColor(withA(0xffc9cfdb, la));
+                cv.drawText(ot, tx0, by, tp);
+                tp.setColor(withA(0xffd9a441, la));
+                cv.drawText(tail, tx0 + tp.measureText(ot), by, tp);
+                tp.setTextAlign(Paint.Align.CENTER);
+                String log = optChip.toShortString();
+                if (!log.equals(lastChipLog)) { lastChipLog = log; android.util.Log.i("PocketUi", "optchip " + Math.round(optChip.centerX()) + " " + Math.round(optChip.centerY())); }
+            }
             tp.setColor(withA(0xff777788, la));
             tp.setTextSize(h * 0.015f);
             cv.drawText((sel + 1) + " / " + n, w * 0.5f, top - h * 0.006f, tp);
@@ -333,43 +375,43 @@ public final class LauncherView extends View {
     /* ── 패드식 컨트롤 — A(실행)=안쪽 아래 · B(업뎃)=바깥 위 ── */
     private float dcx, dcy, dR, aX, aY, aR, bX, bY, bR;
     private final RectF optR = new RectF();
+    private final RectF optChip = new RectF();      /* 카드 아래 실행 옵션 칩 */
+    private String lastChipLog = "";
 
+    /* 런처 패드 — 십자(카드 넘기기) + A(실행)만. B(업뎃)·OPTION(설정)은 아래 줄 「설정 · 업데이트 확인」과 같은 일을 해서
+       뺐다(유저 2026-10-10 「뺄 거 빼고」). 버튼 모양은 게임 안 터치 패드와 같은 아트(설정 「버튼 모양」). */
     private void drawPad(Canvas c) {
-        float w = getWidth(), h = getHeight();
-        dcx = w * 0.20f; dcy = h * 0.80f; dR = Math.min(w, h) * 0.13f;
-        aX = w * 0.72f; aY = h * 0.84f; aR = Math.min(w, h) * 0.062f;
-        bX = w * 0.88f; bY = h * 0.76f; bR = Math.min(w, h) * 0.055f;
-        float arm = dR * 0.42f;
+        float w = getWidth(), h = getHeight(), mn = Math.min(w, h);
+        dcx = w * 0.22f; dcy = h * 0.80f; dR = mn * 0.13f;
+        aX = w * 0.78f; aY = h * 0.80f; aR = mn * 0.075f;
+        bR = 0; optR.setEmpty();
+        if (art) {
+            skin.dpad(c, dcx, dcy, dR, 0);
+            skin.button(c, "a", aX, aY, aR, 0xff3f6fd1, false, false, "A");
+        } else {
+            float arm = dR * 0.42f;
+            tp.setStyle(Paint.Style.FILL);
+            tp.setColor(0x22ffffff);
+            c.drawRect(dcx - arm, dcy - dR, dcx + arm, dcy - arm, tp);
+            c.drawRect(dcx - arm, dcy + arm, dcx + arm, dcy + dR, tp);
+            tp.setColor(0x3cffffff);
+            c.drawRect(dcx - dR, dcy - arm, dcx - arm, dcy + arm, tp);
+            c.drawRect(dcx + arm, dcy - arm, dcx + dR, dcy + arm, tp);
+            tp.setColor(0x22ffffff);
+            c.drawRect(dcx - arm, dcy - arm, dcx + arm, dcy + arm, tp);
+            tp.setColor(0x38ffffff);
+            c.drawCircle(aX, aY, aR, tp);
+            tp.setColor(0xffdddddd);
+            tp.setTextAlign(Paint.Align.CENTER);
+            tp.setTextSize(aR * 0.7f);
+            c.drawText("A", aX, aY + aR * 0.25f, tp);
+        }
         tp.setStyle(Paint.Style.FILL);
-        tp.setColor(0x22ffffff);
-        c.drawRect(dcx - arm, dcy - dR, dcx + arm, dcy - arm, tp);
-        c.drawRect(dcx - arm, dcy + arm, dcx + arm, dcy + dR, tp);
-        tp.setColor(0x3cffffff);
-        c.drawRect(dcx - dR, dcy - arm, dcx - arm, dcy + arm, tp);
-        c.drawRect(dcx + arm, dcy - arm, dcx + dR, dcy + arm, tp);
-        tp.setColor(0x22ffffff);
-        c.drawRect(dcx - arm, dcy - arm, dcx + arm, dcy + arm, tp);
-
-        tp.setColor(0x38ffffff);
-        c.drawCircle(aX, aY, aR, tp);
-        c.drawCircle(bX, bY, bR, tp);
-        optR.set(w * 0.5f - w * 0.10f, h * 0.955f - h * 0.021f,
-                 w * 0.5f + w * 0.10f, h * 0.955f + h * 0.021f);
-        tp.setColor(0x2affffff);
-        c.drawRoundRect(optR, 12, 12, tp);
-
-        tp.setColor(0xffdddddd);
         tp.setTextAlign(Paint.Align.CENTER);
-        tp.setTextSize(aR * 0.7f);
-        c.drawText("A", aX, aY + aR * 0.25f, tp);
-        tp.setTextSize(bR * 0.7f);
-        c.drawText("B", bX, bY + bR * 0.25f, tp);
-        tp.setTextSize(optR.height() * 0.5f);
-        c.drawText("OPTION", optR.centerX(), optR.centerY() + optR.height() * 0.18f, tp);
-        tp.setTextSize(aR * 0.42f);
-        tp.setColor(0x88ffffff);
-        c.drawText("실행", aX, aY + aR + aR * 0.55f, tp);
-        c.drawText("업뎃", bX, bY - bR - bR * 0.35f, tp);
+        tp.setTextSize(mn * 0.026f);
+        tp.setColor(0x99ffffff);
+        Item cur = (items == null || items.isEmpty()) ? null : items.get(sel);
+        c.drawText(cur != null && cur.resume ? "이어하기" : "시작", aX, aY + aR + aR * 0.62f, tp);
         tp.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -396,13 +438,18 @@ public final class LauncherView extends View {
                 downX = -1;
                 return true;
             }
-            if (dist(x, y, bX, bY) < bR * 1.35f) {
+            if (bR > 0 && dist(x, y, bX, bY) < bR * 1.35f) {
                 if (listener != null) listener.onUpdate();
                 downX = -1;
                 return true;
             }
             if (optR.contains(x, y)) {
                 if (listener != null) listener.onSettings();
+                downX = -1;
+                return true;
+            }
+            if (!items.isEmpty() && !optChip.isEmpty() && optChip.contains(x, y)) {
+                if (listener != null) listener.onOptions(items.get(sel).rom);
                 downX = -1;
                 return true;
             }
@@ -428,6 +475,7 @@ public final class LauncherView extends View {
         int n = items.size();
         if (n == 0) return;
         sel = (sel + d % n + n) % n;
+        android.util.Log.i("PocketUi", "sel " + (sel + 1) + " / " + n);     /* ui_shots 가 카드가 넘어갔는지 본다(캔버스라 노드가 없다) */
         performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
         invalidate();
     }

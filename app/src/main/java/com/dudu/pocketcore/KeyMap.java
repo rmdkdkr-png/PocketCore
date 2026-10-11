@@ -139,6 +139,10 @@ final class KeyMap {
             || (c >= KeyEvent.KEYCODE_BUTTON_A && c <= KeyEvent.KEYCODE_BUTTON_16);   /* 출처 표기가 이상한 패드도(리뷰 F19) */
     }
     static boolean isPadButton(int c) { return c >= KeyEvent.KEYCODE_BUTTON_A && c <= KeyEvent.KEYCODE_BUTTON_16; }
+    /** 볼륨 키 — 어느 창·바가 떠 있어도 삼키지 않고 시스템에 넘긴다(음량 조절). */
+    static boolean isVolume(int c) {
+        return c == KeyEvent.KEYCODE_VOLUME_UP || c == KeyEvent.KEYCODE_VOLUME_DOWN || c == KeyEvent.KEYCODE_VOLUME_MUTE;
+    }
 
     /** 실제(가상 아닌) 게임패드·조이스틱이 연결돼 있나 — 터치 패드 자동 숨김 판단. */
     static boolean physicalPresent() {

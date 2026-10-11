@@ -1,0 +1,241 @@
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -6,6 +6,7 @@
+  *     우선순위일 때만 — 아니면 b 자리).
+  * 타일·타일맵·팔레트는 b 의 것. 창(window)·배경색·반전·플레인 순서도 b 의 것. */
+ #include <string.h>
++#include <stdlib.h>
+ #include "ss2fg.h"
+ 
+ /* ───────────── 캡처 ───────────── */
+@@ -206,11 +207,121 @@
+    일치하면 그 값을 그룹 벡터로 삼아, 타일이 바뀐(애니메이션) 조각도 같이 움직인다. */
+ typedef struct { int16_t dx, dy; uint8_t has; } fg_move;
+ 
++
++/* 무리 벡터 검증용 — base 무리의 조각 중, 그 자리 + (vx,vy) 에 to 의 «같은 우선순위·팔레트» 조각이
++   (슬롯 번호와 상관없이) 놓여 있는 개수. 슬롯 번호로 짝지은 벡터가 진짜 이동인지, 조각 하나가 끼어들어
++   번호가 한 칸씩 밀린 것(배치는 그대로)인지 가른다. */
++static int grp_overlap(const ss2fg_frame *base, const ss2fg_frame *to, int gstart, int g, int vx, int vy)
++{
++   const ss2fg_regs *rb = &base->line[0], *rt = &to->line[0];
++   int k, j, c = 0;
++   for (k = gstart; k < g; k++)
++   {
++      uint16_t wb = ld16(base->spr + k * 4);
++      int bx, by;
++      if (!(wb & 0x1800)) continue;
++      bx = wrapx(base->ax[k] + rb->spx) + vx; by = wrapc(base->ay[k] + rb->spy) + vy;
++      for (j = 0; j < 64; j++)
++      {
++         uint16_t wt = ld16(to->spr + j * 4);
++         if (!(wt & 0x1800) || (wt & 0x1800) != (wb & 0x1800) || to->sprcol[j] != base->sprcol[k]) continue;
++         if (wrapx(to->ax[j] + rt->spx) == bx && wrapc(to->ay[j] + rt->spy) == by) { c++; break; }
++      }
++   }
++   return c;
++}
++
++
++/* 조각의 «겉모습» — 반전까지 적용한 8줄(2bpp). 사무쇼2 는 슬롯 번호가 자리표일 뿐이라(포즈마다 내용을
++   새로 씀) 번호로는 같은 조각을 못 찾는다. 겉모습이 같은 조각끼리 짝지으면 진짜 대응이 나온다. */
++static uint64_t piece_look(const ss2fg_frame *f, int k)
++{
++   uint16_t w = ld16(f->spr + k * 4);
++   unsigned tile = w & 0x01FF, r;
++   uint64_t h = 1469598103934665603ULL;
++   int any = 0;
++   if (!(w & 0x1800)) return 0;
++   for (r = 0; r < 8; r++)
++   {
++      unsigned row = (w & 0x4000) ? 7 - r : r;
++      uint16_t v = ld16(f->chr + tile * 16 + row * 2);
++      if (w & 0x8000) v = (uint16_t)(mirrored[(v & 0xff00) >> 8] | (mirrored[v & 0xff] << 8));
++      if (v) any = 1;
++      h = (h ^ (v & 0xff)) * 1099511628211ULL;
++      h = (h ^ (v >> 8)) * 1099511628211ULL;
++   }
++   return any ? (h | 1) : 0;                                   /* 빈 조각은 0 — 짝짓기에 안 쓴다 */
++}
++
++/* 겉모습 투표 — 무리(gstart..g-1)의 각 조각이 to 에서 «겉모습·우선순위·팔레트가 같은 조각»을 찾아
++   그 거리로 표를 던진다(슬롯 번호 무관). 한 조각이 여러 곳과 맞으면 표를 나눈다. 뚜렷한 1등이 있으면
++   그게 몸의 이동(0 이면 제자리) → 1, 아니면 0 (판단 보류 → 슬롯 번호 규칙으로). */
++#define FG_VOTE_UNIT 12
++static int look_vote(const ss2fg_frame *base, const ss2fg_frame *to, const uint64_t *lb, const uint64_t *lt,
++                     int gstart, int g, int *vx, int *vy)
++{
++   const ss2fg_regs *rb = &base->line[0], *rt = &to->line[0];
++   int cdx[256], cdy[256], cw[256], nc = 0, npc = 0, k, j, c;
++   int best = -1, second = 0;
++   for (k = gstart; k < g; k++)
++   {
++      int dup = 0, mj[4], mdx[4], mdy[4], m = 0, bx, by;
++      uint16_t wb = ld16(base->spr + k * 4);
++      if (!lb[k]) continue;
++      for (j = gstart; j < g; j++) if (lb[j] == lb[k]) dup++;
++      if (dup > 2) continue;                                   /* 흔한 무늬(칠한 면)는 아무 데나 맞는다 */
++      npc++;
++      bx = wrapx(base->ax[k] + rb->spx); by = wrapc(base->ay[k] + rb->spy);
++      for (j = 0; j < 64 && m <= 4; j++)
++      {
++         uint16_t wt = ld16(to->spr + j * 4);
++         int dx, dy;
++         if (lt[j] != lb[k] || (wt & 0x1800) != (wb & 0x1800) || to->sprcol[j] != base->sprcol[k]) continue;
++         dx = wrapx(to->ax[j] + rt->spx) - bx; dy = wrapc(to->ay[j] + rt->spy) - by;
++         if (dx > SS2FG_SPR_MAX_STEP || dx < -SS2FG_SPR_MAX_STEP || dy > SS2FG_SPR_MAX_STEP || dy < -SS2FG_SPR_MAX_STEP) continue;
++         if (m < 4) { mj[m] = j; mdx[m] = dx; mdy[m] = dy; }
++         m++;
++      }
++      if (m == 0 || m > 4) continue;                           /* 바뀐 조각 / 너무 흔한 조각 */
++      for (j = 0; j < m; j++)
++      {
++         for (c = 0; c < nc; c++) if (cdx[c] == mdx[j] && cdy[c] == mdy[j]) break;
++         if (c == nc) { if (nc == 256) continue; cdx[nc] = mdx[j]; cdy[nc] = mdy[j]; cw[nc] = 0; nc++; }
++         cw[c] += FG_VOTE_UNIT / m;
++      }
++      (void)mj;
++   }
++   for (c = 0; c < nc; c++)
++      if (best < 0 || cw[c] > cw[best]) best = c;
++   if (best < 0) return 0;
++   for (c = 0; c < nc; c++)
++      if (c != best && cw[c] > second) second = cw[c];
++   if (cw[best] < 2 * FG_VOTE_UNIT) return 0;                  /* 두 조각 몫은 맞아야 */
++   if (cw[best] * 10 < npc * FG_VOTE_UNIT * 3) return 0;       /* 겉모습 있는 조각의 30% 이상 */
++   if (cw[best] < 2 * second) return 0;                        /* 뚜렷한 1등 */
++   *vx = cdx[best]; *vy = cdy[best];
++   return 1;
++}
++
++/* 제자리 겹침이 벡터 겹침보다 많으면 «배치만 바뀜». 같을 때는 벡터가 타일 간격 쪽(4px 이상)일 때만 —
++   번호 밀림은 늘 ±8 근처로 나오고, 1~2px 짜리 동점은 실제로 조금 움직인 몸이라 보간을 살린다. */
++static int layout_only(const ss2fg_frame *base, const ss2fg_frame *to, int gstart, int g, int vx, int vy)
++{
++   int o0, ov;
++   if (!vx && !vy) return 0;
++   o0 = grp_overlap(base, to, gstart, g, 0, 0);
++   ov = grp_overlap(base, to, gstart, g, vx, vy);
++   if (o0 > ov) return 1;
++   return o0 == ov && (vx >= 4 || vx <= -4 || vy >= 4 || vy <= -4);
++}
++
+ static void sprite_moves(const ss2fg_frame *base, const ss2fg_frame *to, fg_move mv[64])
+ {
+    const ss2fg_regs *rb = &base->line[0], *rt = &to->line[0];
+    int i, g, gstart;
++   uint64_t lb[64], lt[64];
+    memset(mv, 0, 64 * sizeof *mv);
++   for (i = 0; i < 64; i++) { lb[i] = piece_look(base, i); lt[i] = piece_look(to, i); }
+ 
+    for (i = 0; i < 64; i++)
+    {
+@@ -226,6 +337,108 @@
+       mv[i].dx = (int16_t)dx; mv[i].dy = (int16_t)dy; mv[i].has = 1;
+    }
+ 
++   /* 비체인 무리 합의 — 사무쇼2 처럼 체인 없이 «슬롯마다 고정 타일 번호(0x57+슬롯)»를 쓰고 포즈가 바뀔 때
++      타일 «내용»과 배치를 새로 쓰는 게임은, 같은 번호·속성이 «다른 조각»을 가리킨다. 번호만 같다고 이어 붙이면
++      조각마다 제각각인 가짜 이동량(-7, -15, (9,-8) …)이 생겨 숨쉬기 같은 제자리 포즈에서 몸이 흩어졌다.
++      이웃 슬롯(속성 상위 비트·팔레트가 같은 연속 구간 = 한 캐릭터)의 이동량이 1px 안에 모이지 않으면
++      «배치가 바뀌었다»로 보고 그 무리 전원을 보간하지 않는다(base 자리). 모이면 안 맞은 조각도 그 벡터로. */
++   for (gstart = 0; gstart < 64; gstart = g)
++   {
++      /* 무리 = 우선순위·팔레트가 같고, 지금까지 모인 무리의 테두리에서 16px 안에 붙는 연속 슬롯 = 한 캐릭터.
++         (반전 비트는 조각마다 달라 무시. 줄 바뀜으로 앞 슬롯과는 멀어도 몸통 테두리 안이면 같은 무리 —
++          줄 단위로 끊으면 줄마다 «그 줄만 일관된» 가짜 이동량이 살아나 다시 깨진다) */
++      uint16_t key = ld16(base->spr + gstart * 4) & 0x1800;
++      uint8_t  pal = base->sprcol[gstart];
++      int n = 0, m = 0, k, any_chain = 0;
++      int minx = 999, maxx = -999, miny = 999, maxy = -999;
++      int bx0 = base->ax[gstart], bx1 = base->ax[gstart] + 8, by0 = base->ay[gstart], by1 = base->ay[gstart] + 8;
++      for (g = gstart + 1; g < 64; g++)
++      {
++         uint16_t w = ld16(base->spr + g * 4);
++         int sx = base->ax[g], sy = base->ay[g];
++         if ((w & 0x1800) != key || base->sprcol[g] != pal) break;
++         if (sx + 8 < bx0 - 16 || sx > bx1 + 16 || sy + 8 < by0 - 16 || sy > by1 + 16) break;
++         if (sx < bx0) bx0 = sx;
++         if (sx + 8 > bx1) bx1 = sx + 8;
++         if (sy < by0) by0 = sy;
++         if (sy + 8 > by1) by1 = sy + 8;
++      }
++      for (k = gstart; k < g; k++)
++      {
++         uint16_t w = ld16(base->spr + k * 4);
++         if (w & 0x0600) any_chain = 1;
++         if (!(w & 0x1800)) continue;
++         n++;
++         if (!mv[k].has) continue;
++         m++;
++         if (mv[k].dx < minx) minx = mv[k].dx;
++         if (mv[k].dx > maxx) maxx = mv[k].dx;
++         if (mv[k].dy < miny) miny = mv[k].dy;
++         if (mv[k].dy > maxy) maxy = mv[k].dy;
++      }
++      if (any_chain || n < 2) continue;                        /* 체인 무리는 아래 체인 규칙에 맡긴다 */
++      {
++         /* 1순위: 겉모습 투표 — 슬롯 번호가 밀리거나(조각 끼어듦) 포즈가 바뀌어도, 그대로 남은 조각들이
++            몸의 진짜 이동을 알려 준다. 정해지면 무리 전체를 그 벡터로(0 이면 제자리) */
++         int vx, vy;
++         int slot_ok = m > 0 && m * 2 >= n && maxx - minx <= 1 && maxy - miny <= 1;
++         if (look_vote(base, to, lb, lt, gstart, g, &vx, &vy) &&
++             !(slot_ok && (vx < minx || vx > maxx || vy < miny || vy > maxy)))   /* 둘이 어긋나면(드묾) 슬롯 합의 쪽 */
++         {
++            for (k = gstart; k < g; k++)
++            {
++               if (ld16(base->spr + k * 4) & 0x1800)
++               { mv[k].dx = (int16_t)vx; mv[k].dy = (int16_t)vy; mv[k].has = (uint8_t)(vx || vy); }
++               else mv[k].has = 0;
++            }
++            continue;
++         }
++      }
++      if (m == 0) continue;
++      if (m * 2 < n || maxx - minx > 1 || maxy - miny > 1)
++      {
++         /* 합의 없음. 다만 보이는 조각의 70% 이상이 «같은 벡터»면 그게 몸의 이동이고 나머지는 배치가 바뀐
++            조각이다(걷기 -2px 에 일부 조각만 재배치) → 무리 전체를 그 벡터로 단단히. 아니면 무리 전체 제자리. */
++         int best = 0, bdx = 0, bdy = 0, j;
++         for (k = gstart; k < g; k++)
++         {
++            int c = 0;
++            if (!mv[k].has) continue;
++            for (j = gstart; j < g; j++)
++               if (mv[j].has && mv[j].dx == mv[k].dx && mv[j].dy == mv[k].dy) c++;
++            if (c > best) { best = c; bdx = mv[k].dx; bdy = mv[k].dy; }
++         }
++         /* 70% 가 같은 벡터여도, 조각 «자리들»이 제자리에서 더 많이 겹치면 진짜 이동이 아니다 —
++            사무쇼2 카즈키(나찰) 유파선택 대기: 머리 조각 하나가 슬롯 0 에 끼어들면 나머지 번호가 한 칸씩 밀려
++            13 조각 중 9 개가 «-8px» 로 짝지어진다(타일 간격). 배치는 그대로라 제자리 겹침 14 vs -8 겹침 10. */
++         if (best * 10 >= n * 7 && layout_only(base, to, gstart, g, bdx, bdy))
++            best = 0;
++         for (k = gstart; k < g; k++)
++         {
++            if (best * 10 >= n * 7 && (ld16(base->spr + k * 4) & 0x1800))
++            { mv[k].dx = (int16_t)bdx; mv[k].dy = (int16_t)bdy; mv[k].has = 1; }
++            else mv[k].has = 0;
++         }
++         continue;
++      }
++      {
++         /* 합의된 벡터도 같은 검증 — 번호 밀림이 무리 전체에 고르게 걸리면 «합의»처럼 보인다 */
++         int cx = (minx + maxx) >= 0 ? (minx + maxx + 1) / 2 : -((-(minx + maxx) + 1) / 2);
++         int cy = (miny + maxy) >= 0 ? (miny + maxy + 1) / 2 : -((-(miny + maxy) + 1) / 2);
++         if (layout_only(base, to, gstart, g, cx, cy))
++         {
++            for (k = gstart; k < g; k++) mv[k].has = 0;
++            continue;
++         }
++      }
++      for (k = gstart; k < g; k++)
++         if (!mv[k].has && (ld16(base->spr + k * 4) & 0x1800))
++         {
++            mv[k].dx = (int16_t)((minx + maxx) >= 0 ? (minx + maxx + 1) / 2 : -((-(minx + maxx) + 1) / 2));
++            mv[k].dy = (int16_t)((miny + maxy) >= 0 ? (miny + maxy + 1) / 2 : -((-(miny + maxy) + 1) / 2));
++            mv[k].has = 1;
++         }
++   }
+    /* 체인 그룹: 슬롯 k 에 체인 비트(0x0600)가 있으면 k-1 과 같은 그룹 */
+    for (gstart = 0; gstart < 64; gstart = g)
+    {
