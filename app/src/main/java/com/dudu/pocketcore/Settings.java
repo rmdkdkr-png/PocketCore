@@ -189,6 +189,12 @@ public final class Settings {
                 + " 캐릭터·유파 고르기 화면의 미리보기도. 켜면 화면을 4배로 그려 내보내 업스케일러는 쉽니다. 칼처럼 크게 도는 순간은 조금 거칠 수 있음.",
                 new String[]{ "draw", "off" },
                 new String[]{ "그리기(¼픽셀)", "끔" }, "draw").g("ss2"),
+            /* 111: 코어 패치 97 — 공격 등 모든 포즈 바뀜(유저 「전 모션 … 바로바로 어려우면 캐시 만들어서」) */
+            new Item("ngp_framegen_motion", "동작 사이 그림",
+                "공격·맞기 같은 모든 포즈 바뀜 사이를 미리 계산해 둔 캐시로 그립니다(AI 흐름으로 «어느 픽셀을 어디서 가져오나»만 — 그림은 안 들어 있음)."
+                + " 바뀌기 직전 2프레임에 ¼·½·¾. 서기 자세를 「그리기」로 켰을 때만. 캐시는 업데이트 확인 때 따로 받습니다. 캐시에 없는 바뀜은 원래대로.",
+                new String[]{ "cache", "off" },
+                new String[]{ "캐시로 그리기", "끔" }, "cache").g("ss2"),
         });
         GROUPS.put("입력 지연", new Item[]{
             /* 런어헤드 — 코어(50_runahead.patch)가 게임을 몰래 몇 프레임 앞서 돌려 그 결과를 보여 준다. 소리는 진짜 프레임 것.
@@ -304,11 +310,11 @@ public final class Settings {
     }
 
     /* ── 보간 묶음 ── (MOTION 열쇠는 맨 위 — GROUPS 초기화가 먼저 쓴다) */
-    static final String[] MOTION_KEYS = { "ngp_framegen", "pocketcore_framegen", "ngp_framegen_mode", "ngp_framegen_mult", "ngp_framegen_fx", "ngp_framegen_pose", "ngp_framegen_idle" };
-    static final String[] MOTION_120  = { "auto", "motion", "predict", "4", "move", "blend", "draw" };
+    static final String[] MOTION_KEYS = { "ngp_framegen", "pocketcore_framegen", "ngp_framegen_mode", "ngp_framegen_mult", "ngp_framegen_fx", "ngp_framegen_pose", "ngp_framegen_idle", "ngp_framegen_motion" };
+    static final String[] MOTION_120  = { "auto", "motion", "predict", "4", "move", "blend", "draw", "cache" };
     /* 60Hz = 사무쇼2 코어 «60Hz 사이 그림»(패치 90 — 4배의 2프레임 예측을 그대로, 120 출력 없이) + 앱 보간 끔(60Hz 화면엔 끼울 빈 vsync 가 없다).
        유저 2026-10-11 「60Hz 도 넣어야지 … 4배 하던 거에서(2프레임 미리) 60 프레임에 맞출 만한 노력만 하면 되잖어」 */
-    static final String[] MOTION_60   = { "60", "off", "predict", "4", "move", "blend", "draw" };
+    static final String[] MOTION_60   = { "60", "off", "predict", "4", "move", "blend", "draw", "cache" };
     private static Item itemOf(String key) {
         for (Item[] arr : GROUPS.values()) for (Item it : arr) if (it.key.equals(key)) return it;
         return null;
@@ -377,6 +383,8 @@ public final class Settings {
         /* 109: 서기 자세(ngp_framegen_idle, 코어 패치 95)가 묶음에 들어왔다 — 묶음·커스텀을 이미 쓰던 사람도 켠 채로 시작
            (커스텀은 아래에서 내 조합을 새 길이로 다시 기억한다) */
         if (m.containsKey(MOTION) && !m.containsKey("ngp_framegen_idle")) { put("ngp_framegen_idle", "draw"); m = load(); }
+        /* 111: 동작 사이 그림(모션 캐시, 코어 패치 97)도 같은 식으로 — 켠 채로 시작 */
+        if (m.containsKey(MOTION) && !m.containsKey("ngp_framegen_motion")) { put("ngp_framegen_motion", "cache"); m = load(); }
         /* 내부 106 의 60Hz 는 «보간 끔»이었다 — 107 부터 사이 그림. 106 에서 60Hz 를 골라 둔 사람은 새 묶음으로 다시 깐다 */
         if ("60".equals(m.get(MOTION)) && "disabled".equals(m.get("ngp_framegen"))) { putUser(MOTION, "60"); return; }
         /* 107 의 「직접」 → 108 커스텀 칸: 기억해 둔 조합이 없으면 지금 조합을 내 조합으로 */
