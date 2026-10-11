@@ -19,5 +19,15 @@
       "url": "https://github.com/rmdkdkr-png/ss2-sp-core/releases/download/launcher-theme/theme.mp3"
     }
   },
-  "_note": "Legacito 전용 코어 색인. 사무쇼2(ss2) 코어는 일부러 뺐다 — 앱에 동봉한 프레임 생성 코어(ss2-sp-core ce62f19)를 쓴다. 옛 cores.json 의 ss2 3.71 을 받으면 동봉 코어를 덮어 프레임 생성이 사라지기 때문. 새 ss2 코어가 나오면 여기에 다시 넣는다. 사무쇼2 더빙 음성팩(180MB)도 뺐다 — 해설·더빙 기능은 3.90 에서 폐기돼 받아도 안 쓴다."
+  "packs_ext": {
+    "ss2_motion": {
+      "min": 111,
+      "ver": "1901b62e",
+      "ko": "사무쇼2 동작 사이 그림",
+      "file": "ss2_motion.bin",
+      "size": 16509254,
+      "url": "https://github.com/rmdkdkr-png/PocketCore/releases/download/app/legacito-ss2-motion.bin"
+    }
+  },
+  "_note": "Legacito 전용 코어 색인. 사무쇼2(ss2) 코어는 일부러 뺐다 — 앱에 동봉한 프레임 생성 코어(ss2-sp-core ce62f19)를 쓴다. 옛 cores.json 의 ss2 3.71 을 받으면 동봉 코어를 덮어 프레임 생성이 사라지기 때문. 새 ss2 코어가 나오면 여기에 다시 넣는다. 사무쇼2 더빙 음성팩(180MB)도 뺐다 — 해설·더빙 기능은 3.90 에서 폐기돼 받아도 안 쓴다. packs_ext 는 내부 111 이후 판만 읽는다(항목 min = 받을 수 있는 가장 낮은 versionCode) — 사무쇼2 모션 캐시(ss2_motion.bin, 그림 없이 사이 그림 이동표만)는 그걸 쓰는 코어(패치 97~)가 든 시험 판만 받는다."
 }
