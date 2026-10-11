@@ -194,24 +194,20 @@ public final class Updater {
             JSONObject packs = root.optJSONObject("packs");
             if (packs != null) {
                 java.util.Iterator<String> it = packs.keys();
+                while (it.hasNext()) syncPack(act, packs.getJSONObject(it.next()), got);
+            }
+            /* packs_ext — 110 이후 판만 읽는 팩(옛 판은 이 열쇠를 모른다). 항목마다 "min" = 받을 수 있는 가장 낮은 versionCode.
+               사무쇼2 모션 캐시(코어 패치 97)는 그걸 쓰는 코어가 든 판에서만 받게 — 정식 0.9 가 수십 MB 를 헛받지 않게 */
+            JSONObject ext = root.optJSONObject("packs_ext");
+            if (ext != null) {
+                long my = 0;
+                try { my = act.getPackageManager().getPackageInfo(act.getPackageName(), 0).getLongVersionCode(); }
+                catch (Throwable t) { try { my = act.getPackageManager().getPackageInfo(act.getPackageName(), 0).versionCode; } catch (Throwable ignored) { } }
+                java.util.Iterator<String> it = ext.keys();
                 while (it.hasNext()) {
-                    JSONObject e = packs.getJSONObject(it.next());
-                    String ver = e.getString("ver");
-                    File dst = new File(MainActivity.sysDir(), e.getString("file"));
-                    File verf = new File(dst.getPath() + ".ver");
-                    if (dst.exists() && ver.equals(readSmall(verf))) continue;
-                    long mb = e.optLong("size", 0) >> 20;
-                    toast(act, e.optString("ko", "팩") + " " + ver + " 내려받는 중…"
-                            + (mb > 0 ? " (" + mb + "MB)" : ""));
-                    File tmp = new File(dst.getPath() + ".part");
-                    fetchToFile(e.getString("url"), tmp, 600000);
-                    long want = e.optLong("size", 0);
-                    if (want > 0 && tmp.length() != want) { tmp.delete(); continue; }
-                    dst.delete();
-                    if (!tmp.renameTo(dst)) continue;
-                    writeSmall(verf, ver);
-                    if (got.length() > 0) got.append(" · ");
-                    got.append(e.optString("ko", "팩")).append(' ').append(ver);
+                    JSONObject e = ext.getJSONObject(it.next());
+                    if (my < e.optLong("min", Long.MAX_VALUE)) continue;
+                    syncPack(act, e, got);
                 }
             }
 
@@ -220,6 +216,26 @@ public final class Updater {
         } catch (Exception e) {
             toast(act, "코어 확인 실패: " + e.getClass().getSimpleName());
         }
+    }
+
+    /** 팩 하나 — 시스템 폴더에 file 로 받는다(같은 ver 면 건너뜀, size 가 다르면 버림). */
+    private static void syncPack(Activity act, JSONObject e, StringBuilder got) throws Exception {
+        String ver = e.getString("ver");
+        File dst = new File(MainActivity.sysDir(), e.getString("file"));
+        File verf = new File(dst.getPath() + ".ver");
+        if (dst.exists() && ver.equals(readSmall(verf))) return;
+        long mb = e.optLong("size", 0) >> 20;
+        toast(act, e.optString("ko", "팩") + " " + ver + " 내려받는 중…"
+                + (mb > 0 ? " (" + mb + "MB)" : ""));
+        File tmp = new File(dst.getPath() + ".part");
+        fetchToFile(e.getString("url"), tmp, 600000);
+        long want = e.optLong("size", 0);
+        if (want > 0 && tmp.length() != want) { tmp.delete(); return; }
+        dst.delete();
+        if (!tmp.renameTo(dst)) return;
+        writeSmall(verf, ver);
+        if (got.length() > 0) got.append(" · ");
+        got.append(e.optString("ko", "팩")).append(' ').append(ver);
     }
 
     /** 파일 머리 몇 바이트 대조 — 오류 페이지를 코어라고 저장하는 사고 방지. */

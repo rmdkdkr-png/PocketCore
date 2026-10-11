@@ -72,6 +72,7 @@ public final class Thumbs {
                기둥·해설창은 폐기해서 끌 것이 없다(2026-09-07). */
             Emu.nativeSetOption("ngp_svcsp_band", "disabled");
             Emu.nativeSetOption("ngp_framegen_idle", "off");     /* 썸네일은 원래 크기(160) — 서기 그리기는 4배로 내보낸다 */
+            Emu.nativeSetOption("ngp_framegen_motion", "off");
             Emu.nativeRunFrames(BOOT_FRAMES);
             int w = Emu.nativeFrameWidth(), h = Emu.nativeFrameHeight();
             Bitmap bmp = null;
