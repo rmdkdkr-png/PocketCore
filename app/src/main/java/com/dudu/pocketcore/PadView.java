@@ -410,6 +410,16 @@ public class PadView extends View {
         skin.clear();                             /* 크기별로 구운 그림 — 새 크기로 다시 */
     }
 
+    /** 메뉴 알약 높이 — 짧은 변 4.6% 또는 30dp 중 큰 것. EmuActivity.handleH 와 같은 공식(게임 화면을 그 아래에 둔다). */
+    static float handleH(float w, float h, float dp) { return Math.max(Math.min(w, h) * 0.046f, 30 * dp); }
+    private float handleH(float w, float h) { return handleH(w, h, getResources().getDisplayMetrics().density); }
+    /** 알약을 누르는 자리 — 그림보다 넓게(애플 HIG 44pt·안드로이드 48dp). 메뉴가 열려 있으면 아래 칸과 겹치지 않게 그림 높이까지만 */
+    private boolean handleHit(float x, float y) {
+        float dp = getResources().getDisplayMetrics().density;
+        float bottom = (barOpen || edit) ? barHandle.bottom : Math.max(barHandle.bottom, 48 * dp);
+        return y >= 0 && y <= bottom && x >= barHandle.left - 10 * dp && x <= barHandle.right + 10 * dp;
+    }
+
     /** 상단바 배치 — 한 줄에 칸마다 52dp 이상 들어가면 한 줄(폴드 큰 화면·가로), 아니면 두 줄로 접는다(덮개 화면).
      *  바는 「메뉴」 알약 바로 아래. 열려 있는 동안 칸 뒤에 어두운 판을 깔아 게임 그림 위에서도 글자가 읽히게 한다. */
     private final RectF barPlate = new RectF();
@@ -425,7 +435,8 @@ public class PadView extends View {
         int perRow = (vis + rows - 1) / rows;
         float maxw = (w > h) ? base * 0.16f : w * 0.22f;
         float uw = Math.min(maxw, (rowW - gap * (perRow - 1)) / perRow);
-        float y = base * 0.052f;
+        float hh = handleH(w, h);
+        float y = Math.max(base * 0.052f, hh + 4 * dp);
         int nThis = Math.min(perRow, vis), placed = 0, inRow = 0;
         float x = (w - (uw * nThis + gap * (nThis - 1))) / 2f;
         float left = x;
@@ -440,9 +451,11 @@ public class PadView extends View {
         }
         barBottom = y + uh;
         float pad = gap * 1.5f;
-        barPlate.set(left - pad, base * 0.052f - pad, w - left + pad, barBottom + pad);
+        barPlate.set(left - pad, Math.max(base * 0.052f, hh + 4 * dp) - pad, w - left + pad, barBottom + pad);
         /* 메뉴 버튼 — [≡] 실핸들이 너무 작다는 제보. 항상 보이는 알약 버튼으로. */
-        barHandle.set(w * 0.5f - base * 0.08f, 0, w * 0.5f + base * 0.08f, base * 0.046f);
+        /* 메뉴 알약 — 덮개 화면에서 높이 16dp 라 누르기 힘들었다. 최소 30dp·폭 96dp(그림), 누르는 자리는 더 넓게(handleHit) */
+        float hw = Math.max(base * 0.16f, 96 * dp);
+        barHandle.set(w * 0.5f - hw / 2f, 0, w * 0.5f + hw / 2f, hh);
     }
 
     private boolean bit(int b) { return b >= 0 && (mask & (1 << b)) != 0; }
@@ -776,15 +789,15 @@ public class PadView extends View {
         if (act == MotionEvent.ACTION_DOWN || act == MotionEvent.ACTION_POINTER_DOWN) {
             int idx = e.getActionIndex();
             float x = e.getX(idx), y = e.getY(idx);
-            if (barHandle.contains(x, y) && handlePid < 0) {   /* 메뉴 알약 — 짧게 = 여닫기(뗄 때), 길게 = 빠른 저장 */
-                handlePid = e.getPointerId(idx); handleFired = false;
-                removeCallbacks(handleHold); postDelayed(handleHold, HOLD_MS);
-                return true;
-            }
-            if (!undoChip.isEmpty() && undoLive() && undoChip.contains(x, y)) {   /* 되돌리기 칩 */
+            if (!undoChip.isEmpty() && undoLive() && !(barOpen || edit) && undoChip.contains(x, y)) {   /* 되돌리기 칩 */
                 undoUntil = 0; removeCallbacks(undoExpire);
                 if (listener != null) listener.onAction(ACT_UNDO);
                 invalidate();
+                return true;
+            }
+            if (handleHit(x, y) && handlePid < 0) {   /* 메뉴 알약 — 짧게 = 여닫기(뗄 때), 길게 = 빠른 저장 */
+                handlePid = e.getPointerId(idx); handleFired = false;
+                removeCallbacks(handleHold); postDelayed(handleHold, HOLD_MS);
                 return true;
             }
             if ((barOpen || edit) && util[UTIL_EDIT].contains(x, y)) {   /* 「키」 */

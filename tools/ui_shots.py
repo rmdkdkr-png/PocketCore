@@ -107,6 +107,7 @@ def bar_cells(w, h, labels, density=420):
     base = min(w, h)
     vis = len(labels)
     uh = max(base * 0.050, 34 * dp)
+    hh = max(base * 0.046, 30 * dp)                  # 메뉴 알약 높이(PadView.handleH)
     gap = max(w * 0.006, 4 * dp)
     gap_y = base * 0.010
     row_w = w * (0.80 if w > h else 0.96)
@@ -114,7 +115,7 @@ def bar_cells(w, h, labels, density=420):
     per = (vis + rows - 1) // rows
     maxw = base * 0.16 if w > h else w * 0.22
     uw = min(maxw, (row_w - gap * (per - 1)) / per)
-    y = base * 0.052
+    y = max(base * 0.052, hh + 4 * dp)
     out = {}
     placed = 0
     in_row = 0
@@ -195,7 +196,7 @@ def run(tag, size, density, bar_labels, with_settings):
     print("PadView", pv)
     w, h = pv[2] - pv[0], pv[3] - pv[1]
     base = min(w, h)
-    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(base * 0.023)))   # 메뉴 알약
+    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(max(base * 0.046, 30 * density / 160.0) / 2)))   # 메뉴 알약
     time.sleep(1.5)
     shot(tag + "_04_menu")
     cells = bar_cells(w, h, bar_labels, density)
@@ -226,7 +227,7 @@ def run(tag, size, density, bar_labels, with_settings):
         shot(tag + "_06_undo")
         time.sleep(5)
     # 메뉴를 다시 연다(로드가 닫았다)
-    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(base * 0.023)))
+    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(max(base * 0.046, 30 * density / 160.0) / 2)))
     time.sleep(1.2)
     # 메뉴 줄은 「설정」 칸을 눌러도 열린 채다(순수 토글 — 목록·종료만 접힘). 여기서 알약을 또 누르면 닫혀 버려
     # 「배치」 칸이 헛손질이 된다(2026-10-11 찍은 판에서 확인).
@@ -237,9 +238,9 @@ def run(tag, size, density, bar_labels, with_settings):
         shot(tag + "_09_edit")
         sh("input tap %d %d" % (pv[0] + int(cx), pv[1] + int(cy)))       # 배치 끄기(저장)
         time.sleep(1)
-    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(base * 0.023)))   # 메뉴 닫기(이어하기)
+    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(max(base * 0.046, 30 * density / 160.0) / 2)))   # 메뉴 닫기(이어하기)
     time.sleep(1)
-    hx, hy = pv[0] + w // 2, pv[1] + int(base * 0.023)
+    hx, hy = pv[0] + w // 2, pv[1] + int(max(base * 0.046, 30 * density / 160.0) / 2)
     sh("input swipe %d %d %d %d 900" % (hx, hy, hx, hy))                 # 알약 길게 = 빠른 저장
     time.sleep(0.6)
     shot(tag + "_10_qsave")

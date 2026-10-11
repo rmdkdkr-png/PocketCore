@@ -270,7 +270,9 @@ public class EmuActivity extends Activity {
         int gw = w * scrPct / 100;
         int gh = gw * fh / gameW;
         /* 가로에선 메뉴 알약 띠(짧은 변의 4.6%)를 게임 상자 위에 예약 — 알약이 HUD 를 덮지 않게(리뷰 F14) */
-        int top = (w > hgt) ? Math.round(Math.min(w, hgt) * 0.05f) : 0;
+        float dpx = getResources().getDisplayMetrics().density;
+        int pillGap = Math.round(PadView.handleH(w, hgt, dpx) + 4 * dpx);      /* 메뉴 알약 아래부터 — 알약이 커져도 HUD 를 안 덮게 */
+        int top = (w > hgt) ? Math.max(Math.round(Math.min(w, hgt) * 0.05f), pillGap) : 0;
         int capH = (hgt - top) * scrPct / 100;
         if (gh > capH) { gh = capH; gw = gh * gameW / fh; }
         if (gameW != fw) gw = w;
@@ -279,7 +281,7 @@ public class EmuActivity extends Activity {
         int my = top + (hgt - top - gh) * clamp(scrY, 0, 100) / 100;
         if (autoFit && hgt > w && gameW == fw) {
             /* 세로·자동: 메뉴 알약 아래(짧은 변 5%)부터 높이 56% 까지 — 그 아래는 패드 자리 */
-            int top2 = Math.round(Math.min(w, hgt) * 0.05f), maxH = Math.round(hgt * 0.56f) - top2;
+            int top2 = Math.max(Math.round(Math.min(w, hgt) * 0.05f), pillGap), maxH = Math.round(hgt * 0.56f) - top2;
             gw = w; gh = w * fh / gameW;
             if (gh > maxH) { gh = maxH; gw = gh * gameW / fh; }
             mx = (w - gw) / 2; my = top2;
