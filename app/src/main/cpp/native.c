@@ -120,8 +120,10 @@ static int16_t g_ring[ARING_FRAMES * 2];
 static volatile uint32_t g_rd = 0, g_wr = 0;
 static AAudioStream *g_stream = NULL;
 
-/* core options loaded from a plain key=value text file (no menus) */
-#define MAX_OPTS 64
+/* core options loaded from a plain key=value text file (no menus)
+   114: 64 → 256 + 같은 키는 한 칸(뒤 줄이 이긴다). 앱은 새 키를 options.txt 끝에 붙이는데(Settings.put), 64 칸이 차면
+   그 뒤 키가 코어에 조용히 안 넘어갔다 — 설정을 많이 만진 기기에서 111 의 «동작 사이 그림» 같은 새 키가 빠질 수 있었다(검수 2026-10-11) */
+#define MAX_OPTS 256
 static struct { char k[64]; char v[96]; } g_opt[MAX_OPTS];
 static int g_nopt = 0;
 static int g_var_dirty = 0;   /* 런타임 옵션 변경 — 코어가 다음 프레임에 다시 읽는다 */
@@ -161,12 +163,14 @@ static void load_options(const char *path)
       eq = strchr(line, '=');
       if (!eq) continue;
       *eq = 0;
-      snprintf(g_opt[g_nopt].k, sizeof(g_opt[g_nopt].k), "%s", line);
-      snprintf(g_opt[g_nopt].v, sizeof(g_opt[g_nopt].v), "%s", eq + 1);
+      int at = g_nopt;
+      for (int i = 0; i < g_nopt; i++) if (!strcmp(g_opt[i].k, line)) { at = i; break; }   /* 같은 키 — 뒤 줄이 이긴다 */
+      snprintf(g_opt[at].k, sizeof(g_opt[at].k), "%s", line);
+      snprintf(g_opt[at].v, sizeof(g_opt[at].v), "%s", eq + 1);
       /* trim trailing whitespace/newline */
-      for (char *p = g_opt[g_nopt].v + strlen(g_opt[g_nopt].v) - 1;
-           p >= g_opt[g_nopt].v && (*p == '\n' || *p == '\r' || *p == ' '); --p) *p = 0;
-      g_nopt++;
+      for (char *p = g_opt[at].v + strlen(g_opt[at].v) - 1;
+           p >= g_opt[at].v && (*p == '\n' || *p == '\r' || *p == ' '); --p) *p = 0;
+      if (at == g_nopt) g_nopt++;
    }
    fclose(f);
    LOGI("loaded %d core options", g_nopt);
@@ -259,6 +263,30 @@ static void cb_video(const void *data, unsigned w, unsigned h, size_t pitch)
    if (!data || !w || !h) return;      /* frame dupe */
    ensure_fb(w, h);
    if (!g_fb) return;
+   /* 업스케일러를 켰으면 사무쇼2 의 4배 그림(서기·동작 사이 그림을 ¼픽셀로 그린 640×608)을 1배로 — 칸마다 가운데 한 점.
+      업스케일러는 «도트 한 칸 = 텍셀 한 칸»이어야 돈다. 사이 그림은 ¼픽셀 대신 정수 픽셀로 반올림된다.
+      유저 2026-10-11 「업스케일러가 안 되네 — 업스케일러는 블렌더 레벨 필요 없어」 */
+   unsigned ds = 1;
+   if (g_d_up > 0 && g_pixfmt == RETRO_PIXEL_FORMAT_RGB565 && w >= 320 && w % 160 == 0 && h == 152u * (w / 160))
+      ds = w / 160;
+   if (ds > 1) {
+      unsigned ow = w / ds, oh = h / ds;
+      uint8_t *d1 = g_fb;
+      g_fb_w = ow; g_fb_h = oh;
+      for (unsigned y = 0; y < oh; y++) {
+         const uint16_t *src = (const uint16_t *)((const uint8_t *)data + (y * ds + ds / 2) * pitch) + ds / 2;
+         for (unsigned x = 0; x < ow; x++) {
+            uint16_t p = src[x * ds];
+            unsigned r = (p >> 11) & 0x1f, g = (p >> 5) & 0x3f, b = p & 0x1f;
+            *d1++ = (uint8_t)((r << 3) | (r >> 2));
+            *d1++ = (uint8_t)((g << 2) | (g >> 4));
+            *d1++ = (uint8_t)((b << 3) | (b >> 2));
+            *d1++ = 0xff;
+         }
+      }
+      g_fb_dirty = 1;
+      return;
+   }
    g_fb_w = w; g_fb_h = h;
 
    uint8_t *dst = g_fb;

@@ -616,7 +616,7 @@ public class EmuActivity extends Activity {
         if (gl == null) return;
         java.util.Map<String, String> m = Settings.load();
         final int up = Settings.upscalerIndex(m.get("pocketcore_upscaler"));
-        final int mix = Settings.pctOf(m, "pocketcore_upscaler_mix", 100);
+        final int mix = 100;                     /* 114: 「업스케일러 세기」 뺌 — 늘 100%(유저 「블렌더 레벨 필요 없어」) */
         final int grid = Settings.pctOf(m, "pocketcore_flt_grid", 0);
         final int scan = Settings.pctOf(m, "pocketcore_flt_scan", 0);
         final int ghost = Settings.pctOf(m, "pocketcore_flt_ghost", 0);
