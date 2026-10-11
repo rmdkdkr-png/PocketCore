@@ -140,9 +140,9 @@ public final class Settings {
            (유저 2026-10-11 「직접은 뭐냐」 → 「커스텀 칸으로 두면 되지」). 값 "custom" 은 그대로라 options.txt 는 안 바뀐다. */
         GROUPS.put("보간", new Item[]{
             new Item(MOTION, "보간",
-                "120Hz = 화면이 120Hz 일 때 가장 좋은 조합 — 사무쇼2 는 코어 보간 4배·예측·이펙트 옮기기·날아가는 몸 섞기,"
+                "120Hz = 화면이 120Hz 일 때 가장 좋은 조합 — 사무쇼2 는 코어 보간 4배·예측·이펙트 옮기기·날아가는 몸 섞기·서기 그리기,"
                 + " 다른 게임은 앱 보간(움직임, 약 8ms 늦음). 60Hz = 화면이 60Hz 일 때 — 사무쇼2 는 30Hz 로 움직이는 캐릭터·배경의"
-                + " 사이 그림을 2프레임 미리 돌려(예측) 60 에 맞춤, 지연 없음·120Hz 안 씀(배터리). 다른 게임은 아직 보간 없음."
+                + " 사이 그림을 2프레임 미리 돌려(예측) 60 에 맞춤 + 서기 그리기, 지연 없음·120Hz 안 씀(배터리). 다른 게임은 아직 보간 없음."
                 + " 커스텀 = 「보간 고급」에서 맞춘 내 조합(따로 기억 — 120Hz·60Hz 로 갔다 와도 그대로 돌아옴).",
                 new String[]{ "120", "60", "custom" },
                 new String[]{ "120Hz", "60Hz", "커스텀" }, "120").l(),
@@ -182,6 +182,13 @@ public final class Settings {
                 "맞고 빙글빙글 날아갈 때 바뀌는 포즈 사이를 반투명으로 이어 덜 깜빡이게(잔상). 끔 = 원래처럼 툭툭.",
                 new String[]{ "blend", "off" },
                 new String[]{ "섞기", "끔" }, "blend").g("ss2"),
+            /* 서기 자세 — 코어 패치 95. 서 있을 때 1~2픽셀씩 바뀌는 포즈 6~8장 사이를 4배 격자에 ¼픽셀씩 옮겨 그린다(섞지 않음).
+               유저 2026-10-11 「뉴트럴 포즈를 … 그리는 거랑도」 → 비교 영상(그리기 ¼픽셀이 제일 나음) → 「ㄱ」 */
+            new Item("ngp_framegen_idle", "서기 자세",
+                "서 있을 때 숨 쉬듯 1~2픽셀씩 바뀌는 포즈 사이를 ¼픽셀씩 옮겨 그려 잇습니다(도트 그대로, 같은 동작을 두 번 본 뒤부터)."
+                + " 켜면 화면을 4배로 그려 내보내 업스케일러는 쉽니다. 칼처럼 크게 도는 순간은 조금 거칠 수 있음.",
+                new String[]{ "draw", "off" },
+                new String[]{ "그리기(¼픽셀)", "끔" }, "draw").g("ss2"),
         });
         GROUPS.put("입력 지연", new Item[]{
             /* 런어헤드 — 코어(50_runahead.patch)가 게임을 몰래 몇 프레임 앞서 돌려 그 결과를 보여 준다. 소리는 진짜 프레임 것.
@@ -297,11 +304,11 @@ public final class Settings {
     }
 
     /* ── 보간 묶음 ── (MOTION 열쇠는 맨 위 — GROUPS 초기화가 먼저 쓴다) */
-    static final String[] MOTION_KEYS = { "ngp_framegen", "pocketcore_framegen", "ngp_framegen_mode", "ngp_framegen_mult", "ngp_framegen_fx", "ngp_framegen_pose" };
-    static final String[] MOTION_120  = { "auto", "motion", "predict", "4", "move", "blend" };
+    static final String[] MOTION_KEYS = { "ngp_framegen", "pocketcore_framegen", "ngp_framegen_mode", "ngp_framegen_mult", "ngp_framegen_fx", "ngp_framegen_pose", "ngp_framegen_idle" };
+    static final String[] MOTION_120  = { "auto", "motion", "predict", "4", "move", "blend", "draw" };
     /* 60Hz = 사무쇼2 코어 «60Hz 사이 그림»(패치 90 — 4배의 2프레임 예측을 그대로, 120 출력 없이) + 앱 보간 끔(60Hz 화면엔 끼울 빈 vsync 가 없다).
        유저 2026-10-11 「60Hz 도 넣어야지 … 4배 하던 거에서(2프레임 미리) 60 프레임에 맞출 만한 노력만 하면 되잖어」 */
-    static final String[] MOTION_60   = { "60", "off", "predict", "4", "move", "blend" };
+    static final String[] MOTION_60   = { "60", "off", "predict", "4", "move", "blend", "draw" };
     private static Item itemOf(String key) {
         for (Item[] arr : GROUPS.values()) for (Item it : arr) if (it.key.equals(key)) return it;
         return null;
@@ -367,6 +374,9 @@ public final class Settings {
      *  유저 2026-10-11 「우월한 세팅은 정해져 있으니」 — 손대지 않은 사람은 가장 좋은 조합으로 시작. */
     public static void migrateMotion() {
         Map<String, String> m = load();
+        /* 109: 서기 자세(ngp_framegen_idle, 코어 패치 95)가 묶음에 들어왔다 — 묶음·커스텀을 이미 쓰던 사람도 켠 채로 시작
+           (커스텀은 아래에서 내 조합을 새 길이로 다시 기억한다) */
+        if (m.containsKey(MOTION) && !m.containsKey("ngp_framegen_idle")) { put("ngp_framegen_idle", "draw"); m = load(); }
         /* 내부 106 의 60Hz 는 «보간 끔»이었다 — 107 부터 사이 그림. 106 에서 60Hz 를 골라 둔 사람은 새 묶음으로 다시 깐다 */
         if ("60".equals(m.get(MOTION)) && "disabled".equals(m.get("ngp_framegen"))) { putUser(MOTION, "60"); return; }
         /* 107 의 「직접」 → 108 커스텀 칸: 기억해 둔 조합이 없으면 지금 조합을 내 조합으로 */

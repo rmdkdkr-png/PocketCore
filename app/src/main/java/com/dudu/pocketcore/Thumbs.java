@@ -71,6 +71,7 @@ public final class Thumbs {
             /* 띠 없이 게임 화면만 — 런타임 옵션이라 options.txt 는 안 건드린다.
                기둥·해설창은 폐기해서 끌 것이 없다(2026-09-07). */
             Emu.nativeSetOption("ngp_svcsp_band", "disabled");
+            Emu.nativeSetOption("ngp_framegen_idle", "off");     /* 썸네일은 원래 크기(160) — 서기 그리기는 4배로 내보낸다 */
             Emu.nativeRunFrames(BOOT_FRAMES);
             int w = Emu.nativeFrameWidth(), h = Emu.nativeFrameHeight();
             Bitmap bmp = null;
