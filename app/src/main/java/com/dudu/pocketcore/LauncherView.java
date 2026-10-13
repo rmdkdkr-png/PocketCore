@@ -528,8 +528,8 @@ public final class LauncherView extends View {
         }
 
         /* 카드 */
-        float top = ly + logoH + h * 0.045f;
-        float availH = h * 0.38f;
+        float top = ly + logoH + h * 0.04f;
+        float availH = h * 0.40f;
         int cs = Math.max(2, Math.min((int) (w * 0.60f) / 160, (int) availH / 152));
         int ss2 = Math.max(1, cs / 2);
         float cy2 = top + availH / 2f;
@@ -614,7 +614,7 @@ public final class LauncherView extends View {
         tp.setLetterSpacing(0f);
 
         /* 제목 — 고운바탕, 크림빛, 금빛 번짐 */
-        float ty = Math.max(top + availH + h * 0.045f, cr.bottom + gap + dp(46));
+        float ty = Math.max(top + availH + h * 0.035f, cr.bottom + gap + dp(40));
         tp.setTextSize(h * 0.031f);
         tp.setColor(withA(0xfff4e8cc, la));
         tp.setShadowLayer(dp(1), 0, dp(2), withA(0xff000000, la));
@@ -815,7 +815,7 @@ public final class LauncherView extends View {
             return;
         }
         Item cur = items.get(sel);
-        int cs = Math.max(1, Math.min((int) (LW * 0.42f) / 160, (int) (LH * 0.56f) / 152));
+        int cs = Math.max(1, Math.min((int) (LW * (LW < LH ? 0.62f : 0.42f)) / 160, (int) (LH * 0.56f) / 152));   /* 덮개(좁은 액정)는 더 크게 */
         int ss = Math.max(1, cs / 2);
         float ctop = lcd.top + LH * 0.115f + dp(4);
         RectF cr = new RectF();

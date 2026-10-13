@@ -59,6 +59,7 @@ jobs:
           arch: x86_64
           target: google_apis
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -skin 1856x2160
+          emulator-boot-timeout: 900
           disable-animations: true
           script: python3 tools/ui_shots.py apk/app-debug.apk shots
         env:
@@ -68,6 +69,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          mkdir -p shots
+          [ -n "$(ls -A shots)" ] || echo "에뮬레이터 단계가 스크립트를 못 돌렸다(부팅 실패 등) — 찍은 것 없음" > shots/EMPTY.txt
           (cd shots && zip -q -r ../ui-shots.zip .) || true
           gh release delete ui-shots -y --cleanup-tag || true
           gh release create ui-shots ui-shots.zip --prerelease --target "${GITHUB_SHA}" \
