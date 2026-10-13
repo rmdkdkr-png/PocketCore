@@ -484,6 +484,32 @@ def themes_main(labels):
     launcher(menu=True, alias="IconInk")
     time.sleep(2)
     print("launcher icon=classic", sh(q).strip())
+    # 122 버튼 투명도 — 먹·금(아트)·기본(단순) 게임 화면을 진하기 40% 로. 메뉴 알약은 그대로여야
+    for th, skin in (("ink", "art"), ("classic", "flat")):
+        try:
+            set_opt("pocketcore_theme", th)
+            set_opt("pocketcore_padskin", skin)
+            set_opt("pocketcore_pad_alpha", "40")
+            sh("wm size 1856x2160")
+            sh("rm -f /sdcard/PocketCore/saves/*.auto")
+            launcher()
+            lv = view_bounds("LauncherView") or screen_box()
+            chip = opt_chip()
+            if chip:
+                sh("input tap %d %d" % (lv[0] + chip[0], lv[1] + chip[1]))
+            else:
+                sh("input keyevent 109")
+            time.sleep(2.5)
+            bb = find(lambda n: (n.get("text") or "").startswith("시작"))
+            if bb:
+                sh("input tap %d %d" % ((bb[0] + bb[2]) // 2, (bb[1] + bb[3]) // 2))
+            time.sleep(9)
+            dismiss_anr()
+            shot("th_alpha40_%s_%s_game" % (th, skin))
+        except Exception:
+            print("alpha shot failed", th, traceback.format_exc())
+    set_opt("pocketcore_pad_alpha", "100")
+    set_opt("pocketcore_padskin", "art")
     save_logcat("th_end")
 
 

@@ -226,6 +226,11 @@ public final class Settings {
                 "아트 = 테마 모양(기본은 금속 테·유광 버튼, 먹·금은 옻칠, 포켓은 스틱·고무 버튼, 모던은 선) · 단순 = 반투명 도형. PocketCore/design/skin/ 에 a.png·b.png·dpad.png 등을 넣으면 그 그림으로(눌림은 a_on.png).",
                 new String[]{ "art", "flat" },
                 new String[]{ "아트", "단순" }, "art"),
+            /* 122: 유저 2026-10-13 「버튼 투명도 조절되냐」 — 값은 진하기(100 = 그대로), 고르는 글은 «비침 %» */
+            new Item("pocketcore_pad_alpha", "버튼 투명도",
+                "게임 중 터치 버튼(십자·A·B·SP·OPTION·배속)이 얼마나 비쳐 보일지. 높일수록 게임 그림이 버튼 너머로 보입니다. 메뉴 알약·메뉴 칸은 그대로.",
+                new String[]{ "100", "80", "60", "40", "25" },
+                new String[]{ "안 비침", "20%", "40%", "60%", "75%" }, "100"),
         });
         GROUPS.put("원버튼 필살기", new Item[]{
             new Item("ngp_svcsp_engine", "원버튼 필살기",

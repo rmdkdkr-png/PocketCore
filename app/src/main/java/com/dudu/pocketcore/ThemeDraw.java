@@ -81,6 +81,7 @@ final class ThemeDraw {
         Path bz = bezelPath(z, rad, big);
         p.setColor(0x80ffffff);                                   /* 아래쪽 흰 반사 — 몸통에 박힌 느낌 */
         c.save(); c.translate(0, 2); c.drawPath(bz, p); c.restore();
+        p.setColor(0xff000000);                                   /* 셰이더는 칠 알파를 곱한다 — 반사의 0x80 이 남지 않게 */
         p.setShader(new LinearGradient(0, z.top, 0, z.bottom, 0xff3a3d45, 0xff25272d, Shader.TileMode.CLAMP));
         c.drawPath(bz, p);
         p.setShader(null);
@@ -104,6 +105,7 @@ final class ThemeDraw {
         float step = Math.max(3f, dp * 1.15f);
         for (float y = z.top; y < z.bottom; y += step) c.drawRect(z.left, y, z.right, y + Math.max(1f, step / 3f), p);
         p.setAntiAlias(true);                                     /* 왼쪽 위 유리 반사 */
+        p.setColor(0xff000000);
         p.setShader(new LinearGradient(z.left, z.top, z.left + z.width() * 0.55f, z.top + z.height() * 0.6f,
                 0x12ffffff, 0x00ffffff, Shader.TileMode.CLAMP));
         Path g = new Path();

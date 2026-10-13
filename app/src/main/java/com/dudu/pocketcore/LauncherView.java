@@ -920,6 +920,7 @@ public final class LauncherView extends View {
         fx.reset(); fx.setAntiAlias(true);
         fx.setColor(0x12000000); tr2.set(tr); tr2.inset(-dp(3), -dp(3)); c.drawRoundRect(tr2, ph, ph, fx);
         fx.setColor(0x40000000); tr2.set(tr); tr2.offset(0, dp(2)); c.drawRoundRect(tr2, ph / 2f, ph / 2f, fx);
+        fx.setColor(0xff000000);
         fx.setShader(new LinearGradient(0, tr.top, 0, tr.bottom, hot ? 0xfff0a35a : 0xff8a8f99, hot ? 0xffc4560e : 0xff5d626c, Shader.TileMode.CLAMP));
         c.drawRoundRect(tr, ph / 2f, ph / 2f, fx);
         fx.setShader(new LinearGradient(0, tr.top, 0, tr.centerY(), 0x59ffffff, 0x00ffffff, Shader.TileMode.CLAMP));
@@ -1111,6 +1112,7 @@ public final class LauncherView extends View {
         tr.set(playR); tr.offset(0, dp(10)); tr.inset(dp(10), dp(6));
         c.drawRoundRect(tr, ph / 2f, ph / 2f, fx);
         fx.setMaskFilter(null);
+        fx.setColor(0xff000000);                 /* 빛무리 알파(0x59)가 남아 버튼이 어둡던 것 */
         fx.setShader(new LinearGradient(0, playR.top, 0, playR.bottom, withA(0xffffa060, la), withA(0xffff8434, la), Shader.TileMode.CLAMP));
         c.drawRoundRect(playR, ph / 2f, ph / 2f, fx);
         fx.setShader(null);
@@ -1246,6 +1248,7 @@ public final class LauncherView extends View {
             }
             Bitmap b = Theme.bmp(ic[i]);
             if (b != null) {
+                fx.setColor(0xff000000);         /* 아이콘을 칠 알파(앞 판 0x12…)로 그리던 것 — 불투명으로 */
                 fx.setColorFilter(new android.graphics.PorterDuffColorFilter(col, android.graphics.PorterDuff.Mode.SRC_IN));
                 fx.setFilterBitmap(true);
                 tr.set(cx - isz / 2f, iy - isz / 2f, cx + isz / 2f, iy + isz / 2f);

@@ -112,6 +112,13 @@ public class PadView extends View {
         skin.clear();
         invalidate();
     }
+    /* 122: 버튼 투명도(설정 「버튼 투명도」, pocketcore_pad_alpha = 진하기 %) — 게임 버튼 묶음을 한 겹으로 그려 그 겹에만 알파.
+       메뉴 알약·메뉴 칸·되돌리기 칩은 그대로(늘 또렷하게). */
+    private int padAlpha = 255;
+    public void setPadAlpha(int pct) {
+        int a = Math.round(Math.max(15, Math.min(100, pct)) * 2.55f);
+        if (a != padAlpha) { padAlpha = a; invalidate(); }
+    }
     /** 버튼 고유색 — 이름으로 정한다(프로필이 달라도 A 는 늘 같은 색). */
     private static int hueOf(Object name) {
         if ("A".equals(name) || "WP".equals(name)) return 0xff3f6fd1;   /* 청 */
@@ -491,6 +498,7 @@ public class PadView extends View {
         }
 
         int btnColorIdx = 0;
+        int padLayer = (padAlpha < 255 && !hidesTouch()) ? c.saveLayerAlpha(0, 0, w, h, padAlpha) : -1;
         if (!hidesTouch()) for (int i = 0; i < nC; i++) {
             if (!ctrlVisible(i)) continue;
             int b = bitOf(i);
@@ -544,6 +552,7 @@ public class PadView extends View {
                 c.drawCircle(cx(i), cy(i), radOf(i) + 8, line);
             }
         }
+        if (padLayer >= 0) c.restoreToCount(padLayer);
 
         if (barOpen || edit) {                       /* 칸 뒤 어두운 판 — 게임 그림 위에서도 칸이 또렷하게 */
             fill.setColor(0xb0101014);

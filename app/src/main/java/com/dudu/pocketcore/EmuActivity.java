@@ -217,6 +217,7 @@ public class EmuActivity extends Activity {
         if (pad != null) pad.setPhysicalMode(hide);
         Theme.init(this); Theme.refresh();      /* 121: 버튼 모양이 테마를 따른다 — 설정에서 바꾸고 돌아오면 새로 굽는다 */
         if (pad != null) pad.setArt(!"flat".equals(or(m.get("pocketcore_padskin"), "art")));
+        if (pad != null) pad.setPadAlpha(intOf(m.get("pocketcore_pad_alpha"), 100));     /* 122: 버튼 투명도 */
     }
     private final android.hardware.input.InputManager.InputDeviceListener devListener =
             new android.hardware.input.InputManager.InputDeviceListener() {
