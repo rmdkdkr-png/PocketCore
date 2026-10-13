@@ -71,8 +71,8 @@ jobs:
           gh release create ui-shots ui-shots.zip --prerelease --target "${GITHUB_SHA}" \
             --title "CI — UI 스크린샷 (${GITHUB_SHA::7})" --notes "가짜 롬(제자리 돌기)으로 찍은 앱 화면. 설치·배포물 아님."
 
-  # 자동 업데이트(SelfUpdate, 120~) 시험 — 커밋 메시지에 [upd] 가 있을 때만. 같은 시험 서명으로 판 500·501 을 굽고,
-  # 에뮬레이터에 500 을 깐 뒤 러너가 501 을 http 로 내놓고 주기 작업을 강제로 돌려 «확인 창 없이» 501 이 되는지 본다.
+  # 「새 판 받기」 세션 설치(SelfUpdate, 120~) 시험 — 커밋 메시지에 [upd] 가 있을 때만. 같은 시험 서명으로 판 500·501 을 굽고,
+  # 에뮬레이터에 500 을 깐 뒤 러너가 501 을 http 로 내놓고 런처의 「새 판 받기」를 눌러 «확인 창 없이» 501 이 되고 앱이 다시 열리는지 본다.
   selfupdate:
     if: contains(github.event.head_commit.message, '[upd]')
     runs-on: ubuntu-latest
@@ -114,7 +114,7 @@ jobs:
           (cd su/out && rm -rf srv && zip -q -r ../../selfupdate-test.zip .) || true
           gh release delete selfupdate-test -y --cleanup-tag || true
           gh release create selfupdate-test selfupdate-test.zip --prerelease --target "${GITHUB_SHA}" \
-            --title "CI — 자동 업데이트 시험 (${GITHUB_SHA::7})" --notes "에뮬레이터 API 33. 설치·배포물 아님."
+            --title "CI — 새 판 설치 시험 (${GITHUB_SHA::7})" --notes "에뮬레이터 API 33. 설치·배포물 아님."
 
   # Legacito 정식 서명용 — 서명 안 한 릴리즈 APK(zipalign 끝)와 apksigner.jar 를 태그 ci-release 에 둔다.
   # 서명 키는 저장소에 없다(공개 저장소). 클로드 세션이 받아서 새 키로 서명한 뒤 태그 app 에 올린다 — tools/SIGNING.md

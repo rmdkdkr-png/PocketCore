@@ -272,7 +272,7 @@ public final class Updater {
         } catch (Exception e) { return false; }
     }
 
-    /** 큰 파일용 스트리밍 다운로드 — 통째로 메모리에 안 올린다(음성팩은 수백 MB). 자동 업데이트(SelfUpdate)도 쓴다. */
+    /** 큰 파일용 스트리밍 다운로드 — 통째로 메모리에 안 올린다(음성팩은 수백 MB). 새 판 설치(SelfUpdate)도 쓴다. */
     static void fetchToFile(String url, File out, int timeoutMs) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setConnectTimeout(15000); c.setReadTimeout(timeoutMs);
@@ -309,9 +309,9 @@ public final class Updater {
             return true;
         }
         toast(act, "v" + rn + " 다운로드 중… (내부 " + my + " → " + rc + ")");   /* 보이는 판은 0.9 그대로라 내부 번호로 구분 */
-        SelfUpdate.newer = rc;
-        /* 120~: 앱 안쪽에 받아(패키지·판 확인) PackageInstaller 세션으로 — 안드로이드 12 이상이면 확인 창 없이 깔리고
-           (곧 앱이 닫힌다), 확인이 필요하면 시스템 확인 창. 세션이 안 되면 예전처럼 설치창(ACTION_VIEW). */
+        /* 120~: 앱 안쪽에 받아(패키지·판 확인) PackageInstaller 세션으로(SelfUpdate) — 안드로이드 12 이상이면
+           «업데이트하시겠습니까»·Play 프로텍트 창 없이 깔리고 앱이 닫혔다 저절로 다시 열린다. 확인이 필요하면 시스템 확인 창.
+           세션이 안 되면 예전처럼 설치창(ACTION_VIEW). 유저가 누를 때만 깐다(뒤에서 저절로 깔지 않음). */
         File staged = SelfUpdate.stage(act, base + "/" + Uri.encode(apk), rc);
         if (staged == null) throw new java.io.IOException("받은 파일이 내부 " + rc + " 판이 아님");
         if (!act.getPackageManager().canRequestPackageInstalls()) {
@@ -324,8 +324,8 @@ public final class Updater {
         }
         try {
             if (SelfUpdate.supported())
-                toast(act, "새 판을 까는 중 — 앱이 잠깐 닫히면 다시 열어 주세요 (다음부터는 앱을 안 쓸 때 알아서 깔립니다)");
-            SelfUpdate.install(act, staged, rc, true);
+                toast(act, "새 판으로 바꾸는 중 — 앱이 잠깐 닫혔다 다시 열립니다");
+            SelfUpdate.install(act, staged, rc);
             return false;
         } catch (Throwable t) {
             android.util.Log.w(SelfUpdate.TAG, "session install failed — fallback", t);
@@ -352,19 +352,10 @@ public final class Updater {
             int rc = j.getInt("versionCode"), my;
             try { my = (int) act.getPackageManager().getPackageInfo(act.getPackageName(), 0).getLongVersionCode(); }
             catch (Throwable t) { my = act.getPackageManager().getPackageInfo(act.getPackageName(), 0).versionCode; }
-            SelfUpdate.newer = rc > my ? rc : 0;      /* 앱을 나가는 순간 자동 업데이트가 이걸 보고 15초 뒤 깐다 */
             return rc > my ? rc : 0;
         } catch (Throwable e) {
             return 0;
         }
-    }
-
-    /** 지금 배포 레벨의 판 항목({"versionCode","versionName","apk"}) — 시험 레벨이고 "test" 가 있으면 그것. 자동 업데이트용. */
-    static JSONObject versionEntry() throws Exception {
-        byte[] jb = fetch(baseUrl() + "/" + VERSION_INDEX, 10000);
-        JSONObject j = new JSONObject(new String(jb, "UTF-8"));
-        if (testLevel() && j.optJSONObject("test") != null) j = j.getJSONObject("test");
-        return j;
     }
 
     /** 색인만 받아 둔다 — 롬 스캔이 순정 판별(rom_md5)에 쓴다. 색인이 없는 기기에서 스캔이 직접 부른다.

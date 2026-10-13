@@ -1,24 +1,27 @@
-"""자동 업데이트(SelfUpdate, 120~) 에뮬레이터 시험 — CI 작업 selfupdate 가 부른다(커밋 메시지에 [upd]).
+"""「새 판 받기」 세션 설치(SelfUpdate, 120~) 에뮬레이터 시험 — CI 작업 selfupdate 가 부른다(커밋 메시지에 [upd]).
 
 판 A(내부 500)를 깔고, 러너에서 판 B(내부 501, 같은 시험 서명)를 http 로 내놓은 뒤
-앱을 한 번 열었다 홈으로 나가고 주기 작업(7760)을 강제로 돌린다. 확인 창 없이 501 로 바뀌면 통과.
-다시 열었을 때 «새 판으로 바뀌었습니다» 토스트가 뜨는 화면도 찍는다.
+런처를 열어 「새 판 받기」 버튼을 누른다. 확인 창(패키지 설치기) 없이 501 로 바뀌고, 앱이 저절로 다시 열리면 통과.
+뒤에서 저절로 까는 것은 없다(유저가 누를 때만).
 
 사용: python3 tools/selfupdate_test.py <a.apk> <b.apk> <출력 폴더>"""
 import http.server
 import json
 import os
+import re
 import shutil
 import socketserver
 import subprocess
 import sys
 import threading
 import time
+import xml.etree.ElementTree as ET
 
 PKG = "com.dudu.legacito.fgtest"
 ACT = PKG + "/com.dudu.pocketcore.MainActivity"
 A_APK, B_APK, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 os.makedirs(OUT, exist_ok=True)
+OUT = os.path.abspath(OUT)
 LOG = open(os.path.join(OUT, "log.txt"), "w")
 
 
@@ -53,6 +56,29 @@ def version():
     return "?"
 
 
+def resumed():
+    t = sh("dumpsys activity activities")
+    m = re.findall(r"(?:mResumedActivity|topResumedActivity)[:=][^\n]*", t)
+    return " | ".join(x.strip() for x in m[:2])
+
+
+def find_button(prefixes):
+    sh("uiautomator dump /sdcard/ui.xml")
+    xml = sh("cat /sdcard/ui.xml")
+    open(os.path.join(OUT, "ui.xml"), "w").write(xml)
+    try:
+        root = ET.fromstring(xml[xml.index("<?xml"):] if "<?xml" in xml else xml)
+    except Exception as e:
+        say("ui parse", e)
+        return None
+    for n in root.iter("node"):
+        t = n.get("text", "")
+        if any(t.startswith(p) for p in prefixes):
+            x1, y1, x2, y2 = map(int, re.findall(r"\d+", n.get("bounds")))
+            return t, (x1 + x2) // 2, (y1 + y2) // 2
+    return None
+
+
 def serve(root):
     class Q(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *a, **k):
@@ -67,12 +93,11 @@ def serve(root):
 
 
 def main():
-    srv_dir = os.path.abspath(os.path.join(OUT, "srv"))
+    srv_dir = os.path.join(OUT, "srv")
     os.makedirs(srv_dir, exist_ok=True)
     shutil.copy(B_APK, os.path.join(srv_dir, "b.apk"))
     json.dump({"versionCode": 501, "versionName": "0.9", "apk": "b.apk"},
               open(os.path.join(srv_dir, "legacito-version.json"), "w"))
-    out_abs = os.path.abspath(OUT)
     a_abs = os.path.abspath(A_APK)
     serve(srv_dir)
 
@@ -88,41 +113,57 @@ def main():
     sh("appops set --uid %s MANAGE_EXTERNAL_STORAGE allow" % PKG)
     sh("appops set %s REQUEST_INSTALL_PACKAGES allow" % PKG)
     sh("mkdir -p /sdcard/PocketCore/roms")
-    open(os.path.join(out_abs, "options.txt"), "w").write(
+    open(os.path.join(OUT, "options.txt"), "w").write(
         "pocketcore_update_url=http://10.0.2.2:8765\npocketcore_level=stable\npocketcore_launcher_snd=disabled\n")
-    adb("push", os.path.join(out_abs, "options.txt"), "/sdcard/PocketCore/options.txt")
+    adb("push", os.path.join(OUT, "options.txt"), "/sdcard/PocketCore/options.txt")
     say("before", version())
 
     adb("logcat", "-c")
     say("start", sh("am start -W -n %s" % ACT).strip().replace("\n", " | "))
     time.sleep(8)
     shot("1_launcher")
-    sh("input keyevent HOME")
-    time.sleep(4)
-    say("jobs", sh("cmd jobscheduler get-job-state %s 7760" % PKG).strip())
-    say("run job", sh("cmd jobscheduler run -f %s 7760" % PKG).strip())
-
-    ok = False
-    for i in range(60):
+    b = None
+    for i in range(10):
+        b = find_button(["새 판 받기"])
+        if b: break
         time.sleep(2)
-        v = version()
-        say("poll", i, v)
-        if v == "versionCode=501":
-            ok = True
-            break
-    shot("2_after_job")
-    open(os.path.join(out_abs, "logcat.txt"), "wb").write(
-        adb("logcat", "-d", "-v", "time", out=True))
+    say("button", b)
+    if not b:
+        b = find_button(["업데이트 확인"])
+        say("fallback button", b)
+    ok = False
+    relaunched = False
+    installer_seen = False
+    if b:
+        sh("input tap %d %d" % (b[1], b[2]))
+        t0 = time.time()
+        for i in range(60):
+            time.sleep(1)
+            r = resumed()
+            if "packageinstaller" in r: installer_seen = True
+            if i in (1, 3): shot("2_after_tap_%ds" % (i + 1))
+            v = version()
+            say("poll", i, v, r)
+            if v == "versionCode=501":
+                ok = True
+                break
+        say("installed in %.1fs" % (time.time() - t0) if ok else "not installed")
+        for i in range(10):
+            time.sleep(1)
+            r = resumed()
+            say("after", i, r)
+            if "packageinstaller" in r: installer_seen = True
+            if PKG in r and "MainActivity" in r:
+                relaunched = True
+                break
+        shot("3_after_install")
+    open(os.path.join(OUT, "logcat.txt"), "wb").write(adb("logcat", "-d", "-v", "time", out=True))
     say("after", version())
-
-    sh("am start -W -n %s" % ACT)
-    time.sleep(1.5)
-    shot("3_reopen_toast")
-    time.sleep(4)
-    shot("4_reopen")
-    say("RESULT", "PASS" if ok else "FAIL")
-    open(os.path.join(out_abs, "result.txt"), "w").write("PASS\n" if ok else "FAIL\n")
-    sys.exit(0 if ok else 1)
+    say("RESULT", "PASS" if ok and not installer_seen else "FAIL",
+        "installed=%s installer_ui=%s relaunched=%s" % (ok, installer_seen, relaunched))
+    open(os.path.join(OUT, "result.txt"), "w").write(
+        "%s installed=%s installer_ui=%s relaunched=%s\n" % ("PASS" if ok and not installer_seen else "FAIL", ok, installer_seen, relaunched))
+    sys.exit(0 if ok and not installer_seen else 1)
 
 
 if __name__ == "__main__":

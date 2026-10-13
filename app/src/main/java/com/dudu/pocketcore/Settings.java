@@ -280,10 +280,6 @@ public final class Settings {
             new Item("pocketcore_level", "배포 레벨",
                 "정식 = 검증된 판만 · 시험 = 새 판이 나오는 대로(실험 기능 포함). 바꾼 뒤 아래 「업데이트 확인」.",
                 new String[]{ "stable", "test" }, new String[]{ "정식", "시험" }, "stable"),
-            /* 120~ 자동 업데이트(SelfUpdate) — 유저 2026-10-13 「설치 때마다 개불편」 */
-            new Item("pocketcore_autoupdate", "자동 업데이트",
-                "켬 = 앱을 안 쓰는 동안 새 판을 받아 확인 창 없이 깔아 둡니다(안드로이드 12 이상, 게임 중엔 안 함). 다음에 열면 «새 판으로 바뀌었습니다». 끔 = 「새 판 받기」를 눌러 깔 때만.",
-                new String[]{ "on", "off" }, new String[]{ "켬", "끔" }, "on"),
         });
     }
 
