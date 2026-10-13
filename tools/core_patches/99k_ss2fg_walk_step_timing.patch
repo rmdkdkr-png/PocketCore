@@ -1,5 +1,5 @@
 diff --git a/src/ss2fg.c b/src/ss2fg.c
-index 686e114..149277c 100644
+index b1c8524..e555030 100644
 --- a/src/ss2fg.c
 +++ b/src/ss2fg.c
 @@ -1431,6 +1431,11 @@ static uint64_t   id_cur[2], id_prev[2];     /* 지금 포즈, 그 앞 포즈(

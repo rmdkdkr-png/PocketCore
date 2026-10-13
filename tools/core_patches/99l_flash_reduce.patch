@@ -147,10 +147,10 @@ index a3ac364..548215e 100644
        "ngp_framegen_motion",
        "프레임 생성 — 동작 사이 그림(캐시)",
 diff --git a/src/ss2fg.c b/src/ss2fg.c
-index 149277c..16e3b43 100644
+index e555030..6d5cc42 100644
 --- a/src/ss2fg.c
 +++ b/src/ss2fg.c
-@@ -2381,6 +2381,27 @@ static unsigned sp_px(const fg_sp_t *sp, int y, int sy, int X, int zs, unsigned
+@@ -2390,6 +2390,27 @@ static unsigned sp_px(const fg_sp_t *sp, int y, int sy, int X, int zs, unsigned
     return c;
  }
  void ss2fg_scroll_stats(int *out4) { int i; for (i = 0; i < 4; i++) out4[i] = sp_stats[i]; }

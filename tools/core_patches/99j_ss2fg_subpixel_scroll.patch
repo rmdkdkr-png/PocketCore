@@ -35,7 +35,7 @@ index 51fe8a4..b9638b5 100644
     ss2fg_idle_slot(-1);
     ss2fg_body_override(0, 0, 0, 0); ss2fg_body_override(1, 0, 0, 0);
 diff --git a/src/ss2fg.c b/src/ss2fg.c
-index 76568a0..686e114 100644
+index 76568a0..b1c8524 100644
 --- a/src/ss2fg.c
 +++ b/src/ss2fg.c
 @@ -220,6 +220,10 @@ static const uint8_t *rl_skip = 0;
@@ -74,7 +74,7 @@ index 76568a0..686e114 100644
  
     /* 창 밖 색 */
     c = ld16(base->pal + 0x01F0 + (rb->oowc << 1));
-@@ -2228,6 +2241,121 @@ static int id_plan_learned(const ss2fg_frame *f0, const ss2fg_frame *f1, const s
+@@ -2228,6 +2241,130 @@ static int id_plan_learned(const ss2fg_frame *f0, const ss2fg_frame *f1, const s
     }
  }
  
@@ -177,6 +177,15 @@ index 76568a0..686e114 100644
 +      }
 +   }
 +}
++/* 스프라이트만 맨 앞(zs 깊이·sc 색, 0 = 없음) · 앞 플레인 f · 뒤 플레인 b(0xFFFF = 빈) · 배경색 중 앞 */
++static inline unsigned sp_pick(int zs, unsigned sc, unsigned f, unsigned b, unsigned back)
++{
++   if (zs > ZD_FG_SCROLL) return sc;
++   if (f != 0xFFFF) return f;
++   if (zs > ZD_BG_SCROLL) return sc;
++   if (b != 0xFFFF) return b;
++   return zs > 0 ? sc : back;
++}
 +/* 4배 화소 (X, 4y+sy) 의 색(12비트) — zs·sc = 그 1배 화소의 스프라이트만 맨 앞(깊이 0 = 없음). *zw = 이긴 깊이(0 = 배경색) */
 +static unsigned sp_px(const fg_sp_t *sp, int y, int sy, int X, int zs, unsigned sc, int *zw)
 +{
@@ -196,7 +205,7 @@ index 76568a0..686e114 100644
  /* 99i: 지금 포즈 그대로 4배로(사이 그림 없이 ¼ px 자리만 옮길 때) */
  static void id_draw_self(const id_pose *P, uint16_t *out)
  {
-@@ -2252,9 +2380,9 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+@@ -2252,9 +2389,9 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
     static uint16_t id_tc2[(ID_W * ID_S) * (ID_H * ID_S)];
     struct { int on, W4, gh, ux0, uy0, sh4x, sh4y, x0, y0, x1, y1, depth, first, cur; const uint16_t *img; uint8_t m[64]; } dr[2];
     id_req_t self[2];
@@ -209,7 +218,7 @@ index 76568a0..686e114 100644
     int s = id_slot, p, q, k;
     if (s < 0 || s > 1 || !id_on) return;
     memset(dr, 0, sizeof dr);
-@@ -2334,7 +2462,10 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+@@ -2334,7 +2471,10 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
           const ss2fg_regs *rb = &base->line[y];
           int in_win = (y >= rb->winy) && (y < rb->winy + rb->winh);
           int wx0 = rb->winx, wx1 = imin(rb->winx + rb->winw, SS2FG_W);
@@ -220,7 +229,7 @@ index 76568a0..686e114 100644
           for (sy = 0; sy < ID_S; sy++)
           {
              uint16_t *dst = pt->px + ((y - y0) * ID_S + sy) * ((x1 - x0) * ID_S);
-@@ -2349,6 +2480,12 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+@@ -2349,6 +2489,12 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
                 {
                    uint16_t c = scan[x];
                    int z = zrow[x], sl = srow[x], win = -1;
@@ -233,7 +242,7 @@ index 76568a0..686e114 100644
                    if (in_win && x >= wx0 && x < wx1)
                       for (q = 0; q < 2; q++)                     /* 두 몸 — 앞뒤는 우선순위, 같으면 앞 슬롯 */
                       {
-@@ -2381,10 +2518,33 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+@@ -2381,10 +2527,50 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
  void ss2fg_idle_compose(uint16_t *dst, int dpitch, const uint16_t *src, int spitch, int w, int h, int slot)
  {
     int y, x, sy, p;
@@ -243,22 +252,39 @@ index 76568a0..686e114 100644
        uint16_t *row = dst + (size_t)(y * ID_S) * dpitch;
        const uint16_t *s = src + (size_t)y * spitch;
 +      if (sp && sp->any[y])
-+      {  /* 99j: 창 안은 4배 화소마다 스프라이트 · ¼ px 옮긴 플레인 · 배경색 중 앞, 창 밖은 그대로 */
++      {  /* 99j: 창 안은 4배 화소마다 스프라이트 · ¼ px 옮긴 플레인 · 배경색 중 앞, 창 밖은 그대로.
++            세로 ¼ 이 안 걸친 아래 칸은 같은 줄이라 베끼고(가로로만 움직이는 카메라는 1/4 만 계산), 1배 칸마다 앞·뒤 플레인 두 칸만 본다 */
++         const uint8_t *SZ = sp->sz[y], *SZ2 = sp->sz2[y];
++         const uint16_t *SC = sp->sc[y], *SC2 = sp->sc2[y];
++         int wx0 = sp->wx0[y], wx1 = sp->wx1[y], rfx = sp->rfx[y], rbx = sp->rbx[y], pk = -1, pp = sp->pp[y];
++         unsigned back = sp->back[y];
 +         for (sy = 0; sy < ID_S; sy++)
 +         {
 +            uint16_t *r = row + (size_t)sy * dpitch;
-+            for (x = 0; x < w * ID_S; x++)
++            int ff = sy + sp->rfy[y] >= ID_S, fb = sy + sp->rby[y] >= ID_S, key = ff | (fb << 1);
++            const uint16_t *F = sp->pf[ff][y], *Bk = sp->pb[fb][y];
++            if (key == pk) { memcpy(r, r - dpitch, (size_t)w * ID_S * sizeof(uint16_t)); continue; }
++            pk = key;
++            for (x = 0; x < w; x++)
 +            {
-+               int x1 = x >> 2;
-+               if (x1 < sp->wx0[y] || x1 >= sp->wx1[y]) { r[x] = s[x1]; continue; }
++               uint16_t *o = r + x * ID_S;
++               unsigned lf = 0x10000, lb = 0x10000, lo = 0;
++               int i;
++               if (x < wx0 || x >= wx1) { o[0] = o[1] = o[2] = o[3] = s[x]; continue; }
++               for (i = 0; i < ID_S; i++)
 +               {
-+                  unsigned c = sp_px(sp, y, sy, x, sp->sz[y][x1], sp->sc[y][x1], 0);
-+                  if (sp->pp[y])
-+                  {  /* 포즈 섞기 — 1배 그림처럼 두 판이 다른 곳만 섞는다 */
-+                     unsigned c2 = sp_px(sp, y, sy, x, sp->sz2[y][x1], sp->sc2[y][x1], 0);
-+                     if (c2 != c) c = mix12((uint16_t)c, (uint16_t)c2, sp->ppa);
++                  unsigned f = F[x + ((i + rfx) >> 2)], b = Bk[x + ((i + rbx) >> 2)];
++                  if (f != lf || b != lb)
++                  {
++                     unsigned c = sp_pick(SZ[x], SC[x], f, b, back);
++                     if (pp)
++                     {  /* 포즈 섞기 — 1배 그림처럼 두 판이 다른 곳만 섞는다 */
++                        unsigned c2 = sp_pick(SZ2[x], SC2[x], f, b, back);
++                        if (c2 != c) c = mix12((uint16_t)c, (uint16_t)c2, sp->ppa);
++                     }
++                     lo = (uint16_t)fg_sp_cmap[c & 4095]; lf = f; lb = b;
 +                  }
-+                  r[x] = (uint16_t)fg_sp_cmap[c & 4095];
++                  o[i] = (uint16_t)lo;
 +               }
 +            }
 +         }
@@ -267,7 +293,7 @@ index 76568a0..686e114 100644
        for (x = 0; x < w; x++)
        {
           uint16_t v = s[x];
-@@ -2540,9 +2700,72 @@ int ss2fg_render2(const ss2fg_frame *base, const ss2fg_frame *to_spr, int t_spr,
+@@ -2540,9 +2726,72 @@ int ss2fg_render2(const ss2fg_frame *base, const ss2fg_frame *to_spr, int t_spr,
        pp_ymin = ymin; pp_ymax = ymax;
     }
  
@@ -340,7 +366,7 @@ index 76568a0..686e114 100644
        if (pp_on && y >= pp_ymin && y <= pp_ymax)
        {
           uint16_t scan2[256];
-@@ -2553,6 +2776,7 @@ int ss2fg_render2(const ss2fg_frame *base, const ss2fg_frame *to_spr, int t_spr,
+@@ -2553,6 +2802,7 @@ int ss2fg_render2(const ss2fg_frame *base, const ss2fg_frame *to_spr, int t_spr,
           for (x = 0; x < SS2FG_W; x++)
              if (scan2[x] != scan[x]) scan[x] = mix12(scan[x], scan2[x], a);
        }
