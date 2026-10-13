@@ -351,12 +351,9 @@ public final class LauncherView extends View {
         drawPad(cv);
     }
 
+    /** 색의 알파 × a/255 — 불투명 색(0xff…)이면 예전처럼 a 그대로. 121: 반투명 색(0x29ffffff 같은)이 불투명이 되던 것 고침 */
     private static int withA(int col, int a) {
-        return (col & 0x00ffffff) | (Math.min(255, a) << 24);
-    }
-    /** 알파 곱하기 — 색의 알파 × a/255 */
-    private static int mulA(int col, int a) {
-        return (col & 0x00ffffff) | ((((col >>> 24) * Math.min(255, a)) / 255) << 24);
+        return (col & 0x00ffffff) | ((((col >>> 24) * Math.max(0, Math.min(255, a))) / 255) << 24);
     }
     private static String romName(Item it) {
         String fn = it.rom.getName(); int dot = fn.lastIndexOf('.'); if (dot > 0) fn = fn.substring(0, dot);
@@ -598,7 +595,7 @@ public final class LauncherView extends View {
         /* 선반 금빛 반사 두 줄 */
         float ry = cr.bottom + gap + dp(14);
         fx.setShader(new LinearGradient(cr.left + dp(20), 0, cr.right - dp(20), 0,
-                new int[]{ 0x00c9983f, withA(0xe9c46f, la * 140 / 255), 0x00c9983f }, null, Shader.TileMode.CLAMP));
+                new int[]{ 0x00c9983f, withA(0xffe9c46f, la * 140 / 255), 0x00c9983f }, null, Shader.TileMode.CLAMP));
         c.drawRect(cr.left + dp(20), ry, cr.right - dp(20), ry + Math.max(1.5f, dp(2)), fx);
         fx.setAlpha(la * 70 / 255);
         c.drawRect(cr.left + cr.width() * 0.25f, ry + dp(7), cr.right - cr.width() * 0.25f, ry + dp(7) + Math.max(1f, dp(1)), fx);
@@ -748,20 +745,23 @@ public final class LauncherView extends View {
         rubberPill(c, p1, py, pw, ph, false);
         rubberPill(c, p2, py, pw, ph, nw);
         float ls = Math.max(dp(10.5f), Math.min(dp(13), mn * 0.018f));
-        embossLabel(c, "설정", p1, py + ph / 2f + dp(16), ls);
+        float ly3 = py + ph / 2f + pw * 0.13f + dp(12);            /* 기운 알약(−14°)의 낮은 왼쪽 끝 아래 */
+        embossLabel(c, "설정", p1, ly3, ls);
         if (nw) {
             tp.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); tp.setTextAlign(Paint.Align.CENTER); tp.setTextSize(ls);
             tp.setLetterSpacing(0.08f);
             tp.setColor(0xffc4560e);
-            c.drawText("새 판 받기", p2, py + ph / 2f + dp(16), tp);
+            c.drawText("새 판 받기", p2, ly3, tp);
             tp.setLetterSpacing(0f);
-        } else embossLabel(c, "업데이트", p2, py + ph / 2f + dp(16), ls);
-        setR.set(p1 - pw * 0.62f, py - ph * 1.6f, p1 + pw * 0.62f, py + ph / 2f + dp(24));
-        updR.set(p2 - pw * 0.62f, py - ph * 1.6f, p2 + pw * 0.62f, py + ph / 2f + dp(24));
-        /* 스피커 구멍 */
-        int cols = w < h * 0.6f ? 4 : 6, rows = 4;
+        } else embossLabel(c, "업데이트", p2, ly3, ls);
+        setR.set(p1 - pw * 0.62f, py - ph * 1.6f, p1 + pw * 0.62f, ly3 + dp(8));
+        updR.set(p2 - pw * 0.62f, py - ph * 1.6f, p2 + pw * 0.62f, ly3 + dp(8));
+        /* 스피커 구멍 — A 글씨 아래, 오른쪽 알약 오른쪽 */
+        int cols = w < h * 0.6f ? 4 : 6, rows = 3;
         float dot = dp(3.4f), step = dp(7.2f) * 2;
-        float gw = cols * step, gx = Math.min(w - dp(18) - gw, p2 + pw * 0.62f + dp(26)), gy = land ? h * 0.83f : py - ph * 1.6f;
+        float gw = cols * step;
+        float gx = Math.max(p2 + pw * 0.62f + dp(20), Math.min(w - dp(14) - gw, aX - gw * 0.35f));
+        float gy = land ? h * 0.83f : aY + aR * 1.18f + dp(16) + dp(14);
         c.save();
         c.rotate(-14f, gx + gw / 2f, gy + rows * step / 2f);
         fx.reset(); fx.setAntiAlias(true);
@@ -820,7 +820,8 @@ public final class LauncherView extends View {
         float ctop = lcd.top + LH * 0.115f + dp(4);
         RectF cr = new RectF();
         cardRect(cr, cur, lcd.centerX(), ctop + thumbH(cur) * cs / 2f, cs);
-        if (n > 1) {
+        boolean roomy = cr.left - lcd.left > thumbW(cur) * ss * 1.15f;   /* 덮개 화면처럼 좁으면 양옆 카드는 빼고 화살만 */
+        if (n > 1 && roomy) {
             for (int k = -1; k <= 1; k += 2) {
                 Item it = items.get((sel + n + k) % n);
                 RectF sr = new RectF();
