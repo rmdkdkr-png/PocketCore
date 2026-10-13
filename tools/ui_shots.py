@@ -367,18 +367,24 @@ def set_opt(key, val):
 
 
 def canvas_btns():
-    """121 런처가 logcat 에 남긴 캔버스 버튼 자리(뷰 기준) — 「PocketUi btns <테마> set x y upd x y logo x y play x y」 중 마지막 줄."""
+    """121 런처가 logcat 에 남긴 캔버스 버튼 자리(뷰 기준) — 「PocketUi btns <테마> set x y upd x y logo x y play x y」 중 마지막 줄.
+    빈 칸 때문에 사이 공백이 둘일 수 있다(기본·먹·금은 set/upd 가 없다)."""
     out = adb("logcat", "-d", "-s", "PocketUi:I", out=True).decode(errors="replace")
     last = None
-    for m in re.finditer(r"btns (\w+)((?: \w+ -?\d+ -?\d+)*)", out):
-        last = m
+    for ln in out.splitlines():
+        i = ln.find(" btns ")
+        if i >= 0:
+            last = ln[i + 6:].split()
     if not last:
         return None, {}
-    parts = last.group(2).split()
     d = {}
-    for i in range(0, len(parts) - 2, 3):
-        d[parts[i]] = (int(parts[i + 1]), int(parts[i + 2]))
-    return last.group(1), d
+    rest = last[1:]
+    for i in range(0, len(rest) - 2, 3):
+        try:
+            d[rest[i]] = (int(rest[i + 1]), int(rest[i + 2]))
+        except ValueError:
+            pass
+    return last[0], d
 
 
 def launcher(menu=True, alias="MainActivity"):
