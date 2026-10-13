@@ -27,8 +27,10 @@ import java.io.OutputStream;
  *  같은 앱을 30초 안에 또 조용히 깔지 않음. 어긋나면 STATUS_PENDING_USER_ACTION → 예전처럼 시스템 확인 창.
  *
  *  ★ 유저가 누를 때만 깐다. 앱을 안 쓰는 동안 뒤에서 저절로 까는 것은 넣지 않는다(유저 「안 쓰는 동안 깔리는 게 더 문제」).
- *  설치 결과는 InstallStatusActivity(화면 없음)가 받는다 — 확인이 필요하면 확인 창, 다 깔리면 런처를 다시 연다
- *  (자기 업데이트는 시스템이 앱을 끝내므로, 결과를 받는 쪽이 앱을 다시 띄운다). */
+ *  설치 결과는 InstallStatusActivity(화면 없음)가 받는다 — 확인이 필요하면 확인 창.
+ *  다 깔린 뒤 앱을 저절로 다시 여는 것은 안 된다: 자기 업데이트는 시스템이 앱을 끝내고, 그 뒤 결과 전달은 «뒤에서 화면 띄우기»로
+ *  막힌다(CI API 33 로그 «Background activity start … allowBackgroundActivityStart: false»). 알림으로 열게 하려면 알림 권한 창이
+ *  또 떠서 뺐다. 유저는 앱을 다시 열면 되고, 그때 «새 판으로 바뀌었습니다» 토스트가 뜬다. */
 public final class SelfUpdate {
     static final String TAG = "SelfUpdate";
 
@@ -76,7 +78,7 @@ public final class SelfUpdate {
         if (apk.exists() && archiveCode(c, apk) <= myCode(c)) apk.delete();
     }
 
-    /** 세션 설치 — 조용히 깔리면 곧 이 프로세스가 끝나고, 결과를 받은 InstallStatusActivity 가 앱을 다시 연다. */
+    /** 세션 설치 — 조용히 깔리면 1~2초 뒤 시스템이 이 프로세스를 끝낸다(앱이 닫힘). */
     static void install(Context c, File apk, int rc) throws Exception {
         PackageInstaller pi = c.getPackageManager().getPackageInstaller();
         PackageInstaller.SessionParams sp = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
