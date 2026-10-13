@@ -44,7 +44,7 @@ index 2931c0c..98f8387 100644
     {
        int Kp = 0, Lp, lrel = (int)fg_last_body[p] - (int)fg_realn, dx, dy;
 diff --git a/src/ss2fg.c b/src/ss2fg.c
-index 9ff33df..e08ecc6 100644
+index 9ff33df..884520f 100644
 --- a/src/ss2fg.c
 +++ b/src/ss2fg.c
 @@ -1436,6 +1436,12 @@ static uint8_t    id_prev_link[2];  /* 99k: 앞 포즈 → 지금 포즈가 되
@@ -74,7 +74,7 @@ index 9ff33df..e08ecc6 100644
     uint8_t mm[64];
     uint64_t sb = 0;
 -   int k, K = 0, L, num, ti;
-+   int k, K = 0, L, num, ti, far = 0;
++   int k, K = 0, L, num, ti, seen34 = 0;
     const ss2fg_frame *fk = 0;
     mc_ent *e;
     id_pose *A, *B;
@@ -91,7 +91,7 @@ index 9ff33df..e08ecc6 100644
 +         if (!g || !g->valid || g->mono || !g->body_ok || !body_mask(g, p, mm)) break;
 +         if (g->ob_x[p] != id_ax[p] || g->ob_y[p] != id_ay[p]) break;      /* 움직이기 시작 — 아님 */
 +         sg = body_sig(g, mm);
-+         if (sg != id_cur[p]) { sb = sg; K = k; fk = g; far = 1; break; }
++         if (sg != id_cur[p]) { sb = sg; K = k; fk = g; seen34 = 1; break; }
 +      }
 +   }
     /* 되풀이 동작(배운 순환 — 걷기 등): 다음 포즈를 미리 알면 사이 그림을 한 걸음 내내 고르게 편다(패치 99).
@@ -102,9 +102,9 @@ index 9ff33df..e08ecc6 100644
           ¾ 로 툭 건너뛰었다 — 몸은 ¼ px 로 매끄럽게 가니(99i) 더 눈에 띔(유저 2026-10-14 「걷는 거 또 찐빠 난 거 같은데」) */
        if (loop && id_prev_link[p] && id_prev_moved[p] && id_hold_prev[p] >= 3 && id_hold_prev[p] <= 60) hold = id_hold_prev[p];
 +      /* 99o: D+3·D+4 로 뒤 포즈를 봤으면(또는 그렇게 펴던 뒤 포즈가 이제 D+1·D+2 에 보이면) 바뀔 때까지의 실제 길이로 고르게 */
-+      if (far) { nb = sb; hold = realn + (unsigned)K - id_start[p]; loop = 1; }
++      if (seen34) { nb = sb; hold = realn + (unsigned)K - id_start[p]; loop = 1; }
 +      else if (K && id_far_sb[p] == sb && id_far_st[p] == id_start[p] && id_ti_last[p] >= 0 && id_ti_sb[p] == sb)
-+      { nb = sb; hold = realn + (unsigned)K - id_start[p]; loop = 1; far = 1; }
++      { nb = sb; hold = realn + (unsigned)K - id_start[p]; loop = 1; seen34 = 1; }
        if (loop && (K ? 2 * (int)(realn + (unsigned)K - id_start[p]) : 2 * (int)(realn - id_start[p]) + 6) > 2 * (int)hold + 4
            && !(K && id_ti_last[p] >= 0 && id_ti_sb[p] == sb))   /* 99k: 같은 뒤 포즈로 펴던 중 바뀜이 보이면 이어서(¼ 로 되돌아가지 않게) */
           loop = 0;                     /* 99e: 배운 길이보다 오래 머묾 — 순환이 아니라 붙잡은 자세. 바뀌기 직전 2 프레임만(아래).
@@ -113,7 +113,7 @@ index 9ff33df..e08ecc6 100644
           보일 때 t 가 이미 끝 쪽이라 ¾ 한 장만 4 칸 내내 나왔다(¼·½ 없이 툭 — 유저 2026-10-13 「수라·나찰 고르기 화면·판 시작 전 «いざ尋常に»
           에서 120 이 제대로 안 되는 듯」: 미리보기·소개는 처음 보는 포즈가 많다). 그럴 땐 순환이 아닌 바뀜처럼 바뀌기 직전 2 프레임에 ¼·½·¾ */
 -      if (loop && K && (id_sp_at[p] != id_start[p] + 1u || id_sp_b[p] != sb))
-+      if (loop && K && !far && (id_sp_at[p] != id_start[p] + 1u || id_sp_b[p] != sb))
++      if (loop && K && !seen34 && (id_sp_at[p] != id_start[p] + 1u || id_sp_b[p] != sb))
           loop = 0;
        if (!K && !loop) return 0;
        if (loop)
@@ -121,7 +121,7 @@ index 9ff33df..e08ecc6 100644
     }
     if (!K) { id_sp_at[p] = id_start[p] + 1u; id_sp_b[p] = sb; }   /* 99h: K 를 모르는데 그린다 = 순환으로 고르게 펴는 중 */
     id_ti_last[p] = (int8_t)ti; id_ti_sb[p] = sb;                   /* 99k */
-+   if (far) { id_far_sb[p] = sb; id_far_st[p] = id_start[p]; }    /* 99o */
++   if (seen34) { id_far_sb[p] = sb; id_far_st[p] = id_start[p]; }    /* 99o */
     rq->on = 1; rq->kind = 1; rq->pr = 0; rq->t256 = 64 * (ti + 1);
     rq->e = e; rq->ti = ti; rq->A = A; rq->B = B;
     rq->ax = f0->ob_x[p]; rq->ay = f0->ob_y[p];              /* 몸 자리는 보여 줄 D 의 것 — 움직이는 몸은 그리기에서 몸 조각의 옮김만큼 더 민다(패치 98) */
