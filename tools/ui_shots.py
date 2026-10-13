@@ -447,8 +447,12 @@ def theme_run(theme, labels):
 
 def themes_main(labels):
     """[themes] — 테마 넷을 차례로 찍고, 로고 넘기기·앱 아이콘 별칭을 확인한다."""
+    import traceback
     for th in ("classic", "ink", "pocket", "modern"):
-        theme_run(th, labels)
+        try:
+            theme_run(th, labels)
+        except Exception:
+            print("theme_run failed", th, traceback.format_exc())
     # 로고를 누르면 다음 테마(기본 → 먹·금)
     set_opt("pocketcore_theme", "classic")
     sh("wm size 1856x2160")
