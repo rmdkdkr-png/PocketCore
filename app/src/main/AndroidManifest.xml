@@ -39,15 +39,61 @@
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- 런처 화면(121~ 진짜 클래스는 Home). 아이콘은 아래 별칭 넷이 나눠 든다 — 설정 「화면 › 앱 아이콘」(AppIcon) -->
         <activity
-            android:name=".MainActivity"
+            android:name=".Home"
             android:exported="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode">
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode" />
+
+        <!-- 기본 아이콘 — 120 까지 런처 이름(.MainActivity)을 그대로 써서 업데이트해도 홈 화면 아이콘이 붙어 있다 -->
+        <activity-alias
+            android:name=".MainActivity"
+            android:targetActivity=".Home"
+            android:exported="true"
+            android:enabled="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="${appLabel}">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconInk"
+            android:targetActivity=".Home"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_ink"
+            android:label="${appLabel}">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconPocket"
+            android:targetActivity=".Home"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_pocket"
+            android:label="${appLabel}">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconModern"
+            android:targetActivity=".Home"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_modern"
+            android:label="${appLabel}">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <activity
             android:name=".EmuActivity"

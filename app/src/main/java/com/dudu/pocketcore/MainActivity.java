@@ -59,6 +59,8 @@ public class MainActivity extends Activity {
         /* ⚠ 이 파일은 android.provider.Settings 를 import 한다 — 우리 Settings 가 가려진다.
            이름을 다 적어야 우리 것이 잡힌다(짧게 쓰면 조용히 안드로이드 클래스로 간다). */
         com.dudu.pocketcore.Settings.migrate();   /* 옛 옵션 값 → 새 이름. 설정이 꺼지지 않게 */
+        Theme.init(this); Theme.refresh();       /* 121: 테마(런처·설정·버튼 모습) */
+        AppIcon.sync(this);                      /* 121: options.txt 의 아이콘 값과 지금 아이콘이 다르면 맞춘다(고른 적 없으면 그대로) */
         Orient.apply(this);
         SelfUpdate.afterLaunch(this);             /* 「새 판 받기」로 판이 올라갔으면 알려 준다(120~) */
         if (!hasStorage()) { askStorage(); return; }
@@ -70,10 +72,13 @@ public class MainActivity extends Activity {
         Orient.apply(this);   /* 런처는 재생성이 안 되니 설정 변경을 여기서도(리뷰 F18) */
         try { padMap = KeyMap.load(); } catch (Exception ignored) { }
         fg = true;
+        Theme.refresh();
         if (!started && hasStorage()) setup();
         else if (RomImport.changed) {           /* 설정 화면에서 롬을 가져왔다 — 다시 그린다 */
             RomImport.changed = false;
             showList(listRoms());
+        } else if (started && listShown && builtGen != Theme.gen) {   /* 121: 설정에서 테마를 바꾸고 돌아왔다 — 그 카드 그대로 다시 짠다 */
+            showList(listRoms(), curLv != null ? curLv.selIndex() : -1);
         }
         if (bgm != null) {
             try { bgm.start(); } catch (Exception ignored) { }
@@ -267,10 +272,20 @@ public class MainActivity extends Activity {
         stopTheme();
     }
 
-    private void showList(final List<File> roms) {
+    /* 121: 런처를 짠 때의 테마 세대 — onResume 이 견줘 다시 짠다 */
+    private int builtGen = -1;
+    private boolean listShown = false;
+
+    private void showList(final List<File> roms) { showList(roms, -1); }
+
+    /** keepSel ≥ 0 = 그 카드로(테마를 바꿔 다시 짤 때). */
+    private void showList(final List<File> roms, int keepSel) {
+        final Theme th = Theme.get();
+        builtGen = Theme.gen;
+        listShown = true;
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setBackgroundColor(0xff101014);
+        col.setBackgroundColor(th.ink() ? 0xff0d0b09 : th.modern() ? 0xff0b0b10 : th.pocket() ? 0xffd3d6dc : 0xff101014);
 
         if (roms.isEmpty()) {
             /* 첫 손님 화면 — 경로를 알려주는 것으로 끝내지 않는다: 복사·선택·스캔 세 길
@@ -344,12 +359,15 @@ public class MainActivity extends Activity {
                 if (tf != null)
                     it.thumb = android.graphics.BitmapFactory.decodeFile(tf.getPath());
                 try { it.opt = LaunchSheet.summary(this, g); } catch (Exception ignored) { }
-                it.resume = new File(saveDir(), r.getName() + ".state.auto").exists();
+                File auto = new File(saveDir(), r.getName() + ".state.auto");
+                it.resume = auto.exists();
+                if (it.resume) it.resumeAt = auto.lastModified();
                 items.add(it);
             }
             lv.setItems(items);
             String played = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_PLAYED, null);
-            if (played != null)
+            if (keepSel >= 0 && keepSel < roms.size()) lv.select(keepSel);
+            else if (played != null)
                 for (int k = 0; k < roms.size(); k++)
                     if (roms.get(k).getAbsolutePath().equals(played)) { lv.select(k); break; }
             if (Updater.testLevel()) {          /* 시험 레벨이면 런처에 배지 — 정식이면 아무것도 안 붙는다 */
@@ -370,6 +388,7 @@ public class MainActivity extends Activity {
                     startActivity(new Intent(MainActivity.this, SettingsActivity.class));
                 }
                 @Override public void onUpdate() { Updater.check(MainActivity.this); }
+                @Override public void onTheme() { nextTheme(); }      /* 121: 로고 = 다음 테마 */
             });
             col.addView(lv, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -395,9 +414,11 @@ public class MainActivity extends Activity {
            업데이트는 PC 릴리즈 서버(같은 와이파이)에서 새 판을 받아 설치창까지 간다. */
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setBackgroundColor(0xff0b0b0e);
+        if (th.ink()) bar.setBackground(new ThemeDraw.InkPaper()); else bar.setBackgroundColor(0xff0b0b0e);
         int gp = (int) (12 * getResources().getDisplayMetrics().density);
         bar.setPadding(gp, gp / 2, gp, gp);
+        /* 121: 포켓·모던은 런처 캔버스가 몸통 알약·아래 탭으로 직접 그린다 — 안드로이드 줄은 숨긴다(새 판 표시는 같이 받는다) */
+        if ((th.pocket() || th.modern()) && curLv != null && !roms.isEmpty()) bar.setVisibility(View.GONE);
         /* 런처 바탕과 같은 먹색 위에 둥근 버튼 두 개 — 예전 납작한 색 덩어리 대신(유저 2026-10-10 「인터페이스 좀 손봐 줘」) */
         TextView cfg = barButton("설정", 0xffd9a441, 0xff191b22, 0xff4a3d22);
         cfg.setOnClickListener(new View.OnClickListener() {
@@ -433,11 +454,26 @@ public class MainActivity extends Activity {
     private static volatile int newerCode = 0;
     private void markUpdate(TextView upd) {
         upd.setText("새 판 받기 · 내부 " + newerCode);
-        upd.setTextColor(0xff101014);
-        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
-        d.setColor(0xffd9a441);
-        d.setCornerRadius(14 * getResources().getDisplayMetrics().density);
-        upd.setBackground(d);
+        Theme th = Theme.get();
+        if (th.ink()) {
+            upd.setTextColor(0xff1a1208);
+            upd.setBackground(ThemeDraw.button(th, getResources().getDisplayMetrics().density, true));
+        } else {
+            upd.setTextColor(0xff101014);
+            android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable();
+            d.setColor(0xffd9a441);
+            d.setCornerRadius(14 * getResources().getDisplayMetrics().density);
+            upd.setBackground(d);
+        }
+        if (curLv != null) curLv.setUpdate(newerCode);           /* 포켓·모던 — 캔버스 버튼도 「새 판 받기」로 */
+    }
+
+    /** 121: 로고를 누르면 다음 테마 — 지금 카드 그대로 런처를 다시 짠다. 앱 아이콘은 안 바꾼다(AppIcon 은 설정에서만). */
+    private void nextTheme() {
+        String nx = Theme.next(Theme.get().id);
+        Theme.set(nx);
+        showList(listRoms(), curLv != null ? curLv.selIndex() : -1);
+        Toast.makeText(this, "테마 「" + Theme.get().name() + "」 — 로고를 또 누르면 다음 · 설정 › 화면에서도", Toast.LENGTH_SHORT).show();
     }
 
     /** 런처 아래 줄 버튼 — 둥근 판 + 가는 테. */
@@ -449,11 +485,19 @@ public class MainActivity extends Activity {
         t.setGravity(android.view.Gravity.CENTER);
         float d = getResources().getDisplayMetrics().density;
         t.setPadding(0, (int) (14 * d), 0, (int) (14 * d));
+        Theme th = Theme.get();
+        if (th.ink()) {                     /* 121: 먹·금 — 옻칠 판 + 금테, 고운바탕 */
+            t.setBackground(ThemeDraw.button(th, d, false));
+            t.setTypeface(Theme.font("ink_b"));
+            t.setLetterSpacing(0.08f);
+            t.setTextColor(fg == 0xffd9a441 ? 0xffe6b75e : 0xffece1c8);
+        } else {
         android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
         g.setColor(bg);
         g.setCornerRadius(14 * d);
         g.setStroke(Math.max(1, (int) d), stroke);
         t.setBackground(g);
+        }
         t.setClickable(true);
         /* 패드 십자·A 는 런처가 직접 받는다(dispatchKeyEvent). 버튼이 포커스를 가질 수 있으면 화면을 만진 뒤 첫 십자 입력을
            안드로이드가 «터치 모드 빠져나가기»로 먹어서 카드는 안 넘어가고 「설정」에 테두리만 생겼다(108 ui_shots 에서 확인). */

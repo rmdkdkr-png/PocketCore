@@ -34,8 +34,13 @@ import java.util.Map;
  */
 public class SettingsActivity extends Activity {
 
-    private static final int BG = 0xff101014, CARD = 0xff191b22, LINE = 0xff2a2f3b;
-    private static final int TXT = 0xffe6e8ee, DIM = 0xff8b93a6, GOLD = 0xffd9a441, TAG = 0xff7fb0e0;
+    /* 121: 색은 테마(Theme)에서 — 이름은 예전 그대로 둔다(GOLD = 테마 강조색) */
+    private Theme th;
+    private int BG, CARD, LINE, TXT, DIM, GOLD, TAG, CHG;
+    private void palette() {
+        th = Theme.get();
+        BG = th.bg; CARD = th.card; LINE = th.line; TXT = th.txt; DIM = th.dim; GOLD = th.accent; TAG = th.tag; CHG = th.chg;
+    }
 
     private Map<String, String> vals;
     /** 어느 게임의 설정인가. 게임 안에서 열면 그 롬(인텐트 "rom"), 런처에서 열면 null. */
@@ -49,6 +54,7 @@ public class SettingsActivity extends Activity {
         /* 볼륨 키 = 미디어(게임 소리) 음량 — 안 정하면 삼성은 «재생 중»을 못 알아챌 때 벨소리 음량을 바꾼다(유저 2026-10-10 「볼륨 조절이 앱에서 안 되던데」) */
         setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         Orient.apply(this);
+        Theme.init(this); Theme.refresh(); palette();
         vals = Settings.load();
         rom = getIntent().getStringExtra("rom");
         game = (rom != null) ? Games.identify(rom) : null;
@@ -66,6 +72,7 @@ public class SettingsActivity extends Activity {
         /* 안쪽 화면에서 돌아오면 다시 짠다 — 첫 화면은 «바뀐 것» 요약, 「움직임·반응」은 보간 줄
            (「보간 고급」에서 바꾸고 오면 「커스텀」이 켜져야 하는데 107 까지는 옛 칸이 켜진 채였다). 스크롤 자리는 그대로 */
         final int y = sv != null ? sv.getScrollY() : 0;
+        Theme.refresh(); palette();
         vals = Settings.load(); setContentView(build());
         final ScrollView s = sv;
         if (s != null && y > 0) s.post(new Runnable() { @Override public void run() { s.scrollTo(0, y); } });
@@ -122,23 +129,59 @@ public class SettingsActivity extends Activity {
 
     private View build() {
         sv = new ScrollView(this);
-        sv.setBackgroundColor(BG);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(16), dp(24), dp(16), dp(40));
         sv.addView(col);
         Settings.Page p = page != null ? Settings.page(page) : null;
         if (p == null) buildTop(col); else buildPage(col, p);
+        float d = getResources().getDisplayMetrics().density;
+        if (th.pocket()) {                 /* 포켓 — 은색 몸통·베젤 안 액정에 목록(121) */
+            android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+            root.setBackground(new ThemeDraw.PocketScreen(d));
+            android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            lp.setMargins(dp(ThemeDraw.PocketScreen.SIDE), dp(ThemeDraw.PocketScreen.SIDE),
+                    dp(ThemeDraw.PocketScreen.SIDE), dp(ThemeDraw.PocketScreen.BOTTOM));
+            sv.setForeground(new ThemeDraw.LcdGlass(d));
+            col.setPadding(dp(12), dp(14), dp(12), dp(24));
+            root.addView(sv, lp);
+            return root;
+        }
+        if (th.ink()) sv.setBackground(new ThemeDraw.InkPaper());
+        else sv.setBackgroundColor(BG);
         return sv;
+    }
+
+    /** 제목·이름 글꼴(테마). bold = 기본·모던에서 굵게. */
+    private void face(TextView v, boolean titleFace, boolean bold) {
+        if (th.ink() || th.pocket()) v.setTypeface(titleFace ? th.title() : th.body());
+        else if (bold) v.setTypeface(v.getTypeface(), android.graphics.Typeface.BOLD);
     }
 
     private void header(LinearLayout col, String title, String note) {
         TextView h = new TextView(this);
         h.setText(game != null ? title + " — " + game.ko : title);
-        h.setTextColor(TXT); h.setTextSize(22);
-        h.setTypeface(h.getTypeface(), android.graphics.Typeface.BOLD);
+        h.setTextColor(TXT); h.setTextSize(th.modern() ? 26 : th.pocket() ? 20 : 22);
+        face(h, true, true);
         h.setPadding(dp(4), 0, 0, dp(4));
         col.addView(h);
+        if (th.ink() || th.pocket()) {     /* 먹·금 = 금빛 붓줄, 포켓 = 점선 */
+            View rule = new View(this);
+            if (th.ink()) {
+                android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT, new int[]{ 0xffe0b65d, 0x00e0b65d });
+                rule.setBackground(g);
+                LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(dp(150), dp(3));
+                rp.setMargins(dp(4), dp(2), 0, dp(10));
+                col.addView(rule, rp);
+            } else {
+                rule.setBackground(new Dashes(0xff8fa3c0, dp(6), dp(4)));
+                LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2));
+                rp.setMargins(dp(4), dp(4), dp(4), dp(10));
+                col.addView(rule, rp);
+            }
+        }
         if (note != null) {
             TextView t = new TextView(this);
             t.setText(note);
@@ -171,30 +214,46 @@ public class SettingsActivity extends Activity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(14), dp(14), dp(14), dp(14));
+        if (th.modern()) {                 /* 모던 — 갈래마다 색 네모 아이콘(121) */
+            android.widget.ImageView ic = new android.widget.ImageView(this);
+            android.graphics.Bitmap bm = Theme.bmp("ic_" + iconOf(p.id));
+            if (bm != null) ic.setImageBitmap(bm);
+            ic.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+            ic.setPadding(dp(8), dp(8), dp(8), dp(8));
+            android.graphics.drawable.GradientDrawable sq = new android.graphics.drawable.GradientDrawable();
+            sq.setColor(colorOf(p.id)); sq.setCornerRadius(dp(11));
+            ic.setBackground(sq);
+            LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(38), dp(38));
+            ip.rightMargin = dp(14);
+            row.addView(ic, ip);
+        }
         LinearLayout txt = new LinearLayout(this);
         txt.setOrientation(LinearLayout.VERTICAL);
         TextView name = new TextView(this);
         name.setText(p.title);
-        name.setTextColor(TXT); name.setTextSize(17);
-        name.setTypeface(name.getTypeface(), android.graphics.Typeface.BOLD);
+        name.setTextColor(TXT); name.setTextSize(th.ink() ? 19 : 17);
+        face(name, true, true);
         txt.addView(name);
         TextView sub = new TextView(this);
         sub.setText(p.sub);
         sub.setTextColor(DIM); sub.setTextSize(12);
+        face(sub, false, false);
         sub.setPadding(0, dp(3), 0, 0);
         txt.addView(sub);
         String ch = changedSummary(p);
         if (ch != null) {
             TextView c = new TextView(this);
             c.setText(ch);
-            c.setTextColor(GOLD); c.setTextSize(12);
+            c.setTextColor(CHG); c.setTextSize(12);
+            face(c, false, false);
             c.setPadding(0, dp(3), 0, 0);
             txt.addView(c);
         }
         row.addView(txt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView arrow = new TextView(this);
-        arrow.setText("›");
-        arrow.setTextColor(DIM); arrow.setTextSize(24);
+        arrow.setText(th.pocket() ? "▶" : "›");
+        arrow.setTextColor(th.ink() ? 0xffc8983f : th.pocket() ? GOLD : th.modern() ? 0xff5d5d6b : DIM);
+        arrow.setTextSize(th.pocket() ? 14 : 24);
         arrow.setPadding(dp(10), 0, 0, 0);
         row.addView(arrow);
         row.setClickable(true);
@@ -295,10 +354,40 @@ public class SettingsActivity extends Activity {
         }
     }
 
+    /** 모던 첫 화면 아이콘 — assets/theme/ic_*.png */
+    private static String iconOf(String id) {
+        switch (id) {
+            case "screen": return "screen";  case "motion": return "motion"; case "control": return "pad";
+            case "game": return "game";      case "sound": return "note";    case "rom": return "rom";
+            default: return "down";
+        }
+    }
+    private static int colorOf(String id) {
+        switch (id) {
+            case "screen": return 0xff3d7bff;  case "motion": return 0xff9b5cff; case "control": return 0xff2fbf71;
+            case "game": return 0xffff8a3d;    case "sound": return 0xffff4f8b;  case "rom": return 0xff20b8c7;
+            default: return 0xfff2b632;
+        }
+    }
+
+    /** 포켓 머리 밑 점선. */
+    private static final class Dashes extends android.graphics.drawable.Drawable {
+        private final android.graphics.Paint p = new android.graphics.Paint();
+        private final int on, off;
+        Dashes(int col, int on, int off) { p.setColor(col); this.on = on; this.off = off; }
+        @Override public void draw(android.graphics.Canvas c) {
+            android.graphics.Rect b = getBounds();
+            for (int x = b.left; x < b.right; x += on + off) c.drawRect(x, b.top, Math.min(b.right, x + on), b.bottom, p);
+        }
+        @Override public void setAlpha(int a) { }
+        @Override public void setColorFilter(android.graphics.ColorFilter f) { }
+        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
+    }
+
     private LinearLayout card(LinearLayout col) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundColor(CARD);
+        card.setBackground(ThemeDraw.card(th, getResources().getDisplayMetrics().density));
         col.addView(card, lp(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, dp(6)));
         return card;
@@ -306,10 +395,10 @@ public class SettingsActivity extends Activity {
 
     private LinearLayout sectionCard(LinearLayout col, String title) {
         TextView sec = new TextView(this);
-        sec.setText(title);
-        sec.setTextColor(GOLD); sec.setTextSize(12);
-        sec.setLetterSpacing(0.12f);
-        sec.setTypeface(sec.getTypeface(), android.graphics.Typeface.BOLD);
+        sec.setText(th.pocket() ? "▶ " + title : title);
+        sec.setTextColor(th.modern() ? DIM : GOLD); sec.setTextSize(th.ink() ? 14 : 12);
+        sec.setLetterSpacing(th.pocket() ? 0.04f : 0.12f);
+        face(sec, true, true);
         sec.setPadding(dp(4), dp(14), 0, dp(6));
         col.addView(sec);
         return card(col);
@@ -353,10 +442,12 @@ public class SettingsActivity extends Activity {
         TextView name = new TextView(this);
         name.setText(label);
         name.setTextColor(TXT); name.setTextSize(16);
+        face(name, true, false);
         row.addView(name);
         TextView h2 = new TextView(this);
         h2.setText(help);
         h2.setTextColor(DIM); h2.setTextSize(12);
+        face(h2, false, false);
         h2.setPadding(0, dp(4), dp(40), 0);
         row.addView(h2);
         row.setClickable(true);
@@ -378,10 +469,11 @@ public class SettingsActivity extends Activity {
         TextView name = new TextView(this);
         name.setText(it.label);
         name.setTextColor(TXT); name.setTextSize(16);
+        face(name, true, false);
         top.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         TextView val = new TextView(this);
         val.setTextColor(GOLD); val.setTextSize(15);
-        val.setTypeface(val.getTypeface(), android.graphics.Typeface.BOLD);
+        if (th.pocket()) val.setTypeface(th.bold()); else val.setTypeface(val.getTypeface(), android.graphics.Typeface.BOLD);
         top.addView(val);
         row.addView(top);
         String tag = (game == null) ? tagOf(it) : null;
@@ -389,6 +481,7 @@ public class SettingsActivity extends Activity {
             TextView t = new TextView(this);
             t.setText(tag);
             t.setTextColor(TAG); t.setTextSize(11);
+            face(t, false, false);
             t.setPadding(0, dp(2), 0, 0);
             row.addView(t);
         }
@@ -396,6 +489,7 @@ public class SettingsActivity extends Activity {
             TextView help = new TextView(this);
             help.setText(it.help);
             help.setTextColor(DIM); help.setTextSize(12);
+            face(help, false, false);
             help.setPadding(0, dp(4), dp(40), 0);
             row.addView(help);
         }
@@ -404,6 +498,19 @@ public class SettingsActivity extends Activity {
 
     private void store(Settings.Item it, String v) {
         Settings.putUser(it.key, v); vals = Settings.load();     /* 묶음(보간 120·60)이 세부 값을 같이 바꿀 수 있다 */
+        if (Theme.KEY.equals(it.key)) {        /* 121: 테마 — 이 화면부터 바로 바꿔 그린다(다이얼 손을 뗀 뒤에) */
+            Theme.set(v);
+            if (sv != null) sv.post(new Runnable() { @Override public void run() {
+                if (isFinishing()) return;
+                final int y = sv.getScrollY();
+                palette(); setContentView(build());
+                final ScrollView s = sv;
+                if (y > 0) s.post(new Runnable() { @Override public void run() { s.scrollTo(0, y); } });
+            }});
+        }
+        if (AppIcon.KEY.equals(it.key) && AppIcon.apply(this, v))   /* 121: 앱 아이콘 — 별칭을 바꾼다 */
+            Toast.makeText(this, "아이콘을 「" + Theme.NAMES[Theme.indexOf(v)] + "」로 바꿨습니다. 홈 화면 아이콘이 빠졌으면 앱 서랍에서 끌어다 놓아 주세요.",
+                    Toast.LENGTH_LONG).show();
         if ("pocketcore_lang".equals(it.key)) {   /* 전역 언어를 바꾸면 게임별 선택(실행 전 선택창)은 지운다 — 여기 값이 다시 보이는 값이 되게 */
             Settings.removePrefix("pocketcore_lang_");
             java.util.Iterator<String> ki = vals.keySet().iterator();

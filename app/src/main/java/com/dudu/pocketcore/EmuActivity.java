@@ -215,6 +215,7 @@ public class EmuActivity extends Activity {
         String v = or(m.get("pocketcore_touchpad"), "auto");
         boolean hide = "off".equals(v) || ("auto".equals(v) && KeyMap.physicalPresent());
         if (pad != null) pad.setPhysicalMode(hide);
+        Theme.init(this); Theme.refresh();      /* 121: 버튼 모양이 테마를 따른다 — 설정에서 바꾸고 돌아오면 새로 굽는다 */
         if (pad != null) pad.setArt(!"flat".equals(or(m.get("pocketcore_padskin"), "art")));
     }
     private final android.hardware.input.InputManager.InputDeviceListener devListener =
@@ -709,7 +710,7 @@ public class EmuActivity extends Activity {
             runOnUiThread(new Runnable() { @Override public void run() {
                 /* menu 를 달아야 목록이 뜬다 — 롬이 하나뿐이면 바로 그 롬으로 되돌아가서
                    설정에 닿을 길이 없어진다 */
-                Intent i2 = new Intent(EmuActivity.this, MainActivity.class);
+                Intent i2 = new Intent(EmuActivity.this, Home.class);   /* 121: 런처는 Home(MainActivity 는 아이콘 별칭) */
                 i2.putExtra("menu", true);
                 startActivity(i2);
                 finish();
