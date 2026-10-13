@@ -23,7 +23,10 @@ import java.util.HashMap;
  *  ★ 그림 덮어쓰기: PocketCore/design/skin/<이름>.png (눌림은 <이름>_on.png) 가 있으면
  *    코드 그림 대신 그 그림을 칸에 맞춰 붙인다. 이름 = dpad · a · b · sp · ab · wp · wk · tech ·
  *    opt · ff · exit · menu · bar. 업데이트 배달(design/)과 같은 자리라 나중에 릴리즈로도 보낼 수 있다.
- *    십자는 dpad_up/down/left/right_on.png 로 갈래별 눌림도 줄 수 있다(없으면 dpad_on 하나). */
+ *    십자는 dpad_up/down/left/right_on.png 로 갈래별 눌림도 줄 수 있다(없으면 dpad_on 하나).
+ *
+ *  121: 테마(Theme)마다 다른 모양 — 기본 = 위 금속, 먹·금 = 옻칠 몸체·금테·붉은 A, 포켓 = 은색 스틱(누르면 손잡이가 기운다)·고무 버튼,
+ *  모던 = 반투명 선 버튼(누르면 주황). 테마가 바뀌면(Theme.gen) 구운 그림을 버리고 새로 굽는다. 덮어쓰기 그림은 테마보다 먼저. */
 final class PadSkin {
 
     /* 팔레트 — 런처 진열장(0xff0b0b0e 바탕·금빛 별 0xd9cba4)과 같은 계열 */
@@ -42,6 +45,14 @@ final class PadSkin {
     PadSkin() {
         tx.setTextAlign(Paint.Align.CENTER);
         tx.setFakeBoldText(true);
+    }
+
+    /** 지금 테마 — 바뀌었으면 구운 그림을 버린다. */
+    private int gen = -1;
+    private Theme theme() {
+        Theme t = Theme.get();
+        if (gen != Theme.gen) { cache.clear(); gen = Theme.gen; }
+        return t;
     }
 
     /** 덮어쓰기 그림 다시 읽기 — 설정에서 돌아올 때 등. */
@@ -86,15 +97,302 @@ final class PadSkin {
                 boolean accent, String label) {
         r.set(cx - rad, cy - rad, cx + rad, cy + rad);
         int alpha = on ? PRESS_ALPHA : IDLE_ALPHA;
-        if (drawUser(c, name, on, r, alpha)) { label(c, cx, cy, rad, label, on, true); return; }
+        Theme th = theme();
+        if (drawUser(c, name, on, r, alpha)) { labelOf(th, c, cx, cy, rad, label, on, true, hue); return; }
         int R = Math.max(4, Math.round(rad));
         String key = "btn" + R + ":" + Integer.toHexString(hue) + (on ? "+" : "-") + (accent ? "g" : "");
         Bitmap b = cache.get(key);
-        if (b == null) { b = bakeButton(R, hue, on, accent); put(key, b); }
+        if (b == null) {
+            b = th.ink() ? bakeInkButton(R, hue, on, accent) : th.pocket() ? bakePocketButton(R, on, accent)
+              : th.modern() ? bakeModernButton(R, on, accent) : bakeButton(R, hue, on, accent);
+            put(key, b);
+        }
         float pad = b.getWidth() / 2f;
-        blit.setAlpha(alpha);
+        blit.setAlpha(th.modern() || th.ink() || th.pocket() ? (on ? PRESS_ALPHA : 235) : alpha);
         c.drawBitmap(b, cx - pad, cy - pad, blit);
-        label(c, cx, cy + (on ? R * 0.05f : 0), rad, label, on, false);
+        float dy = on ? R * (th.pocket() ? 0.03f : th.ink() ? 0.04f : th.modern() ? 0f : 0.05f) : 0;
+        labelOf(th, c, cx, cy + dy, rad, label, on, false, hue);
+    }
+
+    /** 테마별 버튼 글자. */
+    private void labelOf(Theme th, Canvas c, float cx, float cy, float rad, String s, boolean on, boolean user, int hue) {
+        if (th.classic() || s == null || s.isEmpty()) { label(c, cx, cy, rad, s, on, user); return; }
+        float size = rad * (s.length() >= 3 ? 0.44f : 0.56f);
+        tx.setTextSize(size);
+        float by = cy + size * 0.36f;
+        if (th.ink()) {
+            tx.setTypeface(Theme.font("ink_b")); tx.setFakeBoldText(false);
+            int L = inkKind(hue);
+            tx.setColor(0xa0000000);
+            c.drawText(s, cx, by + Math.max(1f, rad * 0.04f), tx);
+            tx.setColor(L == 1 ? 0xff2a1a08 : (L == 0 || L == 2) ? 0xfff6e2b0 : 0xffe9c46f);
+            c.drawText(s, cx, by, tx);
+        } else if (th.pocket()) {
+            tx.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); tx.setFakeBoldText(true);
+            tx.setColor(0xb0000000);                                   /* 새긴 글자 — 위에 어두운 홈, 아래 밝은 턱 */
+            c.drawText(s, cx, by - Math.max(1f, rad * 0.03f), tx);
+            tx.setColor(on ? 0xffaeb2ba : 0xffc9ccd3);
+            c.drawText(s, cx, by, tx);
+        } else {
+            tx.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); tx.setFakeBoldText(false);
+            tx.setColor(on ? 0xff2a1206 : 0xd8ffffff);
+            c.drawText(s, cx, by, tx);
+        }
+        tx.setTypeface(android.graphics.Typeface.DEFAULT); tx.setFakeBoldText(true);
+    }
+
+    /* ── 먹·금(121) ─────────────────────────────────────────────── */
+
+    /** 옻칠 종류 — 0 주칠(A·WP 청색 자리) · 1 금칠(SP·켜진 배속) · 2 녹칠(AB) · 3 흑칠(나머지). */
+    private static int inkKind(int hue) {
+        if (hue == 0xff3f6fd1) return 0;
+        if (hue == 0xffe0a43a) return 1;
+        if (hue == 0xff3f9e7c) return 2;
+        return 3;
+    }
+    private static int[] inkLacquer(int kind, boolean on) {
+        int[] L;
+        switch (kind) {
+            case 0:  L = new int[]{ 0xffe2533b, 0xffa72a1b, 0xff4a0d07 }; break;
+            case 1:  L = new int[]{ 0xfff0cf7e, 0xffc0913e, 0xff5e3f14 }; break;
+            case 2:  L = new int[]{ 0xff4f8f6a, 0xff1f4a36, 0xff08160f }; break;
+            default: L = new int[]{ 0xff3c3732, 0xff16130f, 0xff050403 };
+        }
+        if (on) for (int i = 0; i < 3; i++) L[i] = mix(L[i], 0xff000000, 0.28f);
+        return L;
+    }
+    private static final int[] GOLDS = { 0xfff6dc95, 0xffd4a548, 0xff8d6524 };
+
+    private Bitmap bakeInkButton(int R, int hue, boolean on, boolean accent) {
+        int pad = Math.round(R * 1.30f), S = pad * 2;
+        Bitmap b = Bitmap.createBitmap(S, S, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        float cx = pad, cy = pad, ring = R * 1.16f;
+        p.reset(); p.setAntiAlias(true);
+        /* 받침 — 먹색 원 + 옅은 금테 */
+        p.setColor(0xf00b0907);
+        c.drawCircle(cx, cy, ring, p);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(1.2f, R * 0.028f));
+        p.setShader(new LinearGradient(0, cy - ring, 0, cy + ring, 0x80f6dc95, 0x808d6524, Shader.TileMode.CLAMP));
+        c.drawCircle(cx, cy, ring - p.getStrokeWidth() / 2f, p);
+        p.setShader(null); p.setStyle(Paint.Style.FILL);
+        /* 그림자 */
+        p.setColor(0xa0000000);
+        p.setMaskFilter(new BlurMaskFilter(R * 0.10f, BlurMaskFilter.Blur.NORMAL));
+        c.drawCircle(cx, cy + R * (on ? 0.02f : 0.07f), R, p);
+        p.setMaskFilter(null);
+        /* 옻칠 몸체 */
+        float oy = on ? R * 0.04f : 0f, body = on ? R * 0.97f : R;
+        p.setShader(new RadialGradient(cx - R * 0.16f, cy - R * 0.36f + oy, R * 1.5f,
+                inkLacquer(inkKind(hue), on), new float[]{ 0f, 0.5f, 1f }, Shader.TileMode.CLAMP));
+        c.drawCircle(cx, cy + oy, body, p);
+        /* 금테 */
+        float sw = R * (accent ? 0.075f : 0.055f);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(sw);
+        p.setShader(new LinearGradient(0, cy - R, 0, cy + R, GOLDS, new float[]{ 0f, 0.5f, 1f }, Shader.TileMode.CLAMP));
+        c.drawCircle(cx, cy + oy, body - sw / 2f, p);
+        p.setShader(null); p.setStyle(Paint.Style.FILL);
+        /* 윗면 광 */
+        p.setColor(on ? 0x12ffffff : 0x29ffffff);
+        r.set(cx - R * 0.67f, cy - R * 0.74f + oy, cx + R * 0.43f, cy - R * 0.22f + oy);
+        c.drawOval(r, p);
+        return b;
+    }
+
+    private Bitmap bakeInkDpad(int R) {
+        int pad = Math.round(R * 1.28f), S = pad * 2;
+        Bitmap b = Bitmap.createBitmap(S, S, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        float cx = pad, cy = pad, a = R * 0.34f, rr = R * 0.12f, base = R * 1.2f;
+        p.reset(); p.setAntiAlias(true);
+        p.setShader(new RadialGradient(cx, cy - R * 0.1f, base, new int[]{ 0xf01e1a15, 0xf0090706 }, null, Shader.TileMode.CLAMP));
+        c.drawCircle(cx, cy, base, p);
+        p.setShader(new LinearGradient(0, cy - base, 0, cy + base, 0x73f6dc95, 0x738d6524, Shader.TileMode.CLAMP));
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(1.2f, R * 0.018f));
+        c.drawCircle(cx, cy, base - p.getStrokeWidth() / 2f, p);
+        p.setShader(null);
+        p.setColor(0x99000000); p.setStrokeWidth(R * 0.035f);
+        c.drawCircle(cx, cy, R * 1.11f, p);
+        p.setStyle(Paint.Style.FILL);
+        /* 그림자 → 옻칠 십자 → 금테 */
+        p.setColor(0x8c000000);
+        p.setMaskFilter(new BlurMaskFilter(R * 0.06f, BlurMaskFilter.Blur.NORMAL));
+        c.drawPath(cross(cx, cy + R * 0.035f, R, a, rr), p);
+        p.setMaskFilter(null);
+        Path cr = cross(cx, cy, R, a, rr);
+        p.setShader(new LinearGradient(0, cy - R, 0, cy + R, new int[]{ 0xff34302b, 0xff15120f, 0xff060504 },
+                new float[]{ 0f, 0.45f, 1f }, Shader.TileMode.CLAMP));
+        c.drawPath(cr, p);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(1.5f, R * 0.03f));
+        p.setShader(new LinearGradient(0, cy - R, 0, cy + R, GOLDS, new float[]{ 0f, 0.5f, 1f }, Shader.TileMode.CLAMP));
+        c.drawPath(cr, p);
+        p.setShader(null);
+        p.setColor(0x12ffffff); p.setStrokeWidth(Math.max(1f, R * 0.014f));
+        c.drawPath(cross(cx, cy, R * 0.93f, a * 0.8f, rr), p);
+        p.setStyle(Paint.Style.FILL);
+        /* 금 화살 */
+        float d = R * 0.70f, tt = R * 0.12f;
+        p.setColor(0xffd4a548);
+        for (int k = 0; k < 4; k++) {
+            float ax = k == 2 ? -1 : k == 3 ? 1 : 0, ay = k == 0 ? -1 : k == 1 ? 1 : 0;
+            c.drawPath(arrow(cx + ax * d, cy + ay * d, ax, ay, tt), p);
+        }
+        /* 가운데 */
+        p.setColor(0xff070605);
+        c.drawCircle(cx, cy, R * 0.19f, p);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(1f, R * 0.014f)); p.setColor(0x8cd4a548);
+        c.drawCircle(cx, cy, R * 0.19f, p);
+        p.setStyle(Paint.Style.FILL);
+        return b;
+    }
+
+    /* ── 포켓(121) ──────────────────────────────────────────────── */
+
+    private Bitmap bakePocketButton(int R, boolean on, boolean accent) {
+        int pad = Math.round(R * 1.32f), S = pad * 2;
+        Bitmap b = Bitmap.createBitmap(S, S, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        float cx = pad, cy = pad, ring = R * 1.18f;
+        p.reset(); p.setAntiAlias(true);
+        /* 몸통에 파인 자리 — 은색 테 */
+        p.setShader(new LinearGradient(0, cy - ring, 0, cy + ring, accent ? 0xfff1d27a : 0xffb7bcc4,
+                accent ? 0xffb8902f : 0xff8f949d, Shader.TileMode.CLAMP));
+        c.drawCircle(cx, cy, ring, p);
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(1f, R * 0.025f)); p.setColor(0x8cffffff);
+        c.drawCircle(cx, cy, ring - p.getStrokeWidth() / 2f, p);
+        p.setStyle(Paint.Style.FILL);
+        /* 그림자 */
+        p.setColor(0x60000000);
+        p.setMaskFilter(new BlurMaskFilter(R * 0.10f, BlurMaskFilter.Blur.NORMAL));
+        c.drawCircle(cx, cy + R * (on ? 0.03f : 0.09f), R, p);
+        p.setMaskFilter(null);
+        /* 고무 반구 */
+        float oy = on ? R * 0.03f : 0f, body = on ? R * 0.96f : R;
+        int[] dome = on ? new int[]{ 0xff575b63, 0xff2c2f35, 0xff141518 } : new int[]{ 0xff6b7079, 0xff383b42, 0xff1c1e22 };
+        p.setShader(new RadialGradient(cx - R * 0.1f, cy - R * 0.32f + oy, R * 1.45f, dome,
+                new float[]{ 0f, 0.55f, 1f }, Shader.TileMode.CLAMP));
+        c.drawCircle(cx, cy + oy, body, p);
+        p.setShader(null);
+        p.setColor(on ? 0x14ffffff : 0x33ffffff);
+        r.set(cx - R * 0.62f, cy - R * 0.67f + oy, cx + R * 0.38f, cy - R * 0.23f + oy);
+        c.drawOval(r, p);
+        return b;
+    }
+
+    /** 스틱 받침 — 은색 원판 + 여덟 갈래 홈. */
+    private Bitmap bakeStickBase(int R) {
+        int pad = Math.round(R * 1.22f), S = pad * 2;
+        Bitmap b = Bitmap.createBitmap(S, S, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        float cx = pad, cy = pad, ring = R * 1.08f;
+        p.reset(); p.setAntiAlias(true);
+        p.setColor(0x38000000);
+        p.setMaskFilter(new BlurMaskFilter(R * 0.08f, BlurMaskFilter.Blur.NORMAL));
+        c.drawCircle(cx, cy + R * 0.05f, ring, p);
+        p.setMaskFilter(null);
+        p.setColor(0xff9ca1aa);
+        c.drawCircle(cx, cy, ring, p);
+        p.setShader(new RadialGradient(cx, cy - R * 0.1f, R * 1.25f, new int[]{ 0xffd9dce2, 0xffa7acb5, 0xff8d929c },
+                new float[]{ 0f, 0.8f, 1f }, Shader.TileMode.CLAMP));
+        c.drawCircle(cx, cy, R, p);
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(1f, R * 0.02f)); p.setColor(0x99ffffff);
+        c.drawCircle(cx, cy, R, p);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        for (int k = 0; k < 8; k++) {
+            double an = Math.toRadians(k * 45 - 90);
+            float x1 = cx + R * 0.66f * (float) Math.cos(an), y1 = cy + R * 0.66f * (float) Math.sin(an);
+            float x2 = cx + R * 0.86f * (float) Math.cos(an), y2 = cy + R * 0.86f * (float) Math.sin(an);
+            p.setColor(k % 2 == 0 ? 0xe66e737c : 0x736e737c);
+            p.setStrokeWidth(R * (k % 2 == 0 ? 0.04f : 0.02f));
+            c.drawLine(x1, y1, x2, y2, p);
+        }
+        p.setStrokeCap(Paint.Cap.BUTT);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xff6e737c);
+        float d = R * 0.94f, tt = R * 0.06f;
+        for (int k = 0; k < 4; k++) {
+            float ax = k == 2 ? -1 : k == 3 ? 1 : 0, ay = k == 0 ? -1 : k == 1 ? 1 : 0;
+            c.drawPath(arrow(cx + ax * d, cy + ay * d, ax, ay, tt), p);
+        }
+        return b;
+    }
+
+    /** 스틱 손잡이 — 짙은 고무 원 + 동심원 결. */
+    private Bitmap bakeStickKnob(int R) {
+        float k = R * 0.5f;
+        int pad = Math.round(k * 1.5f), S = pad * 2;
+        Bitmap b = Bitmap.createBitmap(S, S, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        float cx = pad, cy = pad;
+        p.reset(); p.setAntiAlias(true);
+        p.setColor(0x73000000);
+        p.setMaskFilter(new BlurMaskFilter(k * 0.18f, BlurMaskFilter.Blur.NORMAL));
+        c.drawCircle(cx, cy + k * 0.16f, k, p);
+        p.setMaskFilter(null);
+        p.setShader(new RadialGradient(cx - k * 0.16f, cy - k * 0.3f, k * 1.4f, new int[]{ 0xff5a5e67, 0xff2c2f35, 0xff16181c },
+                new float[]{ 0f, 0.6f, 1f }, Shader.TileMode.CLAMP));
+        c.drawCircle(cx, cy, k, p);
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(1f, k * 0.03f)); p.setColor(0x59000000);
+        for (int i = 1; i <= 3; i++) c.drawCircle(cx, cy, k * i / 4f, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0x2effffff);
+        r.set(cx - k * 0.46f, cy - k * 0.66f, cx + k * 0.26f, cy - k * 0.28f);
+        c.drawOval(r, p);
+        return b;
+    }
+
+    /* ── 모던(121) ──────────────────────────────────────────────── */
+
+    private static final int MOD_ACC = 0xffff9147;
+
+    private Bitmap bakeModernButton(int R, boolean on, boolean accent) {
+        int pad = Math.round(R * 1.12f), S = pad * 2;
+        Bitmap b = Bitmap.createBitmap(S, S, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        float cx = pad, cy = pad;
+        p.reset(); p.setAntiAlias(true);
+        p.setColor(on ? (MOD_ACC & 0x00ffffff) | 0xd0000000 : 0x2a000000);
+        c.drawCircle(cx, cy, R, p);
+        p.setColor(on ? 0x00000000 : 0x14ffffff);
+        c.drawCircle(cx, cy, R, p);
+        float sw = Math.max(1.5f, R * 0.035f);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(sw);
+        p.setColor(on ? MOD_ACC : accent ? 0xe6ff9147 : 0x66ffffff);
+        c.drawCircle(cx, cy, R - sw / 2f, p);
+        p.setStyle(Paint.Style.FILL);
+        return b;
+    }
+
+    private Bitmap bakeModernDpad(int R) {
+        int pad = Math.round(R * 1.12f), S = pad * 2;
+        Bitmap b = Bitmap.createBitmap(S, S, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        float cx = pad, cy = pad;
+        p.reset(); p.setAntiAlias(true);
+        for (int k = 0; k < 4; k++) modernCell(c, cx, cy, R, k, false);
+        return b;
+    }
+    /** 모던 십자 한 칸 — k: 0 위 1 아래 2 왼쪽 3 오른쪽. */
+    private void modernCell(Canvas c, float cx, float cy, float R, int k, boolean on) {
+        float a = R * 0.30f, d = R * 0.62f, rr = a * 0.46f;
+        float ax = k == 2 ? -1 : k == 3 ? 1 : 0, ay = k == 0 ? -1 : k == 1 ? 1 : 0;
+        float x = cx + ax * d, y = cy + ay * d;
+        r.set(x - a, y - a, x + a, y + a);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(on ? (MOD_ACC & 0x00ffffff) | 0xd0000000 : 0x2a000000);
+        c.drawRoundRect(r, rr, rr, p);
+        if (!on) { p.setColor(0x14ffffff); c.drawRoundRect(r, rr, rr, p); }
+        float sw = Math.max(1.4f, R * 0.024f);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(sw);
+        p.setColor(on ? MOD_ACC : 0x66ffffff);
+        r.inset(sw / 2f, sw / 2f);
+        c.drawRoundRect(r, rr, rr, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(on ? 0xff2a1206 : 0xc0ffffff);
+        c.drawPath(arrow(x, y, ax, ay, a * 0.36f), p);
     }
 
     private Bitmap bakeButton(int R, int hue, boolean on, boolean accent) {
@@ -170,6 +468,7 @@ final class PadSkin {
     void dpad(Canvas c, float cx, float cy, float R, int dir) {
         r.set(cx - R, cy - R, cx + R, cy + R);
         boolean any = dir != 0;
+        Theme th = theme();
         if (!user.isEmpty() && user.containsKey("dpad")) {
             drawUser(c, "dpad", false, r, any ? PRESS_ALPHA : IDLE_ALPHA);
             String[] k = { "up", "down", "left", "right" };
@@ -182,13 +481,64 @@ final class PadSkin {
             return;
         }
         int Ri = Math.max(8, Math.round(R));
+        if (th.pocket()) { stick(c, cx, cy, Ri, dir); return; }
         String key = "dpad" + Ri;
         Bitmap b = cache.get(key);
-        if (b == null) { b = bakeDpad(Ri); put(key, b); }
+        if (b == null) { b = th.ink() ? bakeInkDpad(Ri) : th.modern() ? bakeModernDpad(Ri) : bakeDpad(Ri); put(key, b); }
         float pad = b.getWidth() / 2f;
-        blit.setAlpha(any ? PRESS_ALPHA : IDLE_ALPHA);
+        blit.setAlpha(th.classic() ? (any ? PRESS_ALPHA : IDLE_ALPHA) : (any ? PRESS_ALPHA : 235));
         c.drawBitmap(b, cx - pad, cy - pad, blit);
-        if (any) dpadPress(c, cx, cy, R, dir);
+        if (!any) return;
+        if (th.modern()) { for (int k = 0; k < 4; k++) if ((dir & (1 << k)) != 0) modernCell(c, cx, cy, R, k, true); return; }
+        if (th.ink()) { inkPress(c, cx, cy, R, dir); return; }
+        dpadPress(c, cx, cy, R, dir);
+    }
+
+    /** 포켓 스틱 — 받침 위에 손잡이. 누른 쪽으로 손잡이가 기울고 그 갈래 홈에 노란 빛. */
+    private void stick(Canvas c, float cx, float cy, int R, int dir) {
+        String kb = "stick" + R, kk = "knob" + R;
+        Bitmap base = cache.get(kb), knob = cache.get(kk);
+        if (base == null) { base = bakeStickBase(R); put(kb, base); }
+        if (knob == null) { knob = bakeStickKnob(R); put(kk, knob); }
+        blit.setAlpha(dir != 0 ? PRESS_ALPHA : 240);
+        c.drawBitmap(base, cx - base.getWidth() / 2f, cy - base.getHeight() / 2f, blit);
+        float dx = ((dir & 8) != 0 ? 1 : 0) - ((dir & 4) != 0 ? 1 : 0), dy = ((dir & 2) != 0 ? 1 : 0) - ((dir & 1) != 0 ? 1 : 0);
+        if (dx != 0 || dy != 0) {
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            dx /= len; dy /= len;
+            float ang = (float) Math.toDegrees(Math.atan2(dy, dx));
+            p.reset(); p.setAntiAlias(true);
+            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(R * 0.07f); p.setStrokeCap(Paint.Cap.ROUND);
+            p.setColor(0xd8ffcc4d);
+            r.set(cx - R * 0.93f, cy - R * 0.93f, cx + R * 0.93f, cy + R * 0.93f);
+            c.drawArc(r, ang - 22, 44, false, p);
+            p.setStrokeCap(Paint.Cap.BUTT); p.setStyle(Paint.Style.FILL);
+        }
+        float off = R * 0.20f;
+        blit.setAlpha(255);
+        c.drawBitmap(knob, cx + dx * off - knob.getWidth() / 2f, cy + dy * off - knob.getHeight() / 2f, blit);
+    }
+
+    /** 먹·금 십자 눌림 — 그 팔을 어둡게 가라앉히고 끝에 금빛. */
+    private void inkPress(Canvas c, float cx, float cy, float R, int dir) {
+        float arm = R * 0.34f;
+        p.reset(); p.setAntiAlias(true);
+        for (int k = 0; k < 4; k++) {
+            if ((dir & (1 << k)) == 0) continue;
+            float ax = k == 2 ? -1 : k == 3 ? 1 : 0, ay = k == 0 ? -1 : k == 1 ? 1 : 0;
+            float x0 = ax == 0 ? cx - arm : (ax < 0 ? cx - R : cx + arm);
+            float x1 = ax == 0 ? cx + arm : (ax < 0 ? cx - arm : cx + R);
+            float y0 = ay == 0 ? cy - arm : (ay < 0 ? cy - R : cy + arm);
+            float y1 = ay == 0 ? cy + arm : (ay < 0 ? cy - arm : cy + R);
+            r.set(x0, y0, x1, y1);
+            p.setShader(null);
+            p.setColor(0x66000000);
+            c.drawRoundRect(r, R * 0.12f, R * 0.12f, p);
+            float ex = cx + ax * R, ey = cy + ay * R;
+            p.setShader(new LinearGradient(ex, ey, cx, cy, 0xc0f6dc95, 0x00d4a548, Shader.TileMode.CLAMP));
+            c.drawRoundRect(r, R * 0.12f, R * 0.12f, p);
+        }
+        p.setShader(null);
     }
 
     private Path cross(float cx, float cy, float R, float arm, float round) {
@@ -296,15 +646,76 @@ final class PadSkin {
     /** 가로로 긴 알약. kind: 0=기기 버튼(OPTION) 1=메뉴 손잡이 2=상단바 칸. hl = 강조(선택·켜짐). */
     void pill(Canvas c, String name, RectF box, boolean on, boolean hl, int kind, String label) {
         int alpha = on || hl ? PRESS_ALPHA : (kind == 2 ? 235 : IDLE_ALPHA);
-        if (drawUser(c, name, on || hl, box, alpha)) { pillLabel(c, box, label, on || hl); return; }
+        Theme th = theme();
+        labelTheme = th; labelKind = kind;
+        if (drawUser(c, name, on || hl, box, alpha)) { pillLabel(c, box, label, on || hl); labelTheme = null; return; }
         int W = Math.max(4, Math.round(box.width())), H = Math.max(4, Math.round(box.height()));
         String key = "pill" + W + "x" + H + ":" + kind + (on ? "+" : "-") + (hl ? "h" : "");
         Bitmap b = cache.get(key);
-        if (b == null) { b = bakePill(W, H, on, hl, kind); put(key, b); }
+        if (b == null) { b = th.classic() ? bakePill(W, H, on, hl, kind) : bakeThemePill(th, W, H, on, hl, kind); put(key, b); }
         float m = (b.getWidth() - W) / 2f;
-        blit.setAlpha(alpha);
+        blit.setAlpha(th.classic() ? alpha : (on || hl ? PRESS_ALPHA : 240));
         c.drawBitmap(b, box.left - m, box.top - m, blit);
         pillLabel(c, box, label, on || hl);
+        labelTheme = null;
+    }
+    private Theme labelTheme;     /* pillLabel 이 테마 글꼴·색을 고르게 — pill() 안에서만 */
+    private int labelKind;
+
+    /** 121: 먹·금(옻칠 + 금테) · 포켓(고무 알약 / 칸은 남색 액정) · 모던(반투명 + 가는 테, 강조는 주황) */
+    private Bitmap bakeThemePill(Theme th, int W, int H, boolean on, boolean hl, int kind) {
+        int m = Math.round(H * 0.35f);
+        Bitmap b = Bitmap.createBitmap(W + m * 2, H + m * 2, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        RectF o = new RectF(m, m, m + W, m + H);
+        boolean lcd = th.pocket() && kind == 2;
+        float rr = th.pocket() ? (lcd ? 0 : H / 2f) : th.ink() ? Math.min(H / 2f, H * 0.22f + 2) : H / 2f;
+        p.reset(); p.setAntiAlias(true);
+        p.setColor(0x70000000);
+        p.setMaskFilter(new BlurMaskFilter(H * 0.14f, BlurMaskFilter.Blur.NORMAL));
+        RectF s = new RectF(o); s.offset(0, on ? H * 0.03f : H * 0.08f);
+        c.drawRoundRect(s, rr, rr, p);
+        p.setMaskFilter(null);
+        float sw = Math.max(1.5f, H * (th.pocket() ? 0.06f : 0.045f));
+        if (th.ink()) {
+            int top = hl ? 0xff3a2a10 : 0xff1b1611, bot = hl ? 0xff1d1408 : 0xff0c0a08;
+            if (on) { int x = top; top = bot; bot = x; }
+            p.setShader(new LinearGradient(0, o.top, 0, o.bottom, top, bot, Shader.TileMode.CLAMP));
+            c.drawRoundRect(o, rr, rr, p);
+            p.setShader(hl ? new LinearGradient(0, o.top, 0, o.bottom, GOLDS, new float[]{ 0f, 0.5f, 1f }, Shader.TileMode.CLAMP) : null);
+            p.setColor(0x80d9a441);
+            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(sw);
+            RectF in = new RectF(o); in.inset(sw / 2f, sw / 2f);
+            c.drawRoundRect(in, rr, rr, p);
+            p.setShader(null); p.setStyle(Paint.Style.FILL);
+        } else if (lcd) {
+            p.setShader(new LinearGradient(0, o.top, 0, o.bottom, hl ? 0xff2a3a1c : 0xff182436, hl ? 0xff151d0c : 0xff0c121c, Shader.TileMode.CLAMP));
+            c.drawRect(o, p);
+            p.setShader(null);
+            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(sw);
+            p.setColor(hl ? 0xffffcc4d : 0xff8fa3c0);
+            RectF in = new RectF(o); in.inset(sw / 2f, sw / 2f);
+            c.drawRect(in, p);
+            p.setStyle(Paint.Style.FILL);
+        } else if (th.pocket()) {
+            int top = hl ? 0xffd6b45a : 0xff8a8f99, bot = hl ? 0xff9c7a24 : 0xff5d626c;
+            if (on) { int x = top; top = bot; bot = x; }
+            p.setShader(new LinearGradient(0, o.top, 0, o.bottom, top, bot, Shader.TileMode.CLAMP));
+            c.drawRoundRect(o, rr, rr, p);
+            p.setShader(new LinearGradient(0, o.top, 0, o.centerY(), 0x55ffffff, 0x00ffffff, Shader.TileMode.CLAMP));
+            RectF g = new RectF(o.left + rr * 0.5f, o.top + sw * 0.5f, o.right - rr * 0.5f, o.centerY());
+            c.drawRoundRect(g, rr * 0.6f, rr * 0.6f, p);
+            p.setShader(null);
+        } else {   /* 모던 */
+            p.setColor(hl ? 0x38ff9147 : on ? 0x30ffffff : 0xd8141419);
+            c.drawRoundRect(o, rr, rr, p);
+            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(sw);
+            p.setColor(hl ? MOD_ACC : 0x26ffffff);
+            RectF in = new RectF(o); in.inset(sw / 2f, sw / 2f);
+            c.drawRoundRect(in, rr, rr, p);
+            p.setStyle(Paint.Style.FILL);
+        }
+        return b;
     }
 
     private Bitmap bakePill(int W, int H, boolean on, boolean hl, int kind) {
@@ -342,6 +753,8 @@ final class PadSkin {
 
     private void pillLabel(Canvas c, RectF box, String s, boolean lit) {
         if (s == null || s.isEmpty()) return;
+        Theme th = labelTheme;
+        if (th != null && !th.classic()) { themePillLabel(th, c, box, s, lit); return; }
         int nl = s.indexOf('\n');
         if (nl >= 0) {                     /* 두 줄 — 위 이름(크게), 아래 상태(작고 흐리게): 「로드 / 3분 전」 */
             String a = s.substring(0, nl), b = s.substring(nl + 1);
@@ -369,6 +782,43 @@ final class PadSkin {
         c.drawText(s, box.centerX(), by + Math.max(1f, size * 0.07f), tx);
         tx.setColor(lit ? 0xfffff3d6 : 0xd8e8e4da);
         c.drawText(s, box.centerX(), by, tx);
+    }
+
+    /** 121: 알약 글자 — 먹·금은 고운바탕(크림/금), 포켓 칸은 갈무리(흰/노랑)·버튼은 굵은 흰 글, 모던은 흰 글(강조는 주황 옅게). */
+    private void themePillLabel(Theme th, Canvas c, RectF box, String s, boolean lit) {
+        boolean lcd = th.pocket() && labelKind == 2;
+        android.graphics.Typeface face = th.ink() ? Theme.font("ink_b") : lcd ? Theme.font("pixel_b") : android.graphics.Typeface.DEFAULT_BOLD;
+        tx.setTypeface(face); tx.setFakeBoldText(false);
+        int main, sub;
+        if (th.ink()) { main = lit ? 0xfffff1d0 : 0xffecdcb8; sub = lit ? 0xd0f6dc95 : 0x9ad6c9a8; }
+        else if (lcd) { main = lit ? 0xffffcc4d : 0xffe9eef7; sub = lit ? 0xd0ffcc4d : 0xa08fa3c0; }
+        else if (th.pocket()) { main = 0xfff2f3f6; sub = 0xc0e4e6ea; }
+        else { main = lit ? 0xffffd2b0 : 0xf2ffffff; sub = lit ? 0xd0ffd2b0 : 0x99ffffff; }
+        int nl = s.indexOf('\n');
+        if (nl >= 0) {
+            String a = s.substring(0, nl), b = s.substring(nl + 1);
+            float sa = box.height() * 0.36f, sb = box.height() * 0.25f, lim = box.width() * 0.86f;
+            tx.setTextSize(sa); float wa = tx.measureText(a); if (wa > lim) sa *= lim / wa;
+            tx.setTextSize(sb); float wb = tx.measureText(b); if (wb > lim) sb *= lim / wb;
+            float ya = box.centerY() - box.height() * 0.03f, yb = box.centerY() + box.height() * 0.30f;
+            tx.setTextSize(sa);
+            if (!th.modern()) { tx.setColor(0x90000000); c.drawText(a, box.centerX(), ya + Math.max(1f, sa * 0.07f), tx); }
+            tx.setColor(main);
+            c.drawText(a, box.centerX(), ya, tx);
+            tx.setTextSize(sb);
+            tx.setColor(sub);
+            c.drawText(b, box.centerX(), yb, tx);
+        } else {
+            float size = box.height() * 0.48f;
+            tx.setTextSize(size);
+            float tw = tx.measureText(s);
+            if (tw > box.width() * 0.88f) { size *= box.width() * 0.88f / tw; tx.setTextSize(size); }
+            float by = box.centerY() + size * 0.36f;
+            if (!th.modern()) { tx.setColor(0x90000000); c.drawText(s, box.centerX(), by + Math.max(1f, size * 0.07f), tx); }
+            tx.setColor(main);
+            c.drawText(s, box.centerX(), by, tx);
+        }
+        tx.setTypeface(android.graphics.Typeface.DEFAULT); tx.setFakeBoldText(true);
     }
 
     static int mix(int a, int b, float t) {

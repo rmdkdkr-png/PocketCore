@@ -28,7 +28,7 @@ public class InstallStatusActivity extends Activity {
                         : (Intent) i.getParcelableExtra(Intent.EXTRA_INTENT);
                 if (confirm != null) startActivity(confirm);
             } else if (st == PackageInstaller.STATUS_SUCCESS) {
-                startActivity(new Intent(this, MainActivity.class)
+                startActivity(new Intent(this, Home.class)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
             } else if (st != PackageInstaller.STATUS_FAILURE_ABORTED) {
                 Toast.makeText(this, "설치 실패: " + msg, Toast.LENGTH_LONG).show();

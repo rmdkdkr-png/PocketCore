@@ -153,7 +153,7 @@ def main():
             r = resumed()
             say("after", i, r)
             if "packageinstaller" in r: installer_seen = True
-            if PKG in r and "MainActivity" in r:
+            if PKG in r and ("MainActivity" in r or ".Home" in r):   # 121~ 런처 클래스는 Home(MainActivity 는 아이콘 별칭)
                 relaunched = True
                 break
         shot("3_after_install")

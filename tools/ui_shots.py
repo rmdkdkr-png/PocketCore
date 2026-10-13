@@ -360,6 +360,123 @@ def played_check(tag, size, density, bar_labels):
     shot(tag + "_5_cold")
 
 
+def set_opt(key, val):
+    """options.txt 한 줄 바꾸기(없으면 붙임)."""
+    sh("sed -i '/^%s=/d' /sdcard/PocketCore/options.txt" % key)
+    sh("echo '%s=%s' >> /sdcard/PocketCore/options.txt" % (key, val))
+
+
+def canvas_btns():
+    """121 런처가 logcat 에 남긴 캔버스 버튼 자리(뷰 기준) — 「PocketUi btns <테마> set x y upd x y logo x y play x y」 중 마지막 줄."""
+    out = adb("logcat", "-d", "-s", "PocketUi:I", out=True).decode(errors="replace")
+    last = None
+    for m in re.finditer(r"btns (\w+)((?: \w+ -?\d+ -?\d+)*)", out):
+        last = m
+    if not last:
+        return None, {}
+    parts = last.group(2).split()
+    d = {}
+    for i in range(0, len(parts) - 2, 3):
+        d[parts[i]] = (int(parts[i + 1]), int(parts[i + 2]))
+    return last.group(1), d
+
+
+def launcher(menu=True, alias="MainActivity"):
+    sh("am force-stop %s" % PKG)
+    time.sleep(1)
+    args = ["shell", "am", "start", "-n", PKG + "/com.dudu.pocketcore." + alias]
+    if menu:
+        args += ["--ez", "menu", "true"]
+    adb(*args)
+    time.sleep(7)
+    dismiss_anr()
+
+
+def theme_run(theme, labels):
+    """121 테마 — 런처(큰 화면·덮개) · 설정 첫 화면·「화면」 · 실행 전 창 · 게임 중 버튼 · 메뉴 칸."""
+    set_opt("pocketcore_theme", theme)
+    for tag, size in (("main", "1856x2160"), ("cover", "904x2160")):
+        adb("logcat", "-c")
+        sh("wm size %s" % size)
+        sh("wm density 420")
+        sh("rm -f /sdcard/PocketCore/saves/*.auto")
+        launcher()
+        name = "th_%s_%s" % (theme, tag)
+        shot(name + "_01_launcher")
+        th, btn = canvas_btns()
+        print("btns", tag, th, btn)
+        sw, sh_ = screen_box()[2], screen_box()[3]
+        lv = view_bounds("LauncherView") or (0, 0, sw, sh_)
+        if tag == "main":
+            if "set" in btn:
+                sh("input tap %d %d" % (lv[0] + btn["set"][0], lv[1] + btn["set"][1]))
+            else:
+                tap_text("설정")
+            time.sleep(2.5)
+            shot(name + "_02_settings")
+            if tap_text("화면"):
+                time.sleep(2)
+                shot(name + "_03_screen")
+                sh("input keyevent 4")
+                time.sleep(1.5)
+            sh("input keyevent 4")
+            time.sleep(2)
+        chip = opt_chip()
+        if chip:
+            sh("input tap %d %d" % (lv[0] + chip[0], lv[1] + chip[1]))
+        else:
+            sh("input keyevent 109")
+        time.sleep(2.5)
+        shot(name + "_04_sheet")
+        b = find(lambda n: (n.get("text") or "").startswith("시작"))
+        if b:
+            sh("input tap %d %d" % ((b[0] + b[2]) // 2, (b[1] + b[3]) // 2))
+        time.sleep(9)
+        dismiss_anr()
+        shot(name + "_05_game")
+        pv = view_bounds("PadView") or screen_box()
+        w, h = pv[2] - pv[0], pv[3] - pv[1]
+        base = min(w, h)
+        sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(max(base * 0.046, 30 * 420 / 160.0) / 2)))
+        time.sleep(1.5)
+        shot(name + "_06_menu")
+        sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(max(base * 0.046, 30 * 420 / 160.0) / 2)))
+        time.sleep(1)
+    save_logcat("th_" + theme)
+
+
+def themes_main(labels):
+    """[themes] — 테마 넷을 차례로 찍고, 로고 넘기기·앱 아이콘 별칭을 확인한다."""
+    for th in ("classic", "ink", "pocket", "modern"):
+        theme_run(th, labels)
+    # 로고를 누르면 다음 테마(기본 → 먹·금)
+    set_opt("pocketcore_theme", "classic")
+    sh("wm size 1856x2160")
+    adb("logcat", "-c")
+    launcher()
+    th, btn = canvas_btns()
+    lv = view_bounds("LauncherView") or screen_box()
+    if "logo" in btn:
+        sh("input tap %d %d" % (lv[0] + btn["logo"][0], lv[1] + btn["logo"][1]))
+        time.sleep(2.5)
+        th2, _ = canvas_btns()
+        print("logo tap", th, "->", th2, sh("grep pocketcore_theme /sdcard/PocketCore/options.txt").strip())
+        shot("th_cycle_after_logo")
+    # 앱 아이콘 — options 에 icon=ink 를 쓰고 켜면 별칭이 IconInk 로, classic 이면 MainActivity 로 돌아와야
+    q = "cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER | grep -i legacito"
+    print("launcher before", sh(q).strip())
+    set_opt("pocketcore_icon", "ink")
+    launcher(menu=True, alias="MainActivity")
+    time.sleep(2)
+    print("launcher icon=ink", sh(q).strip())
+    shot("th_icon_ink_running")
+    set_opt("pocketcore_icon", "classic")
+    launcher(menu=True, alias="IconInk")
+    time.sleep(2)
+    print("launcher icon=classic", sh(q).strip())
+    save_logcat("th_end")
+
+
 def wait_ready():
     adb("wait-for-device")
     for i in range(120):
@@ -396,6 +513,11 @@ def main():
     print("roms", sh("ls -l /sdcard/PocketCore/roms"))
     print("opts", sh("cat /sdcard/PocketCore/options.txt"))
     labels = os.environ.get("BAR_LABELS", "슬롯 1,저장,로드,리셋,설정,배치,목록,종료").split(",")
+    if os.environ.get("UI_MODE") == "themes":                     # 121: 테마만 찍는 짧은 판
+        themes_main(labels)
+        sh("wm size reset")
+        sh("wm density reset")
+        return
     run("main", "1856x2160", 420, labels, True)
     run("cover", "904x2160", 420, labels, False)
     played_check("played", "1856x2160", 420, labels)

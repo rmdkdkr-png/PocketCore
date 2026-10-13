@@ -36,8 +36,9 @@ import java.util.Map;
  */
 public final class LaunchSheet {
 
-    private static final int CARD = 0xff191b22, LINE = 0xff2a2f3b, TXT = 0xffe6e8ee, DIM = 0xff8b93a6,
-                             GOLD = 0xffd9a441, INK = 0xff101014, FOCUS = 0x33d9a441, BTN2 = 0xff23262f;
+    /* 121: 색·글꼴은 테마(Theme)에서 — 이름은 예전 그대로(GOLD = 강조색, INK = 강조색 위 글자) */
+    private final Theme th;
+    private final int CARD, LINE, TXT, DIM, GOLD, INK, FOCUS, BTN2;
 
     /** 한 줄. kind: 0 = 한글패치(언어 키를 게임별로), 1 = 일반 Item(options.txt 키 그대로). */
     private static final class Opt {
@@ -102,6 +103,8 @@ public final class LaunchSheet {
 
     private LaunchSheet(Activity a, Games.Game g, Runnable onStart) {
         this.a = a; this.g = g; this.onStart = onStart;
+        th = Theme.get();
+        CARD = th.card; LINE = th.line; TXT = th.txt; DIM = th.dim; GOLD = th.accent; INK = th.onAccent; FOCUS = th.focus; BTN2 = th.btn2;
         buildOpts();
         focus = opts.size();
         try { keymap = KeyMap.load(); } catch (Exception ignored) { keymap = null; }
@@ -198,16 +201,14 @@ public final class LaunchSheet {
     private View build(File rom, Bitmap thumb, String title) {
         LinearLayout col = new LinearLayout(a);
         col.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(CARD);
-        float r = dp(18);
-        bg.setCornerRadii(new float[]{ r, r, r, r, 0, 0, 0, 0 });
-        col.setBackground(bg);
-        col.setPadding(dp(18), dp(14), dp(18), dp(14));
+        col.setBackground(sheetBg());
+        col.setPadding(dp(18), dp(th.pocket() ? 18 : 14), dp(18), dp(14));
 
         /* 손잡이 */
         View grip = new View(a);
-        GradientDrawable gd = new GradientDrawable(); gd.setColor(0xff3a3f4d); gd.setCornerRadius(dp(3));
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(th.ink() ? 0x66d9a441 : th.pocket() ? 0xff8fa3c0 : th.modern() ? 0x33ffffff : 0xff3a3f4d);
+        gd.setCornerRadius(th.pocket() ? 0 : dp(3));
         grip.setBackground(gd);
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(dp(40), dp(4));
         gp.gravity = Gravity.CENTER_HORIZONTAL; gp.bottomMargin = dp(12);
@@ -228,14 +229,15 @@ public final class LaunchSheet {
         LinearLayout tt = new LinearLayout(a);
         tt.setOrientation(LinearLayout.VERTICAL);
         TextView h = new TextView(a);
-        h.setText(title); h.setTextColor(TXT); h.setTextSize(19);
-        h.setTypeface(h.getTypeface(), android.graphics.Typeface.BOLD);
+        h.setText(title); h.setTextColor(TXT); h.setTextSize(th.ink() ? 21 : 19);
+        face(h, true, true);
         tt.addView(h);
         TextView s = new TextView(a);
         s.setText(subtitle != null ? subtitle
                 : opts.isEmpty() ? "이 롬에 붙는 패치가 없습니다 — 「시작」을 누르면 순정 그대로 엽니다."
                                  : "실행 전에 적용할 것을 고르세요. 선택은 이 게임에 저장됩니다.");
         s.setTextColor(DIM); s.setTextSize(12); s.setPadding(0, dp(2), 0, 0);
+        face(s, false, false);
         tt.addView(s);
         head.addView(tt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         col.addView(head);
@@ -304,10 +306,11 @@ public final class LaunchSheet {
         top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
         TextView name = new TextView(a);
         name.setText(o.label); name.setTextColor(o.enabled ? TXT : DIM); name.setTextSize(16);
+        face(name, true, false);
         top.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         final TextView val = new TextView(a);
         val.setText(o.name()); val.setTextColor(o.enabled ? GOLD : DIM); val.setTextSize(15);
-        val.setTypeface(val.getTypeface(), android.graphics.Typeface.BOLD);
+        if (th.pocket()) val.setTypeface(th.bold()); else val.setTypeface(val.getTypeface(), android.graphics.Typeface.BOLD);
         top.addView(val);
         row.addView(top);
         if (o.enabled && o.vals.length > 2) {                 /* 다단 = 가로 다이얼 바 — 탭/드래그로 고른다(유저 2026-09-05) */
@@ -328,6 +331,7 @@ public final class LaunchSheet {
             TextView help = new TextView(a);
             help.setText(o.help.replace(" 게임을 다시 열면 적용됩니다.", "").replace(" 게임을 다시 열면 적용.", ""));
             help.setTextColor(DIM); help.setTextSize(12);
+            face(help, false, false);
             help.setMaxLines(2); help.setEllipsize(android.text.TextUtils.TruncateAt.END);
             help.setPadding(0, dp(3), dp(24), 0);
             row.addView(help);
@@ -343,19 +347,52 @@ public final class LaunchSheet {
     private TextView pill(String text, int bg, int fg, boolean bold) {
         TextView t = new TextView(a);
         t.setText(text); t.setTextColor(fg); t.setTextSize(17); t.setGravity(Gravity.CENTER);
-        if (bold) t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
+        if (th.ink() || th.pocket()) t.setTypeface(th.title());
+        else if (bold) t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
         t.setPadding(0, dp(14), 0, dp(14));
-        GradientDrawable d = new GradientDrawable(); d.setColor(bg); d.setCornerRadius(dp(12));
+        GradientDrawable d = new GradientDrawable(); d.setColor(bg); d.setCornerRadius(pillRadius());
+        if (th.pocket()) d.setStroke(dp(2), bold ? 0xff0c121c : 0xff8fa3c0);
         t.setBackground(d);
         t.setClickable(true);
         return t;
+    }
+    /** 121: 테마별 버튼 모서리 — 먹·금 6dp · 포켓 각진 · 모던 알약 · 기본 12dp */
+    private float pillRadius() { return th.ink() ? dp(6) : th.pocket() ? 0 : th.modern() ? dp(40) : dp(12); }
+
+    /** 121: 창 바탕 — 먹·금 옻칠 + 금 테, 포켓 은색 테 + 남색 액정, 모던 크게 둥근 판, 기본 그대로. */
+    private android.graphics.drawable.Drawable sheetBg() {
+        float r = dp(th.modern() ? 28 : th.ink() ? 10 : 18);
+        float[] top = { r, r, r, r, 0, 0, 0, 0 };
+        if (th.pocket()) {
+            GradientDrawable body = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{ 0xffd9dce2, 0xffa9aeb7 });
+            GradientDrawable lcd = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{ 0xff182436, 0xff0c121c });
+            lcd.setStroke(dp(2), 0xff0a0d13);
+            android.graphics.drawable.LayerDrawable ld = new android.graphics.drawable.LayerDrawable(
+                    new android.graphics.drawable.Drawable[]{ body, lcd });
+            ld.setLayerInset(1, dp(7), dp(7), dp(7), 0);
+            return ld;
+        }
+        GradientDrawable bg = new GradientDrawable();
+        if (th.ink()) {
+            bg.setColors(new int[]{ 0xff1d1812, 0xff0d0b09 });
+            bg.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
+            bg.setStroke(Math.max(1, dp(1)), 0x66d9a441);
+        } else bg.setColor(CARD);
+        bg.setCornerRadii(top);
+        return bg;
+    }
+    /** 121: 테마 글꼴 — 먹·금·포켓은 제목 글꼴/본문 글꼴, 기본·모던은 bold 일 때만 굵게. */
+    private void face(TextView v, boolean titleFace, boolean bold) {
+        if (th.ink() || th.pocket()) v.setTypeface(titleFace ? th.title() : th.body());
+        else if (bold) v.setTypeface(v.getTypeface(), android.graphics.Typeface.BOLD);
     }
 
     private void paintFocus() {
         for (int i = 0; i < rowViews.size(); i++) rowViews.get(i).setBackgroundColor(i == focus ? FOCUS : Color.TRANSPARENT);
         if (startBtn != null) {
-            GradientDrawable d = new GradientDrawable(); d.setColor(GOLD); d.setCornerRadius(dp(12));
-            if (focus == opts.size()) d.setStroke(dp(2), 0xffffe9b0);
+            GradientDrawable d = new GradientDrawable(); d.setColor(GOLD); d.setCornerRadius(pillRadius());
+            if (focus == opts.size()) d.setStroke(dp(2), th.pocket() ? 0xffffffff : th.modern() ? 0xffffd9bf : 0xffffe9b0);
+            else if (th.pocket()) d.setStroke(dp(2), 0xff0c121c);
             startBtn.setBackground(d);
         }
     }

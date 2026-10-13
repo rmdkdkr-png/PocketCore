@@ -110,7 +110,8 @@ public final class SelfUpdate {
             SharedPreferences p = prefs(a);
             int my = myCode(a), last = p.getInt("seen", 0);
             if (last > 0 && my > last)
-                Toast.makeText(a, "새 판으로 바뀌었습니다 · 내부 " + last + " → " + my, Toast.LENGTH_LONG).show();
+                Toast.makeText(a, "새 판으로 바뀌었습니다 · 내부 " + last + " → " + my
+                        + (last < 121 && my >= 121 ? "\n테마가 생겼습니다 — 런처 왼쪽 위 로고를 누르면 바뀝니다" : ""), Toast.LENGTH_LONG).show();
             if (my != last) p.edit().putInt("seen", my).apply();
             clean(a);
         } catch (Throwable ignored) { }

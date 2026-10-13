@@ -36,19 +36,21 @@ public class DialBar extends View {
 
     @Override protected void onDraw(Canvas c) {
         int w = getWidth(), h = getHeight(), n = names.length;
-        float rad = h / 2f, sw = (float) w / n;
-        p.setStyle(Paint.Style.FILL); p.setColor(0xff1a1d26);
+        Theme th = Theme.get();                       /* 121: 테마 색·글꼴 — 포켓은 모서리 없는 칸, 나머지는 둥근 알약 */
+        float rad = th.pocket() ? 0f : h / 2f, sw = (float) w / n, in = th.pocket() ? 4 : 3;
+        p.setStyle(Paint.Style.FILL); p.setColor(th.dialBg);
         r.set(0, 0, w, h); c.drawRoundRect(r, rad, rad, p);
-        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2); p.setColor(0xff2a2f3d);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(th.pocket() ? 4 : 2); p.setColor(th.dialLine);
         c.drawRoundRect(r, rad, rad, p);
-        p.setStyle(Paint.Style.FILL); p.setColor(0xffe0b050);
-        r.set(idx * sw + 3, 3, (idx + 1) * sw - 3, h - 3); c.drawRoundRect(r, rad - 3, rad - 3, p);
-        p.setTextAlign(Paint.Align.CENTER); p.setFakeBoldText(true);
+        p.setStyle(Paint.Style.FILL); p.setColor(th.classic() ? 0xffe0b050 : th.accent);
+        r.set(idx * sw + in, in, (idx + 1) * sw - in, h - in); c.drawRoundRect(r, Math.max(0, rad - in), Math.max(0, rad - in), p);
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setTypeface(th.bold()); p.setFakeBoldText(!th.pocket());
         for (int i = 0; i < n; i++) {
             float ts = h * 0.42f; p.setTextSize(ts);
             while (p.measureText(names[i]) > sw - 8 && ts > 9) { ts -= 1; p.setTextSize(ts); }   /* 긴 이름은 줄여 맞춘다 */
             float ty = h / 2f - (p.descent() + p.ascent()) / 2f;
-            p.setColor(i == idx ? 0xff1a1d26 : 0xff9aa3b8);
+            p.setColor(i == idx ? (th.classic() ? 0xff1a1d26 : th.onAccent) : th.dialDim);
             c.drawText(names[i], (i + 0.5f) * sw, ty, p);
         }
     }

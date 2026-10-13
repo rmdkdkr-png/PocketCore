@@ -86,6 +86,17 @@ public final class Settings {
            프레임 생성은 «켜고 끄기»와 «사무쇼2 세부»로 나눔, 검증용(판독 오버레이)은 메뉴에서 뺌(options.txt 로는 그대로 켜짐),
            실행 전 선택창(.l())에는 게임마다 고를 만한 것만 — 한글패치·조작 패치·원버튼·배경음악·보간 켜고 끄기. */
         /* ── 화면 ── */
+        /* 테마(내부 121) — 유저 2026-10-13 「테마 다 되게」. 런처·설정·실행 전 창·게임 중 버튼이 같이 바뀐다(Theme).
+           아이콘은 따로 고른다(AppIcon) — 별칭을 바꾸면 홈 화면의 옛 아이콘이 빠질 수 있어, 테마를 넘겨 볼 때마다 바뀌면 안 된다. */
+        GROUPS.put("테마", new Item[]{
+            new Item(Theme.KEY, "테마",
+                "런처·설정·게임 중 버튼의 모습. 기본 = 지금까지 · 먹·금 = 옻칠·금박·붉은 낙관 · 포켓 = 휴대 게임기(은색 몸통·도트 글씨) · 모던 = 요즘 앱처럼."
+                + " 런처 왼쪽 위 로고를 눌러도 차례로 바뀝니다.",
+                Theme.IDS, Theme.NAMES, Theme.CLASSIC),
+            new Item(AppIcon.KEY, "앱 아이콘",
+                "홈 화면 아이콘 그림. 바꾸면 홈 화면에 두었던 아이콘이 빠질 수 있습니다 — 앱 서랍(전체 앱)에 새 아이콘이 있으니 끌어다 놓으면 됩니다.",
+                Theme.IDS, Theme.NAMES, Theme.CLASSIC),
+        });
         GROUPS.put("크기·자리", new Item[]{
             /* 화면 크기·자리 — 손가락 패드가 그림을 가리는 문제 때문에 필요하다.
                코어가 아니라 **앱이** 그리는 자리를 정하는 값이라 options.txt 에만 남고 코어는 이 키를 모른다. */
@@ -212,7 +223,7 @@ public final class Settings {
                 new String[]{ "auto", "on", "off" },
                 new String[]{ "자동", "항상 표시", "숨김" }, "auto"),
             new Item("pocketcore_padskin", "버튼 모양",
-                "아트 = 금속 테·유광 버튼 · 단순 = 반투명 도형. PocketCore/design/skin/ 에 a.png·b.png·dpad.png 등을 넣으면 그 그림으로(눌림은 a_on.png).",
+                "아트 = 테마 모양(기본은 금속 테·유광 버튼, 먹·금은 옻칠, 포켓은 스틱·고무 버튼, 모던은 선) · 단순 = 반투명 도형. PocketCore/design/skin/ 에 a.png·b.png·dpad.png 등을 넣으면 그 그림으로(눌림은 a_on.png).",
                 new String[]{ "art", "flat" },
                 new String[]{ "아트", "단순" }, "art"),
         });
@@ -293,7 +304,7 @@ public final class Settings {
         }
     }
     public static final Page[] PAGES = {
-        new Page("screen",  "화면",        "크기·자리 · 업스케일러 · 필터",                "크기·자리", "업스케일러", "필터", "게임 화면"),
+        new Page("screen",  "화면",        "테마 · 크기·자리 · 업스케일러 · 필터",         "테마", "크기·자리", "업스케일러", "필터", "게임 화면"),
         new Page("motion",  "움직임·반응", "보간 120Hz·60Hz · 런어헤드",                 "보간", "입력 지연"),
         new Page("control", "조작",        "터치 버튼 · 원버튼 · 조작 패치 · 물리 패드",  "터치 패드", "원버튼 필살기"),
         new Page("game",    "게임",        "언어 · 오토세이브",                            "게임 공통"),

@@ -61,6 +61,8 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -skin 1856x2160
           disable-animations: true
           script: python3 tools/ui_shots.py apk/app-debug.apk shots
+        env:
+          UI_MODE: ${{ contains(github.event.head_commit.message, '[themes]') && 'themes' || 'all' }}
       - name: Publish shots to release ui-shots
         if: always()
         env:
