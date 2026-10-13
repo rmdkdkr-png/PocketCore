@@ -635,7 +635,7 @@ public class EmuActivity extends Activity {
        코어에 다시 넣는다(nativeSetOption → 코어가 다음 프레임에 다시 읽음). 롬을 다시 굽는 언어·조작 패치는 여기 없다. */
     private static final String[] LIVE_CORE_OPTS = {
         "ngp_framegen", "ngp_framegen_mode", "ngp_framegen_mult", "ngp_framegen_fx", "ngp_framegen_pose", "ngp_framegen_idle", "ngp_framegen_motion", "ngp_runahead",
-        "ngp_svcsp_band" };
+        "ngp_svcsp_band", "ngp_flash_reduce" };
     private final java.util.Map<String, String> coreOptSnap = new java.util.HashMap<>();
     private void snapCoreOpts() {
         java.util.Map<String, String> m = Settings.load();

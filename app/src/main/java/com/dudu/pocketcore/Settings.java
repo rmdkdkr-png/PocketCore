@@ -144,6 +144,14 @@ public final class Settings {
                 ONOFF, ONOFF_K, "enabled").f(Games.F_BAND),
             /* 「기둥 아트」(ngp_ss2sp_sides) 는 2026-09-07 유저 지시로 폐기했다.
                해설·더빙(ngp_ss2sp_comm 계열)은 3.90 에 이미 뺐고, 남은 배관도 같이 걷어냈다. */
+            /* 125: 코어 패치 99l — 유저 2026-10-14 「배경은 … 번쩍도 함」·「번쩍 필터 기능 타 게임에 있거든 그거 알아보고 와」.
+               사무쇼2 는 큰 타격 때 창을 접어 화면 전체를 1 프레임 하얗게(또는 까맣게) 칠한다 — 그 프레임만 앞 화면 위에 그 색을 조금 얹는다.
+               처음 한 번 «약하게»로 깔아 둔다(migrate) — 코어 기본은 끔. */
+            new Item("ngp_flash_reduce", "번쩍임 줄이기",
+                "큰 타격 때 화면 전체가 한 프레임 하얗게(또는 까맣게) 번쩍이는 것을 줄입니다 — 바로 앞 화면 위에 그 색을 조금만 얹어 보여 줌(캐릭터·배경 그대로)."
+                + " 약하게 = 절반 · 거의 없게 = 살짝 · 끔 = 원래대로. 코어 보간(120Hz·60Hz)이 켜져 있을 때.",
+                new String[]{ "half", "strong", "off" },
+                new String[]{ "약하게", "거의 없게", "끔" }, "half").g("ss2"),
         });
         /* ── 움직임·반응 ── */
         /* 보간 한 줄 — 유저 2026-10-11 「120Hz 세팅·60Hz 세팅으로 맞추고 기본, 나머지 조정하려면 고급으로. 우월한 세팅은 정해져 있으니」.
@@ -540,6 +548,8 @@ public final class Settings {
         if (!"1".equals(m.get("pocketcore_mig390"))) {
             put("pocketcore_mig390", "1");
         }
+        /* 125: 번쩍임 줄이기(코어 기본 끔) — 처음 한 번 «약하게»로. 유저가 끔으로 바꾸면 키가 있어 다시 안 덮는다 */
+        if (!m.containsKey("ngp_flash_reduce")) put("ngp_flash_reduce", "half");
         if (!m.containsKey("pocketcore_svc_faststrong")
                 && "enabled".equals(m.get("pocketcore_svc_fastcd")))
             put("pocketcore_svc_faststrong", "svc_faststrong_8");
