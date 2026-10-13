@@ -71,6 +71,51 @@ jobs:
           gh release create ui-shots ui-shots.zip --prerelease --target "${GITHUB_SHA}" \
             --title "CI — UI 스크린샷 (${GITHUB_SHA::7})" --notes "가짜 롬(제자리 돌기)으로 찍은 앱 화면. 설치·배포물 아님."
 
+  # 「새 판 받기」 세션 설치(SelfUpdate, 120~) 시험 — 커밋 메시지에 [upd] 가 있을 때만. 같은 시험 서명으로 판 500·501 을 굽고,
+  # 에뮬레이터에 500 을 깐 뒤 러너가 501 을 http 로 내놓고 런처의 「새 판 받기」를 눌러 «확인 창 없이» 501 이 되고 앱이 다시 열리는지 본다.
+  selfupdate:
+    if: contains(github.event.head_commit.message, '[upd]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build A (500) and B (501)
+        run: |
+          mkdir -p su
+          gradle :app:assembleDebug -PpcSuffix=.fgtest "-PpcLabel=Legacito 시험" -PpcCode=500 --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk su/a.apk
+          gradle :app:assembleDebug -PpcSuffix=.fgtest "-PpcLabel=Legacito 시험" -PpcCode=501 --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk su/b.apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Emulator self-update
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: python3 tools/selfupdate_test.py su/a.apk su/b.apk su/out
+      - name: Publish result to release selfupdate-test
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd su/out && rm -rf srv && zip -q -r ../../selfupdate-test.zip .) || true
+          gh release delete selfupdate-test -y --cleanup-tag || true
+          gh release create selfupdate-test selfupdate-test.zip --prerelease --target "${GITHUB_SHA}" \
+            --title "CI — 새 판 설치 시험 (${GITHUB_SHA::7})" --notes "에뮬레이터 API 33. 설치·배포물 아님."
+
   # Legacito 정식 서명용 — 서명 안 한 릴리즈 APK(zipalign 끝)와 apksigner.jar 를 태그 ci-release 에 둔다.
   # 서명 키는 저장소에 없다(공개 저장소). 클로드 세션이 받아서 새 키로 서명한 뒤 태그 app 에 올린다 — tools/SIGNING.md
   release-unsigned:

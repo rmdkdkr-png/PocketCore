@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 120~ 「새 판 받기」를 누르면 확인 창·Play 프로텍트 창 없이 자기 자신을 새 판으로(안드로이드 12+, SelfUpdate). 뒤에서 저절로 깔지는 않는다 -->
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
@@ -28,6 +30,14 @@
             android:authorities="${applicationId}.apk"
             android:exported="false"
             android:grantUriPermissions="true" />
+
+        <!-- 세션 설치 결과(SelfUpdate) — 화면 없이: 확인이 필요하면 시스템 확인 창, 다 깔리면 런처를 다시 연다 -->
+        <activity
+            android:name=".InstallStatusActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <activity
             android:name=".MainActivity"
