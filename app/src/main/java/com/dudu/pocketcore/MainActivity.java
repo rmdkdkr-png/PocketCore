@@ -60,7 +60,6 @@ public class MainActivity extends Activity {
            이름을 다 적어야 우리 것이 잡힌다(짧게 쓰면 조용히 안드로이드 클래스로 간다). */
         com.dudu.pocketcore.Settings.migrate();   /* 옛 옵션 값 → 새 이름. 설정이 꺼지지 않게 */
         Orient.apply(this);
-        SelfUpdate.afterLaunch(this);             /* 뒤에서 조용히 새 판으로 바뀌었으면 알려 준다(120~) */
         if (!hasStorage()) { askStorage(); return; }
         setup();
     }
