@@ -172,6 +172,7 @@ final class PadSkin {
         /* 받침 — 먹색 원 + 옅은 금테 */
         p.setColor(0xf00b0907);
         c.drawCircle(cx, cy, ring, p);
+        p.setColor(0xff000000);
         p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(Math.max(1.2f, R * 0.028f));
         p.setShader(new LinearGradient(0, cy - ring, 0, cy + ring, 0x80f6dc95, 0x808d6524, Shader.TileMode.CLAMP));
         c.drawCircle(cx, cy, ring - p.getStrokeWidth() / 2f, p);
@@ -183,6 +184,7 @@ final class PadSkin {
         p.setMaskFilter(null);
         /* 옻칠 몸체 */
         float oy = on ? R * 0.04f : 0f, body = on ? R * 0.97f : R;
+        p.setColor(0xff000000);          /* 그림자 알파가 남지 않게(셰이더는 칠 알파를 곱한다) */
         p.setShader(new RadialGradient(cx - R * 0.16f, cy - R * 0.36f + oy, R * 1.5f,
                 inkLacquer(inkKind(hue), on), new float[]{ 0f, 0.5f, 1f }, Shader.TileMode.CLAMP));
         c.drawCircle(cx, cy + oy, body, p);
@@ -220,6 +222,7 @@ final class PadSkin {
         c.drawPath(cross(cx, cy + R * 0.035f, R, a, rr), p);
         p.setMaskFilter(null);
         Path cr = cross(cx, cy, R, a, rr);
+        p.setColor(0xff000000);
         p.setShader(new LinearGradient(0, cy - R, 0, cy + R, new int[]{ 0xff34302b, 0xff15120f, 0xff060504 },
                 new float[]{ 0f, 0.45f, 1f }, Shader.TileMode.CLAMP));
         c.drawPath(cr, p);
@@ -270,6 +273,7 @@ final class PadSkin {
         /* 고무 반구 */
         float oy = on ? R * 0.03f : 0f, body = on ? R * 0.96f : R;
         int[] dome = on ? new int[]{ 0xff575b63, 0xff2c2f35, 0xff141518 } : new int[]{ 0xff6b7079, 0xff383b42, 0xff1c1e22 };
+        p.setColor(0xff000000);
         p.setShader(new RadialGradient(cx - R * 0.1f, cy - R * 0.32f + oy, R * 1.45f, dome,
                 new float[]{ 0f, 0.55f, 1f }, Shader.TileMode.CLAMP));
         c.drawCircle(cx, cy + oy, body, p);
@@ -331,6 +335,7 @@ final class PadSkin {
         p.setMaskFilter(new BlurMaskFilter(k * 0.18f, BlurMaskFilter.Blur.NORMAL));
         c.drawCircle(cx, cy + k * 0.16f, k, p);
         p.setMaskFilter(null);
+        p.setColor(0xff000000);
         p.setShader(new RadialGradient(cx - k * 0.16f, cy - k * 0.3f, k * 1.4f, new int[]{ 0xff5a5e67, 0xff2c2f35, 0xff16181c },
                 new float[]{ 0f, 0.6f, 1f }, Shader.TileMode.CLAMP));
         c.drawCircle(cx, cy, k, p);
@@ -535,6 +540,7 @@ final class PadSkin {
             p.setColor(0x66000000);
             c.drawRoundRect(r, R * 0.12f, R * 0.12f, p);
             float ex = cx + ax * R, ey = cy + ay * R;
+            p.setColor(0xff000000);
             p.setShader(new LinearGradient(ex, ey, cx, cy, 0xc0f6dc95, 0x00d4a548, Shader.TileMode.CLAMP));
             c.drawRoundRect(r, R * 0.12f, R * 0.12f, p);
         }
@@ -676,14 +682,15 @@ final class PadSkin {
         RectF s = new RectF(o); s.offset(0, on ? H * 0.03f : H * 0.08f);
         c.drawRoundRect(s, rr, rr, p);
         p.setMaskFilter(null);
+        p.setColor(0xff000000);
         float sw = Math.max(1.5f, H * (th.pocket() ? 0.06f : 0.045f));
         if (th.ink()) {
             int top = hl ? 0xff3a2a10 : 0xff1b1611, bot = hl ? 0xff1d1408 : 0xff0c0a08;
             if (on) { int x = top; top = bot; bot = x; }
             p.setShader(new LinearGradient(0, o.top, 0, o.bottom, top, bot, Shader.TileMode.CLAMP));
             c.drawRoundRect(o, rr, rr, p);
+            p.setColor(hl ? 0xff000000 : 0x80d9a441);
             p.setShader(hl ? new LinearGradient(0, o.top, 0, o.bottom, GOLDS, new float[]{ 0f, 0.5f, 1f }, Shader.TileMode.CLAMP) : null);
-            p.setColor(0x80d9a441);
             p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(sw);
             RectF in = new RectF(o); in.inset(sw / 2f, sw / 2f);
             c.drawRoundRect(in, rr, rr, p);
@@ -702,6 +709,7 @@ final class PadSkin {
             if (on) { int x = top; top = bot; bot = x; }
             p.setShader(new LinearGradient(0, o.top, 0, o.bottom, top, bot, Shader.TileMode.CLAMP));
             c.drawRoundRect(o, rr, rr, p);
+            p.setColor(0xff000000);
             p.setShader(new LinearGradient(0, o.top, 0, o.centerY(), 0x55ffffff, 0x00ffffff, Shader.TileMode.CLAMP));
             RectF g = new RectF(o.left + rr * 0.5f, o.top + sw * 0.5f, o.right - rr * 0.5f, o.centerY());
             c.drawRoundRect(g, rr * 0.6f, rr * 0.6f, p);
