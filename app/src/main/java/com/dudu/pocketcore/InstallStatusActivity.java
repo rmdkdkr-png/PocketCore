@@ -9,7 +9,7 @@ import android.util.Log;
 import android.widget.Toast;
 
 /** 「새 판 받기」 세션 설치 결과를 받는 화면 없는 액티비티(SelfUpdate).
- *  - STATUS_PENDING_USER_ACTION(안드로이드 11 이하·조건 어긋남): 시스템 확인 창을 띄운다 — 예전과 같은 흐름.
+ *  - STATUS_PENDING_USER_ACTION: 시스템 확인 창을 띄운다 — 132 부터는 늘 이 길(확인 없이 업데이트 권한을 뺐다).
  *  - STATUS_SUCCESS: 자기 업데이트라 시스템이 앱을 이미 끝냈다 → 런처를 새로 연다. 다만 보통은 이 전달 자체가
  *    «뒤에서 화면 띄우기»로 막혀 여기까지 안 온다(CI API 33). 허용하는 기기에서만 저절로 다시 켜진다.
  *  - 그 밖(실패): 이유를 토스트로. 유저가 확인 창에서 취소(ABORTED)한 것은 조용히. */

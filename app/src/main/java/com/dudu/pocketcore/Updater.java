@@ -309,8 +309,8 @@ public final class Updater {
             return true;
         }
         toast(act, "v" + rn + " 다운로드 중… (내부 " + my + " → " + rc + ")");   /* 보이는 판은 0.9 그대로라 내부 번호로 구분 */
-        /* 120~: 앱 안쪽에 받아(패키지·판 확인) PackageInstaller 세션으로(SelfUpdate) — 안드로이드 12 이상이면
-           «업데이트하시겠습니까»·Play 프로텍트 창 없이 1~2초 만에 깔리고 앱이 닫힌다(다시 열면 새 판). 확인이 필요하면 시스템 확인 창.
+        /* 120~: 앱 안쪽에 받아(패키지·판 확인) PackageInstaller 세션으로(SelfUpdate). 132 부터는 확인 없이 업데이트 권한을 빼서
+           (유저 「유해한 앱이라고 아직도 떠」 → 「빼줘」) 늘 시스템 확인 창 한 번 → 깔리면 앱이 닫힌다(다시 열면 새 판).
            세션이 안 되면 예전처럼 설치창(ACTION_VIEW). 유저가 누를 때만 깐다(뒤에서 저절로 깔지 않음). */
         File staged = SelfUpdate.stage(act, base + "/" + Uri.encode(apk), rc);
         if (staged == null) throw new java.io.IOException("받은 파일이 내부 " + rc + " 판이 아님");
@@ -324,7 +324,7 @@ public final class Updater {
         }
         try {
             if (SelfUpdate.supported())
-                toast(act, "새 판으로 바꾸는 중 — 앱이 닫히면 다시 열어 주세요");
+                toast(act, "확인 창에서 「업데이트」를 누르세요 — 다 깔리면 앱이 닫히니 다시 열어 주세요");
             SelfUpdate.install(act, staged, rc);
             return false;
         } catch (Throwable t) {

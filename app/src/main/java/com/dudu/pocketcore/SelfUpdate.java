@@ -26,6 +26,10 @@ import java.io.OutputStream;
  *  시스템 조건(안드로이드 16 PackageInstallerSession 소스): 새 APK targetSdk 33 이상(우리 34) · 같은 서명 · 「이 출처 허용」 ·
  *  같은 앱을 30초 안에 또 조용히 깔지 않음. 어긋나면 STATUS_PENDING_USER_ACTION → 예전처럼 시스템 확인 창.
  *
+ *  ★ 132 부터 그 권한과 USER_ACTION_NOT_REQUIRED 를 뺐다 — 유저 2026-10-14 「유해한 앱이라고 아직도 떠」 → 「빼줘」.
+ *  Play 프로텍트 경고는 설치 단계 검사(모르는 개발자 키 + 위험 권한)라, 위험 권한 하나(확인 없이 업데이트)를 줄인다.
+ *  그래서 지금은 늘 STATUS_PENDING_USER_ACTION → 시스템 확인 창 한 번(InstallStatusActivity). 받아 두기·세션 설치는 그대로.
+ *
  *  ★ 유저가 누를 때만 깐다. 앱을 안 쓰는 동안 뒤에서 저절로 까는 것은 넣지 않는다(유저 「안 쓰는 동안 깔리는 게 더 문제」).
  *  설치 결과는 InstallStatusActivity(화면 없음)가 받는다 — 확인이 필요하면 확인 창.
  *  다 깔린 뒤 앱을 저절로 다시 여는 것은 안 된다: 자기 업데이트는 시스템이 앱을 끝내고, 그 뒤 결과 전달은 «뒤에서 화면 띄우기»로
@@ -84,7 +88,7 @@ public final class SelfUpdate {
         PackageInstaller.SessionParams sp = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         sp.setAppPackageName(c.getPackageName());
         sp.setSize(apk.length());
-        if (Build.VERSION.SDK_INT >= 31) sp.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
+        /* 132: USER_ACTION_NOT_REQUIRED 를 주지 않는다 — 권한(UPDATE_PACKAGES_WITHOUT_USER_ACTION)을 뺐으니 늘 시스템 확인 창 */
         int sid = pi.createSession(sp);
         try (PackageInstaller.Session s = pi.openSession(sid)) {
             try (InputStream in = new FileInputStream(apk); OutputStream out = s.openWrite("base.apk", 0, apk.length())) {
