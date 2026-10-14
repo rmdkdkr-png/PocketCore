@@ -22,10 +22,10 @@
   "packs_ext": {
     "ss2_motion": {
       "min": 111,
-      "ver": "f3b607ef",
+      "ver": "130fd3ba",
       "ko": "사무쇼2 동작 사이 그림",
       "file": "ss2_motion.bin",
-      "size": 57032219,
+      "size": 57759611,
       "url": "https://github.com/rmdkdkr-png/PocketCore/releases/download/app/legacito-ss2-motion.bin"
     }
   },
