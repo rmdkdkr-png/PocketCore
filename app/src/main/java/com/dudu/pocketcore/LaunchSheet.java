@@ -287,6 +287,28 @@ public final class LaunchSheet {
             col.addView(more);
         }
 
+        if (onSettings == null && rom != null && g != null && "ss2".equals(g.id) && a instanceof MainActivity) {
+            /* 연습 대전 — 평소 판(내 세이브)으로 켜서 타이틀 «연습 대전» → 상대 선택까지 자동. 판정 주소를 확인한 롬 판에서만 켜진다(EmuActivity) */
+            TextView pr = new TextView(a);
+            pr.setText("연습 대전으로  ›"); pr.setTextColor(GOLD); pr.setTextSize(13); pr.setGravity(Gravity.CENTER);
+            pr.setPadding(0, dp(12), 0, dp(2)); pr.setClickable(true);
+            pr.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+                dlg.dismiss(); ((MainActivity) a).openPractice(rom); } });
+            col.addView(pr);
+            /* 가상 리그(시험) — CPU 상대 랭크전. 실행 옵션(한글·조작 패치 등)은 위에서 고른 그대로 쓴다 */
+            TextView lg = new TextView(a);
+            lg.setText("가상 리그 (시험) — 게임 속 「리그 대전」으로  ›"); lg.setTextColor(GOLD); lg.setTextSize(13); lg.setGravity(Gravity.CENTER);
+            lg.setPadding(0, dp(12), 0, dp(2)); lg.setClickable(true);
+            lg.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+                dlg.dismiss(); ((MainActivity) a).openLeagueHub(rom); } });
+            col.addView(lg);
+            TextView lb = new TextView(a);
+            lb.setText("리그 순위표  ›"); lb.setTextColor(GOLD); lb.setTextSize(12); lb.setGravity(Gravity.CENTER);
+            lb.setPadding(0, dp(6), 0, dp(2)); lb.setClickable(true);
+            lb.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+                dlg.dismiss(); ((MainActivity) a).openLeague(rom); } });
+            col.addView(lb);
+        }
         if (KeyMap.physicalPresent()) {                             /* 패드가 붙어 있을 때만 — 터치만 쓰면 군더더기 */
             TextView hint = new TextView(a);
             hint.setText("패드: 위아래 이동 · 펀치 버튼 바꾸기/시작 · 킥 버튼 닫기");

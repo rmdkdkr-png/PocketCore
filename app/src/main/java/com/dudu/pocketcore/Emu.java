@@ -45,4 +45,33 @@ public final class Emu {
     public static native float  nativePanelHz();
     /** 코어가 지금 선언한 fps — 사무쇼2 코어가 프레임 생성을 켜면 120.5. */
     public static native double nativeCoreFps();
+
+    /* 가상 리그 랭크전(league.c) — 진짜 프레임마다 대진 덮어쓰기·결판 감지.
+       arm: 상대 캐릭터 id(0~14)·유파(0/1)·난도(0~2, 음수=그대로)·포인트·시간(0=그대로)·LEAGUE_* 플래그 */
+    public static final int LEAGUE_CARDS_OFF = 1, LEAGUE_ALLCARDS = 2, LEAGUE_AUTONAV = 4, LEAGUE_FROM_CKPT = 8;
+    public static native void  nativeLeagueArm(int opp, int style, int diff, int points, int time, int flags);
+    public static native void  nativeLeagueDisarm();
+    /** [무장, 프레임, bit7 0 봄, 경기 시작 봄, 결과 잡음, 결과 비트, 승수1, 승수2, KO, 실효 포인트,
+     *   P1 블록, P2 블록(결판), P2 블록(경기 시작), 경기 시작 프레임, 결판 프레임, 사용자 카드 1, 2, 실효 시간,
+     *   CPU 단계(0x5814), CPU 공격 배율, CPU 받는 피해 배율] */
+    public static native int[] nativeLeagueStatus();
+    /* 게임 속 리그(허브): 타이틀 «2인 대전» 자리 = «리그 대전». sty/dif = 캐릭터 id(0~14)별 리그 상대의 검질(없으면 −1)·난도 */
+    public static native void  nativeLeagueHub(boolean on, byte[] sty, byte[] dif);
+    public static native void  nativeLeagueHubCancel();
+    /** 게임 속 리그 배경·컬러 — home[캐릭터] = 그 상대 기본 배경(0~7·−1), stageSel −1 상대 기본·−2 무작위·0~7, color 0~3 */
+    public static native void nativeLeagueHubLook(byte[] home, int stageSel, int color);
+    /** 다음 nativeLeagueArm 의 배경(0~7, −1 게임 그대로)·내 컬러(0~3) */
+    public static native void nativeLeagueLook(int stage, int color);
+    /** [상태 0 꺼짐·1 타이틀·2 상대 고르기·3 내 캐릭터·4 경기·5 타이틀로, 커서 캐릭터(−1 무작위), 고른 상대 캐릭터, 프레임, 메뉴 글자, 머리말 글자, 재대결, 대신 누르기] */
+    public static native int[] nativeLeagueHubStatus();
+    /** 결판 뒤: 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
+    public static native void  nativeLeagueHubReturn(int rematch);
+
+    /* 연습 대전(practice.c) — 일반 세션에서 타이틀 «2 인 대전» 자리 = «연습 대전». 판정 주소를 확인한 롬 판(League.romLabel)에서만 켤 것.
+       autostart = 로고·메뉴를 넘겨 상대 선택까지 대신 누름(실행 창 «연습 대전으로» 링크). 상태·허브 상태는 nativeLeagueHubStatus 와 같이 본다 */
+    public static native void  nativePracticeHub(boolean on, boolean autostart);
+    /** [경기 중, 메뉴(0 닫힘·1 여는 중·2 열림·3 닫는 중), 메뉴 줄, 더미(0 서기·1 CPU), 가드, 내 분노, 상대 분노, 리셋 위치, 리셋 좌우, 숫자,
+     *   보이는 대미지, 리셋 횟수, 리셋 기다림, 마지막 리셋 프레임, 가드 켬, 프레임, 빌린 타일, 쓰이던 빈 타일, 나가기 요청, 시작 물체 수, 메뉴 연 횟수,
+     *   버린 리셋, 더미 캐릭터, 더미 검질] (practice.h) */
+    public static native int[] nativePracticeStatus();
 }

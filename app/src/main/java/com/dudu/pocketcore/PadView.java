@@ -465,6 +465,36 @@ public class PadView extends View {
         barHandle.set(w * 0.5f - hw / 2f, 0, w * 0.5f + hw / 2f, hh);
     }
 
+    /** 화면 위 안내 띠(EmuActivity) 자리 찾기 — 세로 [top, bottom] 줄에서 보이는 버튼(원·십자·OPTION 알약)과 겹치지 않는
+     *  가장 넓은 가로 구간 {left, right}. 버튼 배치를 바꿔도 따라간다(유저 2026-10-14 「옵션 설명이 패드를 가린다」). */
+    public float[] freeSpan(float top, float bottom) {
+        int w = getWidth();
+        if (fx == null || w <= 0 || hidesTouch()) return new float[] { 0, w };
+        float m = 6 * getResources().getDisplayMetrics().density;
+        java.util.ArrayList<float[]> bl = new java.util.ArrayList<>();
+        for (int i = 0; i < nC; i++) {
+            if (!ctrlVisible(i)) continue;
+            float l, r, t, b;
+            if (bitOf(i) == -2) {
+                float base = Math.min(getWidth(), getHeight()), ow2 = base * 0.10f * sc[i], oh2 = base * 0.021f * sc[i];
+                l = cx(i) - ow2; r = cx(i) + ow2; t = cy(i) - oh2; b = cy(i) + oh2;
+            } else {
+                float rr = radOf(i);
+                l = cx(i) - rr; r = cx(i) + rr; t = cy(i) - rr; b = cy(i) + rr;
+            }
+            if (b + m <= top || t - m >= bottom) continue;
+            bl.add(new float[] { l - m, r + m });
+        }
+        java.util.Collections.sort(bl, (a, c) -> Float.compare(a[0], c[0]));
+        float bestL = 0, bestR = 0, x = 0;
+        for (float[] o : bl) {
+            if (o[0] - x > bestR - bestL) { bestL = x; bestR = o[0]; }
+            x = Math.max(x, o[1]);
+        }
+        if (w - x > bestR - bestL) { bestL = x; bestR = w; }
+        return new float[] { Math.max(0, bestL), Math.min(w, bestR) };
+    }
+
     private boolean bit(int b) { return b >= 0 && (mask & (1 << b)) != 0; }
     private float cx(int i) { return fx[i] * getWidth(); }
     private float cy(int i) { return fy[i] * getHeight(); }

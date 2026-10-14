@@ -90,7 +90,7 @@ public class MainActivity extends Activity {
     private boolean hasStorage() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
             return Environment.isExternalStorageManager();
-        return checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
+        return checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)     /* 8~10: 읽기만으로는 세이브·리그 기록을 못 쓴다 */
                 == PackageManager.PERMISSION_GRANTED;
     }
 
@@ -101,7 +101,7 @@ public class MainActivity extends Activity {
             startActivity(i);
             Toast.makeText(this, "파일 접근을 허용한 뒤 앱으로 돌아오세요", Toast.LENGTH_LONG).show();
         } else {
-            requestPermissions(new String[]{ Manifest.permission.READ_EXTERNAL_STORAGE }, 1);
+            requestPermissions(new String[]{ Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE }, 1);
         }
     }
 
@@ -577,7 +577,37 @@ public class MainActivity extends Activity {
         return true;
     }
 
-    private void launch(String romPath) {
+    /** 가상 리그 화면으로 — 게임 실행과 같은 정리(부팅송·테마곡 끊기, 썸네일 캡처 멈추기)를 하고 넘어간다. */
+    void openLeague(File rom) {
+        stopBoot();
+        stopTheme();
+        Thumbs.stop = true;
+        synchronized (Thumbs.LOCK) { }
+        Intent i = new Intent(this, LeagueActivity.class);
+        i.putExtra(LeagueActivity.EXTRA_ROM, rom.getAbsolutePath());
+        startActivity(i);
+        finish();
+    }
+
+    /** 게임 속 리그전 — 게임을 랭크전 판(고정 롬 사본·동봉 코어)으로 켜고 타이틀 «리그 대전»에서 시작한다. 마지막 게임으로 기억하지 않는다. */
+    void openLeagueHub(File rom) {
+        stopBoot();
+        stopTheme();
+        Thumbs.stop = true;
+        synchronized (Thumbs.LOCK) { }
+        Intent i = new Intent(this, EmuActivity.class);
+        i.putExtra("rom", rom.getAbsolutePath());
+        i.putExtra(EmuActivity.EXTRA_LEAGUE_HUB, true);
+        startActivity(i);
+        finish();
+    }
+
+    /** 연습 대전 — 평소처럼 켜되(내 세이브·실행 옵션 그대로) 타이틀 «연습 대전» → 상대 선택까지 대신 누른다(EmuActivity.EXTRA_PRACTICE). */
+    void openPractice(File rom) { launch(rom.getAbsolutePath(), true); }
+
+    private void launch(String romPath) { launch(romPath, false); }
+
+    private void launch(String romPath, boolean practice) {
         stopBoot();      /* 부팅송이 도는 7초 안에 게임을 켜도 확실히 끊는다 */
         stopTheme();
         /* 백그라운드 썸네일 캡처와 코어 전역 상태가 겹치면 안 된다 —
@@ -587,6 +617,7 @@ public class MainActivity extends Activity {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST, romPath).putString(KEY_PLAYED, romPath).apply();
         Intent i = new Intent(this, EmuActivity.class);
         i.putExtra("rom", romPath);
+        if (practice) i.putExtra(EmuActivity.EXTRA_PRACTICE, true);
         startActivity(i);
         finish();
     }
