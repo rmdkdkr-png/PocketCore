@@ -179,6 +179,16 @@ def dial_under(help_prefix, density=420):
     return (b[0], int(b[3] + 8 * dp), b[2], int(b[3] + 56 * dp))
 
 
+def pad_size():
+    """135: PadView 실제 크기 — PadView.layoutBar 가 logcat 에 「padbar w h」로 남긴다. uiautomator 는 사용자 뷰 이름을
+    안 보여 줘서 view_bounds("PadView") 는 늘 못 찾고 화면 크기로 갔다(에뮬레이터는 아래 작업 표시줄만큼 뷰가 짧다)."""
+    out = adb("logcat", "-d", "-s", "PocketUi:I", out=True).decode(errors="replace")
+    m = None
+    for m2 in re.finditer(r"padbar (\d+) (\d+)", out):
+        m = m2
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
 def scroll_top():
     for _ in range(3):
         sh("input swipe 500 500 500 1700 200")
@@ -273,6 +283,9 @@ def run(tag, size, density, bar_labels, with_settings):
     foc = sh("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'").strip().replace("\n", " | ")
     print("focus", tag, foc)
     pv = view_bounds("PadView") or screen_box()
+    ps = pad_size()
+    if ps:
+        pv = (0, 0, ps[0], ps[1])                                  # 135: 실제 뷰 크기(덮개는 칸이 아래 — 높이가 맞아야 누른다)
     print("PadView", pv)
     w, h = pv[2] - pv[0], pv[3] - pv[1]
     base = min(w, h)
@@ -354,6 +367,9 @@ def played_check(tag, size, density, bar_labels):
     dismiss_anr()
     shot(tag + "_3_game")
     pv = screen_box()
+    ps = pad_size()
+    if ps:
+        pv = (0, 0, ps[0], ps[1])
     w, h = pv[2] - pv[0], pv[3] - pv[1]
     base = min(w, h)
     sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(max(base * 0.046, 30 * density / 160.0) / 2)))   # 메뉴 알약
@@ -526,6 +542,58 @@ def themes_main(labels):
     save_logcat("th_end")
 
 
+def a11y_cover():
+    """135 접근성 — 덮개 화면: 테마 넷 런처·실행 전 창(키 커서), 기본 테마 A 를 밀어 내기(안 켜져야)·길게 누름(누른 모양 → 손 떼면 게임)."""
+    import traceback
+    sh("wm size 904x2160")
+    sh("wm density 420")
+    for th in ("ink", "pocket", "modern", "classic"):
+        try:
+            set_opt("pocketcore_theme", th)
+            adb("logcat", "-c")
+            launcher()
+            shot("a11y_%s_01_launcher" % th)
+            chip = opt_chip()
+            if chip:
+                sh("input tap %d %d" % chip)
+            else:
+                sh("input keyevent 109")
+            time.sleep(2.5)
+            shot("a11y_%s_02_sheet" % th)
+            sh("input keyevent 19")
+            time.sleep(0.8)
+            shot("a11y_%s_03_sheet_key" % th)
+            sh("input keyevent 4")
+            time.sleep(1.2)
+        except Exception:
+            print("a11y theme failed", th, traceback.format_exc())
+    try:
+        th, btn = canvas_btns()
+        print("a11y btns", th, btn)
+        if "a" in btn:
+            ax, ay = btn["a"]
+            adb("logcat", "-c")
+            sh("input swipe %d %d %d %d 500" % (ax, ay, ax - 350, ay))      # A 에서 시작해 왼쪽으로 끌기 — 게임이 안 켜져야
+            time.sleep(1.5)
+            foc = sh("dumpsys window | grep -E 'mCurrentFocus'").strip()
+            sels = re.findall(r"sel (\d+) / (\d+)", adb("logcat", "-d", "-s", "PocketUi:I", out=True).decode(errors="replace"))
+            print("a11y slide-off A:", foc, "sel", sels[-1:])
+            shot("a11y_classic_04_slideoff")
+            p = subprocess.Popen(["adb", "shell", "input", "swipe", str(ax), str(ay), str(ax), str(ay), "2500"])
+            time.sleep(1.2)
+            shot("a11y_classic_05_pressA")                                      # 누르는 동안 — 아직 게임 아님
+            foc1 = sh("dumpsys window | grep -E 'mCurrentFocus'").strip()
+            p.wait()
+            time.sleep(7)
+            dismiss_anr()
+            foc2 = sh("dumpsys window | grep -E 'mCurrentFocus'").strip()
+            print("a11y hold A: during", foc1, "| after", foc2)
+            shot("a11y_classic_06_afterA")
+    except Exception:
+        print("a11y press failed", traceback.format_exc())
+    set_opt("pocketcore_theme", "classic")
+
+
 def wait_ready():
     adb("wait-for-device")
     for i in range(120):
@@ -577,6 +645,7 @@ def main():
     sh("sed -i 's/^ngp_framegen_idle=off/ngp_framegen_idle=draw/' /sdcard/PocketCore/options.txt")
     print("opts idle", sh("grep ngp_framegen_idle /sdcard/PocketCore/options.txt").strip())
     run("coveragain", "904x2160", 420, labels, False)
+    a11y_cover()
     sh("wm size reset")
     sh("wm density reset")
 

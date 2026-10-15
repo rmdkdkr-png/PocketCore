@@ -511,6 +511,7 @@ public class PadView extends View {
         float hw = Math.max(base * 0.16f, 96 * dp);
         barHandle.set(w * 0.5f - hw / 2f, 0, w * 0.5f + hw / 2f, hh);
         updateExclusion();                        /* 135: 편집을 켜고 끄거나 크기가 바뀔 때 제스처 예외도 다시 */
+        android.util.Log.i("PocketUi", "padbar " + w + " " + h);   /* ui_shots 가 실제 뷰 크기로 칸 자리를 잰다(덮개는 칸이 아래라 높이가 맞아야) */
     }
 
     /** 화면 위 안내 띠(EmuActivity) 자리 찾기 — 세로 [top, bottom] 줄에서 보이는 버튼(원·십자·OPTION 알약)과 겹치지 않는

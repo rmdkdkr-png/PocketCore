@@ -918,7 +918,7 @@ public final class LauncherView extends View {
         tp.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); tp.setFakeBoldText(false);
         tp.setTextAlign(Paint.Align.CENTER); tp.setTextSize(size); tp.setLetterSpacing(0.16f);
         tp.setColor(0xb3ffffff); c.drawText(s, x, y + Math.max(1f, dp(1)), tp);
-        tp.setColor(0xff3f444e); c.drawText(s, x, y, tp);   /* 135: 0xff6c717c(은색 위 2.6:1) → 6:1 넘게 */
+        tp.setColor(0xff3f444e); c.drawText(s, x, y, tp);   /* 135: 0xff6c717c(은색 위 2.6~3.4:1) → 5.2~6.7:1 */
         tp.setLetterSpacing(0f); tp.setTypeface(android.graphics.Typeface.DEFAULT);
     }
     /** 비스듬한 고무 알약(설정·업데이트). hot = 새 판 있음(주황). */
@@ -1293,7 +1293,8 @@ public final class LauncherView extends View {
         String b = (setR.isEmpty() ? "" : "set " + Math.round(setR.centerX()) + " " + Math.round(setR.centerY()))
                  + (updR.isEmpty() ? "" : " upd " + Math.round(updR.centerX()) + " " + Math.round(updR.centerY()))
                  + (logoR.isEmpty() ? "" : " logo " + Math.round(logoR.centerX()) + " " + Math.round(logoR.centerY()))
-                 + (playR.isEmpty() ? "" : " play " + Math.round(playR.centerX()) + " " + Math.round(playR.centerY()));
+                 + (playR.isEmpty() ? "" : " play " + Math.round(playR.centerX()) + " " + Math.round(playR.centerY()))
+                 + (aR > 0 ? " a " + Math.round(aX) + " " + Math.round(aY) : "");
         if (!b.equals(lastBtnLog)) { lastBtnLog = b; android.util.Log.i("PocketUi", "btns " + Theme.get().id + " " + b); }
     }
 
