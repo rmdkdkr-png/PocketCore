@@ -1,0 +1,178 @@
+diff --git a/src/ss2sp.c b/src/ss2sp.c
+index 9e632a9..6f5026b 100644
+--- a/src/ss2sp.c
++++ b/src/ss2sp.c
+@@ -196,6 +196,31 @@ static int ss2_atk_young(int act)
+    if ((int)(frame_no - btn_since) < w) return 1;
+    return act >= 0x50 && act <= 0xFF && (int)(frame_no - atk_since) < w;
+ }
++/* 99x: 기본기 중 빠른 다시 누르기 — 기본기를 맞힌 뒤 게임은 필살기 입력을 «2 틱 받고 2 틱 안 받고»를 되풀이하다가 기본기가 끝나야
++   늘 받는다(실측: 히트스톱이 끝난 뒤 버튼을 떼는 틱이 +4 면 됨, +2·+6 은 안 됨, +8 부터 늘 됨 — 갈포드·하오마루·아수라·주베이 약베기 같은 모양,
++   한조처럼 누를 때 나가는 기술은 누르는 틱이 같은 규칙). 안 받는 틱에 걸린 입력은 그냥 버려져, 예전엔 기본기가 다 끝나 «한 번 더»
++   (유저 「기본기→SP 바로는 늦게 나가고, 조금 있다 누르면 더 빨리 나가고 콤보도 됨」 — 약베기 맞히고 SP 를 누른 때에 따라 23 프레임에
++   이어지거나 49 프레임에 따로 나갔다). → 써 넣은 기술이 안 나갔고 아직 기본기 중이면, 히트스톱이 끝나는 대로 모션을 다시 적고 버튼을
++   2 프레임 다시 누른다(4 프레임마다, 기술이 나오거나 기본기가 끝날 때까지). 안 받아 준 누름은 게임이 버린다(실측 — 다른 기본기로 안 바뀜). */
++#define QR_MAX 12
++static int ss2_qr_on(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_QR"); v=e?atoi(e):1;} return v; }
++static uint8_t inj_dirs[32], inj_fin; static int inj_ne;
++static int qr_live, qr_tries, qr_attempt;
++static int q_inj;                  /* 지금 큐가 «써 넣고 버튼만» 인가(0 = 예전 매크로) */
++/* 99x 떼는 때 고르기 — 자기 기본기가 맞아 히트스톱이 끝난 프레임(hs_end_f, 엔진 프레임)을 기억해, 버튼을 떼는 프레임이
++   +4·+5 에 걸리지 않게 한다(갈포드 등 약베기는 +2·+3 에 받고 +4·+5 는 버린다 — 위 설명).
++   (받는 틈은 기본기마다 다르다 — 갈포드·하오마루·아수라·주베이 약베기는 +2·+3, 나코루루 약베기는 훨씬 뒤. +4·+5 를 피하는 것만 한다) */
++static int ss2_gate_on(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_GATE"); v=e?atoi(e):1;} return v; }
++static int hs_seen_basic; static uint32_t hs_end_f;
++static int ss2_cancel_ctx(void)
++{
++   int act = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8);
++   return ss2_gate_on() && q_inj && q_i == 0 && hs_end_f && act >= 0x50 && act <= 0xFF;
++}
++
++/* 시험용 지도 그리기: SS2SP_RAWHOLD=1 이면 버튼 칸을 히트스톱·잡고 있기와 무관하게 정확히 SS2SP_HOLD 프레임 */
++static int ss2_rawhold(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_RAWHOLD"); v=e?atoi(e):0;} return v; }
++
+ static int ss2_inject(const ss2_move *m, int tk, int mirror)
+ {
+    uint8_t dirs[16], fin;
+@@ -204,9 +229,14 @@ static int ss2_inject(const ss2_move *m, int tk, int mirror)
+    {
+       int act = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8);
+       if (ss2_atk_young(act)) { deferred = m; deferred_tk = tk; deferred_left = 40; return -1; }
++      /* 99x: 자기 기본기가 맞아 히트스톱 중이면 끝날 때까지 미룬다 — 게임은 버튼을 잡은 길이를 히트스톱 중에도 재서,
++         히트스톱 동안 잡고 있다 떼면 강(0x80)으로 쳐 캔슬을 안 받았다(약베기 맞히고 바로 SP = 기본기가 끝난 뒤 따로 나감).
++         히트스톱이 끝나는 프레임에 눌러 2 프레임 뒤 떼면 약(0x40)으로 바로 받는다 */
++      if (ss2_gate_on() && act >= 0x50 && act <= 0xFF && CPUExRAM[OFF_HITSTOP]) { deferred = m; deferred_tk = tk; deferred_left = 40; return -1; }
+       /* 기본기 중이면(받아 줄 수도, 안 받아 줄 수도) — 안 나가면 기본기가 끝날 때 한 번 더 */
+-      if (act >= 0x50 && act <= 0xFF) { retry_m = m; retry_tk = tk; retry_left = 60; }
+-      else retry_m = 0;
++      if (act >= 0x50 && act <= 0xFF) { retry_m = m; retry_tk = tk; retry_left = 60; qr_live = ss2_qr_on(); qr_tries = 0; }
++      else { retry_m = 0; qr_live = 0; }
++      qr_attempt = 0;
+    }
+    for (k = 0; k < last; k++)
+    {
+@@ -217,22 +247,51 @@ static int ss2_inject(const ss2_move *m, int tk, int mirror)
+    }
+    ne = nd * INJ_REP;
+    c = CPUExRAM[OFF_CMDRING] & 0x7F;
+-   for (k = -ne; k <= 2; k++) if (((c + k) & 0x7F) == 0) return 0;   /* 0 칸에 걸림 — 매크로로 */
++   for (k = -ne; k <= 2; k++) if (((c + k) & 0x7F) == 0)
++   {
++      /* 0 칸에 걸림. 99x: 기본기 중이면 매크로로 가지 말고 커서가 지나갈 때까지 미룬다 — 게임은 공격을 낼 때 고리를 1 칸부터
++         다시 써서(커서 2) 기본기 직후엔 거의 늘 걸렸고, 매크로(방향마다 2 프레임)로 넘어가 히트스톱 뒤 27 프레임에야 나갔다.
++         커서는 히트스톱 중에도 2 프레임마다 한 칸 가고, 캔슬은 히트스톱 뒤라 미뤄도 늦지 않는다 */
++      int act = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8);
++      if (act >= 0x50 && act <= 0xFF) { deferred = m; deferred_tk = tk; deferred_left = 40; return -1; }
++      return 0;                                                       /* 그 밖엔 매크로로 */
++   }
+    CPUExRAM[OFF_CMDRING + ((c - ne) & 0x7F)] = 0xFF;                   /* 센티널 = 게임 리셋과 같은 것 */
+    for (k = 0; k < ne; k++) CPUExRAM[OFF_CMDRING + ((c - ne + 1 + k) & 0x7F)] = dirs[k / INJ_REP];
++   for (k = 0; k < ne && k < 32; k++) inj_dirs[k] = dirs[k / INJ_REP];
++   inj_ne = ne < 32 ? ne : 32;
+    if (tk) { uint8_t d9 = PAD_UP | PAD_RIGHT; if (mirror) d9 = ss2_mirror(d9); fin = (uint8_t)(d9 | m->btn); }
+    else    { uint8_t d = m->len ? m->motion[m->len - 1] : 0; if (mirror) d = ss2_mirror(d); fin = (uint8_t)(d | m->btn); }
++   inj_fin = fin;
+    q_n = q_i = 0;
+    q[q_n].pad = fin; q[q_n].frames = HOLD_FRAMES; q[q_n].sustain = 1; q_n++;   /* 트리거를 잡고 있으면 늘어난다(강) */
+    q[q_n].pad = 0; q[q_n].frames = TAIL_FRAMES; q[q_n].sustain = 0; q_n++;
++   q_inj = 1;
+    if (ss2_dbg()) fprintf(stderr, "[ss2sp] inject %s c=%d ne=%d fin=%02x\n", m->name, c, ne, fin);
+    return 1;
+ }
+ 
++/* 99x 다시 누르기 — 처음 써 넣은 모션을 지금 커서 앞에 다시 적고 버튼 2 프레임(잡고 있기 없음 — 약) */
++static int ss2_repress(void)
++{
++   int c = CPUExRAM[OFF_CMDRING] & 0x7F, k;
++   if (inj_ne <= 0 && !inj_fin) return 0;
++   for (k = -inj_ne; k <= 2; k++) if (((c + k) & 0x7F) == 0) return 0;
++   CPUExRAM[OFF_CMDRING + ((c - inj_ne) & 0x7F)] = 0xFF;
++   for (k = 0; k < inj_ne; k++) CPUExRAM[OFF_CMDRING + ((c - inj_ne + 1 + k) & 0x7F)] = inj_dirs[k];
++   q_n = q_i = 0;
++   q[q_n].pad = inj_fin; q[q_n].frames = 2; q[q_n].sustain = 0; q_n++;
++   q[q_n].pad = 0; q[q_n].frames = TAIL_FRAMES; q[q_n].sustain = 0; q_n++;
++   q_left = q[0].frames;
++   qr_attempt = 1; q_inj = 1;
++   if (ss2_dbg()) fprintf(stderr, "[ss2sp] repress %d c=%d\n", qr_tries, c);
++   return 1;
++}
++
+ static void ss2_compile_ex(const ss2_move *m, int tk)
+ {
+    int i, mirror = (CPUExRAM[OFF_FACING] == 1);
+-   q_n = q_i = 0;
++   q_n = q_i = 0; q_inj = 0;
+ 
+    {
+       int r = ss2_inject(m, tk, mirror);
+@@ -393,9 +452,31 @@ static const ss2_move ss2_basic = { "베기", mo_basic, 1, PAD_A, 4 };
+    held = 매크로를 시작시킨 트리거가 아직 눌려 있는가. 눌려 있으면 버튼 스텝을 늘린다(=강). */
+ static uint8_t ss2_step_out(int held)
+ {
+-   uint8_t out = q[q_i].pad;
++   uint8_t out;
++   if (qr_attempt && (CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8)) >= 0x180)
++   {  /* 99x: 다시 누르는 중에 기술이 나왔다 — 남은 누름은 버린다(필살기 시작에 버튼이 끼지 않게) */
++      q_n = q_i = 0; q_left = 0; qr_attempt = 0; qr_live = 0;
++      return 0;
++   }
++   out = q[q_i].pad;
++   {  if (ss2_rawhold() > 0) {
++         if (--q_left <= 0) { if (++q_i < q_n) q_left = q[q_i].frames; else { q_n = q_i = 0; q_left = 0; } }
++         return out; } }
+    /* 히트스톱 중에는 프레임이 소비되지 않는다 — 카운트를 멈춘다.
+       (브라우저판이 ms 타이머로 근사하던 부분. 코어에선 정확히 맞출 수 있다) */
++   if (!CPUExRAM[OFF_HITSTOP] && ss2_cancel_ctx())
++   {  /* 99x: 기본기 캔슬 — 떼는 프레임(다음 프레임)이 안 받는 틈(+4·+5)에 걸리면 한 프레임씩 더 잡는다.
++         잡고 있기(강)는 예전대로 따른다(나코루루 약베기처럼 받는 틈이 늦은 기본기는 예전 박자가 우연히 맞던 자리가 있다) */
++      int k = (int)(frame_no + 1 - hs_end_f);
++      if (q[q_i].sustain && held && hold_elapsed < MAX_HOLD)
++      {
++         if (++hold_elapsed >= STRONG_FRAMES) ss2sp_last_strong = 1;
++         return out;
++      }
++      if (q_left <= 1 && (k < 2 || k == 4 || k == 5)) return out;     /* 한 프레임 더 잡는다 */
++      if (--q_left <= 0) { if (++q_i < q_n) q_left = q[q_i].frames; else { q_n = q_i = 0; q_left = 0; } }
++      return out;
++   }
+    if (!CPUExRAM[OFF_HITSTOP])
+    {
+       /* 손가락을 떼지 않았고 상한에 안 닿았으면 이 프레임은 소비하지 않는다 */
+@@ -436,6 +517,10 @@ uint8_t ss2sp_frame(uint8_t pad, uint16_t trig)
+       atk_prev = a;
+       if (b & ~prev_btn) btn_since = frame_no;
+       prev_btn = b;
++      /* 99x: 자기 기본기의 히트스톱 끝 */
++      if (a < 0) { hs_seen_basic = 0; hs_end_f = 0; }
++      else if (CPUExRAM[OFF_HITSTOP]) { hs_seen_basic = 1; hs_end_f = 0; }
++      else if (hs_seen_basic && !hs_end_f) hs_end_f = frame_no;
+    }
+    /* 기본기 중에 써 넣은 기술이 안 나갔다 — 기본기가 끝나 서면 한 번 더(그때는 늘 받아 준다) */
+    if (retry_m && !ss2_active() && !deferred)
+@@ -464,6 +549,18 @@ uint8_t ss2sp_frame(uint8_t pad, uint16_t trig)
+       if (deferred) return 0;
+       if (ss2_active()) return ss2_step_out(hold_bit && (trig & hold_bit));
+    }
++   /* 99x: 기본기 중 써 넣은 기술이 안 나갔다 — 히트스톱이 끝나면 4 프레임마다 다시 누른다(위 설명) */
++   if (qr_live && !ss2_active() && !deferred)
++   {
++      int act = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8);
++      qr_attempt = 0;
++      if (act >= 0x100 || act < 0x50 || CPUExRAM[OFF_MODE] != 241 || edge || qr_tries >= QR_MAX) qr_live = 0;
++      else if (!CPUExRAM[OFF_HITSTOP])
++      {
++         if (ss2_repress()) { qr_tries++; return ss2_step_out(0); }
++         qr_live = 0;
++      }
++   }
+    /* v0.5.4: 전투가 끝났는데 보류(pending)가 남아 있으면 버린다.
+       라운드가 끝나는 순간 누른 입력이 다음 라운드에서 뒤늦게 터지는 것을 막는다
+       (브라우저판 사용자 제보: "SP가 귀신터치마냥 눌린다"). */
+@@ -730,6 +827,7 @@ void ss2sp_reset(void)
+    hold_bit = 0; hold_elapsed = 0; ss2sp_last_strong = 0;
+    verify_left = 0;
+    ss2_mode_warm = 0;
++   inj_ne = 0; inj_fin = 0; qr_live = 0; qr_tries = 0; qr_attempt = 0; q_inj = 0; hs_seen_basic = 0; hs_end_f = 0;
+    deferred = 0; deferred_left = 0; atk_prev = -1; retry_m = 0; btn_since = (uint32_t)-1000; prev_btn = 0;
+    ss2sp_last_ok = -1;
+    ss2sp_last_name = 0;
