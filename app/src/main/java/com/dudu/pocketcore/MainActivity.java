@@ -539,6 +539,13 @@ public class MainActivity extends Activity {
                      || (!padBtn && (code == android.view.KeyEvent.KEYCODE_DPAD_CENTER || code == android.view.KeyEvent.KEYCODE_ENTER))
                      || (f == null && code == android.view.KeyEvent.KEYCODE_BUTTON_START);
         boolean opt   = "select".equals(f) || (f == null && code == android.view.KeyEvent.KEYCODE_BUTTON_SELECT);   /* SELECT = 실행 옵션 창 */
+        /* 135(접근성 검수): 패드로 설정에 갈 길이 없었다 — 게임 안에서 «앱 메뉴»인 키(기본 왼쪽 스틱 누르기)·메뉴 키 = 설정 화면 */
+        boolean menu  = "menu".equals(f) || code == android.view.KeyEvent.KEYCODE_MENU;
+        if (menu) {
+            if (e.getAction() == android.view.KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0)
+                startActivity(new Intent(this, SettingsActivity.class));
+            return true;
+        }
         if (!(left || right || ok || opt)) {
             /* 배정 없는 패드 버튼은 삼킨다 — 안 그러면 시스템 폴백이 Y 를 BACK 으로 바꿔 앱이 꺼진다(리뷰) */
             if (padBtn) return true;
@@ -569,6 +576,8 @@ public class MainActivity extends Activity {
         if (curSheet != null && curSheet.isShowing()) {
             if ((went & (1 << Emu.UP)) != 0)    curSheet.moveFocus(-1);
             if ((went & (1 << Emu.DOWN)) != 0)  curSheet.moveFocus(+1);
+            if ((went & (1 << Emu.LEFT)) != 0)  curSheet.adjust(-1);    /* 135: 좌우 = 값 한 칸 */
+            if ((went & (1 << Emu.RIGHT)) != 0) curSheet.adjust(+1);
             return true;
         }
         if (curLv == null) return true;

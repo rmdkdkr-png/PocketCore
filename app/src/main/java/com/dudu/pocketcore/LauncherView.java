@@ -146,6 +146,9 @@ public final class LauncherView extends View {
     public int selIndex() { return sel; }
 
     private float dp(float v) { return v * getResources().getDisplayMetrics().density; }
+    /** 135(접근성 검수): 글자 바닥 — 캔버스 글자는 화면 비율로만 정해져 덮개 화면에서 9sp 안팎까지 작아졌다.
+     *  sp 라 시스템 글자 크기도 따른다(바닥에서만). */
+    private float sp(float v) { return android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, v, getResources().getDisplayMetrics()); }
 
     /* ── 그리기 ─────────────────────────────────────────────────── */
 
@@ -165,6 +168,12 @@ public final class LauncherView extends View {
         else if (th.pocket()) drawPocket(cv, w, h, t);
         else if (th.modern()) drawModern(cv, w, h, t);
         else drawClassic(cv, w, h, t);
+        if (press != P_NONE && !pressVis.isEmpty()) {          /* 135: 누르는 동안 그 자리를 옅게 — 손을 떼야 실행된다 */
+            fx.reset(); fx.setAntiAlias(true);
+            fx.setColor(th.pocket() ? 0x2e000000 : 0x2effffff);
+            float rr = Math.min(pressVis.height() / 2f, dp(14));
+            cv.drawRoundRect(pressVis, rr, rr, fx);
+        }
         logButtons();
     }
 
@@ -235,8 +244,8 @@ public final class LauncherView extends View {
 
         if (channel != null) {          /* 로고 오른쪽 — 「시험 v3.77」 호박색 테두리 알약 */
             tp.setTextAlign(Paint.Align.LEFT);
-            tp.setTextSize(h * 0.016f);
-            float tw3 = tp.measureText(channel), padx = h * 0.008f, bh3 = h * 0.026f;
+            tp.setTextSize(Math.max(h * 0.016f, sp(11)));
+            float tw3 = tp.measureText(channel), padx = h * 0.008f, bh3 = Math.max(h * 0.026f, tp.getTextSize() * 1.6f);
             float bx3 = lx + h * 0.001f, by3 = ly + logoH + h * 0.008f;
             RectF pill = new RectF(bx3, by3, bx3 + tw3 + padx * 2, by3 + bh3);
             tp.setStyle(Paint.Style.FILL);
@@ -291,7 +300,7 @@ public final class LauncherView extends View {
             int[] bc = new int[3];
             int bn = 0;
             if (cur.pat) { lb[bn] = "한패"; bc[bn++] = 0xff2e7d32; }
-            if (cur.sp)  { lb[bn] = "SP";   bc[bn++] = 0xffb26500; }
+            if (cur.sp)  { lb[bn] = "SP";   bc[bn++] = 0xff9c5800; }   /* 135: 흰 글자와 4.4 → 5.5:1 */
             float padX = h * 0.010f, gap = h * 0.008f, bh = h * 0.028f;
             float bw = 0;
             for (int i = 0; i < bn; i++) bw += tp.measureText(lb[i]) + padX * 2 + (i > 0 ? gap : 0);
@@ -315,15 +324,15 @@ public final class LauncherView extends View {
             }
             {   /* 롬 파일명 — 같은 게임 롬이 여럿(J/UE/[h1]/패치본)이면 이름만으론 못 가른다(유저 2026-09-05) */
                 String fn = romName(cur);
-                tp.setColor(withA(0xff6b7388, la));
-                tp.setTextSize(h * 0.015f);
+                tp.setColor(withA(0xff8b93a6, la));            /* 135: 0xff6b7388(4.1:1) → 6:1 */
+                tp.setTextSize(Math.max(h * 0.015f, sp(12)));
                 while (fn.length() > 8 && tp.measureText(fn) > w * 0.9f) fn = fn.substring(0, fn.length() - 2);   /* 너무 길면 자른다 */
                 cv.drawText(fn, w / 2, ly2, tp);
             }
             {   /* 실행 옵션 칩 — 무엇으로 켜질지 늘 보이고, 누르면 바꾸는 창(실행 전 선택창). 카드·A 는 바로 시작(2026-10-11) */
                 String ot = (cur.opt == null || cur.opt.isEmpty()) ? "실행 옵션" : cur.opt;
                 String tail = "  옵션 ›";
-                float ts = h * 0.017f;
+                float ts = Math.max(h * 0.017f, sp(13));
                 tp.setTextSize(ts);
                 float lim = w * 0.86f;
                 ot = fitOpt(ot, tail, lim);
@@ -344,8 +353,8 @@ public final class LauncherView extends View {
                 cv.drawText(tail, tx0 + tp.measureText(ot), by, tp);
                 tp.setTextAlign(Paint.Align.CENTER);
             }
-            tp.setColor(withA(0xff777788, la));
-            tp.setTextSize(h * 0.015f);
+            tp.setColor(withA(0xff8b93a6, la));                /* 135: 0xff777788(4.4:1) → 6:1 */
+            tp.setTextSize(Math.max(h * 0.015f, sp(12)));
             cv.drawText((sel + 1) + " / " + n, w * 0.5f, top - h * 0.006f, tp);
         }
         drawPad(cv);
@@ -509,7 +518,7 @@ public final class LauncherView extends View {
         float badgeBottom = ly + logoH;
         if (channel != null) {                                   /* 금테 상자 「시험 v0.9」 */
             tp.setTypeface(android.graphics.Typeface.DEFAULT);
-            tp.setTextSize(Math.max(dp(10.5f), h * 0.0135f));
+            tp.setTextSize(Math.max(sp(11), h * 0.0135f));
             float tw3 = tp.measureText(channel), padx = dp(7), bh3 = tp.getTextSize() * 1.75f;
             float bx3 = lx, by3 = ly + logoH + dp(8);
             tr.set(bx3, by3, bx3 + tw3 + padx * 2, by3 + bh3);
@@ -654,8 +663,8 @@ public final class LauncherView extends View {
             c.drawText(fit(cur.sub, w * 0.9f), w / 2, ly2, tp);
             ly2 += h * 0.021f;
         }
-        tp.setColor(withA(0xff7c715f, la));
-        tp.setTextSize(h * 0.0145f);
+        tp.setColor(withA(0xff9b8f78, la));                    /* 135: 0xff7c715f(4.0:1) → 6:1 */
+        tp.setTextSize(Math.max(h * 0.0145f, sp(12)));
         c.drawText(fit(romName(cur), w * 0.9f), w / 2, ly2, tp);
         /* 옵션 칩 — 먹색 반투명 + 금테 */
         {
@@ -731,9 +740,9 @@ public final class LauncherView extends View {
         if (art) {
             skin.dpad(c, dcx, dcy, dR * 0.86f, 0);
             Item cur0 = items == null || items.isEmpty() ? null : items.get(sel);
-            skin.button(c, "a", aX, aY, aR, 0xff3f6fd1, false, false, "A");
+            skin.button(c, "a", aX, aY, aR, 0xff3f6fd1, press == P_LAUNCH, false, "A");
             String al = cur0 != null && cur0.resume ? "이어하기" : "시작";
-            embossLabel(c, al, aX, aY + aR * 1.18f + dp(16), Math.max(dp(11), mn * 0.022f));
+            embossLabel(c, al, aX, aY + aR * 1.18f + dp(16), Math.max(sp(13), mn * 0.022f));
         } else {
             drawPad(c);
         }
@@ -744,13 +753,13 @@ public final class LauncherView extends View {
         boolean nw = newer > 0;
         rubberPill(c, p1, py, pw, ph, false);
         rubberPill(c, p2, py, pw, ph, nw);
-        float ls = Math.max(dp(10.5f), Math.min(dp(13), mn * 0.018f));
+        float ls = Math.max(sp(12), Math.min(dp(13), mn * 0.018f));      /* 135: 바닥 10.5 → 12sp */
         float ly3 = py + ph / 2f + pw * 0.13f + dp(12);            /* 기운 알약(−14°)의 낮은 왼쪽 끝 아래 */
         embossLabel(c, "설정", p1, ly3, ls);
         if (nw) {
             tp.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); tp.setTextAlign(Paint.Align.CENTER); tp.setTextSize(ls);
             tp.setLetterSpacing(0.08f);
-            tp.setColor(0xffc4560e);
+            tp.setColor(0xff7a2c00);                           /* 135: 은색 몸통 위 2.4:1 → 5:1 넘게 */
             c.drawText("새 판 받기", p2, ly3, tp);
             tp.setLetterSpacing(0f);
         } else embossLabel(c, "업데이트", p2, ly3, ls);
@@ -797,8 +806,8 @@ public final class LauncherView extends View {
         tp.setLetterSpacing(0f);
         logoR.set(lx - dp(10), ly - dp(10), tx + lw + dp(10), ly + fs * 1.3f + dp(6));
         if (channel != null) {
-            tp.setTypeface(Theme.font("pixel")); tp.setTextSize(fs * 0.70f);
-            float tw = tp.measureText(channel), bw = tw + fs * 0.7f, bh = fs * 1.15f;
+            tp.setTypeface(Theme.font("pixel")); tp.setTextSize(Math.max(fs * 0.70f, sp(11)));
+            float tw = tp.measureText(channel), bw = tw + fs * 0.7f, bh = Math.max(fs * 1.15f, tp.getTextSize() * 1.6f);
             float bx = lcd.right - LW * 0.03f - bw, byt = ly + fs * 0.05f;
             fx.setColor(withA(0xff000000, la)); c.drawRect(bx + sh, byt + sh, bx + bw + sh, byt + bh + sh, fx);
             fx.setStyle(Paint.Style.STROKE); fx.setStrokeWidth(sh); fx.setColor(withA(0xffffcc4d, la));
@@ -857,7 +866,7 @@ public final class LauncherView extends View {
         float ty = cr.bottom + 3 * b3 + LH * 0.045f + tsz;
         shadowText(c, fit(cur.title, LW * 0.92f), lcd.centerX(), ty, withA(0xffffffff, la), withA(0xff000000, la), sh);
         /* 배지 — 색 칸 */
-        float bs = fs * 0.66f;
+        float bs = Math.max(fs * 0.66f, sp(12));
         tp.setTypeface(Theme.font("pixel")); tp.setTextSize(bs);
         List<String> lb = new ArrayList<>(); List<Integer> bc = new ArrayList<>();
         if (cur.pat) { lb.add("한패"); bc.add(0xff4fd27a); }
@@ -875,14 +884,14 @@ public final class LauncherView extends View {
             bx += tw + pad * 2 + gap;
         }
         float ly2 = byt + bh + LH * 0.045f;
-        tp.setTextSize(fs * 0.6f);
-        tp.setColor(withA(0xff6f84a3, la));
+        tp.setTextSize(Math.max(fs * 0.6f, sp(12)));
+        tp.setColor(withA(0xff8fa3c0, la));                     /* 135: 0xff6f84a3(액정 위 4.3:1) → 6:1 */
         String sub = cur.sub.isEmpty() ? romName(cur) : cur.sub;
         c.drawText(fit(sub, LW * 0.9f), lcd.centerX(), ly2, tp);
         /* 옵션 칩 */
         String ot = (cur.opt == null || cur.opt.isEmpty()) ? "실행 옵션" : cur.opt.replace(" · ", "·");
         String tail = "  옵션▶";
-        float ts = fs * 0.66f;
+        float ts = Math.max(fs * 0.66f, sp(12));
         tp.setTextSize(ts);
         ot = fitOpt(ot, tail, LW * 0.86f);
         float cw = tp.measureText(ot + tail) + ts * 1.4f, ch = ts * 2.0f;
@@ -909,7 +918,7 @@ public final class LauncherView extends View {
         tp.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); tp.setFakeBoldText(false);
         tp.setTextAlign(Paint.Align.CENTER); tp.setTextSize(size); tp.setLetterSpacing(0.16f);
         tp.setColor(0xb3ffffff); c.drawText(s, x, y + Math.max(1f, dp(1)), tp);
-        tp.setColor(0xff6c717c); c.drawText(s, x, y, tp);
+        tp.setColor(0xff3f444e); c.drawText(s, x, y, tp);   /* 135: 0xff6c717c(은색 위 2.6:1) → 6:1 넘게 */
         tp.setLetterSpacing(0f); tp.setTypeface(android.graphics.Typeface.DEFAULT);
     }
     /** 비스듬한 고무 알약(설정·업데이트). hot = 새 판 있음(주황). */
@@ -957,7 +966,7 @@ public final class LauncherView extends View {
                     new int[]{ 0xff3a2350, 0xff1b1430, 0xff0b0b10 }, new float[]{ 0f, 0.5f, 1f }, Shader.TileMode.CLAMP));
             c.drawRect(0, 0, w, h, fx);
         }
-        fx.setShader(new LinearGradient(0, 0, 0, h, new int[]{ 0x1a0b0b10, 0x590b0b10, 0xeb0b0b10, 0xff0b0b10 },
+        fx.setShader(new LinearGradient(0, 0, 0, h, new int[]{ 0x4d0b0b10, 0x660b0b10, 0xeb0b0b10, 0xff0b0b10 },   /* 135: 위쪽을 조금 더 어둡게 — 밝은 썸네일 위 흰 로고·글자 */
                 new float[]{ 0f, 0.38f, 0.66f, 1f }, Shader.TileMode.CLAMP));
         c.drawRect(0, 0, w, h, fx);
         fx.setShader(null);
@@ -1060,7 +1069,7 @@ public final class LauncherView extends View {
         c.drawText(fit(cur.title, iw * 0.9f), icx, y, tp);
         tp.setLetterSpacing(0f); tp.setFakeBoldText(false);
         /* 메타 — 한패 · SP · 파일 이름 */
-        float ms = Math.max(dp(11), Math.min(dp(13), iw * 0.034f));
+        float ms = Math.max(sp(12), Math.min(dp(13), iw * 0.034f));
         tp.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); tp.setTextSize(ms);
         List<String> tags = new ArrayList<>(); List<int[]> tc = new ArrayList<>();
         if (cur.pat) { tags.add("한패"); tc.add(new int[]{ 0x334cc86e, 0xff8fe7a5 }); }
@@ -1257,7 +1266,7 @@ public final class LauncherView extends View {
             }
             if (hot) { fx.setColor(0xffff5a4f); c.drawCircle(cx + isz * 0.62f, iy - isz * 0.5f, dp(4), fx); }
             tp.setTypeface(on || hot ? android.graphics.Typeface.DEFAULT_BOLD : android.graphics.Typeface.DEFAULT);
-            tp.setTextAlign(Paint.Align.CENTER); tp.setTextSize(Math.max(dp(10.5f), Math.min(dp(12), tabH * 0.17f)));
+            tp.setTextAlign(Paint.Align.CENTER); tp.setTextSize(Math.max(sp(12), Math.min(dp(12), tabH * 0.17f)));
             tp.setColor(col);
             c.drawText(lb[i], cx, top + tabH * 0.83f, tp);
         }
@@ -1298,7 +1307,7 @@ public final class LauncherView extends View {
         Theme th = Theme.get();
         if (art) {
             skin.dpad(c, dcx, dcy, dR, 0);
-            skin.button(c, "a", aX, aY, aR, 0xff3f6fd1, false, false, "A");
+            skin.button(c, "a", aX, aY, aR, 0xff3f6fd1, press == P_LAUNCH, false, "A");   /* 135: 누르는 동안 눌린 모양 */
         } else {
             float arm = dR * 0.42f;
             tp.setStyle(Paint.Style.FILL);
@@ -1310,7 +1319,7 @@ public final class LauncherView extends View {
             c.drawRect(dcx + arm, dcy - arm, dcx + dR, dcy + arm, tp);
             tp.setColor(0x22ffffff);
             c.drawRect(dcx - arm, dcy - arm, dcx + arm, dcy + arm, tp);
-            tp.setColor(0x38ffffff);
+            tp.setColor(press == P_LAUNCH ? 0x70ffffff : 0x38ffffff);
             c.drawCircle(aX, aY, aR, tp);
             tp.setColor(0xffdddddd);
             tp.setTextAlign(Paint.Align.CENTER);
@@ -1319,7 +1328,7 @@ public final class LauncherView extends View {
         }
         tp.setStyle(Paint.Style.FILL);
         tp.setTextAlign(Paint.Align.CENTER);
-        tp.setTextSize(mn * 0.026f);
+        tp.setTextSize(Math.max(mn * 0.026f, sp(13)));           /* 135: 덮개 화면 9sp → 13sp */
         Item cur = (items == null || items.isEmpty()) ? null : items.get(sel);
         String al = cur != null && cur.resume ? "이어하기" : "시작";
         if (th.ink()) {
@@ -1328,7 +1337,7 @@ public final class LauncherView extends View {
             c.drawText(al, aX, aY + aR + aR * 0.62f + (art ? aR * 0.16f : 0), tp);
             tp.setLetterSpacing(0f); tp.setTypeface(android.graphics.Typeface.DEFAULT);
         } else {
-            tp.setColor(0x99ffffff);
+            tp.setColor(0xccffffff);                           /* 135: 60% → 80% 흰색 */
             c.drawText(al, aX, aY + aR + aR * 0.62f, tp);
         }
         tp.setTextAlign(Paint.Align.LEFT);
@@ -1341,71 +1350,100 @@ public final class LauncherView extends View {
 
     /* ── 입력 ───────────────────────────────────────────────────── */
 
+    /* 135(접근성 검수): 누를 자리(시작·이어하기·로고·설정·업데이트·옵션 칩)는 닿는 순간이 아니라 «그 자리에서 손을 뗄 때» 한다.
+       전엔 닿자마자 실행돼, 엄지로 카드를 넘기다 A 를 스치면 게임이 켜지고 로고를 스치면 테마가 바뀌었다.
+       누르는 동안은 눌린 모양·진동, 손가락이 밀려 나가면(끌기·자리 밖) 취소. 십자·◀▶(카드 넘기기)는 예전처럼 바로. */
+    private static final int P_NONE = 0, P_LOGO = 1, P_SET = 2, P_UPD = 3, P_LAUNCH = 4, P_CHIP = 5, P_PLAY = 6;
+    private int press = P_NONE;
+    private final RectF pressR = new RectF(), pressVis = new RectF(), hitTmp = new RectF();
+    private float downY;
+
+    private void arm(int what, RectF hit, RectF vis) {
+        press = what;
+        pressR.set(hit); pressR.inset(-dp(12), -dp(12));        /* 조금 밀려도 그대로 */
+        if (vis != null) pressVis.set(vis); else pressVis.setEmpty();
+        performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
+        invalidate();
+    }
+    /** 옵션 칩 누를 자리 — 보이는 칩(26~29dp)보다 넉넉히, 높이 48dp 까지. */
+    private RectF chipHit() {
+        hitTmp.set(optChip);
+        float need = dp(48) - hitTmp.height();
+        if (need > 0) hitTmp.inset(0, -need / 2f);
+        return hitTmp;
+    }
+
     @Override public boolean onTouchEvent(MotionEvent e) {
         if (items == null) return true;
         float x = e.getX(), y = e.getY();
         switch (e.getActionMasked()) {
         case MotionEvent.ACTION_DOWN:
-            if (!logoR.isEmpty() && logoR.contains(x, y)) {      /* 121: 로고 = 다음 테마 */
-                performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
-                if (listener != null) listener.onTheme();
-                downX = -1;
-                return true;
-            }
-            if (!setR.isEmpty() && setR.contains(x, y)) {
-                performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
-                if (listener != null) listener.onSettings();
-                downX = -1;
-                return true;
-            }
-            if (!updR.isEmpty() && updR.contains(x, y)) {
-                performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);
-                if (listener != null) listener.onUpdate();
-                downX = -1;
-                return true;
-            }
+            press = P_NONE; pressVis.setEmpty();
+            downX = x; downY = y;
+            if (!logoR.isEmpty() && logoR.contains(x, y)) { arm(P_LOGO, logoR, logoR); return true; }   /* 121: 로고 = 다음 테마 */
+            if (!setR.isEmpty() && setR.contains(x, y)) { arm(P_SET, setR, setR); return true; }
+            if (!updR.isEmpty() && updR.contains(x, y)) { arm(P_UPD, updR, updR); return true; }
             if (dR > 0 && dist(x, y, dcx, dcy) < dR * 1.35f) {
                 if (x < dcx - dR * 0.2f) move(-1);
                 else if (x > dcx + dR * 0.2f) move(1);
                 downX = -1;
                 return true;
             }
-            if (!items.isEmpty() && ((aR > 0 && dist(x, y, aX, aY) < aR * 1.35f) || (!playR.isEmpty() && playR.contains(x, y)))) {
-                if (listener != null) listener.onLaunch(items.get(sel).rom);
-                downX = -1;
+            if (!items.isEmpty() && aR > 0 && dist(x, y, aX, aY) < aR * 1.35f) {
+                hitTmp.set(aX - aR * 1.35f, aY - aR * 1.35f, aX + aR * 1.35f, aY + aR * 1.35f);
+                arm(P_LAUNCH, hitTmp, null);                 /* 눌린 모양은 버튼 그림이 */
                 return true;
             }
+            if (!items.isEmpty() && !playR.isEmpty() && playR.contains(x, y)) { arm(P_PLAY, playR, playR); return true; }
             if (!prevR.isEmpty() && prevR.contains(x, y)) { move(-1); downX = -1; return true; }
             if (!nextR.isEmpty() && nextR.contains(x, y)) { move(1); downX = -1; return true; }
             if (bR > 0 && dist(x, y, bX, bY) < bR * 1.35f) {
-                if (listener != null) listener.onUpdate();
-                downX = -1;
+                hitTmp.set(bX - bR * 1.35f, bY - bR * 1.35f, bX + bR * 1.35f, bY + bR * 1.35f);
+                arm(P_UPD, hitTmp, null);
                 return true;
             }
-            if (optR.contains(x, y)) {
-                if (listener != null) listener.onSettings();
-                downX = -1;
-                return true;
-            }
-            if (!items.isEmpty() && !optChip.isEmpty() && optChip.contains(x, y)) {
-                if (listener != null) listener.onOptions(items.get(sel).rom);
-                downX = -1;
-                return true;
-            }
-            downX = x;
+            if (optR.contains(x, y)) { arm(P_SET, optR, optR); return true; }
+            if (!items.isEmpty() && !optChip.isEmpty() && chipHit().contains(x, y)) { arm(P_CHIP, chipHit(), optChip); return true; }
             return true;
-        case MotionEvent.ACTION_UP:
+        case MotionEvent.ACTION_MOVE:
+            if (press != P_NONE) {
+                float slop = android.view.ViewConfiguration.get(getContext()).getScaledTouchSlop();
+                if (!pressR.contains(x, y) || Math.hypot(x - downX, y - downY) > slop * 2f) {   /* 끌기 = 누름 취소(넘기기로) */
+                    press = P_NONE; pressVis.setEmpty(); invalidate();
+                }
+            }
+            return true;
+        case MotionEvent.ACTION_CANCEL:
+            if (press != P_NONE) { press = P_NONE; pressVis.setEmpty(); invalidate(); }
+            downX = -1;
+            return true;
+        case MotionEvent.ACTION_UP: {
+            int p = press;
+            if (p != P_NONE) {
+                press = P_NONE; pressVis.setEmpty(); invalidate();
+                downX = -1;
+                if (listener == null) return true;
+                switch (p) {
+                    case P_LOGO: listener.onTheme(); break;
+                    case P_SET: listener.onSettings(); break;
+                    case P_UPD: listener.onUpdate(); break;
+                    case P_LAUNCH: case P_PLAY: if (!items.isEmpty()) listener.onLaunch(items.get(sel).rom); break;
+                    case P_CHIP: if (!items.isEmpty()) listener.onOptions(items.get(sel).rom); break;
+                }
+                return true;
+            }
             if (downX < 0 || items.isEmpty()) return true;
             float dx = x - downX;
             if (Math.abs(dx) > getWidth() / 8f) {
                 move(dx < 0 ? 1 : -1);
-            } else if (y >= cardTop && y < cardBottom) {
+            } else if (y >= cardTop && y < cardBottom && downY >= cardTop && downY < cardBottom) {
                 float fx2 = x / getWidth();
                 if (fx2 < 0.33f) move(-1);
                 else if (fx2 > 0.67f) move(1);
                 else if (listener != null) listener.onLaunch(items.get(sel).rom);
             }
             return true;
+        }
         }
         return true;
     }

@@ -309,7 +309,28 @@ public class PadView extends View {
         applyDefaults();
         load();
         if (getWidth() > 0) layoutBar(getWidth(), getHeight());   /* 해설 칸 유무가 바뀐다 */
+        updateExclusion();
         invalidate();
+    }
+
+    /** 135(접근성 검수): 화면 가장자리에 붙은 버튼(십자·A+B·B·SP)에서 엄지를 옆으로 밀면 시스템 «뒤로» 제스처로 잡혀
+     *  게임이 목록으로 튕길 수 있었다 → 가장자리 48dp 안에 걸친 버튼 자리를 제스처 예외로(안드로이드 10+, 시스템이 가장자리마다 200dp 까지만 받음). */
+    private void updateExclusion() {
+        if (android.os.Build.VERSION.SDK_INT < 29 || fx == null) return;
+        int w = getWidth(), h = getHeight();
+        if (w <= 0 || h <= 0) return;
+        float dp = getResources().getDisplayMetrics().density, edgeZone = 48 * dp;
+        java.util.ArrayList<android.graphics.Rect> rs = new java.util.ArrayList<>();
+        if (!edit) for (int i = 0; i < nC; i++) {
+            if (!ctrlVisible(i)) continue;
+            int b = bitOf(i);
+            if (b == -2 || b == -3 || b == -4) continue;          /* OPTION·배속·목록 — 가장자리에서 밀 일이 없다 */
+            float r = radOf(i) * 1.25f, l = cx(i) - r, rt = cx(i) + r;
+            if (l > edgeZone && rt < w - edgeZone) continue;
+            rs.add(new android.graphics.Rect(Math.max(0, Math.round(l)), Math.max(0, Math.round(cy(i) - r)),
+                    Math.min(w, Math.round(rt)), Math.min(h, Math.round(cy(i) + r))));
+        }
+        try { setSystemGestureExclusionRects(rs); } catch (Throwable ignored) { }
     }
 
     /** 이 게임이 코어에서 쓰는 기능을 알려 준다 — 상단바의 게임별 칸이 이걸 보고 생긴다. */
@@ -345,6 +366,8 @@ public class PadView extends View {
         invalidate();
     }
     public void toggleBar() { barOpen = !barOpen; if (barOpen) barSel = firstVisible(); menuChanged(); invalidate(); }
+    /** 터치·뒤로가기로 열기 — 패드 커서 강조 없이(135) */
+    public void openBar() { if (barOpen) return; barOpen = true; barSel = -1; menuChanged(); invalidate(); }
     public boolean isBarOpen() { return barOpen || edit; }
 
     /* ── 유틸 바 패드 조작 — 물리 패드만 있는 게임기에서 저장·로드·설정·종료에 닿는 길(리뷰 F17) ── */
@@ -366,6 +389,7 @@ public class PadView extends View {
         if (barSel == UTIL_EDIT) {
             edit = !edit;
             if (!edit) save();
+            layoutBar(getWidth(), getHeight());
             mask = 0; dragIdx = -1; selIdx = -1; dpadPid = -1; dpadMask = 0; dpadLast = 0;
             if (listener != null) listener.onMask(0);
         } else {
@@ -376,6 +400,17 @@ public class PadView extends View {
         invalidate();
     }
     public void barClose() { barOpen = false; barSel = -1; menuChanged(); invalidate(); }
+    /** 배치 편집 중이면 저장하고 끝낸다(뒤로가기) — 편집 중이었으면 true */
+    public boolean endEdit() {
+        if (!edit) return false;
+        edit = false; save();
+        mask = 0; dragIdx = -1; selIdx = -1; dpadPid = -1; dpadMask = 0; dpadLast = 0;
+        if (listener != null) listener.onMask(0);
+        layoutBar(getWidth(), getHeight());
+        menuChanged(); invalidate();
+        return true;
+    }
+    public boolean isEditing() { return edit; }
 
     private void load() {
         try (Scanner s = new Scanner(cfg(), "UTF-8")) {
@@ -393,6 +428,7 @@ public class PadView extends View {
     }
 
     private void save() {
+        updateExclusion();                        /* 135: 옮긴 버튼 자리로 제스처 예외도 */
         StringBuilder sb = new StringBuilder("# 패드 배치 (이름=가로,세로,크기) — 지우면 기본값\n");
         for (int i = 0; i < nC; i++)
             sb.append(prof[i][0]).append('=').append(fx[i]).append(',')
@@ -415,6 +451,7 @@ public class PadView extends View {
         btnR = Math.min(w * 0.082f, padH * 0.17f);
         layoutBar(w, h);
         skin.clear();                             /* 크기별로 구운 그림 — 새 크기로 다시 */
+        post(new Runnable() { @Override public void run() { updateExclusion(); } });
     }
 
     /** 메뉴 알약 높이 — 짧은 변 4.6% 또는 30dp 중 큰 것. EmuActivity.handleH 와 같은 공식(게임 화면을 그 아래에 둔다). */
@@ -430,10 +467,12 @@ public class PadView extends View {
     /** 상단바 배치 — 한 줄에 칸마다 52dp 이상 들어가면 한 줄(폴드 큰 화면·가로), 아니면 두 줄로 접는다(덮개 화면).
      *  바는 「메뉴」 알약 바로 아래. 열려 있는 동안 칸 뒤에 어두운 판을 깔아 게임 그림 위에서도 글자가 읽히게 한다. */
     private final RectF barPlate = new RectF();
+    private boolean barLow = false;     /* 135: 열린 칸을 아래에 둔다(좁고 긴 세로 화면, 편집 중 아님) */
     private void layoutBar(int w, int h) {
         float base = Math.min(w, h);              /* 가로에서도 짧은 변 기준 — 알약·유틸 칸이 반토막 나지 않게(리뷰 F12) */
         float dp = getResources().getDisplayMetrics().density;
-        float uh = Math.max(base * 0.050f, 34 * dp), gap = Math.max(w * 0.006f, 4 * dp), gapY = base * 0.010f;
+        /* 135(접근성 검수): 칸 높이 34 → 48dp — 안드로이드 권장 누름 크기. 덮개 화면에서 76×34dp 라 아래 작은 줄(「빈 칸」「3분 전」)이 9dp 였다 */
+        float uh = Math.max(base * 0.050f, 48 * dp), gap = Math.max(w * 0.006f, 4 * dp), gapY = Math.max(base * 0.010f, 6 * dp);
         int vis = 0;
         for (int i = 0; i < util.length; i++) if (utilVisible(i)) vis++;
         /* 가로에서는 양 끝 10% 를 비운다 — 오른쪽 위 구석 「▶▶」(배속)이 열린 바 끝 칸과 겹치지 않게(폴드 큰 화면 가로처럼 정사각에 가까울 때) */
@@ -444,6 +483,14 @@ public class PadView extends View {
         float uw = Math.min(maxw, (rowW - gap * (perRow - 1)) / perRow);
         float hh = handleH(w, h);
         float y = Math.max(base * 0.052f, hh + 4 * dp);
+        /* 135(접근성 검수 — 유저는 덮개 화면을 엄지로만 쓴다): 좁고 긴 세로 화면에선 열린 칸을 아래 엄지 자리에.
+           메뉴가 열려 있는 동안 게임이 멈추므로 패드 위를 덮어도 된다. 배치 편집 중에는 버튼을 끌어야 하니 위 그대로. */
+        barLow = h > w * 1.6f && !edit;
+        if (barLow) {
+            float totalH = rows * uh + (rows - 1) * gapY;
+            y = h - Math.max(h * 0.035f, 20 * dp) - totalH;
+        }
+        float yTop = y;
         int nThis = Math.min(perRow, vis), placed = 0, inRow = 0;
         float x = (w - (uw * nThis + gap * (nThis - 1))) / 2f;
         float left = x;
@@ -458,11 +505,12 @@ public class PadView extends View {
         }
         barBottom = y + uh;
         float pad = gap * 1.5f;
-        barPlate.set(left - pad, Math.max(base * 0.052f, hh + 4 * dp) - pad, w - left + pad, barBottom + pad);
+        barPlate.set(left - pad, yTop - pad, w - left + pad, barBottom + pad);
         /* 메뉴 버튼 — [≡] 실핸들이 너무 작다는 제보. 항상 보이는 알약 버튼으로. */
         /* 메뉴 알약 — 덮개 화면에서 높이 16dp 라 누르기 힘들었다. 최소 30dp·폭 96dp(그림), 누르는 자리는 더 넓게(handleHit) */
         float hw = Math.max(base * 0.16f, 96 * dp);
         barHandle.set(w * 0.5f - hw / 2f, 0, w * 0.5f + hw / 2f, hh);
+        updateExclusion();                        /* 135: 편집을 켜고 끄거나 크기가 바뀔 때 제스처 예외도 다시 */
     }
 
     /** 화면 위 안내 띠(EmuActivity) 자리 찾기 — 세로 [top, bottom] 줄에서 보이는 버튼(원·십자·OPTION 알약)과 겹치지 않는
@@ -602,7 +650,7 @@ public class PadView extends View {
         /* 되돌리기 칩 — 불러오기·리셋 뒤 5초. 메뉴가 열려 있으면 숨긴다(칸과 겹치지 않게) */
         if (undoLive() && !(barOpen || edit)) {
             float base = Math.min(w, getHeight()), dpx = getResources().getDisplayMetrics().density;
-            float chH = Math.max(base * 0.050f, 38 * dpx);
+            float chH = Math.max(base * 0.050f, 48 * dpx);   /* 135: 38 → 48dp */
             text.setTextSize(chH * 0.42f);
             String ul = "되돌리기";
             float chW = text.measureText(ul) + chH * 1.2f;
@@ -660,10 +708,12 @@ public class PadView extends View {
             c.drawRoundRect(hintPlate, pad, pad, fill);
             for (int k = 0; k < hint.length; k++)
                 c.drawText(hint[k], w / 2f, top + pad + ts + lh * k, text);
-            float bw = w * 0.10f, bh = getHeight() * 0.038f, byy = hintPlate.bottom + getHeight() * 0.010f;
-            minus.set(w * 0.26f, byy, w * 0.26f + bw, byy + bh);
-            resetBtn.set(w * 0.41f, byy, w * 0.59f, byy + bh);
-            plus.set(w * 0.64f, byy, w * 0.64f + bw, byy + bh);
+            float dpq = getResources().getDisplayMetrics().density;   /* 135: 누름 크기 48dp 이상(덮개 화면에서 34×31dp 였다) */
+            float bw = Math.max(w * 0.10f, 56 * dpq), bh = Math.max(getHeight() * 0.038f, 48 * dpq), byy = hintPlate.bottom + getHeight() * 0.010f;
+            float rw2 = Math.max(w * 0.18f, 96 * dpq), gap2 = Math.max(w * 0.05f, 12 * dpq);
+            resetBtn.set(w / 2f - rw2 / 2f, byy, w / 2f + rw2 / 2f, byy + bh);
+            minus.set(resetBtn.left - gap2 - bw, byy, resetBtn.left - gap2, byy + bh);
+            plus.set(resetBtn.right + gap2, byy, resetBtn.right + gap2 + bw, byy + bh);
             boolean armed = android.os.SystemClock.uptimeMillis() < resetArmUntil;
             fill.setColor(0xe0202020);                       /* 불투명 — 게임 화면 위에서도 버튼으로 보이게 */
             c.drawRoundRect(minus, 10, 10, fill);
@@ -736,7 +786,7 @@ public class PadView extends View {
             if (!ctrlVisible(i)) continue;
             int b = bitOf(i);
             if (b == -2) {
-                if (opt.contains(x, y)) m |= 1 << Emu.START;
+                if (optHit().contains(x, y)) m |= 1 << Emu.START;
             } else if (b >= 0) {
                 /* 누른 채 미끄러져도 강약 홀드가 끊기지 않게, 이미 눌린 버튼은 이탈 반경을 넓게 */
                 float mul = (mask & (1 << b)) != 0 ? 1.60f : 1.25f;
@@ -744,6 +794,16 @@ public class PadView extends View {
             }
         }
         return m;
+    }
+
+    /** OPTION 누르는 자리 — 그림(실기처럼 작은 알약)은 그대로, 누르는 자리만 48dp 이상(135 접근성 검수: 덮개 화면에서 69×14.5dp 였다) */
+    private final RectF optHitR = new RectF();
+    private RectF optHit() {
+        float dp = getResources().getDisplayMetrics().density, min = 48 * dp;
+        optHitR.set(opt);
+        if (optHitR.height() < min) optHitR.inset(0, -(min - optHitR.height()) / 2f);
+        if (optHitR.width() < min) optHitR.inset(-(min - optHitR.width()) / 2f, 0);
+        return optHitR;
     }
 
     private int dpadIndex() {
@@ -842,6 +902,7 @@ public class PadView extends View {
             if ((barOpen || edit) && util[UTIL_EDIT].contains(x, y)) {   /* 「키」 */
                 edit = !edit;
                 if (!edit) save();
+                layoutBar(getWidth(), getHeight());
                 mask = 0; dragIdx = -1; selIdx = -1;
                 dpadPid = -1; dpadMask = 0; dpadLast = 0;
                 if (listener != null) listener.onMask(0);
@@ -899,6 +960,12 @@ public class PadView extends View {
                         invalidate();
                         return true;
                     }
+                }
+                /* 135(접근성 검수): 칸 판 밖 아무 데나 누르면 이어하기 — 「이어하기」 알약은 화면 맨 위라 엄지가 안 닿는다.
+                   판 안 칸 사이 빈틈은 잘못 누른 것으로 보고 아무 일도 안 한다. 편집 중엔 끌기라 해당 없음. */
+                if (!edit) {
+                    if (!barPlate.contains(x, y)) barClose();
+                    return true;
                 }
             }
             if (hidesTouch()) return true;            /* 버튼을 숨겼을 때만 게임 입력도 안 받는다 */

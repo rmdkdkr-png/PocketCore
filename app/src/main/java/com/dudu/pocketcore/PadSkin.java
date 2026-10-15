@@ -776,7 +776,7 @@ final class PadSkin {
             tx.setColor(lit ? 0xfffff3d6 : 0xd8e8e4da);
             c.drawText(a, box.centerX(), ya, tx);
             tx.setTextSize(sb);
-            tx.setColor(lit ? 0xd0fff3d6 : 0x9ad8d4ca);
+            tx.setColor(lit ? 0xe8fff3d6 : 0xd0d8d4ca);   /* 135: 작은 줄 대비 올림(60% → 82% 불투명) */
             c.drawText(b, box.centerX(), yb, tx);
             return;
         }
@@ -798,10 +798,11 @@ final class PadSkin {
         android.graphics.Typeface face = th.ink() ? Theme.font("ink_b") : lcd ? Theme.font("pixel_b") : android.graphics.Typeface.DEFAULT_BOLD;
         tx.setTypeface(face); tx.setFakeBoldText(false);
         int main, sub;
-        if (th.ink()) { main = lit ? 0xfffff1d0 : 0xffecdcb8; sub = lit ? 0xd0f6dc95 : 0x9ad6c9a8; }
-        else if (lcd) { main = lit ? 0xffffcc4d : 0xffe9eef7; sub = lit ? 0xd0ffcc4d : 0xa08fa3c0; }
-        else if (th.pocket()) { main = 0xfff2f3f6; sub = 0xc0e4e6ea; }
-        else { main = lit ? 0xffffd2b0 : 0xf2ffffff; sub = lit ? 0xd0ffd2b0 : 0x99ffffff; }
+        /* 135(접근성 검수): 아래 작은 줄(「빈 칸」「3분 전」)이 60% 불투명이라 어두운 칸 위에서 흐렸다 → 82~88% */
+        if (th.ink()) { main = lit ? 0xfffff1d0 : 0xffecdcb8; sub = lit ? 0xe8f6dc95 : 0xd8d6c9a8; }
+        else if (lcd) { main = lit ? 0xffffcc4d : 0xffe9eef7; sub = lit ? 0xe8ffcc4d : 0xd8a8b8d0; }
+        else if (th.pocket()) { main = 0xfff2f3f6; sub = 0xe0e4e6ea; }
+        else { main = lit ? 0xffffd2b0 : 0xf2ffffff; sub = lit ? 0xe8ffd2b0 : 0xd0ffffff; }
         int nl = s.indexOf('\n');
         if (nl >= 0) {
             String a = s.substring(0, nl), b = s.substring(nl + 1);

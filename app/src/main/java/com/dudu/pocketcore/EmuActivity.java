@@ -774,8 +774,18 @@ public class EmuActivity extends Activity {
         if (hubCard != null) { hubReturn(-1); return; }      /* 결과 카드에서 뒤로 = 계속 */
         if (leagueId != null) { leagueLeave(); return; }
         if (leagueHub) { hubLeave(); return; }
+        /* 135(접근성 검수 — 유저는 덮개 화면을 엄지로만 쓴다): 뒤로 = 멈춤 메뉴(덮개 화면에선 칸이 아래 엄지 자리), 한 번 더 = 목록.
+           「메뉴」 알약은 화면 맨 위라 엄지가 안 닿았고, 십자에서 엄지가 가장자리로 밀리면 한 번에 목록으로 튕겼다.
+           목록으로 나갈 때 오토세이브는 그대로라 «한 번 더»의 길은 예전과 같다. 배치 편집 중이면 편집만 끝낸다. */
+        if (pad != null && pad.endEdit()) return;
+        if (pad != null && loaded && !pad.isBarOpen()) {
+            pad.openBar();
+            if (!backHintShown) { backHintShown = true; toast("멈춤 — 한 번 더 뒤로 가면 목록으로"); }
+            return;
+        }
         goList();
     }
+    private boolean backHintShown = false;
 
     /* options.txt 에 키를 갈아 끼워 재시작 후에도 유지 */
     private void persistOption(String key, String val) {
@@ -895,7 +905,11 @@ public class EmuActivity extends Activity {
             int code = e.getKeyCode();
             boolean navKey = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
                           || code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_BACK;
-            if (pad != null && pad.isBarOpen() && (gamepad || navKey)) {
+            /* 135: 화면의 «뒤로»(내비 버튼·제스처 — 가상 장치)는 바를 닫지 않고 onBackPressed 로 — 메뉴가 열려 있으면 «한 번 더 = 목록».
+               패드의 BACK(B 버튼 등)은 예전처럼 바 닫기 */
+            boolean sysBack = code == KeyEvent.KEYCODE_BACK && (e.getDeviceId() == android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
+                    || e.getDevice() == null || e.getDevice().isVirtual());
+            if (pad != null && pad.isBarOpen() && (gamepad || navKey) && !sysBack) {
                 String f = keymap != null ? keymap.funcOf(code) : null;
                 if (e.getAction() == KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) {
                     if ("menu".equals(f)) pad.toggleBar();
@@ -946,6 +960,15 @@ public class EmuActivity extends Activity {
         if (m == 0) axisByDev.delete(e.getDeviceId()); else axisByDev.put(e.getDeviceId(), m);
         int all = 0;
         for (int i = 0; i < axisByDev.size(); i++) all |= axisByDev.valueAt(i);
+        if (sheet != null && sheet.isShowing()) {   /* 135: 옵션 창이 떠 있으면 스틱·HAT 십자도 창으로(전엔 키 십자만 갔다) — 게임엔 안 간다 */
+            int rise = all & ~axisPrev;
+            if ((rise & (1 << Emu.UP)) != 0)    sheet.moveFocus(-1);
+            if ((rise & (1 << Emu.DOWN)) != 0)  sheet.moveFocus(+1);
+            if ((rise & (1 << Emu.LEFT)) != 0)  sheet.adjust(-1);
+            if ((rise & (1 << Emu.RIGHT)) != 0) sheet.adjust(+1);
+            axisPrev = all; axisMask = 0;
+            return true;
+        }
         if (pad.isBarOpen()) {                 /* 바가 열려 있으면 스틱 좌우 엣지로 칸 이동, 게임엔 안 간다 */
             int rise = all & ~axisPrev;
             if ((rise & (1 << Emu.LEFT)) != 0)  pad.barMove(-1);

@@ -194,6 +194,14 @@ public class SettingsActivity extends Activity {
     /** 첫 화면 — 갈래 목록. */
     private void buildTop(LinearLayout col) {
         header(col, "설정", null);
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        if (dm.heightPixels > dm.widthPixels * 1.6f && sv != null) {
+            /* 135(접근성 검수 — 덮개 화면을 엄지로만 쓴다): 갈래 목록을 화면 아래쪽에 붙인다. 제목은 위 그대로, 사이를 띄운다.
+               목록이 화면보다 길면 그냥 위에서부터(빈칸 0). */
+            sv.setFillViewport(true);
+            View gap = new View(this);
+            col.addView(gap, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        }
         LinearLayout card = card(col);
         boolean first = true;
         for (final Settings.Page p : Settings.PAGES) {
@@ -257,8 +265,10 @@ public class SettingsActivity extends Activity {
         arrow.setPadding(dp(10), 0, 0, 0);
         row.addView(arrow);
         row.setClickable(true);
+        row.setBackground(rowBg());
         row.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
+                if (debounce()) return;
                 Intent i = new Intent(SettingsActivity.this, SettingsActivity.class).putExtra("page", p.id);
                 if (rom != null) i.putExtra("rom", rom);
                 startActivity(i);
@@ -419,6 +429,31 @@ public class SettingsActivity extends Activity {
                 getResources().getDisplayMetrics());
     }
 
+    /** 135(접근성 검수): 줄 배경 — 누르면 옅게, 패드로 서면 테마 강조색 테(2dp). 전엔 누름·포커스가 안 보였다(포커스는 테마와 안 맞는 시스템 테두리뿐). */
+    private android.graphics.drawable.Drawable rowBg() { return rowBg(true); }
+    private android.graphics.drawable.Drawable rowBg(boolean pressFx) {
+        android.graphics.drawable.StateListDrawable sl = new android.graphics.drawable.StateListDrawable();
+        android.graphics.drawable.GradientDrawable focused = new android.graphics.drawable.GradientDrawable();
+        focused.setColor((GOLD & 0x00ffffff) | 0x1a000000);
+        focused.setStroke(dp(2), GOLD);
+        focused.setCornerRadius(dp(6));
+        android.graphics.drawable.GradientDrawable pressed = new android.graphics.drawable.GradientDrawable();
+        pressed.setColor((TXT & 0x00ffffff) | 0x14000000);
+        pressed.setCornerRadius(dp(6));
+        sl.addState(new int[]{ android.R.attr.state_focused }, focused);
+        if (pressFx) sl.addState(new int[]{ android.R.attr.state_pressed }, pressed);
+        sl.addState(new int[]{}, new android.graphics.drawable.ColorDrawable(0));
+        return sl;
+    }
+
+    /* 갈래 줄 두 번 톡 = 같은 화면 두 장(135) — 0.6초 안의 두 번째 누름은 버린다 */
+    private long lastOpen = 0;
+    private boolean debounce() {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastOpen < 600) return true;
+        lastOpen = now; return false;
+    }
+
     private LinearLayout.LayoutParams lp(int w, int h, int l, int t, int r, int b) {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(w, h);
         p.setMargins(l, t, r, b);
@@ -451,6 +486,7 @@ public class SettingsActivity extends Activity {
         h2.setPadding(0, dp(4), dp(40), 0);
         row.addView(h2);
         row.setClickable(true);
+        row.setBackground(rowBg());
         row.setOnClickListener(l);
         return row;
     }
@@ -480,7 +516,7 @@ public class SettingsActivity extends Activity {
         if (tag != null) {
             TextView t = new TextView(this);
             t.setText(tag);
-            t.setTextColor(TAG); t.setTextSize(11);
+            t.setTextColor(TAG); t.setTextSize(12);   /* 135: 11 → 12sp */
             face(t, false, false);
             t.setPadding(0, dp(2), 0, 0);
             row.addView(t);
@@ -527,28 +563,45 @@ public class SettingsActivity extends Activity {
 
         final String[] cur = { Settings.get(vals, it) };
         val.setText(it.names[it.indexOf(cur[0])]);
+        DialBar bar = null;
         if (it.vals.length > 2) {                             /* 다단 = 가로 다이얼 바(유저 2026-09-05) */
-            DialBar bar = new DialBar(this, it.names, it.indexOf(cur[0]), new DialBar.OnPick() {
+            bar = new DialBar(this, it.names, it.indexOf(cur[0]), new DialBar.OnPick() {
                 @Override public void onPick(int k) {
                     cur[0] = it.vals[k]; val.setText(it.names[k]);
                     store(it, cur[0]);
                 }
             });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
+            bar.setLabel(it.label);
+            /* 135(접근성 검수): 36 → 48dp(누름 크기), 줄이 포커스를 갖고 바는 안 갖는다(패드 한 번에 한 칸씩) */
+            bar.setFocusable(false);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
             lp.topMargin = dp(8);
             row.addView(bar, lp);
         }
+        final DialBar fb = bar;
 
         row.setClickable(true);
+        row.setBackground(rowBg(fb == null));                 /* 다단 줄은 손으로 누르면 아무 일 없으니 눌림 빛도 없이 */
         row.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) {
-                if (it.vals.length > 2) return;                /* 다이얼 줄은 바에서 고른다 */
+                /* 135: 다단 줄도 패드 확인으로 다음 값 — 전엔 바에서만 골라 패드로는 못 바꿨다(좌우 = 한 칸).
+                   손가락으로 줄 글씨를 누른 것은 예전처럼 무시 — 앱 아이콘·테마 줄을 잘못 스쳐 바뀌지 않게(바에서 고른다) */
+                if (fb != null && v.isInTouchMode()) return;
                 int i = (it.indexOf(cur[0]) + 1) % it.vals.length;
+                if (fb != null) { fb.setIndex(i); }
                 cur[0] = it.vals[i];
                 val.setText(it.names[i]);
                 store(it, cur[0]);
             }
         });
+        if (fb != null) row.setOnKeyListener(new View.OnKeyListener() {   /* 패드 좌우 = 한 칸씩 */
+            @Override public boolean onKey(View v, int code, android.view.KeyEvent e) {
+                if (code != android.view.KeyEvent.KEYCODE_DPAD_LEFT && code != android.view.KeyEvent.KEYCODE_DPAD_RIGHT) return false;
+                if (e.getAction() == android.view.KeyEvent.ACTION_DOWN) fb.step(code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
+                return true;
+            }
+        });
+        row.setContentDescription(it.label);
         return row;
     }
 
@@ -565,7 +618,8 @@ public class SettingsActivity extends Activity {
         sb.setProgress(idx);
         sb.setProgressTintList(ColorStateList.valueOf(GOLD));
         sb.setThumbTintList(ColorStateList.valueOf(GOLD));
-        sb.setProgressBackgroundTintList(ColorStateList.valueOf(LINE));
+        sb.setProgressBackgroundTintList(ColorStateList.valueOf(DIM));   /* 135: LINE(카드와 1.2:1 — 0% 면 트랙이 안 보였다) → DIM */
+        sb.setContentDescription(it.label);
         sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             boolean dragging = false;
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
@@ -575,8 +629,8 @@ public class SettingsActivity extends Activity {
             @Override public void onStartTrackingTouch(SeekBar s) { dragging = true; }
             @Override public void onStopTrackingTouch(SeekBar s) { dragging = false; store(it, it.vals[s.getProgress()]); }
         });
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36));
-        lp.topMargin = dp(6);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48));   /* 135: 36 → 48dp */
+        lp.topMargin = dp(2);
         row.addView(sb, lp);
         return row;
     }

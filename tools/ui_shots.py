@@ -101,21 +101,23 @@ def scroll_shots(name, pages=3):
         shot("%s_%d" % (name, i))
 
 
-def bar_cells(w, h, labels, density=420):
+def bar_cells(w, h, labels, density=420, edit=False):
     """PadView.layoutBar 와 같은 계산 — 보이는 칸들의 가운데 좌표(뷰 기준)."""
     dp = density / 160.0
     base = min(w, h)
     vis = len(labels)
-    uh = max(base * 0.050, 34 * dp)
+    uh = max(base * 0.050, 48 * dp)                  # 135: 34 → 48dp
     hh = max(base * 0.046, 30 * dp)                  # 메뉴 알약 높이(PadView.handleH)
     gap = max(w * 0.006, 4 * dp)
-    gap_y = base * 0.010
+    gap_y = max(base * 0.010, 6 * dp)
     row_w = w * (0.80 if w > h else 0.96)
     rows = 1 if (row_w - gap * (vis - 1)) / vis >= 52 * dp else 2
     per = (vis + rows - 1) // rows
     maxw = base * 0.16 if w > h else w * 0.22
     uw = min(maxw, (row_w - gap * (per - 1)) / per)
     y = max(base * 0.052, hh + 4 * dp)
+    if h > w * 1.6 and not edit:                     # 135: 좁고 긴 세로 화면(덮개)은 열린 칸이 아래 엄지 자리(배치 편집 중엔 위)
+        y = h - max(h * 0.035, 20 * dp) - (rows * uh + (rows - 1) * gap_y)
     out = {}
     placed = 0
     in_row = 0
@@ -168,13 +170,13 @@ def screen_box():
 
 
 def dial_under(help_prefix, density=420):
-    """설명 글 바로 아래 다이얼 바(DialBar 는 캔버스라 노드가 없다) — SettingsActivity.row: 설명 아래 8dp, 높이 36dp."""
+    """설명 글 바로 아래 다이얼 바(DialBar 는 캔버스라 노드가 없다) — SettingsActivity.row: 설명 아래 8dp, 높이 48dp(135)."""
     b = find(lambda n: (n.get("text") or "").startswith(help_prefix))
     if not b:
         print("no help", help_prefix)
         return None
     dp = density / 160.0
-    return (b[0], int(b[3] + 8 * dp), b[2], int(b[3] + 44 * dp))
+    return (b[0], int(b[3] + 8 * dp), b[2], int(b[3] + 56 * dp))
 
 
 def scroll_top():
@@ -185,6 +187,10 @@ def scroll_top():
 
 def settings_pages(tag, pages, custom_check=False):
     shot(tag + "_06_settings_top")
+    if custom_check:                                   # 135: 패드(키) 아래 한 번 — 줄 포커스 테가 보이나
+        sh("input keyevent 20")
+        time.sleep(0.8)
+        shot(tag + "_06b_settings_key")
     for page in pages:
         if tap_text(page):
             time.sleep(2)
@@ -250,6 +256,12 @@ def run(tag, size, density, bar_labels, with_settings):
         sh("input keyevent 109")                                   # SELECT = 옵션 창
     time.sleep(2.5)
     shot(tag + "_02_launchsheet")
+    sh("input keyevent 19")                                        # 135: 키 위 — 커서가 마지막 줄로(테 + 설명 펼침)
+    time.sleep(0.8)
+    shot(tag + "_02b_sheet_key")
+    sh("input keyevent 20")                                        # 다시 「시작」 단추(겹테)
+    time.sleep(0.6)
+    shot(tag + "_02c_sheet_key_start")
     b = find(lambda n: (n.get("text") or "").startswith("시작"))         # 「시작  ▶」 단추(설명 글의 «라운드 시작» 말고)
     if b:
         sh("input tap %d %d" % ((b[0] + b[2]) // 2, (b[1] + b[3]) // 2))
@@ -304,7 +316,8 @@ def run(tag, size, density, bar_labels, with_settings):
         sh("input tap %d %d" % (pv[0] + int(cx), pv[1] + int(cy)))       # 배치(편집) 켜기
         time.sleep(1.5)
         shot(tag + "_09_edit")
-        sh("input tap %d %d" % (pv[0] + int(cx), pv[1] + int(cy)))       # 배치 끄기(저장)
+        ex, ey = bar_cells(w, h, bar_labels, density, edit=True)["배치"]   # 135: 편집 중엔 칸이 위로
+        sh("input tap %d %d" % (pv[0] + int(ex), pv[1] + int(ey)))       # 배치 끄기(저장)
         time.sleep(1)
     sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(max(base * 0.046, 30 * density / 160.0) / 2)))   # 메뉴 닫기(이어하기)
     time.sleep(1)
