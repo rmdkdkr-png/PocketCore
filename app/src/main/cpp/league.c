@@ -29,6 +29,8 @@
 #include <string.h>
 #include <stddef.h>
 #include "league.h"
+#include "look.h"
+#include "vpanel.h"
 #include "hub_glyphs.h"
 #define PG_WANT_MENU
 #include "practice_glyphs.h"
@@ -95,93 +97,13 @@ static struct {
    int bits, w1, w2, ko, need, timev_eff, p1blk, p2blk, p2blk_first, card1, card2, cpu_lv, cpu_atk, cpu_def;
    unsigned frames, fight_frame, done_frame;
    int stage;               /* 배경 0~7(R_BOUT 에 쓴다), −1 = 게임 그대로(1판 배경) */
-   int color;               /* 내 컬러 0 기본 · 1 2P색 · 2 컬러 3 · 3 컬러 4 */
+   int color;               /* 안 씀(늘 0) — 컬러는 look.c. 연습 이어하기 덩어리(.prac)가 sizeof L 그대로라 칸은 남긴다 */
 } L;
-static int look_stage = -1, look_color = 0;   /* 다음 무장에 쓸 배경·컬러(league_look) — 무장이 L 을 비워도 남게 따로 */
+static int look_stage = -1, look_color = 0;   /* 다음 무장에 쓸 배경(league_look) — 무장이 L 을 비워도 남게 따로. look_color 는 안 씀(.prac 칸 자리) */
 
-/* ── 컬러 — 이 게임은 캐릭터 고르기에 컬러 고르기가 없다(B·옵션은 아무 일 없음, 실측). 캐릭터·검질마다 기본 팔레트와,
-   같은 캐릭터·같은 검질 미러전에서 P2 에 쓰는 «2P색» 팔레트가 있다(P2 블록 +0x04 — P1 블록에 +0x04 를 써도 P1 은 안 바뀜).
-   P1 몸은 스프라이트 팔레트 0(동물 짝꿍은 3·4 — 2P색에서도 안 바뀜), P2 몸은 5. 경기 화면에서 팔레트 램의 P1 팔레트 0 색이
-   기본 색과 같을 때만 고른 색으로 바꿔 쓴다(맞을 때 번쩍임·분노처럼 게임이 잠깐 바꾼 색은 그대로).
-   표: [캐릭터][검질] = { 기본 색 1~3, 2P색 1~3 } — 미러전에서 실측(색 0 은 투명). 12비트 0x0BGR */
-static const uint16_t PAL1[14][2][2][3] = {
-   { { {0xBDF, 0x00D, 0x005}, {0xBDF, 0x05F, 0x014} }, { {0x9BF, 0x309, 0x005}, {0x9BF, 0x26C, 0x015} } },   /* 0 */
-   { { {0xBDF, 0xF90, 0x420}, {0xCDF, 0x980, 0x230} }, { {0xFDE, 0xD57, 0x420}, {0xFDE, 0xA46, 0x330} } },   /* 1 */
-   { { {0xBDF, 0x00D, 0x023}, {0xBDF, 0x080, 0x023} }, { {0x9BF, 0xA40, 0x023}, {0x9BF, 0x827, 0x023} } },   /* 2 */
-   { { {0xBCF, 0x60C, 0x005}, {0xBCF, 0x406, 0x002} }, { {0xBDF, 0xC66, 0x500}, {0xBDF, 0x07D, 0x033} } },   /* 3 */
-   { { {0xCDF, 0x43F, 0x224}, {0xBDF, 0x07F, 0x224} }, { {0xBCF, 0xA0A, 0x224}, {0xBDF, 0xA6F, 0x224} } },   /* 4 */
-   { { {0xCDF, 0xF50, 0x410}, {0xCDF, 0xA90, 0x230} }, { {0xCDF, 0xF67, 0x312}, {0xCDF, 0xA6F, 0x223} } },   /* 5 */
-   { { {0x9DF, 0x653, 0x210}, {0xDDD, 0x623, 0x302} }, { {0xAFF, 0x628, 0x005}, {0xAFF, 0x07C, 0x123} } },   /* 6 */
-   { { {0xBDF, 0xF81, 0x410}, {0xBDF, 0x09F, 0x023} }, { {0xCDF, 0xA00, 0x500}, {0xCDF, 0xE33, 0x510} } },   /* 7 */
-   { { {0xFFF, 0x444, 0x222}, {0xFFF, 0x988, 0x222} }, { {0xFF9, 0x00D, 0x004}, {0xFF9, 0xD0A, 0x203} } },   /* 8 */
-   { { {0xBEF, 0xF55, 0x401}, {0xFFF, 0x40F, 0x104} }, { {0xCEF, 0x00F, 0x014}, {0xCEF, 0xB4B, 0x203} } },   /* 9 */
-   { { {0xBEF, 0xC72, 0x500}, {0x9EF, 0x02D, 0x114} }, { {0xBDF, 0x074, 0x032}, {0x9CD, 0x679, 0x213} } },   /* 10 */
-   { { {0xBDF, 0xE60, 0x500}, {0xBBF, 0x40A, 0x005} }, { {0xBDF, 0x380, 0x032}, {0xBCF, 0xA67, 0x303} } },   /* 11 */
-   { { {0xADF, 0x36A, 0x123}, {0xBDF, 0x03B, 0x123} }, { {0xADF, 0x363, 0x123}, {0xFFF, 0xBBB, 0x123} } },   /* 12 */
-   { { {0xEFF, 0xB40, 0x500}, {0xCDF, 0xA0F, 0x303} }, { {0xFFF, 0xB99, 0x222}, {0xBBF, 0xA48, 0x203} } },   /* 13 */
-};
-static uint8_t *g_pal;                /* 코어 팔레트 램(0x8200~, 스프라이트 팔레트 16 × 4색 × 2바이트) */
-
-/* 컬러 3·4 — 기본 색에서 만든다: 가장 밝은 색(살색·밝은 데)은 두고 나머지 둘의 색상을 돌린다(무채색이면 정한 색으로 물들임) */
-static uint16_t gen_color(uint16_t c, int k)
-{
-   float r = (c & 15) / 15.f, g = ((c >> 4) & 15) / 15.f, b = ((c >> 8) & 15) / 15.f;
-   float mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b), d = mx - mn;
-   float h = 0, sat = mx > 0 ? d / mx : 0, v = mx;
-   if (d > 0) {
-      if (mx == r) h = (g - b) / d; else if (mx == g) h = 2 + (b - r) / d; else h = 4 + (r - g) / d;
-      h *= 60; if (h < 0) h += 360;
-   }
-   if (sat < 0.25f) { h = k == 2 ? 350 : 160; sat = 0.65f; if (v < 0.5f) v = 0.3f + v * 0.8f; }   /* 무채색 — 진홍 · 청록으로 물들임(어두운 회색은 밝혀서 색이 보이게) */
-   else h += k == 2 ? 120 : 240;
-   while (h >= 360) h -= 360;
-   {
-      float cc = v * sat, x = cc * (1 - (float)__builtin_fabs(__builtin_fmodf(h / 60, 2) - 1)), m = v - cc, rr = 0, gg = 0, bb = 0;
-      int hi = (int)(h / 60);
-      if (hi == 0) { rr = cc; gg = x; } else if (hi == 1) { rr = x; gg = cc; } else if (hi == 2) { gg = cc; bb = x; }
-      else if (hi == 3) { gg = x; bb = cc; } else if (hi == 4) { rr = x; bb = cc; } else { rr = cc; bb = x; }
-      int R = (int)((rr + m) * 15 + .5f), G = (int)((gg + m) * 15 + .5f), B = (int)((bb + m) * 15 + .5f);
-      return (uint16_t)((R & 15) | ((G & 15) << 4) | ((B & 15) << 8));
-   }
-}
-static void look_targets(int ch, int sty, int color, uint16_t out[3])
-{
-   const uint16_t *base = PAL1[ch][sty][0];
-   for (int j = 0; j < 3; j++)
-      out[j] = color == 1 ? PAL1[ch][sty][1][j] : color >= 2 && j > 0 ? gen_color(base[j], color) : base[j];
-}
-static uint16_t pal_rd(int pal, int j) { const uint8_t *e = g_pal + pal * 8 + (j + 1) * 2; return (uint16_t)(e[0] | (e[1] << 8)); }
-static void pal_wr(int pal, int j, uint16_t v) { uint8_t *e = g_pal + pal * 8 + (j + 1) * 2; e[0] = (uint8_t)v; e[1] = (uint8_t)(v >> 8); }
-/* 경기 화면에서 매 프레임 — 팔레트의 세 색이 모두 기본 색일 때만 바꾼다(맞을 때 번쩍임처럼 한 칸만 같은 다른 팔레트는 그대로).
-   미러전에서 내가 2P색이면 P2(게임이 2P색으로 칠함)를 기본 색으로 */
-static int pal_is(int pal, const uint16_t c[3]) { return pal_rd(pal, 0) == c[0] && pal_rd(pal, 1) == c[1] && pal_rd(pal, 2) == c[2]; }
-static void look_apply(const uint8_t *ram)
-{
-   int b1 = ram[R_P1BLK], b2 = ram[R_P2BLK], ch = b1 >> 4, sty = (b1 >> 3) & 1;
-   uint16_t t[3];
-   if (!g_pal || L.color <= 0 || ch >= 14) return;
-   look_targets(ch, sty, L.color, t);
-   if (pal_is(0, PAL1[ch][sty][0])) for (int j = 0; j < 3; j++) pal_wr(0, j, t[j]);
-   if (L.color == 1 && (b2 & 0xF8) == (b1 & 0xF8) && pal_is(5, PAL1[ch][sty][1]))
-      for (int j = 0; j < 3; j++) pal_wr(5, j, PAL1[ch][sty][0][j]);
-}
-
-/* 캐릭터·검질 고르기 미리보기 그림(스프라이트 팔레트 0, 커서 캐릭터의 기본 색 — 검질 고르기에서는 고른 검질 색) — 지금 색이
-   그 캐릭터 어느 검질의 컬러 0~3 중 하나면 고른 컬러로 바꿔 쓴다(커서를 옮기면 게임이 새 캐릭터 기본 색을 쓰니 다시 맞춘다) */
-static void look_preview(const uint8_t *ram, int color)
-{
-   int ch = ram[R_HOVER] >> 2;
-   uint16_t cur[3], t[3];
-   if (!g_pal || ch >= 14) return;
-   for (int j = 0; j < 3; j++) cur[j] = pal_rd(0, j);
-   for (int sty = 0; sty < 2; sty++)
-      for (int c = 0; c < 4; c++) {
-         look_targets(ch, sty, c, t);
-         if (t[0] != cur[0] || t[1] != cur[1] || t[2] != cur[2]) continue;
-         if (c != color) { look_targets(ch, sty, color, t); for (int j = 0; j < 3; j++) pal_wr(0, j, t[j]); }
-         return;
-      }
-}
+/* ── 컬러 — look.c(모든 모드: 1인·무한·연습·리그)로 옮겼다. 캐릭터·검질 고르기의 OPTION(다음 컬러)·B(2P색으로 결정)·미리보기 색·
+   오른쪽 세로 칸 컬러 이름·경기 중 코어 팔레트 바꿔 쓰기는 모두 look 이 한다. 허브는 고르기 화면 입력을 쓰는 동안(상대 선택·대신 누르기)만
+   league_hub_owns_select() 로 look 에 «바쁨»을 알린다(native.c 가 look_tick 의 ctx 로 넘김). 세로 칸 주인은 vpanel.c 하나. */
 
 /* ── 게임 속 리그(허브) — 타이틀 메뉴 «2인 대전»(통신 대전) 자리를 «리그 대전»으로 쓴다 ─────────────────────
    H_TITLE    타이틀 메뉴 셋째 줄 글자를 «리그 대전»으로 바꿔 그리고(한글판 배치일 때만), 그 칸에서 누른 A 는 게임 대신 받는다
@@ -224,10 +146,10 @@ static struct {
    int hold_a;                       /* 허브가 받은 A 를 사용자가 뗄 때까지 게임에도 안 준다(누른 채로 넘어가 게임이 받지 않게) */
    signed char home[15];             /* 캐릭터 id → 그 리그 상대의 기본 배경(0~7, 없으면 −1) */
    int stage_sel;                    /* 배경 고르기: −1 상대 기본 · −2 무작위 · 0~7 그 배경 (상대 고르기에서 B) */
-   int color;                        /* 내 컬러 0~3 (내 캐릭터·검질 고르기에서 옵션 · B 로 고르면 1) */
+   int color;                        /* 안 씀 — 컬러는 look.c(캐릭터마다 기억). .prac 덩어리가 sizeof H 그대로라 칸은 남긴다 */
    int hold_b;                       /* B 로 캐릭터를 확정한 뒤 사용자가 B 를 뗄 때까지 게임에 안 준다(검질 고르기에서 B = 뒤로) */
-   int vp_on;                        /* 오른쪽 세로 이름 칸을 우리 글자로 바꿔 놓았나 */
-   uint16_t vp_orig[18];             /* 그 칸들의 원래 값(게임이 다시 쓰면 새 값으로) */
+   int vp_on;                        /* 오른쪽 세로 이름 칸을 배경 글자로 바꿔 놓았나(표시만 — 칸의 주인·원래 값은 vpanel.c) */
+   uint16_t vp_orig[18];             /* 안 씀 — 원래 값은 vpanel.c 가 하나만 둔다(.prac 크기를 지키려고 칸은 남김) */
    int kind;                         /* 0 리그 · 1 연습 대전 */
    int pick_sty;                     /* 연습: 고른 더미 검질(A 수라 0 · B 나찰 1) */
    int repick;                       /* 연습: 리셋 뒤 메뉴에서 바로 «연습 대전» → 상대 선택까지(연습 «상대 고르기» · 리그 «다른 상대» · 갈아탄 새 판) */
@@ -248,35 +170,11 @@ static int hub_scr = -1;              /* 지난 프레임 메뉴 화면(MODE 240
 static unsigned hub_gen;              /* 타이틀로 돌려보낸 횟수 — Java 가 «돌려보냄이 코어에 닿았나»를 본다(닿기 전의 옛 상태로 경기 기록을 만들지 않게) */
 
 static uint8_t *g_chr, *g_scr;        /* 코어 문자 램(타일 512 × 16바이트) · 스크롤 램(두 판 × 32 × 32 × 2바이트) */
-void league_vram(void *chr, void *scr, void *pal) { g_chr = (uint8_t *)chr; g_scr = (uint8_t *)scr; g_pal = (uint8_t *)pal; }
+/* 팔레트 램·세로 칸은 look·vpanel 이 쓴다 — native.c(·호스트 하네스)는 그대로 league_vram 하나만 부른다 */
+void league_vram(void *chr, void *scr, void *pal) { g_chr = (uint8_t *)chr; g_scr = (uint8_t *)scr; look_vram(chr, scr, pal); }
 
-/* 코어의 팔레트 바꿔 쓰기(retro_ngp_palremap — 게임이 한 팔레트의 색 1~3 을 모두 from 으로 써 놓는 순간 셋 다 to 로). 게임은 몸 팔레트를 롬에서 자주
-   다시 쓴다(대전 중 1초에 한 번꼴, 실측) — 프레임 뒤에 고쳐 쓰기만 하면 그때마다 원래 색이 1~3 프레임 보인다. 코어에 이 함수가
-   없으면(옛 코어) 프레임 뒤 고쳐 쓰기만 한다. 칸: 스프라이트 팔레트 0(P1 몸·미리보기)·5(P2 몸)의 색 1~3 */
-static void (*g_palremap)(int idx, int slot, int from, int to);
-static const int PR_IDX[6] = { 1, 2, 3, 21, 22, 23 };
-static int pr_have[6][2][2];          /* [칸][자리] = {from, to} — from −1 = 비움 */
-static int pr_init;                   /* 0 이면 다음에 코어 표를 통째로 비우고 시작(코어를 새로 올림) */
-void league_palremap_fn(void *fn)
-{
-   if ((void *)g_palremap != fn) pr_init = 0;
-   *(void **)&g_palremap = fn;
-}
-static void pr_push(int want[6][2][2])
-{
-   if (!g_palremap) return;
-   if (!pr_init) {
-      g_palremap(-1, 0, 0, 0);
-      for (int i = 0; i < 6; i++) for (int k = 0; k < 2; k++) { pr_have[i][k][0] = -1; pr_have[i][k][1] = 0; }
-      pr_init = 1;
-   }
-   for (int i = 0; i < 6; i++)
-      for (int k = 0; k < 2; k++)
-         if (want[i][k][0] != pr_have[i][k][0] || (want[i][k][0] >= 0 && want[i][k][1] != pr_have[i][k][1])) {
-            g_palremap(PR_IDX[i], k, want[i][k][0], want[i][k][1]);
-            pr_have[i][k][0] = want[i][k][0]; pr_have[i][k][1] = want[i][k][1];
-         }
-}
+/* 코어의 팔레트 바꿔 쓰기(retro_ngp_palremap) — 표의 주인은 look.c(경기 컬러·미리보기). 넘겨주기만 한다 */
+void league_palremap_fn(void *fn) { look_palremap_fn(fn); }
 
 static int scr_tile(int plane, int row, int col)
 {
@@ -421,48 +319,10 @@ static void hdr_put(int kind, int sangdae)
 }
 
 /* 캐릭터 고르기 오른쪽 세로 이름 칸 — 둘째 판 3~11줄 × 17·18칸(위아래 테: 2줄 0x16C · 12줄 0x16E, 검질 고르기는 0x19C · 0x19E).
-   원래는 왼쪽 칸과 같은 커서 캐릭터
-   이름(전용 타일 0x1E8 빈칸 ~ 0x1F9). 상대 고르기에서는 배경 이름, 내 캐릭터 고르기에서는 내 컬러 이름을 게임 글꼴 그대로 쓴다:
-   글자 그림은 빈 타일 0x130~0x141(모든 롬·고르기 화면에서 안 쓰임, 실측)에, 칸 18개는 그 타일을 가리키게(칠 번호 비트는 원래대로).
-   게임이 칸을 다시 쓰면(이름 길이가 다른 캐릭터로 커서를 옮김) 그 값을 원래 값으로 새로 보관하고 다시 바꾼다. */
-#define VP_T0 0x130
-static uint8_t *vp_ent(int i) { return g_scr + 0x800 + ((3 + i / 2) * 32 + 17 + (i & 1)) * 2; }
-static int vp_layout(void)
-{
-   int t2, t12;
-   if (!g_chr || !g_scr) return 0;
-   t2 = scr_tile(1, 2, 17); t12 = scr_tile(1, 12, 17);
-   if (!((t2 == 0x16C && t12 == 0x16E) || (t2 == 0x19C && t12 == 0x19E))) return 0;
-   for (int i = 0; i < 18; i++) {
-      int t = scr_tile(1, 3 + i / 2, 17 + (i & 1));
-      if (!((t >= 0x1E8 && t <= 0x1F9) || t == VP_T0 + i)) return 0;
-   }
-   return 1;
-}
-static void vp_put(int lab)                 /* lab: 0~7 배경 · 8 무작위 · 9~12 컬러 0~3 */
-{
-   if (lab < 0 || lab >= HUB_VLAB_N || !vp_layout()) return;
-   memcpy(g_chr + VP_T0 * 16, HUB_VLAB + lab * 18 * 16, 18 * 16);
-   for (int i = 0; i < 18; i++) {
-      uint8_t *e = vp_ent(i);
-      uint16_t v = (uint16_t)(e[0] | (e[1] << 8));
-      if ((v & 0x1FF) == VP_T0 + i) continue;
-      H.vp_orig[i] = v;
-      v = (uint16_t)((v & 0x3E00) | (VP_T0 + i));   /* 칠 번호만 두고 뒤집기는 끔 */
-      e[0] = (uint8_t)v; e[1] = (uint8_t)(v >> 8);
-   }
-   H.vp_on = 1;
-}
-static void vp_restore(void)
-{
-   if (!H.vp_on) return;
-   H.vp_on = 0;
-   if (!g_scr) return;
-   for (int i = 0; i < 18; i++) {
-      uint8_t *e = vp_ent(i);
-      if (((e[0] | (e[1] << 8)) & 0x1FF) == VP_T0 + i) { e[0] = (uint8_t)H.vp_orig[i]; e[1] = (uint8_t)(H.vp_orig[i] >> 8); }
-   }
-}
+   원래는 왼쪽 칸과 같은 커서 캐릭터 이름(전용 타일 0x1E8 빈칸 ~ 0x1F9). 상대 고르기에서는 배경 이름(여기), 내 캐릭터 고르기에서는 컬러 이름(look.c)을
+   게임 글꼴 그대로 쓴다. 칸의 주인(원래 값 보관·되돌리기)은 vpanel.c 하나 — 허브가 배경 이름으로 바꿔 둔 칸을 look 이 넘겨받아도 원래 값을 안 잃게. */
+static void vp_put(int lab) { if (lab >= 0 && lab < HUB_VLAB_N) { vpanel_put(HUB_VLAB + lab * 18 * 16); H.vp_on = vpanel_on(); } }   /* lab: 0~7 배경 · 8 무작위 */
+static void vp_restore(void) { vpanel_restore(); H.vp_on = 0; }
 
 static void arm_locked(int opp, int sty, int diff, int points, int timev, int flags);
 
@@ -503,10 +363,6 @@ static void hub_tick(uint8_t *ram, int input)
       league_ovr_mask = (!menu && ((d >= 20 && d < 24) || (d >= 200 && d < 204) || (d >= 380 && d < 384))) ? IN_A : 0;
       if (menu) { H.nav = 3; H.nav_f = H.f; H.downs = 2; league_ovr_mask = 0; }
       else if (d > 900) { H.nav = 0; league_ovr_on = 0; league_ovr_mask = 0; H.st = H_TITLE; }
-   } else if (H.nav == 4) {                           /* B 로 캐릭터 확정 — 컬러를 2P색으로 하고 A 를 대신 4프레임 */
-      unsigned d = H.f + 1 - H.nav_f;
-      league_ovr_on = 1; league_ovr_mask = (d >= 2 && d < 6) ? IN_A : 0;
-      if (d >= 8) { H.nav = 0; league_ovr_on = 0; league_ovr_mask = 0; }
    } else if (H.nav == 3) {                           /* 메뉴 커서를 «리그 대전»(2)까지 아래로 */
       unsigned d = H.f + 1 - H.nav_f;
       league_ovr_on = 1; league_ovr_mask = ((d % 12) >= 4 && (d % 12) < 8 && H.downs > 0) ? IN_DOWN : 0;
@@ -598,18 +454,7 @@ static void hub_tick(uint8_t *ram, int input)
       break;
    case H_PICK_ME:
       if (csel) H.seen_csel = 1;
-      if (!H.nav && ram[R_MODE] == 240 && (ram[R_SCR] == 2 || ram[R_SCR] == 4)) {   /* 옵션: 내 컬러 0~3 (캐릭터·검질 고르기에서 게임은 옵션을 안 쓴다) */
-         block |= IN_OPT;
-         if (o_edge) { H.color = (H.color + 1) & 3; L.color = H.color; look_color = H.color; }
-         if (csel) {                                 /* B: 2P색으로 확정(SNK 식 — A 는 보이는 컬러). 캐릭터 고르기에서 게임은 B 를 안 쓴다 */
-            block |= IN_B;
-            if (b_edge && !H.hold_b) { H.color = 1; L.color = 1; look_color = 1; H.nav = 4; H.nav_f = H.f; H.hold_b = 1; }
-         }
-      }
-      if (ram[R_MODE] == 240 && (ram[R_SCR] == 2 || ram[R_SCR] == 4)) {   /* 미리보기 그림 색 · 오른쪽 세로 칸 = 내 컬러 이름(검질 고르기도 같은 칸) */
-         look_preview(ram, H.color);
-         vp_put(9 + H.color);
-      } else if (H.vp_on) vp_restore();
+      /* 컬러(옵션·B·미리보기·세로 칸)는 look.c — 허브가 바쁘지 않으면(league_hub_owns_select 0) look 이 쥔다 */
       if (H.kind == 1) {                            /* 연습: 검질 고르기를 본 뒤 카드 화면이 끝나면 이야기(MODE 241 · SCR 0)·대사(MODE 240 · SCR 8)를 A 로 넘긴다 */
          if (ram[R_MODE] == 240 && ram[R_SCR] == 4) H.style_seen = 1;
          int story = H.style_seen && ((ram[R_MODE] == 241 && ram[R_SCR] == 0 && ram[R_FIGHT] == 0) || (ram[R_MODE] == 240 && ram[R_SCR] == 8));
@@ -635,8 +480,7 @@ void league_hub(int on, const signed char *sty, const signed char *dif)
    pthread_mutex_lock(&L_mu);
    pr_pend_on = 0;
    memset(&H, 0, sizeof H);
-   hub_gen = 0;
-   pr_init = 0;                                      /* 코어를 새로 올리고 내릴 때마다 불림 — 코어 바꿔 쓰기 표도 새로 */                                      /* 새 화면(Java)의 셈과 같이 0 부터 */
+   hub_gen = 0;                                      /* 새 화면(Java)의 셈과 같이 0 부터 */
    H.st = on ? H_TITLE : H_OFF; H.picked = -1; H.hover = -1; H.rematch = -1; H.stage_sel = -1; H.sel = 0;
    for (int i = 0; i < 15; i++) { H.sty[i] = sty ? sty[i] : -1; H.dif[i] = dif ? dif[i] : 1; H.home[i] = -1; }
    look_stage = -1; look_color = 0;
@@ -661,7 +505,6 @@ static void pr_apply(const uint8_t *b)
    memcpy(&look_stage, b + sizeof H + sizeof L, sizeof(int));
    memcpy(&look_color, b + sizeof H + sizeof L + sizeof(int), sizeof(int));
    H.hdr_saved = 0; H.vp_on = 0; H.hold_a = 0; H.hold_b = 0; H.nav = 0;   /* 저장된 화면 램은 원래 그림(저장 직전에 되돌림) */
-   pr_init = 0;                                     /* 코어를 새로 올렸을 수 있다 — 팔레트 바꿔 쓰기 표를 다시 넣는다 */
    league_in_block = 0; league_ovr_on = 0; league_ovr_mask = 0; league_in_or = 0;
 }
 size_t league_practice_blob(void *buf, size_t cap)
@@ -709,7 +552,6 @@ void league_practice_hub(int on, int autostart)
    memset(&H, 0, sizeof H);
    memset(&L, 0, sizeof L);
    hub_gen = 0;
-   pr_init = 0;
    H.kind = 1;
    H.st = !on ? H_OFF : autostart ? H_RETURN : H_TITLE;
    H.sel = 1;
@@ -773,22 +615,25 @@ void league_hub_before_save(void)
    pthread_mutex_unlock(&L_mu);
 }
 
-/* 게임 속 리그의 배경·컬러: 캐릭터마다 상대 기본 배경, 지금 고른 배경(−1 상대 기본 · −2 무작위 · 0~7), 컬러(0~3) — Java 가 저장한 값을 넣는다 */
+/* 게임 속 리그의 배경: 캐릭터마다 상대 기본 배경, 지금 고른 배경(−1 상대 기본 · −2 무작위 · 0~7) — Java 가 저장한 값을 넣는다.
+   color 는 안 쓴다(컬러는 look.c 가 캐릭터마다 기억 — Java Look). 인자는 옛 JNI 모양 그대로 둔다 */
 void league_hub_look(const signed char *home, int stage_sel, int color)
 {
    pthread_mutex_lock(&L_mu);
    for (int i = 0; i < 15; i++) H.home[i] = home ? home[i] : -1;
    H.stage_sel = (stage_sel >= -2 && stage_sel <= 7) ? stage_sel : -1;
-   H.color = color & 3;
+   (void)color;
    pthread_mutex_unlock(&L_mu);
 }
 
-/* 다음 무장(league_arm)에 쓸 배경(0~7, −1 = 게임 그대로)·컬러(0~3) — 2단계 리그 화면에서 시작하는 경기·체크포인트 재개용 */
+/* 다음 무장(league_arm)에 쓸 배경(0~7, −1 = 게임 그대로)·경기 컬러 — 2단계 리그 화면에서 시작하는 경기·체크포인트 재개용.
+   컬러(0~17, −1 = 고르기 화면에서 정함)는 look 에 넘긴다(look_set_match — 캐릭터는 0x57D5 로) */
 void league_look(int stage, int color)
 {
    pthread_mutex_lock(&L_mu);
-   look_stage = (stage >= 0 && stage <= 7) ? stage : -1; look_color = color & 3;
+   look_stage = (stage >= 0 && stage <= 7) ? stage : -1; look_color = 0;
    pthread_mutex_unlock(&L_mu);
+   look_set_match(color);
 }
 
 /* 결판 뒤(Java 가 정산·결과 카드를 닫은 뒤): 무장을 풀고 리셋 뒤 타이틀 «리그 대전»까지. rematch = 다시 붙을 상대 캐릭터(−1 없음 ·
@@ -820,13 +665,13 @@ void league_hub_cancel(void)
 
 /* [허브 상태(0 꺼짐·1 타이틀·2 상대 고르기·3 내 캐릭터·4 경기·5 타이틀로 돌아가는 중), 커서 캐릭터, 고른 상대 캐릭터, 허브 프레임,
     메뉴 글자 바꿈, 머리말 글자 바꿈, 재대결 상대, 대신 누르기 단계, 타이틀로 돌려보낸 횟수, 고른 배경(−1 상대 기본·−2 무작위·0~7),
-    내 컬러(0~3), 무장한 경기의 배경(−1 없음)] */
+    고르기 화면에 보이는 컬러(0~17 — look_cur), 무장한 경기의 배경(−1 없음)] */
 void league_hub_status(int v[LEAGUE_NHUB])
 {
    pthread_mutex_lock(&L_mu);
    v[0] = H.st; v[1] = H.hover; v[2] = H.picked; v[3] = (int)H.f;
    v[4] = H.label_menu; v[5] = H.label_hdr; v[6] = H.rematch; v[7] = H.nav; v[8] = (int)hub_gen;
-   v[9] = H.stage_sel; v[10] = H.color; v[11] = L.armed ? L.stage : -1;
+   v[9] = H.stage_sel; v[10] = look_cur(); v[11] = L.armed ? L.stage : -1;
    pthread_mutex_unlock(&L_mu);
 }
 
@@ -860,34 +705,6 @@ void league_hub_handoff_clear(void)
    pthread_mutex_unlock(&L_mu);
 }
 
-/* 매 프레임 — 지금 화면에 맞게 코어 바꿔 쓰기 표를 정한다: 경기 화면(무장·컬러, 첫 라운드부터 결판 뒤 연출까지)은 P1 기본 색 → 고른 색
-   (미러전 2P색이면 P2 2P색 → 기본 색), 허브 내 캐릭터·유파 고르기는 커서 캐릭터 두 검질의 기본 색 → 고른 색. 그 밖엔 비움 */
-static void pr_update(const uint8_t *ram)
-{
-   int want[6][2][2];
-   uint16_t t[3];
-   int md = ram[R_MODE], scr = ram[R_SCR];
-   for (int i = 0; i < 6; i++) for (int k = 0; k < 2; k++) { want[i][k][0] = -1; want[i][k][1] = 0; }
-   if (L.armed && L.color > 0 && (md == 241 || L.fight_seen)) {
-      int b1 = ram[R_P1BLK], b2 = ram[R_P2BLK], ch = b1 >> 4, sty = (b1 >> 3) & 1;
-      if (ch < 14) {
-         const uint16_t *base = PAL1[ch][sty][0], *alt = PAL1[ch][sty][1];
-         look_targets(ch, sty, L.color, t);          /* 코어는 한 팔레트의 세 칸이 모두 같은 자리에 있어야 바꾼다 — 같은 색 칸도 적는다 */
-         for (int j = 0; j < 3; j++) { want[j][0][0] = base[j]; want[j][0][1] = t[j]; }
-         if (L.color == 1 && (b2 & 0xF8) == (b1 & 0xF8))
-            for (int j = 0; j < 3; j++) { want[3 + j][0][0] = alt[j]; want[3 + j][0][1] = base[j]; }
-      }
-   } else if (H.st == H_PICK_ME && H.color > 0 && md == 240 && (scr == 2 || scr == 4)) {
-      int ch = ram[R_HOVER] >> 2;
-      if (ch < 14)
-         for (int sty = 0; sty < 2; sty++) {
-            look_targets(ch, sty, H.color, t);
-            for (int j = 0; j < 3; j++) { want[j][sty][0] = PAL1[ch][sty][0][j]; want[j][sty][1] = t[j]; }
-         }
-   }
-   pr_push(want);
-}
-
 void league_tick(uint8_t *ram, size_t n) { league_tick_hub(ram, n, 0); }
 
 void league_tick_hub(uint8_t *ram, size_t n, int input)
@@ -895,7 +712,6 @@ void league_tick_hub(uint8_t *ram, size_t n, int input)
    if (!ram || n < 0x4000) return;
    pthread_mutex_lock(&L_mu);
    if (H.st != H_OFF) hub_tick(ram, input);
-   pr_update(ram);
    if (!L.armed || L.done) { pthread_mutex_unlock(&L_mu); return; }
    L.frames++;
 
@@ -909,7 +725,6 @@ void league_tick_hub(uint8_t *ram, size_t n, int input)
    if (L.allcards && ram[R_MODE] == 240 && (ram[R_SCR] == 2 || ram[R_SCR] == 4))
       memset(ram + R_OWN, 8, 120);
    if (L.stage >= 0) ram[R_BOUT] = (uint8_t)L.stage;     /* 배경 — 판이 뜨기 전부터 끝까지 */
-   if (L.color > 0 && (ram[R_MODE] == 241 || L.fight_seen)) look_apply(ram);   /* 라운드 사이 연출(MODE 240)도 */
 
    /* 메뉴 자동 진입: 무장 뒤 20·60 프레임에 A(4프레임씩, 사이는 뗀다). 캐릭터 고르기(MODE 240 · SCR 2)가
       30프레임 이어지면 끝(데모·이어하기 화면도 잠깐 SCR 2 라서 이어짐까지 본다). 400프레임 안에 못 닿으면 손을 뗀다. */
@@ -1065,4 +880,13 @@ JNI(jintArray, nativeLeagueStatus)(JNIEnv *env, jclass cls)
    jintArray a = (*env)->NewIntArray(env, LEAGUE_NSTAT);
    if (a) (*env)->SetIntArrayRegion(env, a, 0, LEAGUE_NSTAT, jv);
    return a;
+}
+
+/* 허브가 고르기 화면 입력을 쓰는 중인가 — 상대 선택(OPTION 스테이지·A/B 고르기)·대신 누르기 동안 1(look 은 컬러를 안 만진다) */
+int league_hub_owns_select(void)
+{
+   pthread_mutex_lock(&L_mu);
+   int v = H.st == H_PICK_OPP || H.nav != 0 || league_ovr_on;
+   pthread_mutex_unlock(&L_mu);
+   return v;
 }

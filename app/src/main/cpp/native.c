@@ -17,6 +17,7 @@
 #include "framegen.h"
 #include "league.h"
 #include "practice.h"
+#include "look.h"
 #include "display_shaders.h"
 #include <math.h>
 
@@ -372,10 +373,11 @@ static int16_t cb_input_state(unsigned port, unsigned device, unsigned index, un
    (void)index;
    if (port != 0 || device != RETRO_DEVICE_JOYPAD || id > 15) return 0;
    /* 가상 리그: 메뉴 자동 진입 중엔 그 입력, 게임 속 리그가 대신 받는 버튼(리그 대전 칸·상대 고르기의 A)은 게임에 안 준다.
-      연습 대전: 경기 중 Option(탭 = 메뉴 · 조합 = 리셋)·메뉴가 열린 동안의 버튼은 게임에 안 주고, 일시정지를 걸고 풀 Option·이야기 넘기는 A 는 더한다 */
-   int in = g_input, blk = league_in_block | practice_in_block;
+      연습 대전: 경기 중 Option(탭 = 메뉴 · 조합 = 리셋)·메뉴가 열린 동안의 버튼은 게임에 안 주고, 일시정지를 걸고 풀 Option·이야기 넘기는 A 는 더한다
+      컬러(look.c): 고르기 화면의 OPTION(컬러)·B(2P색으로 결정)·컬러 만들기 창이 열린 동안의 모든 버튼은 게임에 안 주고, 2P색 결정의 A 는 더한다 */
+   int in = g_input, blk = league_in_block | practice_in_block | look_in_block;
    if (in & (1 << RETRO_DEVICE_ID_JOYPAD_START)) blk |= practice_opt_mask;   /* Option 과 같은 프레임의 방향·A·B(연습 경기 중) */
-   return ((league_ovr_on ? league_ovr_mask : ((in & ~blk) | league_in_or | practice_in_or)) >> id) & 1;
+   return ((league_ovr_on ? league_ovr_mask : ((in & ~blk) | league_in_or | practice_in_or | look_in_or)) >> id) & 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -772,6 +774,7 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
    league_hub(0, NULL, NULL);            /* 게임 속 리그도 끈 채로 — 허브로 켠 화면만 로드 뒤에 다시 켠다(앞 세션의 허브가 자유 플레이로 새지 않게) */
    practice_forget();                    /* 연습 대전도 — 일반 세션이고 확인한 롬 판이면 Java 가 로드 뒤에 연습 허브를 켠다 */
    league_practice_resume(NULL, 0);      /* 지난 판에서 기다리던 연습 경기 되돌리기는 버린다(이 판의 상태 불러오기가 다시 남긴다) */
+   look_enable(0); look_forget();        /* 컬러도 끈 채로 — 사쇼2 확인한 판이면 Java 가 로드 뒤에 켠다(다른 게임 램·팔레트에 손대지 않게) */
    char core[512], opts[600];
    jstr(env, jcore, core, sizeof(core));
    jstr(env, jrom,  g_rom_path, sizeof(g_rom_path));
@@ -842,6 +845,7 @@ static void unload_locked(void)
    league_disarm();                      /* 코어가 내려가면 랭크전 무장은 무조건 끝 — 다음 게임으로 새지 않게 */
    league_hub(0, NULL, NULL);
    practice_forget();
+   look_enable(0); look_forget();
    if (!g_loaded) return;
    sram_save();
    audio_stop();
@@ -932,11 +936,14 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             league_vram(chr, scr, pal);
             league_palremap_fn(c_palremap);
             league_tick_hub(ram, ramsz, in);
+            /* 컬러(모든 모드) — 허브가 고르기 화면 입력을 쓰는 동안(상대 선택·대신 누르기)엔 «바쁨»: 컬러는 손대지 않는다.
+               허브 잠금은 league_hub_owns_select 안에서 풀린 뒤 look 잠금을 잡는다(겹치지 않음) */
+            look_tick(ram, ramsz, in, league_hub_owns_select() ? LOOK_CTX_BUSY : LOOK_CTX_FREE);
             /* 연습 대전(허브가 연습 경기일 때만 일함) — 같은 잠금·같은 순서. 메뉴에서 나가기를 고르면 여기서 리셋하고 허브를 돌려보낸다 */
             practice_vram(chr, scr, pal, c_spriteram ? c_spriteram() : NULL);
             practice_tick(ram, ramsz, in);
             int ex = practice_take_exit();
-            if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); }
+            if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); }
          }
       }
       CORE_UNLOCK();
@@ -1001,7 +1008,7 @@ JNI(void, nativeAudioResume)(JNIEnv *env, jclass cls)
 
 /* 게임 속 리그: 결판 뒤 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
 JNI(void, nativeLeagueHubReturn)(JNIEnv *env, jclass cls, jint rematch)
-{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); CORE_UNLOCK(); }
+{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); look_forget(); CORE_UNLOCK(); }
 
 JNI(void, nativeReset)(JNIEnv *env, jclass cls)
 {
@@ -1009,6 +1016,7 @@ JNI(void, nativeReset)(JNIEnv *env, jclass cls)
    CORE_LOCK();
    if (g_loaded) c_reset();
    practice_forget(); league_practice_title();   /* 연습 대전: 램이 새로 시작 — 고르던 것·경기를 잊고 타이틀 상태로(리그 허브는 그대로) */
+   look_forget();                                /* 컬러: 경기 컬러·세로 칸을 잊는다(기억·내 색은 그대로) */
    CORE_UNLOCK();
 }
 
@@ -1084,6 +1092,40 @@ static void prac_side_apply(const uint8_t *side, size_t sn)
    league_practice_resume(side + 20, v[0]);
 }
 
+/* 경기 컬러 — 상태 파일 옆 «<경로>.look»: "LOK1" · 상태 크기 · 상태 FNV-1a · look 덩어리(16바이트). 경기 컬러가 있을 때만 쓰고, 없으면 지운다.
+   불러올 때 크기·지문이 맞아야 쓴다(.prac 와 같은 규칙) — .look 없이 불러온 상태는 원래 색(저장 직전에 look_before_save 가 팔레트를 되돌려 둠) */
+#define LOOK_SIDE_MAX 64
+static size_t look_side_make(uint8_t *side, const void *state, size_t sz)
+{
+   size_t ln = look_blob(side + 12, LOOK_SIDE_MAX - 12);
+   if (!ln) return 0;
+   uint32_t v[2] = { (uint32_t)sz, fnv1a(state, sz) };
+   memcpy(side, "LOK1", 4); memcpy(side + 4, v, sizeof v);
+   return 12 + ln;
+}
+static void look_side_write(const char *p, const uint8_t *side, size_t sn)
+{
+   char q[620]; snprintf(q, sizeof q, "%s.look", p);
+   if (!sn) { remove(q); return; }
+   FILE *f = fopen(q, "wb");
+   if (!f) return;
+   size_t wr = fwrite(side, 1, sn, f);
+   if (fclose(f) != 0 || wr != sn) remove(q);
+}
+static size_t look_side_read(const char *p, uint8_t *side, const void *state, size_t sz)
+{
+   char q[620]; snprintf(q, sizeof q, "%s.look", p);
+   FILE *f = fopen(q, "rb");
+   if (!f) return 0;
+   size_t n = fread(side, 1, LOOK_SIDE_MAX, f);
+   fclose(f);
+   uint32_t v[2];
+   if (n < 12 || memcmp(side, "LOK1", 4)) return 0;
+   memcpy(v, side + 4, sizeof v);
+   if (v[0] != (uint32_t)sz || v[1] != fnv1a(state, sz)) return 0;
+   return n;
+}
+
 JNI(jint, nativeSaveState)(JNIEnv *env, jclass cls, jstring jpath)
 {
    (void)cls;
@@ -1091,11 +1133,14 @@ JNI(jint, nativeSaveState)(JNIEnv *env, jclass cls, jstring jpath)
    if (!g_loaded || !c_serialize_size) { CORE_UNLOCK(); return -1; }
    practice_before_save();               /* 연습 메뉴 창·대미지 숫자·«2P» 그림, 허브 머리말·세로 칸을 원래대로 — 저장된 상태에 우리 그림이 안 섞이게(다음 프레임에 다시 그린다) */
    league_hub_before_save();
+   look_before_save();                   /* 컬러: 세로 칸·팔레트 0·5 를 원래 색으로(다음 프레임에 다시 바꾼다) */
    size_t sz = c_serialize_size();
    void *buf = sz ? malloc(sz) : NULL;
    int ok = buf && c_serialize(buf, sz);
    uint8_t side[PRAC_SIDE_MAX];          /* 연습 경기 중이면 허브·설정 — 같은 잠금 안에서(상태와 한 순간) */
    size_t sn = ok ? prac_side_make(side, buf, sz) : 0;
+   uint8_t lside[LOOK_SIDE_MAX];         /* 경기 컬러 — 같은 잠금 안에서 */
+   size_t lsn = ok ? look_side_make(lside, buf, sz) : 0;
    CORE_UNLOCK();
    if (!ok) { free(buf); return -1; }
    char p[600]; jstr(env, jpath, p, sizeof(p));
@@ -1106,6 +1151,7 @@ JNI(jint, nativeSaveState)(JNIEnv *env, jclass cls, jstring jpath)
    int cl = fclose(f);
    free(buf);
    prac_side_write(p, side, sn);
+   look_side_write(p, lside, lsn);
    return (wr == sz && cl == 0) ? 0 : -1;
 }
 
@@ -1122,11 +1168,15 @@ JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
    fclose(f);
    uint8_t side[PRAC_SIDE_MAX];
    size_t sn = prac_side_read(p, side, buf, (size_t)sz);
+   uint8_t lside[LOOK_SIDE_MAX];
+   size_t lsn = look_side_read(p, lside, buf, (size_t)sz);
    CORE_LOCK();
    int ok = g_loaded && c_unserialize(buf, (size_t)sz);
    if (ok) {
       practice_forget(); league_practice_title();   /* 연습 대전: 램·화면이 통째로 바뀜 — 지금 것은 되돌리지 않고 잊는다 */
       prac_side_apply(side, sn);                     /* 연습 경기 중에 저장한 상태면 그 연습 경기로(아니면 기다리던 것도 버림) */
+      look_forget();                                 /* 컬러: 화면 칸은 잊고, 경기 컬러는 .look 이 맞을 때만(아니면 버림) */
+      look_resume(lsn ? lside + 12 : NULL, lsn ? lsn - 12 : 0);
    }
    CORE_UNLOCK();
    free(buf);
