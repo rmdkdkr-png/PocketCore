@@ -68,6 +68,13 @@ public final class LaunchSheet {
     private boolean padMode = KeyMap.physicalPresent();
     private Dialog dlg;
     private KeyMap keymap;
+    /* 치트 창(사무쇼2) — 같은 창 안에서 내용만 갈아 끼운다: 런처·게임이 쥔 이 창 하나로 패드 키가 그대로 오고(창을 따로 띄우면 키를 받는 창이 갈린다),
+       닫기·바깥 탭의 onClose(게임 안: 멈춤 풀기 + 치트 넣기)도 그대로 돈다. 겉 창으로 돌아올 때 다시 그리려고 롬·썸네일·제목을 둔다 */
+    private boolean cheatView = false, inGame = false, cheatsChanged = false;
+    private File romFile; private Bitmap thumbBmp; private String titleText;
+    private int cheatLink = -1;                                  /* 겉 창에서 «치트 ›» 고리의 자리(linkViews) — 돌아올 때 커서를 거기로 */
+    /** 게임 안: 치트 세이브 보관에 쓸 롬(원래 경로 — 사본도 이름이 같다) · 이 롬 판에서 치트가 안 켜지면 그 글(치트 창 부제). EmuActivity 가 창을 연 뒤 넣는다 */
+    public File cheatRom; public String cheatOff;
 
     public static LaunchSheet show(Activity a, File rom, Games.Game g, Bitmap thumb, String title, Runnable onStart) {
         LaunchSheet s = new LaunchSheet(a, g, onStart);
@@ -80,6 +87,7 @@ public final class LaunchSheet {
         s.startLabel = "적용하고 이어하기  ▶";
         s.subtitle = "바꾸면 지금 자리를 저장하고 다시 열어 그대로 이어갑니다.";
         s.onSettings = onSettings;
+        s.inGame = true;
         s.open(null, null, title);
         return s;
     }
@@ -100,6 +108,7 @@ public final class LaunchSheet {
             if ("off".equals(o.cur) || "disabled".equals(o.cur)) continue;
             parts.add(o.vals.length == 2 ? o.label : o.label + " " + v);
         }
+        if (Cheats.GAME.equals(g.id) && Cheats.any(Settings.load())) parts.add("치트");   /* 켜진 치트가 있으면 한 낱말 */
         return android.text.TextUtils.join(" · ", parts);
     }
     /** 떠 있는가 — 런처가 패드 키를 이 창으로 넘길지 판단하는 데 쓴다. */
@@ -174,6 +183,9 @@ public final class LaunchSheet {
         setOpt(i, (o.idx() + 1) % o.vals.length);
     }
     private void setOpt(int i, int k) {
+        if (!guardCheat(i, k)) applyOpt(i, k);
+    }
+    private void applyOpt(int i, int k) {
         Opt o = opts.get(i);
         if (!o.enabled) return;
         o.cur = o.vals[k];
@@ -198,6 +210,7 @@ public final class LaunchSheet {
     /* ── 화면 ─────────────────────────────────────────────────────── */
 
     private void open(File rom, Bitmap thumb, String title) {
+        romFile = rom; thumbBmp = thumb; titleText = title;
         dlg = new Dialog(a);
         dlg.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dlg.setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);   /* 창이 떠 있어도 볼륨 키 = 게임 소리 */
@@ -303,6 +316,12 @@ public final class LaunchSheet {
         cp.rightMargin = dp(10); cp.topMargin = stp.topMargin = dp(14);
         btns.addView(cancel, cp); btns.addView(start, stp);
         col.addView(btns);
+        cheatLink = -1;
+        if (g != null && Cheats.GAME.equals(g.id)) {                /* 치트 — 따로 창(줄 11개가 실행 창 본문에 끼지 않게). 켜진 게 있으면 강조색 */
+            int n = Cheats.count(Settings.load());
+            cheatLink = linkViews.size();
+            link(col, n > 0 ? "치트 · " + n + "개 켬  ›" : "치트  ›", n > 0 ? GOLD : DIM, new Runnable() { @Override public void run() { openCheats(); } });
+        }
         if (onSettings != null) {                                   /* 게임 안: 전체 설정으로 가는 길 */
             link(col, "앱 전체 설정 열기  ›", DIM, new Runnable() { @Override public void run() { dlg.dismiss(); onSettings.run(); } });
         }
@@ -356,6 +375,7 @@ public final class LaunchSheet {
         if (o.enabled && o.vals.length > 2) {                 /* 다단 = 가로 다이얼 바 — 탭/드래그로 고른다(유저 2026-09-05) */
             DialBar bar = new DialBar(a, o.names, o.idx(), new DialBar.OnPick() {
                 @Override public void onPick(int k) {
+                    if (guardCheat(i, k)) return;                 /* 치트 «세이브에 남기기» — 확인 창이 값을 정한다 */
                     o.cur = o.vals[k];
                     if (o.kind == 0) { Map<String, String> m = Settings.load(); Settings.put(o.key, "on".equals(o.cur) ? onLang(m, o.g) : offLang(m, o.g)); }
                     else Settings.putUser(o.key, o.cur);   /* 보간 묶음이면 세부 값도 같이 — 107 까지 put 이라 바로 고른 60Hz 가 이름만 바뀌었다 */
@@ -481,6 +501,11 @@ public final class LaunchSheet {
     private int stops() { return opts.size() + 1 + linkViews.size(); }
 
     private void go() {
+        if (cheatView) {                                            /* 치트 창 단추 — 게임 안 «적용»은 바로 게임으로(onClose 가 값을 넣는다), 런처 «닫기»는 겉 창으로 */
+            if (inGame) { try { dlg.dismiss(); } catch (Exception ignored) { } }
+            else closeCheats();
+            return;
+        }
         try { dlg.dismiss(); } catch (Exception ignored) { }
         onStart.run();
     }
@@ -508,6 +533,7 @@ public final class LaunchSheet {
         if (up || down) moveFocus(up ? -1 : 1);
         else if (left || right) adjust(right ? 1 : -1);
         else if (ok) confirm();
+        else if (cheatView) closeCheats();                          /* 치트 창에서 뒤로 = 겉 창으로 */
         else dlg.dismiss();
         return true;
     }
@@ -529,6 +555,153 @@ public final class LaunchSheet {
         if (focus < n) toggle(focus);
         else if (focus == n) go();
         else { int j = focus - n - 1; if (j >= 0 && j < linkActs.size()) linkActs.get(j).run(); }
+    }
+
+    /* ── 치트 창(사무쇼2 · Cheats) ──────────────────────────────────
+       실행 창·게임 안 「설정」의 «치트 ›» 고리 → 같은 창 틀에 Settings.GROUPS «치트» 줄만. 값은 바꾸는 즉시 options.txt 에(겉 창과 같다).
+       게임 안에선 닫을 때 EmuActivity 가 native 에 값만 넣는다(코어를 다시 올리지 않음 — 다음 프레임부터 먹는다). */
+
+    /** 이 창에서 치트 값을 바꿨나 — 게임 안: 닫을 때 «치트 적용» 알림 */
+    public boolean cheatsChanged() { return cheatsChanged; }
+
+    private void clearViews() {
+        rowViews.clear(); dials.clear(); valViews.clear(); helpViews.clear(); linkViews.clear(); linkActs.clear(); startBtn = null;
+    }
+
+    private void openCheats() {
+        cheatView = true;
+        opts.clear(); clearViews();
+        Map<String, String> m = Settings.load();
+        for (Settings.Item it : Settings.GROUPS.get(Cheats.GROUP)) opts.add(fromItem(it, m));
+        focus = 0;
+        dlg.setContentView(buildCheats());
+        paintFocus();
+    }
+
+    /** 겉 창으로 — 줄·고리 글(«치트 · 3개 켬»)을 새 값으로 다시 그리고 커서는 «치트 ›» 고리에 */
+    private void closeCheats() {
+        cheatView = false;
+        opts.clear(); clearViews();
+        buildOpts();
+        dlg.setContentView(build(romFile, thumbBmp, titleText));
+        focus = cheatLink >= 0 ? opts.size() + 1 + cheatLink : opts.size();
+        paintFocus();
+    }
+
+    private View buildCheats() {
+        LinearLayout col = new LinearLayout(a);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);   /* 커서는 이 창 것 하나만(머리말 참고) */
+        col.setBackground(sheetBg());
+        col.setPadding(dp(18), dp(th.pocket() ? 18 : 14), dp(18), dp(14));
+        View grip = new View(a);
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(th.ink() ? 0x66d9a441 : th.pocket() ? 0xff8fa3c0 : th.modern() ? 0x33ffffff : 0xff3a3f4d);
+        gd.setCornerRadius(th.pocket() ? 0 : dp(3));
+        grip.setBackground(gd);
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(dp(40), dp(4));
+        gp.gravity = Gravity.CENTER_HORIZONTAL; gp.bottomMargin = dp(12);
+        col.addView(grip, gp);
+
+        TextView h = new TextView(a);
+        h.setText("치트"); h.setTextColor(TXT); h.setTextSize(th.ink() ? 21 : 19);
+        face(h, true, true);
+        col.addView(h);
+        TextView s = new TextView(a);
+        s.setText(cheatOff != null ? cheatOff
+                : inGame ? "바꾸면 바로 먹어요. 리그 대전엔 안 먹어요." : "고른 건 이 게임에 저장돼요. 리그 대전엔 안 먹어요.");
+        s.setTextColor(cheatOff != null ? GOLD : DIM); s.setTextSize(12); s.setPadding(0, dp(2), 0, 0);
+        face(s, false, false);
+        col.addView(s);
+
+        LinearLayout list = new LinearLayout(a);
+        list.setOrientation(LinearLayout.VERTICAL);
+        for (int i = 0; i < opts.size(); i++) {
+            if (i > 0) { View dv = new View(a); dv.setBackgroundColor(LINE);
+                         list.addView(dv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1)); }
+            list.addView(row(i));
+        }
+        TextView warn = new TextView(a);                            /* 기록 경고 — 줄 끝에(스크롤 안) */
+        warn.setText(Cheats.WARN); warn.setTextColor(DIM); warn.setTextSize(12);
+        face(warn, false, false);
+        warn.setPadding(dp(12), dp(10), dp(12), dp(4));
+        list.addView(warn);
+        final ScrollView sv = new ScrollView(a);
+        sv.addView(list);
+        sv.setVerticalScrollBarEnabled(true);
+        sv.setScrollbarFadingEnabled(false);
+        final int maxH = (int) (a.getResources().getDisplayMetrics().heightPixels * 0.58f);   /* 줄 11개 — 겉 창(50%)보다 조금 길게 */
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sp.topMargin = dp(12);
+        col.addView(sv, sp);
+        sv.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override public void onGlobalLayout() {
+                if (sv.getHeight() > maxH) { sv.getLayoutParams().height = maxH; sv.requestLayout(); }
+            }
+        });
+
+        TextView btn = pill(inGame ? "적용  ▶" : "닫기", GOLD, INK, true);   /* 단추 하나 — 게임 안은 다시 열지 않고 바로 게임으로 */
+        btn.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { go(); } });
+        startBtn = btn;
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bp.topMargin = dp(14);
+        col.addView(btn, bp);
+        if (!inGame && romFile != null && Cheats.hasBackup(MainActivity.saveDir(), romFile.getPath()))   /* 코어가 안 돌 때(런처)만 */
+            link(col, "세이브 되돌리기 (올카드 전)  ›", DIM, new Runnable() { @Override public void run() { confirmRestore(); } });
+        if (KeyMap.physicalPresent()) {
+            TextView hint = new TextView(a);
+            hint.setText("패드: 위아래 이동 · 좌우 값 바꾸기 · 펀치 버튼 고르기 · 킥 버튼 돌아가기");
+            hint.setTextColor(DIM); hint.setTextSize(12); hint.setGravity(Gravity.CENTER);
+            hint.setPadding(0, dp(10), 0, 0);
+            col.addView(hint);
+        }
+        return col;
+    }
+
+    /** 치트 창: 올카드를 «세이브에 남기기»로 바꾸는 순간 확인 창 — 넣기면 지금 세이브(.flash)를 따로 보관한 뒤에만 값을 쓴다, 그만이면 그대로.
+     *  창을 띄웠으면 true(값은 창이 정한다). 치트 줄이면 «바뀜» 표시도 여기서 */
+    private boolean guardCheat(final int i, final int k) {
+        if (!cheatView) return false;
+        cheatsChanged = true;
+        final Opt o = opts.get(i);
+        if (!Cheats.CARDS_KEY.equals(o.key) || !Cheats.CARDS_SAVE.equals(o.vals[k]) || Cheats.CARDS_SAVE.equals(o.cur)) return false;
+        final int prev = o.idx();
+        final File rom = inGame ? cheatRom : romFile;
+        final boolean[] decided = { false };
+        new android.app.AlertDialog.Builder(a)
+                .setTitle("올카드를 세이브에 넣을까요?")
+                .setMessage("다음 저장(게임 오버·클리어·설정 저장) 때 120장이 모두 8장이 돼요. 지금 세이브는 따로 보관해요."
+                        + "\n\n바로 남기려면 게임 설정에서 값 하나를 바꿨다 돌려 «예». 되돌리기는 실행 창 «치트»에서.")
+                .setPositiveButton("넣기", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) {
+                    decided[0] = true;
+                    if (rom == null || !Cheats.backupFlash(MainActivity.saveDir(), rom.getPath())) {
+                        android.widget.Toast.makeText(a, "세이브를 보관하지 못해 그대로 둬요", android.widget.Toast.LENGTH_SHORT).show();
+                        applyOpt(i, prev);
+                        return;
+                    }
+                    applyOpt(i, k);
+                } })
+                .setNegativeButton("그만", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) {
+                    decided[0] = true; applyOpt(i, prev); } })
+                .setOnDismissListener(new DialogInterface.OnDismissListener() { @Override public void onDismiss(DialogInterface d) {
+                    if (!decided[0]) applyOpt(i, prev); } })        /* 바깥 탭·뒤로 = 그만(다이얼 바가 먼저 옮겨 간 것도 되돌린다) */
+                .show();
+        return true;
+    }
+
+    /** 런처 치트 창 «세이브 되돌리기» — 보관본으로 .flash 를 되돌리고 오토세이브는 비켜 둔다. 올카드가 «세이브에 남기기»면 끔으로(다시 8 로 덮이지 않게) */
+    private void confirmRestore() {
+        new android.app.AlertDialog.Builder(a)
+                .setTitle("올카드 넣기 전 세이브로 되돌릴까요?")
+                .setMessage("그 뒤에 쌓은 기록도 사라져요. 그 뒤 저장한 슬롯을 불러오면 카드가 다시 생겨요.")
+                .setPositiveButton("되돌리기", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) {
+                    boolean ok = romFile != null && Cheats.restoreFlash(MainActivity.saveDir(), romFile.getPath());
+                    if (ok && Cheats.CARDS_SAVE.equals(Settings.load().get(Cheats.CARDS_KEY))) Settings.put(Cheats.CARDS_KEY, "off");
+                    android.widget.Toast.makeText(a, ok ? "세이브를 되돌렸어요" : "되돌리지 못했어요", android.widget.Toast.LENGTH_SHORT).show();
+                    if (cheatView && dlg.isShowing()) openCheats();       /* 값·고리 다시 그림 */
+                } })
+                .setNegativeButton("그만", null)
+                .show();
     }
 
     /* ── 잡동사니 ───────────────────────────────────────────────── */
