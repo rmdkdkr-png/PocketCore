@@ -423,6 +423,7 @@ public class EmuActivity extends Activity {
         }
         practiceSetup(resumed);
         lookSetup();
+        cheatSetup();
         /* 사무쇼2 배경음악(SS1) 결과를 알려 준다 — 「넣었는데 안 바뀐다」를 눈으로 가릴 수 있게(유저 2026-10-10).
            이어하기면 지금 울리는 곡은 저장 당시 것이라(소리칩 램에 이미 올라가 있다) 다음 장면부터 바뀐다. */
         String mn = Patcher.musicNote;
@@ -572,9 +573,12 @@ public class EmuActivity extends Activity {
                     new Runnable() { @Override public void run() { applyLive(orig); } },
                     new Runnable() { @Override public void run() {
                         startActivity(new Intent(EmuActivity.this, SettingsActivity.class).putExtra("rom", orig)); } });
+            sheet.cheatRom = new File(orig);                   /* 치트 «세이브에 남기기» — 세이브 보관 이름 */
+            if (game != null && Cheats.GAME.equals(game.id) && !cheatOk) sheet.cheatOff = ranked() ? "리그 대전에선 치트가 꺼져요" : "이 롬 판에선 치트가 안 켜져요";
             sheet.onClose = new Runnable() { @Override public void run() {
                 Emu.nativeSetPaused(pad.isBarOpen());          /* 메뉴가 아직 열려 있으면 계속 멈춤 */
-                applyDisplay(); pushCoreOpts(); } };
+                applyDisplay(); pushCoreOpts();
+                if (sheet != null && sheet.cheatsChanged() && pushCheats()) toast("치트 적용"); } };   /* 치트 창에서 바꾼 값 — 다시 열지 않고 바로 */
             break; }
         case PadView.ACT_PICK:
             goList();
@@ -1818,6 +1822,73 @@ public class EmuActivity extends Activity {
         if (m != null && "ready".equals(m.optString("status"))) League.cancel(leagueId, "게임 속 리그 — 대진 전에 순위표로");
         leagueHub = false;                                   /* leagueExit 가 결과 카드로 새지 않게 */
         leagueExit(null);
+    }
+
+    /* ── 치트(cheat.c · Cheats) ─────────────────────────────────────────
+       일반 세션이고 사무쇼2이며 판정 주소를 확인한 롬 판(연습과 같은 판 확인 — practiceRomOk)이면 options 값을 native 에 넣는다.
+       리그 판(랭크전 한 경기·게임 속 리그)은 잠근다 — 값을 아예 안 넣고, native 도 허브 종류를 보고 한 번 더 막는다(기록이 깨끗하게).
+       코어 쪽은 올리고 내릴 때 이미 모두 끈다. 게임 안 「설정」 › «치트»에서 바꾸면 닫을 때 값만 다시 넣는다(코어를 다시 올리지 않음). */
+
+    private volatile boolean cheatOk = false, cheatFight = false;   /* cheatSetup 은 GL 스레드(롬 바뀜 다시 로드)에서도 돈다 */
+    private boolean cheatLeagueTold = false;
+    private int cheatPermPrev = -1;
+    private TextView cheatTag;
+
+    /** 코어를 올린 뒤(loadCore — UI·GL 스레드 어느 쪽에서든) */
+    private void cheatSetup() {
+        cheatOk = false;
+        if (!loaded) return;
+        java.util.Map<String, String> m = Settings.load();
+        if (ranked()) {
+            Emu.nativeCheatLock(true);
+            if (Cheats.any(m) && !cheatLeagueTold) { cheatLeagueTold = true; toast("리그 대전에선 치트가 꺼져요"); }
+            return;
+        }
+        if (game == null || !Cheats.GAME.equals(game.id)) return;
+        cheatOk = practiceRomOk();
+        if (!cheatOk) { if (Cheats.any(m)) toast("이 롬 판에선 치트가 안 켜져요"); return; }
+        pushCheats();
+        h.post(new Runnable() { @Override public void run() { h.removeCallbacks(cheatPoll); h.postDelayed(cheatPoll, 500); } });
+    }
+
+    /** options 의 치트 값을 native 에 — 넣었으면 true(일반 세션 · 확인한 판일 때만) */
+    private boolean pushCheats() {
+        if (!loaded || !cheatOk || ranked()) return false;
+        java.util.Map<String, String> m = Settings.load();
+        Cheats.push(m);
+        cheatFight = Cheats.fight(m);
+        return true;
+    }
+
+    /** 1초마다 — 왼쪽 위 작은 «치트» 표시(먹는 치트가 있을 때 · 리그 이름표와 같은 자리, 색만 흐리게), «세이브에 남기기»가 세이브에 들어간 순간 한 번 알림 */
+    private final Runnable cheatPoll = new Runnable() { @Override public void run() {
+        if (leaving || !cheatOk || ranked()) { showCheatTag(null); return; }
+        if (loaded) {
+            int[] v = Emu.nativeCheatStatus();
+            if (v != null && v.length >= 16) {
+                showCheatTag(v[1] == 0 || v[0] != 0 ? null : v[7] == 3 && cheatFight ? "치트 · 연습 중엔 경기 치트 쉼" : "치트");
+                /* [5]: 게임이 세이브를 다시 읽은 값이 모두 8(1)·아님(0)·아직 모름(−1 — 올린 뒤·불러온 뒤 첫 다시 읽기 전). «모름 → 1» 은 원래 들어가 있던 것 —
+                   이 세션에서 «0 → 1» 이 된 순간만 알린다(이어하기로 연 판에서 처음 모드를 고를 때 잘못 알리지 않게) */
+                if (v[5] < 0) cheatPermPrev = -1;
+                else { if (cheatPermPrev == 0 && v[5] == 1 && v[15] == 1) toast("올카드가 세이브에 들어갔어요"); cheatPermPrev = v[5]; }
+            }
+        }
+        h.postDelayed(this, 1000);
+    }};
+
+    private void showCheatTag(String t) {
+        if (t == null) { if (cheatTag != null) cheatTag.setVisibility(View.GONE); return; }
+        if (cheatTag == null) {
+            cheatTag = new TextView(this);
+            cheatTag.setTextColor(0x99d9a441);                           /* 리그 이름표 색을 흐리게 */
+            cheatTag.setTextSize(11);
+            float dp = getResources().getDisplayMetrics().density;
+            cheatTag.setPadding(Math.round(8 * dp), Math.round(2 * dp), 0, 0);
+            root.addView(cheatTag, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP | android.view.Gravity.LEFT));
+        }
+        if (!t.contentEquals(cheatTag.getText())) cheatTag.setText(t);
+        cheatTag.setVisibility(View.VISIBLE);
     }
 
     /* ── 연습 대전(practice.c) ─────────────────────────────────────────

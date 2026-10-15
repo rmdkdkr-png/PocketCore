@@ -282,6 +282,9 @@ public final class Settings {
                 "게임을 벗어날 때 상태를 저장하고 다시 열면 그 자리에서 이어합니다(수동 슬롯 1~3 과 따로).",
                 ONOFF, ONOFF_K, "enabled"),
         });
+        /* 치트(사무쇼2 · Cheats/cheat.c) — 실행 창·게임 안 「설정」의 «치트 ›» 고리가 여는 창에만 보인다(PAGES 에 안 넣음:
+           설정 화면에서 바꾸면 올카드 «세이브에 남기기»의 확인 창·세이브 보관을 건너뛴다). 키·값·이름은 Cheats 한 곳에 */
+        GROUPS.put(Cheats.GROUP, Cheats.items());
         GROUPS.put("검증용", new Item[]{          /* 메뉴에는 안 보인다(PAGES 에 없음) — options.txt 로만 */
             new Item("pocketcore_svc_actshow", "판독 오버레이 (동작번호)",
                 "화면 왼쪽 위에 「내 동작번호|상대반응」을 상시 표시(검증용). 게임을 다시 시작해야 적용.",
@@ -460,9 +463,10 @@ public final class Settings {
     public static File modsDir()  { return new File(MainActivity.root(), "mods"); }
     /** 폐기한 조작 패치 — 원격 색인(InputPatch 태그 mods)에 남아 있어도 Legacito 는 안 보이고 안 얹는다.
      *  묶음(group) 이름이나 id 로 건다. 옛 PocketCore 가 같은 색인을 읽으므로 색인은 그대로 둔다.
-     *  ss2_lightrecover(약베기 후경직 감소 −2~−8): 2026-10-10 유저 지시로 폐기. */
+     *  ss2_lightrecover(약베기 후경직 감소 −2~−8): 2026-10-10 유저 지시로 폐기.
+     *  ss2_allcards(롬 세이브 구역을 고치던 옛 올카드 — 공장 칸 카드 0xFF·난도 하로 깨짐): 치트 «올카드»(램만, 세이브 안 더럽힘)가 대신한다. */
     static final java.util.Set<String> RETIRED_MODS = new java.util.HashSet<>(java.util.Arrays.asList(
-            "ss2_lightrecover"));
+            "ss2_lightrecover", "ss2_allcards"));
     static boolean retired(String id, String group) {
         if (RETIRED_MODS.contains(id) || (group != null && RETIRED_MODS.contains(group))) return true;
         for (String r : RETIRED_MODS) if (id.startsWith(r + "_")) return true;

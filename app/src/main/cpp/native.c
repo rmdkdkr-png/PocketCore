@@ -18,6 +18,7 @@
 #include "league.h"
 #include "practice.h"
 #include "look.h"
+#include "cheat.h"
 #include "display_shaders.h"
 #include <math.h>
 
@@ -775,6 +776,7 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
    practice_forget();                    /* 연습 대전도 — 일반 세션이고 확인한 롬 판이면 Java 가 로드 뒤에 연습 허브를 켠다 */
    league_practice_resume(NULL, 0);      /* 지난 판에서 기다리던 연습 경기 되돌리기는 버린다(이 판의 상태 불러오기가 다시 남긴다) */
    look_enable(0); look_forget();        /* 컬러도 끈 채로 — 사쇼2 확인한 판이면 Java 가 로드 뒤에 켠다(다른 게임 램·팔레트에 손대지 않게) */
+   cheat_reset_all();                    /* 치트도 모두 끈 채로 — 일반 세션이고 확인한 롬 판이면 Java 가 로드 뒤에 값을 넣는다(리그 판은 잠근다) */
    char core[512], opts[600];
    jstr(env, jcore, core, sizeof(core));
    jstr(env, jrom,  g_rom_path, sizeof(g_rom_path));
@@ -846,6 +848,7 @@ static void unload_locked(void)
    league_hub(0, NULL, NULL);
    practice_forget();
    look_enable(0); look_forget();
+   cheat_reset_all();                    /* 앞 세션의 치트 값·보관한 카드가 다음 게임으로 새지 않게 */
    if (!g_loaded) return;
    sram_save();
    audio_stop();
@@ -942,8 +945,10 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             /* 연습 대전(허브가 연습 경기일 때만 일함) — 같은 잠금·같은 순서. 메뉴에서 나가기를 고르면 여기서 리셋하고 허브를 돌려보낸다 */
             practice_vram(chr, scr, pal, c_spriteram ? c_spriteram() : NULL);
             practice_tick(ram, ramsz, in);
+            /* 치트(일반 세션) — 가장 뒤. 리그 세션이면 아무것도 안 쓰고, 연습 대전 흐름이면 올카드·유가만 */
+            cheat_tick(ram, ramsz, in);
             int ex = practice_take_exit();
-            if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); }
+            if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); cheat_forget(); }
          }
       }
       CORE_UNLOCK();
@@ -1008,7 +1013,7 @@ JNI(void, nativeAudioResume)(JNIEnv *env, jclass cls)
 
 /* 게임 속 리그: 결판 뒤 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
 JNI(void, nativeLeagueHubReturn)(JNIEnv *env, jclass cls, jint rematch)
-{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); look_forget(); CORE_UNLOCK(); }
+{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); look_forget(); cheat_forget(); CORE_UNLOCK(); }
 
 JNI(void, nativeReset)(JNIEnv *env, jclass cls)
 {
@@ -1017,6 +1022,7 @@ JNI(void, nativeReset)(JNIEnv *env, jclass cls)
    if (g_loaded) c_reset();
    practice_forget(); league_practice_title();   /* 연습 대전: 램이 새로 시작 — 고르던 것·경기를 잊고 타이틀 상태로(리그 허브는 그대로) */
    look_forget();                                /* 컬러: 경기 컬러·세로 칸을 잊는다(기억·내 색은 그대로) */
+   cheat_forget();                               /* 치트: 보관한 카드는 되돌리지 않고 버린다(램이 새로 시작) */
    CORE_UNLOCK();
 }
 
@@ -1134,9 +1140,11 @@ JNI(jint, nativeSaveState)(JNIEnv *env, jclass cls, jstring jpath)
    practice_before_save();               /* 연습 메뉴 창·대미지 숫자·«2P» 그림, 허브 머리말·세로 칸을 원래대로 — 저장된 상태에 우리 그림이 안 섞이게(다음 프레임에 다시 그린다) */
    league_hub_before_save();
    look_before_save();                   /* 컬러: 세로 칸·팔레트 0·5 를 원래 색으로(다음 프레임에 다시 바꾼다) */
+   if (c_get_memory_data) cheat_before_save((uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM));   /* 올카드(이번만)로 8 을 쓴 소유 개수를 원래 값으로 — 저장된 상태에 8 이 안 실리게 */
    size_t sz = c_serialize_size();
    void *buf = sz ? malloc(sz) : NULL;
    int ok = buf && c_serialize(buf, sz);
+   if (c_get_memory_data) cheat_after_save((uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM));   /* before_save 가 돌려 둔 치트 값을 되씀 */
    uint8_t side[PRAC_SIDE_MAX];          /* 연습 경기 중이면 허브·설정 — 같은 잠금 안에서(상태와 한 순간) */
    size_t sn = ok ? prac_side_make(side, buf, sz) : 0;
    uint8_t lside[LOOK_SIDE_MAX];         /* 경기 컬러 — 같은 잠금 안에서 */
@@ -1177,6 +1185,7 @@ JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
       prac_side_apply(side, sn);                     /* 연습 경기 중에 저장한 상태면 그 연습 경기로(아니면 기다리던 것도 버림) */
       look_forget();                                 /* 컬러: 화면 칸은 잊고, 경기 컬러는 .look 이 맞을 때만(아니면 버림) */
       look_resume(lsn ? lside + 12 : NULL, lsn ? lsn - 12 : 0);
+      cheat_forget();                                /* 치트: 램이 통째로 바뀜 — 보관한 카드는 버리고 다음 프레임부터 새로 */
    }
    CORE_UNLOCK();
    free(buf);

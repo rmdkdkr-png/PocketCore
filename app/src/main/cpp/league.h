@@ -33,6 +33,8 @@ extern volatile int league_in_or;
 void league_practice_hub(int on, int autostart);
 /* 연습 경기 중인가(허브 H_MATCH) — 더미 캐릭터(0~14)·검질(0 수라 · 1 나찰) */
 int  league_practice_match(int *dummy, int *sty);
+/* 치트가 묻는다 — 1 리그가 쥔 세션(게임 속 리그·랭크전 한 경기 — 치트 아무것도 안 씀) · 2 연습 대전 흐름(경기 치트 쉼) · 0 그 밖 */
+int  league_session_owner(void);
 /* 연습 메뉴 «다시 고르기»(1)·«타이틀로»(0) — 코어 리셋 바로 뒤에 */
 void league_practice_return(int repick);
 /* 상태 불러오기·앱 리셋 뒤 — 연습 허브를 타이틀 상태로 */
