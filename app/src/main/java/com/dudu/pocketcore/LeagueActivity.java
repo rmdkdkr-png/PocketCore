@@ -288,7 +288,7 @@ public class LeagueActivity extends Activity {
           .append("\n이 상대는 늘 같은 캐릭터·검질·난도로 나옵니다. 난도는 원작 게임 설정의 난이도로 적용합니다(한글판 표기 쉬움 = 하 · 보통 = 중 · 어려움 = 상).")
           .append("\n내 캐릭터·검질·카드는 도전한 뒤 게임 안에서 고릅니다(카드 전원 올카드 해금).")
           .append("\n스테이지 ").append(League.stageLabel(League.prefStage(), o.optString("id")))
-          .append(" · 내 컬러 «").append(League.COLORS[League.prefColor()]).append("» — 게임 속 리그 대전의 상대 선택·내 캐릭터 화면에서 OPTION 으로 바꿉니다.");
+          .append(" (상대 선택에서 OPTION) · 컬러는 캐릭터마다 — 고르기 화면에서 OPTION");
         List<JSONObject> hist = League.history(o.optString("id"), 5);
         if (!hist.isEmpty()) {
             sb.append("\n\n최근 경기");

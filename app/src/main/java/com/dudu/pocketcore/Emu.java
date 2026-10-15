@@ -81,4 +81,21 @@ public final class Emu {
      *   보이는 대미지, 리셋 횟수, 리셋 기다림, 마지막 리셋 프레임, 가드 켬, 프레임, 빌린 타일, 쓰이던 빈 타일, 나가기 요청, 시작 물체 수, 메뉴 연 횟수,
      *   버린 리셋, 더미 캐릭터, 더미 검질] (practice.h) */
     public static native int[] nativePracticeStatus();
+
+    /* 모든 모드 컬러(look.c) — 사무쇼2 확인한 판에서 캐릭터·검질 고르기 OPTION = 다음 컬러(길게 = 만들기 요청) · B = 2P색으로 결정.
+       번호 0 기본 · 1 2P색 · 2~15 프리셋 · 16·17 내 색 1·2(Look.NAMES). 기억 칸 16개 = 캐릭터 0~13 · 14 안 씀 · 15 무작위 칸 */
+    public static native void   nativeLookEnable(boolean on);
+    public static native void   nativeLookSetMem(byte[] mem16);
+    public static native byte[] nativeLookGetMem();
+    /** 내 색 k(0·1) — 캐릭터마다, 두 검질 같이. c1 < 0 = 지움. 12비트 0x0BGR */
+    public static native void   nativeLookSetCustom(int ch, int k, int c1, int c2, int c3);
+    /** 이 경기 컬러(리그 체크포인트 이어 하기) — −1·0 = 정하지 않음(고르기 화면에서 정함) */
+    public static native void   nativeLookSetMatch(int idx);
+    /** 컬러 만들기 창 — 고르기 화면 미리보기를 이 세 색으로(off = 끝). 열린 동안 게임 입력은 모두 막는다 */
+    public static native void   nativeLookEdit(boolean on, int c1, int c2, int c3);
+    /** [켜짐, 고르기 화면을 쥠, 기억 바뀐 횟수, 보이는 컬러, 경기 컬러(−1), 경기 캐릭터(−1), 2P색 결정 중, 만들기 요청 횟수,
+     *   검질 고르기 검질(−1 = 캐릭터 고르기), 경기 컬러 바뀐 횟수, 만드는 중, 프레임, 만들 캐릭터(−1 = 안 됨), 미리보기 검질] (look.h) */
+    public static native int[]  nativeLookStatus();
+    /** 컬러 만들기 창의 시작 색 — 그 캐릭터·검질의 18색 × 세 색(없는 내 색 = 기본) */
+    public static native int[]  nativeLookTriples(int ch, int sty);
 }

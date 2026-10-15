@@ -47,6 +47,7 @@ public class PadView extends View {
     public static final int ACT_UNDO = 14;                    /* 되돌리기 — 불러오기·리셋 직전 자리로(5초 동안 칩) */
     public static final int ACT_QSAVE = 15;                   /* 빠른 저장 — 메뉴 알약 길게 누르기 */
     public static final int ACT_LAYOUT_DEFAULT = 16;          /* 배치 「처음대로」 — 게임 화면 자리도 자동 맞춤으로 */
+    public static final int ACT_LOOK = 17;                    /* 사무쇼2 «컬러 만들기» — 캐릭터·검질 고르기 화면일 때만 칸이 생긴다(setLookCell) */
     public static final int ACT_SAVE = 1, ACT_LOAD = 2, ACT_SHOT = 3, ACT_RESET = 4, ACT_PICK = 5, ACT_SLOT = 6, ACT_SPK = 7,
             /* 설정 — 게임 안에서 바로 연다. 예전에는 「롬」으로 게임을 내리고
                목록 맨 아래까지 가야 닿았다. 설정 하나 보려고 게임을 끄는 건 말이 안 된다. */
@@ -143,18 +144,21 @@ public class PadView extends View {
          상태(슬롯·저장·로드·리셋) · 설정·배치 · 나가기(목록·종료). 한 줄로 들어가면 한 줄(폴드 큰 화면), 좁으면 두 줄.
        뺀 것: 샷(폰 화면 캡처로 충분) · 띠·앱보간·코어120 즉석 토글(설정에 있음, 실험용이었다) ·
        화면 구석의 둥근 「목록」 버튼(메뉴 칸과 겹쳐 그려졌다 — 이제 메뉴 안 「목록」) */
-    private final RectF[] util = new RectF[8];
+    private final RectF[] util = new RectF[9];
     /* 「종료」= 게임을 닫고 고르는 창으로 (제보: 「롬」은 사실 종료 버튼인데 이름이 달랐다).
        「배치」= 버튼 자리·크기 + 게임 화면 상자까지 한꺼번에 편집(제보: 「키」란 이름이 좁았다). */
     /* 세 무리로 묶어 둔다 — 두 줄로 접힐 때 무리가 갈리지 않게 순서가 곧 배치다.
          ① 상태  슬롯·저장·로드·샷·리셋
          ② 이 게임(코어 기능)  띠 — 게임마다 있는 것만 칸이 생긴다 (기둥은 2026-09-07 폐기)
          ③ 마무리  설정·배치·종료 */
-    private final String[] utilLabel = { "슬롯 1", "저장", "로드", "리셋", "설정", "버튼 배치", "목록", "종료" };
+    private final String[] utilLabel = { "슬롯 1", "저장", "로드", "리셋", "설정", "버튼 배치", "목록", "종료", "컬러 만들기" };
     /* 칸 아래 작은 줄 — 저장 칸 «빈 칸/덮어쓰기», 로드 칸 «3분 전/없음». 불러오기 전에 무엇을 불러오는지 보이게(2026-10-11) */
-    private final String[] utilSub = new String[8];
-    private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_RESET, ACT_CFG, 0, ACT_PICK, ACT_QUIT };
+    private final String[] utilSub = new String[9];
+    private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_RESET, ACT_CFG, 0, ACT_PICK, ACT_QUIT, ACT_LOOK };
     private static final int UTIL_EDIT = 5;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
+    /* 「컬러 만들기」(사무쇼2 look) — 맨 끝 칸, 고르기 화면일 때만 보인다(EmuActivity 가 setLookCell). 앞 칸 번호(저장·로드 아래 줄 등)를 안 바꾸려고 끝에 붙였다 */
+    private static final int UTIL_LOOK = 8;
+    private boolean lookCell = false;
     private boolean hasCoreFg = false;
     /* 이 게임이 코어에서 쓰는 기능 — 게임별 칸은 여기서만 생긴다.
        전에는 「이 게임에 그 기능이 있나」를 패드 프로필 모양(prof == P_SS2)으로 판단했다.
@@ -340,8 +344,16 @@ public class PadView extends View {
         invalidate();
     }
 
-    /** 상단바 i번 칸이 이 게임에 존재하는가 — 지금은 모든 칸이 모든 게임에 있다(게임별 칸은 설정으로 옮겼다). */
-    private boolean utilVisible(int i) { return i >= 0 && i < util.length; }
+    /** 상단바 i번 칸이 이 게임에 존재하는가 — 「컬러 만들기」만 그때그때(고르기 화면), 나머지는 모든 게임에 있다(게임별 칸은 설정으로 옮겼다). */
+    private boolean utilVisible(int i) { return i >= 0 && i < util.length && (i != UTIL_LOOK || lookCell); }
+    /** 「컬러 만들기」 칸을 보일지 — 사무쇼2 고르기 화면을 컬러 쪽이 쥐었을 때만(바가 열린 채 바뀌면 칸 자리를 다시 잡는다) */
+    public void setLookCell(boolean on) {
+        if (lookCell == on) return;
+        lookCell = on;
+        if (!on && barSel == UTIL_LOOK) barSel = -1;
+        if (getWidth() > 0) layoutBar(getWidth(), getHeight());
+        invalidate();
+    }
 
     /** 배치 파일 — 세로 pad_<게임>.txt / 가로 pad_<게임>_land.txt 로 따로 둔다. */
     private File cfg() { return new File(MainActivity.root(), "pad_" + profName + (land ? "_land" : "") + ".txt"); }
@@ -393,8 +405,10 @@ public class PadView extends View {
             mask = 0; dragIdx = -1; selIdx = -1; dpadPid = -1; dpadMask = 0; dpadLast = 0;
             if (listener != null) listener.onMask(0);
         } else {
-            if (listener != null) listener.onAction(utilAct[barSel]);
-            if (utilAct[barSel] == ACT_PICK || utilAct[barSel] == ACT_QUIT) barOpen = false;
+            int act = utilAct[barSel];                       /* 리스너가 칸을 바꿀 수 있다(컬러 만들기 칸이 사라짐) — 먼저 잡아 둔다 */
+            if (listener != null) listener.onAction(act);
+            if (act == ACT_PICK || act == ACT_QUIT || act == ACT_LOOK) barOpen = false;   /* 컬러 만들기 = 게임이 돌아야 미리보기가 그려진다 */
+            if (act == ACT_LOOK) barSel = -1;
         }
         menuChanged();
         invalidate();
@@ -953,10 +967,11 @@ public class PadView extends View {
                 for (int i = 0; i < util.length; i++) {
                     if (i == UTIL_EDIT || !utilVisible(i)) continue;
                     if (util[i].contains(x, y)) {
-                        if (listener != null) listener.onAction(utilAct[i]);
+                        int ua = utilAct[i];
+                        if (listener != null) listener.onAction(ua);
                         /* 순수 토글 — [≡]를 다시 눌러야 닫힌다. 저장·로드·샷은 연달아 쓰는데
-                           매번 다시 열어야 했다(제보). 다만 화면을 떠나는 「롬」만은 접는다. */
-                        if (utilAct[i] == ACT_PICK || utilAct[i] == ACT_QUIT) barOpen = false;
+                           매번 다시 열어야 했다(제보). 다만 화면을 떠나는 「롬」만은 접는다(컬러 만들기도 — 창이 뜨는 동안 게임이 돌아야 한다). */
+                        if (ua == ACT_PICK || ua == ACT_QUIT || ua == ACT_LOOK) { barOpen = false; barSel = -1; }
                         menuChanged();
                         invalidate();
                         return true;

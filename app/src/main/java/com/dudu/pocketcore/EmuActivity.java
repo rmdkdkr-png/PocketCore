@@ -422,6 +422,7 @@ public class EmuActivity extends Activity {
             toast("이어하기"); resumed = true;
         }
         practiceSetup(resumed);
+        lookSetup();
         /* 사무쇼2 배경음악(SS1) 결과를 알려 준다 — 「넣었는데 안 바뀐다」를 눈으로 가릴 수 있게(유저 2026-10-10).
            이어하기면 지금 울리는 곡은 저장 당시 것이라(소리칩 램에 이미 올라가 있다) 다음 장면부터 바뀐다. */
         String mn = Patcher.musicNote;
@@ -577,6 +578,9 @@ public class EmuActivity extends Activity {
             break; }
         case PadView.ACT_PICK:
             goList();
+            break;
+        case PadView.ACT_LOOK:                             /* 멈춤 메뉴 «컬러 만들기» — 바가 닫히며 멈춤이 풀린 뒤에 창을 연다(미리보기는 게임이 돌아야 그려진다) */
+            h.post(new Runnable() { @Override public void run() { int[] v = lookV; if (v != null && v.length >= 14 && v[1] == 1) openLookEditor(v[12], v[13]); } });
             break;
         case PadView.ACT_QUIT:
             /* 앱 종료 — 오토세이브는 onPause 가, 코어 내리기는 onDestroy 가 챙긴다. 다음에 켜면 목록부터. */
@@ -779,6 +783,7 @@ public class EmuActivity extends Activity {
     /** 뒤로가기 = 목록으로 — 예전엔 앱이 그냥 닫혀서 「게임을 닫으면 테마가 다시
      *  나와야 한다」는 흐름 자체가 없었다(제보). */
     @Override public void onBackPressed() {
+        if (lookEditor != null) { lookEditorClose(); return; }   /* 컬러 만들기 창에서 뒤로 = 취소 */
         if (hubCard != null) { hubReturn(-1); return; }      /* 결과 카드에서 뒤로 = 계속 */
         if (hubPickBack()) { hubReturn(-1); return; }         /* 리그 판 고르기 화면 — 확인 창 없이 바로 타이틀로(유저 「타이틀로 가는 거 메시지 없이」) */
         if (leagueId != null) { leagueLeave(); return; }
@@ -996,6 +1001,7 @@ public class EmuActivity extends Activity {
         releasePhysical();
         try { ((android.hardware.input.InputManager) getSystemService(INPUT_SERVICE))
                 .unregisterInputDeviceListener(devListener); } catch (Exception ignored) { }
+        if (loaded && lookOn) lookSaveMem();     /* 컬러 기억 — 폴(200ms)이 아직 못 남긴 마지막 바뀜도(다시 굽기·갈아타기로 창이 닫히기 전에) */
         if (loaded) {
             Emu.nativeSaveSram();
             /* 오토세이브 — SRAM 저장과 같은 자리·같은 방식(UI 스레드 직접 호출 전례).
@@ -1123,12 +1129,13 @@ public class EmuActivity extends Activity {
             ck.delete();                                      /* 한 번 쓰면 끝 */
         }
         org.json.JSONObject rule = m.optJSONObject("rule");
-        {   /* 배경·컬러 — 경기에 적힌 값(이어 하기), 없으면 새 판만 고른 값(게임 속 리그 B·옵션과 같은 설정)으로 정해 적는다.
+        {   /* 배경·컬러 — 경기에 적힌 값(이어 하기), 없으면 새 판만 고른 배경(게임 속 리그 OPTION 과 같은 설정)으로 정해 적는다.
+               컬러는 새 판이면 −1 — 고르기 화면에서 정한다(look, 캐릭터마다 기억 · 기록은 lookTick 이 고친다).
                적힌 값 없이 체크포인트에서 이어 하는 경기(이 기능 전에 시작한 경기)는 게임 그대로 — 판 중간에 배경·색이 바뀌지 않게 */
             org.json.JSONObject lk = m.optJSONObject("look");
             int stg = lk != null ? lk.optInt("stage", -1) : fromCk ? -1 : League.resolveStage(League.prefStage(), m.optString("opp"));
-            int col = lk != null ? lk.optInt("color", 0) : fromCk ? 0 : League.prefColor();
-            if (lk == null) League.setLook(leagueId, stg, col);
+            int col = lk != null ? lk.optInt("color", 0) : -1;
+            if (lk == null) League.setLook(leagueId, stg, 0);
             Emu.nativeLeagueLook(stg, col);
         }
         /* 올카드(랭크전 전용 세이브라 원작 세이브엔 안 남는다) + 새 판이면 메뉴 자동 진입, 재개면 이미 선 결판도 잡기 */
@@ -1178,6 +1185,7 @@ public class EmuActivity extends Activity {
     private boolean leagueSaveCkpt() {
         File ck = League.ckpt(leagueId), tmp = new File(ck.getPath() + ".tmp");
         if (Emu.nativeSaveState(tmp.getAbsolutePath()) != 0) { tmp.delete(); return false; }
+        new File(tmp.getPath() + ".look").delete();          /* 경기 컬러는 경기 기록(look)이 정한다(leagueStart → nativeLeagueLook) — 옆 파일을 남기지 않는다 */
         if (!tmp.renameTo(ck)) { tmp.delete(); return false; }
         return true;
     }
@@ -1519,8 +1527,8 @@ public class EmuActivity extends Activity {
         Emu.nativeLeagueHub(true, sty, dif);
         byte[] home = new byte[15];                                       /* 캐릭터 → 그 상대의 기본 배경(«상대 기본») */
         for (int c = 0; c < 15; c++) home[c] = (byte) (hubOpp[c] != null ? League.homeStage(hubOpp[c]) : -1);
-        hubStageSel = League.prefStage(); hubColor = League.prefColor();
-        Emu.nativeLeagueHubLook(home, hubStageSel, hubColor);
+        hubStageSel = League.prefStage(); hubColor = 0;                  /* 컬러는 look 이 캐릭터마다 기억(Look) — 허브엔 배경만 */
+        Emu.nativeLeagueHubLook(home, hubStageSel, 0);
         hubDual = hubOn() && !"0".equals(Settings.load().get(practiceOkKey()));   /* 셋째 줄 ◀▶ — «연습 대전»을 고르면 일반 판으로(그 판에서 연습이 안 켜진다고 알면 리그만) */
         Emu.nativeHubDual(hubDual);
         org.json.JSONObject open = League.openMatch();
@@ -1552,10 +1560,11 @@ public class EmuActivity extends Activity {
             toast("지금은 연습 대전으로 못 가요 — 뒤로 가기로 나간 뒤 다시");
         }
         if (hs.length > 8) hubGen = hs[8];
-        if (hs.length > 11) {                                           /* B(배경)·옵션(컬러)을 바꿨으면 다음에도 그대로(기록 파일 pref) */
-            if (hs[9] != hubStageSel || hs[10] != hubColor) { hubStageSel = hs[9]; hubColor = hs[10]; League.setPrefLook(hubStageSel, hubColor); }
+        if (hs.length > 11) {                                           /* OPTION(배경)을 바꿨으면 다음에도 그대로(기록 파일 pref) — 컬러는 look 이 캐릭터마다 기억 */
+            if (hs[9] != hubStageSel) { hubStageSel = hs[9]; League.setPrefStage(hubStageSel); }
+            hubColor = hs[10];                                           /* 고르기 화면에 보이는 컬러(look_cur) */
             hubStage = hs[11];
-            if (leagueId != null && !leagueStarted && hubStage >= 0) League.setLook(leagueId, hubStage, hubColor);   /* 대진 전에 컬러를 바꿔도 기록에 */
+            if (leagueId != null && !leagueStarted && hubStage >= 0) League.setLook(leagueId, hubStage, hubColor, lookTri(hubColor));   /* 대진 전에 컬러를 바꿔도 기록에 */
         }
         if (hubGen < hubWaitGen) {                                      /* 결과 카드·«타이틀로» 뒤 리셋이 아직 GL 스레드에 안 닿음 — 띠는 숨긴 채(돌아가는 안내 없이) */
             if (hubBanner != null && hubCard == null) hubBanner.setVisibility(View.GONE);
@@ -1573,7 +1582,7 @@ public class EmuActivity extends Activity {
             }
             leagueId = m.optString("id"); leagueArmed = true; leagueDone = false; leagueStarted = false; leagueRetry = 0;
             leagueVersionProblem(m);                                     /* 롬 md5·코어·앱 판을 경기에 적는다(판은 hubStart 에서 확인) */
-            League.setLook(leagueId, hubStage, hubColor);
+            League.setLook(leagueId, hubStage, hubColor, lookTri(hubColor));
             h.removeCallbacks(leaguePoll); h.postDelayed(leaguePoll, 250);
         }
         hubLastState = st;
@@ -1886,6 +1895,7 @@ public class EmuActivity extends Activity {
             int[] dv = Emu.nativeHubDualStatus();                         /* 둘 다 꺼져 있어도 — 메뉴 화면(v[5])으로 띠를 고른다 */
             if (practiceDual && dv != null && dv.length >= 5 && dv[2] == 1) { switchSession(true, false); return; }   /* 셋째 줄 «리그 대전» — 리그 판으로 */
             String t = (hs != null && ps != null) ? practiceText(hs[0], ps, dv) : null;
+            if (t == null && hs != null && hs[0] == 1) t = lookHint();   /* 허브는 타이틀 그대로 1인·무한 대전 — 고르기 화면이면 컬러 안내 */
             /* 경기 중(메뉴 닫힘)엔 띠가 게임 그림 위로 올라가면(가로 화면 — 아래 자리가 없음) 숨긴다: 체력 막대·«2P» 를 연습 내내 가리지 않게 */
             if (t != null && hs[0] == 4 && (ps.length < 2 || ps[1] == 0) && !bannerUserPos     /* 유저가 옮겨 둔 자리면 그대로 보인다 */
                     && ((FrameLayout.LayoutParams) hubBanner.getLayoutParams()).topMargin < gameBox[3]) t = null;
@@ -1899,6 +1909,7 @@ public class EmuActivity extends Activity {
      *  버튼 이름은 패드 글자 그대로(A · B · OPTION) — 레퍼런스: 철권8 «[BACK]+[←] 벽을 등지고», KOF XV «왼쪽 = 화면 왼쪽 끝» 처럼 방향마다 결과를 적는다 */
     /** 내 캐릭터 쪽 버튼 안내 — 화면마다(캐릭터: B = 2P색으로 결정 · 검질: B 는 게임의 «뒤로» · 카드: 게임 그대로). 그 밖(이야기·라운드 연출)은 빈 줄/숨김 */
     private static String myPickKeys(int scr, boolean league) {
+        if (!lookKeys && (scr == 2 || scr == 4)) return "A 결정";      /* 설정 «컬러 고르기» 끔 — OPTION·B 는 게임 그대로(아무 일 없음) */
         if (scr == 2) return "A 결정  ·  B 2P색  ·  OPTION 컬러";
         if (scr == 4) return "A 결정  ·  OPTION 컬러";
         if (scr == 6) return league ? "카드 고르기 (전부 열림)" : "카드 고르기";
@@ -1918,5 +1929,145 @@ public class EmuActivity extends Activity {
             return "OPTION 메뉴 · OPTION+↓ 리셋\n+← 왼쪽 · +↑ 가운데 · +→ 오른쪽";
         default: return null;
         }
+    }
+
+    /* ── 모든 모드 컬러(look.c) ─────────────────────────────────────────
+       사무쇼2 확인한 판(일반 판 practiceRomOk · 리그 판 hubVersionProblem 없음)이고 설정 «컬러 고르기»가 켬이면 1인·무한·연습·리그 어디서나
+       캐릭터·검질 고르기에서 OPTION = 다음 컬러(길게 = 컬러 만들기) · B = 2P색으로 결정. 기억(캐릭터마다)·내 색은 앱 설정(Look) —
+       native 가 바꾼 기억은 폴(200ms)이 받아 남긴다. 띠 안내는 허브 띠가 없는 화면(일반 1인·무한 대전)의 고르기 화면에서만. */
+    private boolean lookOn = false;
+    private static volatile boolean lookKeys = true;   /* 띠의 «B 2P색 · OPTION 컬러» 안내를 보일지(컬러가 켜진 판) — 연습·리그 띠(myPickKeys)도 본다 */
+    private int[] lookV;                         /* 마지막 nativeLookStatus */
+    private int lookMemGen = 0, lookEditReq = 0, lookLost = 0, lookRecColor = -9;
+    private int[][][] lookCus = new int[Look.NCH][2][];
+    private android.view.View lookEditor;        /* 컬러 만들기 창(스크롤 틀) — 떠 있으면 게임 입력은 look 이 모두 막는다 */
+
+    /** 코어를 올린 뒤(loadCore — UI·GL 스레드 어느 쪽에서든) — 켤 판이면 기억·내 색을 넣고 폴을 돌린다. 코어를 올릴 때 native 가 이미 끈 채로 시작한다 */
+    private void lookSetup() {
+        boolean ok = loaded && game != null && "ss2".equals(game.id) && Look.on()
+                && (ranked() ? hubVersionProblem() == null : practiceRomOk());
+        lookOn = ok; lookKeys = ok;
+        Emu.nativeLookEnable(ok);
+        if (ok) {
+            Look.push();
+            lookCus = Look.loadCustom();
+            int[] v = Emu.nativeLookStatus();                            /* native 셈은 프로세스 내내 이어진다 — 지난 판의 요청·바뀜으로 창이 뜨지 않게 지금 값부터 */
+            if (v != null && v.length >= 14) { lookMemGen = v[2]; lookEditReq = v[7]; }
+        }
+        h.post(new Runnable() { @Override public void run() {
+            h.removeCallbacks(lookPoll);
+            if (lookOn) h.postDelayed(lookPoll, 200);
+            else { if (pad != null) pad.setLookCell(false); lookEditorClose(); }
+        }});
+    }
+
+    private final Runnable lookPoll = new Runnable() { @Override public void run() {
+        if (!lookOn || leaving) return;
+        if (loaded) {
+            int[] v = Emu.nativeLookStatus();
+            if (v != null && v.length >= 14) lookTick(v);
+        }
+        h.postDelayed(this, 200);
+    }};
+
+    private void lookSaveMem() {
+        int[] v = Emu.nativeLookStatus();
+        if (v == null || v.length < 14 || v[2] == lookMemGen) return;
+        lookMemGen = v[2];
+        byte[] m = Emu.nativeLookGetMem();
+        if (m != null) Look.saveMem(m);
+    }
+
+    private void lookTick(int[] v) {
+        lookV = v;
+        if (v[2] != lookMemGen) lookSaveMem();                           /* OPTION 으로 바꾼 컬러 — 캐릭터마다 기억(다음에도 그 색) */
+        if (v[7] != lookEditReq) {                                       /* OPTION 길게 — 컬러 만들기 */
+            lookEditReq = v[7];
+            if (v[1] == 1) openLookEditor(v[12], v[13]);
+        }
+        if (lookEditor != null && v[1] != 1) { if (++lookLost > 5) lookEditorClose(); }   /* 고르기 화면을 떠났다(불러오기 등) — 창을 닫는다 */
+        else lookLost = 0;
+        if (pad != null) pad.setLookCell(v[1] == 1 && v[12] >= 0 && lookEditor == null);
+        if (leagueId != null && !leagueHub && !leagueStarted && !leagueDone) {   /* 리그 화면에서 연 한 경기 — 고른 컬러를 기록에(체크포인트 이어 하기가 이 값을 본다) */
+            int c = Math.max(0, v[4]);
+            if (c != lookRecColor) {
+                org.json.JSONObject m = lm(), lk = m != null ? m.optJSONObject("look") : null;
+                League.setLook(leagueId, lk != null ? lk.optInt("stage", -1) : -1, c, lookTri(c));
+                lookRecColor = c;
+            }
+        }
+        if (!practiceHub && !leagueHub && leagueId == null) {          /* 허브 띠가 없는 일반 판(«리그·연습» 끔 등) — 고르기 화면에서만 컬러 안내 */
+            String t = lookHint();
+            if (t != null) {
+                if (hubBanner == null) addHubBanner();
+                if (!t.contentEquals(hubBanner.getText())) hubBanner.setText(t);
+                hubBanner.setVisibility(View.VISIBLE);
+            } else if (hubBanner != null) hubBanner.setVisibility(View.GONE);
+        }
+    }
+
+    /** 일반 1인·무한 대전 고르기 화면의 띠 — 캐릭터: «A 결정 · B 2P색 · OPTION 컬러» / «OPTION 길게 = 컬러 만들기», 검질: «A 결정 · OPTION 컬러». 그 밖 null */
+    private String lookHint() {
+        int[] v = lookV;
+        if (!lookOn || v == null || v.length < 14 || v[1] != 1 || lookEditor != null) return null;
+        if (v[8] >= 0) return myPickKeys(4, false);
+        return myPickKeys(2, false) + (v[12] >= 0 ? "\nOPTION 길게 = 컬러 만들기" : "");
+    }
+
+    /** 경기 기록에 남길 내 색 세 색(16·17 일 때만 — 그 캐릭터의 내 색, 무작위 칸이면 모름) */
+    private int[] lookTri(int color) {
+        int[] v = lookV;
+        if (color < Look.NPRE || color >= Look.NIDX || v == null || v.length < 14 || v[5] < 0 || v[5] >= Look.NCH) return null;
+        return lookCus[v[5]][color - Look.NPRE];
+    }
+
+    /** «컬러 만들기» 창 — 화면 아래(세로)·오른쪽(가로)에, 가운데 미리보기 그림이 보이게. ch·sty = 고르기 화면의 캐릭터·검질 */
+    private void openLookEditor(final int ch, int sty) {
+        if (lookEditor != null || !lookOn || ch < 0 || ch >= Look.NCH || root == null) return;
+        int[] tri = Emu.nativeLookTriples(ch, sty);
+        if (tri == null || tri.length < Look.NIDX * 3) return;
+        int[] v = lookV;
+        final String nm = League.CHAR[ch];
+        LookEditor ed = new LookEditor(this, hubFont(), nm, tri, v != null && v.length >= 14 ? v[3] : 0, lookCus[ch], new LookEditor.Host() {
+            @Override public void preview(int[] c) { Emu.nativeLookEdit(true, c[0], c[1], c[2]); }
+            @Override public void save(int k, int[] c) {
+                Look.saveCustom(ch, k, c);
+                lookCus = Look.loadCustom();
+                Emu.nativeLookSetCustom(ch, k, c[0], c[1], c[2]);
+                byte[] m = Emu.nativeLookGetMem();                   /* 그 캐릭터 기억 = 방금 만든 내 색(창이 열린 동안 게임 입력은 막혀 native 기억이 안 바뀐다) */
+                if (m != null && m.length >= Look.NSLOT) { m[ch] = (byte) (Look.NPRE + k); Emu.nativeLookSetMem(m); Look.saveMem(m); }
+                lookEditorClose();
+                toast("내 색 " + (k + 1) + " 저장 — " + nm);
+            }
+            @Override public void cancel() { lookEditorClose(); }
+        });
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.addView(ed);
+        float dp = getResources().getDisplayMetrics().density;
+        int W = root.getWidth(), H = root.getHeight();
+        FrameLayout.LayoutParams lp;
+        if (W > H) {                                                     /* 가로 — 게임 그림 오른쪽 */
+            int w = Math.max(Math.round(320 * dp), W - gameBox[2] - Math.round(12 * dp));
+            lp = new FrameLayout.LayoutParams(Math.min(w, Math.round(W * 0.48f)), FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL);
+            lp.rightMargin = Math.round(6 * dp);
+        } else {                                                         /* 세로 — 아래(패드 자리 — 창이 떠 있는 동안 게임 입력은 막힌다) */
+            lp = new FrameLayout.LayoutParams(Math.min(W - Math.round(12 * dp), Math.round(480 * dp)), FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
+            lp.bottomMargin = Math.round(8 * dp);
+        }
+        root.addView(sv, lp);
+        lookEditor = sv;
+        padMask = 0; releasePhysical();                                  /* 쥐고 있던 버튼이 창이 닫힌 뒤 눌린 채 남지 않게 */
+        if (pad != null) pad.setLookCell(false);
+        if (hubBanner != null && !practiceHub && !leagueHub && leagueId == null) hubBanner.setVisibility(View.GONE);
+    }
+
+    /** 창 닫기(저장·취소·뒤로) — 미리보기를 보이는 컬러로 되돌린다 */
+    private void lookEditorClose() {
+        if (lookEditor == null) return;
+        root.removeView(lookEditor);
+        lookEditor = null;
+        Emu.nativeLookEdit(false, 0, 0, 0);
     }
 }

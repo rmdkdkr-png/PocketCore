@@ -35,8 +35,9 @@ final class League {
     static final String[] DIFF  = { "쉬움", "보통", "어려움" };
     /** 배경(스테이지) 0~7 — 1인 대전에서 배경은 «몇 번째 판»(0x5827)을 따른다(league.c R_BOUT). 실측한 여덟 개 */
     static final String[] STAGES = { "후지산 마을", "숲속 호숫가", "산 위 신사", "화염 사원", "폐허 사원", "불꽃 동굴", "마계 제단", "수정 신전" };
-    /** 내 컬러 — 0 게임 기본 · 1 2P색(같은 캐릭터 미러전에서 게임이 P2 에 쓰는 색) · 2·3 기본 색에서 만든 색 */
-    static final String[] COLORS = { "기본", "2P색", "컬러 3", "컬러 4" };
+    /** 컬러 이름 — 0 게임 기본 · 1 2P색(같은 캐릭터 미러전에서 게임이 P2 에 쓰는 색) · 2~15 프리셋 · 16·17 내 색(Look — 모든 모드 컬러).
+     *  옛 기록(cv 없음)의 2·3 은 «컬러 3·4» — 이름은 Look.name(idx, cv) */
+    static final String[] COLORS = Look.NAMES;
     /** 가상 상대마다 기본 배경(«상대 기본» 일 때) — 명단(ROSTER)과 따로 둬서 옛 기록을 안 고친다 */
     private static final String[][] HOME_STAGE = {
         { "o01", "2" }, { "o02", "3" }, { "o03", "1" }, { "o04", "0" }, { "o05", "4" }, { "o06", "1" },
@@ -279,7 +280,17 @@ final class League {
         return p;
     }
     static synchronized int prefStage() { int v = pref().optInt("stage", -1); return v >= -2 && v < STAGES.length ? v : -1; }
+    /** 옛 리그 «내 컬러»(리그 판 전체에 하나) — 이제 컬러는 캐릭터마다(Look, 앱 설정)라 Look.migrate 가 처음 한 번만 읽는다 */
     static synchronized int prefColor() { int v = pref().optInt("color", 0); return v >= 0 && v < COLORS.length ? v : 0; }
+    /** 고른 배경만 남긴다(컬러는 Look — pref.color 는 더 안 쓴다, 남아 있어도 무시) */
+    static synchronized void setPrefStage(int stageSel) {
+        try {
+            JSONObject p = pref();
+            if (p.optInt("stage", -1) == stageSel) return;
+            p.put("stage", stageSel);
+            save();                                     /* 실패해도 메모리 값으로 쓰고 다음 저장 때 같이 들어간다 */
+        } catch (Exception ignored) { }
+    }
     static synchronized void setPrefLook(int stageSel, int color) {
         try {
             JSONObject p = pref();
@@ -295,13 +306,20 @@ final class League {
         return homeStage(oppId);
     }
     /** 경기의 배경·컬러(기록·이어 하기용). 끝난 경기는 안 바꾼다 */
-    static synchronized void setLook(String id, int stage, int color) {
+    static synchronized void setLook(String id, int stage, int color) { setLook(id, stage, color, null); }
+    /** 컬러 판 cv 2(16가지 + 내 색) — 내 색(16·17)이면 그 경기의 세 색도(tri — 나중에 내 색을 고쳐도 기록은 그대로). cv 없는 옛 기록 = 컬러 4개 시절 */
+    static synchronized void setLook(String id, int stage, int color, int[] tri) {
         JSONObject m = matchById(id);
         if (m == null || terminal(m.optString("status"))) return;
         try {
             JSONObject lk = m.optJSONObject("look");
-            if (lk != null && lk.optInt("stage", -9) == stage && lk.optInt("color", -9) == color) return;
-            m.put("look", new JSONObject().put("stage", stage).put("color", color));
+            boolean custom = tri != null && tri.length >= 3 && color >= Look.NPRE;
+            JSONArray ta = lk != null ? lk.optJSONArray("tri") : null;
+            boolean sameTri = custom ? ta != null && ta.length() >= 3 && ta.optInt(0) == tri[0] && ta.optInt(1) == tri[1] && ta.optInt(2) == tri[2] : ta == null;
+            if (lk != null && lk.optInt("stage", -9) == stage && lk.optInt("color", -9) == color && lk.optInt("cv") == 2 && sameTri) return;
+            JSONObject n = new JSONObject().put("stage", stage).put("color", color).put("cv", 2);
+            if (custom) n.put("tri", new JSONArray().put(tri[0] & 0xFFF).put(tri[1] & 0xFFF).put(tri[2] & 0xFFF));
+            m.put("look", n);
             save();
         } catch (Exception ignored) { }
     }
