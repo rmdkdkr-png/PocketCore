@@ -180,14 +180,19 @@ static void fight_tick(uint8_t *ram, int mode, int prog)
    }
    S.diff_prev = live ? CV[CH_DIFF] : S.diff_prev;
 
-   /* 내 공격력 — 게임(카드)이 정한 값에 곱한다(카드 공격 상승 0x133 과 곱해짐). 램 값이 우리가 마지막에 쓴 값과 다르면 게임이 다시 정한 것(다음 경기) → 새 기준 */
-   if (ours && mode == 241) {
-      int cur = rd16(ram, R_P1ATK);
-      if (S.atk_last < 0 || cur != S.atk_last) S.atk_base = cur;
-      if (CV[CH_POW]) {
+   /* 내 공격력 — 라운드 중(live)에만 게임(카드)이 정한 값에 곱한다(카드 공격 상승 0x133 과 곱해짐). 램 값이 우리가 마지막에 쓴 값과 다르면
+      게임이 다시 정한 것 → 새 기준. 라운드 밖(이야기·라운드 사이·결판 뒤)에선 원래 값으로 돌려 둔다 — 게임은 경기 앞 이야기 동안 0x57D8 = 0x100 을
+      쓴 뒤 카드 공격 상승을 «더한다»(0x100 → 0x133, 실측). 시제품은 이야기(MODE 241)부터 곱해 0x300 에 더해진 0x333 이 기준이 돼 9배가 됐다 */
+   if (ours) {
+      if (live && CV[CH_POW]) {
+         int cur = rd16(ram, R_P1ATK);
+         if (S.atk_last < 0 || cur != S.atk_last) S.atk_base = cur;
          int v = S.atk_base * POW_K[CV[CH_POW]] >> 8; if (v > 0x7FFF) v = 0x7FFF;
          wr16(ram, R_P1ATK, v); S.atk_last = v;
-      } else if (S.atk_last >= 0) { wr16(ram, R_P1ATK, S.atk_base); S.atk_last = -1; }
+      } else if (S.atk_last >= 0) {
+         if (rd16(ram, R_P1ATK) == S.atk_last) wr16(ram, R_P1ATK, S.atk_base);   /* 게임이 그사이 새로 썼으면 그 값 그대로 */
+         S.atk_last = -1;
+      }
    }
 
    /* 상대 가만히 — CPU 비트를 끈다(사람 갈래 · 패드 0 — 가드도 안 함). 끄면 한 번 다시 켬 */
