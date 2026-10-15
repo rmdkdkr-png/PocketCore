@@ -248,7 +248,7 @@ void look_enable(int on)
 {
    pthread_mutex_lock(&K_mu);
    K.on = on ? 1 : 0; rm_init = 0;
-   if (!on) { K.sel = -1; K.sel_ch = -1; K.b2p = 0; K.edit = 0; K.inj = 0; look_in_block = 0; look_in_or = 0; }
+   if (!on) { K.sel = -1; K.sel_ch = -1; K.cur = 0; K.b2p = 0; K.edit = 0; K.inj = 0; look_in_block = 0; look_in_or = 0; }   /* cur 0 — 꺼진 판의 리그 기록(허브 v[10])에 옛 컬러가 안 남게 */
    pthread_mutex_unlock(&K_mu);
 }
 void look_set_mem(const signed char *mem, int n)
@@ -361,7 +361,7 @@ void look_resume(const void *buf, size_t n)
 void look_forget(void)
 {
    pthread_mutex_lock(&K_mu);
-   K.sel = -1; K.sel_ch = -1; K.b2p = 0; K.edit = 0; K.owned = 0; K.hold_b = 0; K.inj = 0; K.last_scr = -1; K.prow = -1; K.opt_own = 0; K.pv_has = 0;
+   K.sel = -1; K.sel_ch = -1; K.cur = 0; K.b2p = 0; K.edit = 0; K.owned = 0; K.hold_b = 0; K.inj = 0; K.last_scr = -1; K.prow = -1; K.opt_own = 0; K.pv_has = 0;
    rm_init = 0; vpanel_forget();
    look_in_block = 0; look_in_or = 0;
    pthread_mutex_unlock(&K_mu);

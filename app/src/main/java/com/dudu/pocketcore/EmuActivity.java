@@ -2043,29 +2043,40 @@ public class EmuActivity extends Activity {
         });
         android.widget.ScrollView sv = new android.widget.ScrollView(this);
         sv.addView(ed);
-        float dp = getResources().getDisplayMetrics().density;
-        int W = root.getWidth(), H = root.getHeight();
-        FrameLayout.LayoutParams lp;
-        if (W > H) {                                                     /* 가로 — 게임 그림 오른쪽 */
-            int w = Math.max(Math.round(320 * dp), W - gameBox[2] - Math.round(12 * dp));
-            lp = new FrameLayout.LayoutParams(Math.min(w, Math.round(W * 0.48f)), FrameLayout.LayoutParams.WRAP_CONTENT,
-                    android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL);
-            lp.rightMargin = Math.round(6 * dp);
-        } else {                                                         /* 세로 — 아래(패드 자리 — 창이 떠 있는 동안 게임 입력은 막힌다) */
-            lp = new FrameLayout.LayoutParams(Math.min(W - Math.round(12 * dp), Math.round(480 * dp)), FrameLayout.LayoutParams.WRAP_CONTENT,
-                    android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
-            lp.bottomMargin = Math.round(8 * dp);
-        }
-        root.addView(sv, lp);
+        root.addView(sv, lookEditorLp());
+        root.addOnLayoutChangeListener(lookRelayout);                   /* 화면을 돌리면(액티비티는 그대로) 자리를 다시 */
         lookEditor = sv;
         padMask = 0; releasePhysical();                                  /* 쥐고 있던 버튼이 창이 닫힌 뒤 눌린 채 남지 않게 */
         if (pad != null) pad.setLookCell(false);
         if (hubBanner != null && !practiceHub && !leagueHub && leagueId == null) hubBanner.setVisibility(View.GONE);
     }
 
+    /** 창 자리 — 세로는 아래(패드 자리 — 창이 떠 있는 동안 게임 입력은 막힌다), 가로는 게임 그림 오른쪽 */
+    private FrameLayout.LayoutParams lookEditorLp() {
+        float dp = getResources().getDisplayMetrics().density;
+        int W = root.getWidth(), H = root.getHeight();
+        FrameLayout.LayoutParams lp;
+        if (W > H) {
+            int w = Math.max(Math.round(320 * dp), W - gameBox[2] - Math.round(12 * dp));
+            lp = new FrameLayout.LayoutParams(Math.min(w, Math.round(W * 0.48f)), FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.view.Gravity.RIGHT | android.view.Gravity.CENTER_VERTICAL);
+            lp.rightMargin = Math.round(6 * dp);
+        } else {
+            lp = new FrameLayout.LayoutParams(Math.min(W - Math.round(12 * dp), Math.round(480 * dp)), FrameLayout.LayoutParams.WRAP_CONTENT,
+                    android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL);
+            lp.bottomMargin = Math.round(8 * dp);
+        }
+        return lp;
+    }
+    private final View.OnLayoutChangeListener lookRelayout = (v, l, t, r, b, ol, ot, or, ob) -> {
+        if ((r - l) != (or - ol) || (b - t) != (ob - ot))
+            h.post(() -> { if (lookEditor != null) lookEditor.setLayoutParams(lookEditorLp()); });
+    };
+
     /** 창 닫기(저장·취소·뒤로) — 미리보기를 보이는 컬러로 되돌린다 */
     private void lookEditorClose() {
         if (lookEditor == null) return;
+        root.removeOnLayoutChangeListener(lookRelayout);
         root.removeView(lookEditor);
         lookEditor = null;
         Emu.nativeLookEdit(false, 0, 0, 0);
