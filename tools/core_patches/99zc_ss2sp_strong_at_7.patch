@@ -1,0 +1,17 @@
+diff --git a/src/ss2sp.c b/src/ss2sp.c
+index 30222bd..27c93b1 100644
+--- a/src/ss2sp.c
++++ b/src/ss2sp.c
+@@ -288,7 +288,11 @@ static int hs_val_prev; static uint32_t hs_val_since;   /* 히트스톱 값이 
+ /* 99x 강 — 유저가 SP 를 잡은 프레임 수(엣지부터). 9 프레임을 넘기면 «강을 원함» — 미뤘다 써 넣을 때 유저가 이미 뗐어도
+    버튼 칸을 강이 터질 만큼(10 프레임) 잡는다. 전엔 지금 잡고 있을 때만 늘려, 일찍 길게 누르고 뗀 강이 약으로 나갔다 */
+ static int sp_hold_total, fin_frames;
+-static int sp_want_strong(void) { return sp_hold_total >= STRONG_FRAMES; }
++/* 99zc: 강을 정하는 손 길이 — 7 프레임. 게임은 버튼 칸 6 프레임까지 늘 약, 7 은 틱 위상 따라 갈리고 8 부터 강이다. 9 로 정하면 손 7~8 프레임이
++   그때그때 약·강으로 갈렸다(유저 2026-10-16 「뭔소리고 야」). 손 7 프레임이 되는 순간 강으로 정하고 버튼 칸을 강이 터질 만큼(STRONG_FRAMES)
++   잡는다 → 6 프레임(0.1초)까지 늘 약, 7 프레임부터 늘 강. 더 늦게(9) 정하면 그 사이를 약으로 못 막는다(이미 7 프레임 눌려 있음) */
++static int ss2_strong_at(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_STRONGAT"); v=e?atoi(e):7;} return v; }
++static int sp_want_strong(void) { return sp_hold_total >= ss2_strong_at(); }
+ static int ss2_cancel_ctx(void)
+ {
+    int act = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8);
