@@ -81,4 +81,13 @@ public final class Emu {
      *   보이는 대미지, 리셋 횟수, 리셋 기다림, 마지막 리셋 프레임, 가드 켬, 프레임, 빌린 타일, 쓰이던 빈 타일, 나가기 요청, 시작 물체 수, 메뉴 연 횟수,
      *   버린 리셋, 더미 캐릭터, 더미 검질] (practice.h) */
     public static native int[] nativePracticeStatus();
+
+    /* 치트(cheat.c) — 사무쇼2 일반 세션. key = Cheats.KEYS 순서(CH_*), value 0..n — 다음 진짜 프레임부터 먹는다(코어를 다시 올리지 않음).
+       잠긴 세션(랭크전·게임 속 리그)에선 무시. 코어를 올리고 내릴 때 native 가 모두 끈다 — 일반 세션이면 로드 뒤에 다시 넣을 것 */
+    public static native void  nativeCheatSet(int key, int value);
+    /** 리그 판 — 켜면 값을 비우고 이후 nativeCheatSet 을 받지 않는다 */
+    public static native void  nativeCheatLock(boolean on);
+    /** [잠김, 켜진 수, 이번 세션 경기 치트 먹음, 올카드 창 안, 보관 합, 세이브에 이미 올카드, 유가 고름, 막힌 이유(0·1 잠김·2 리그·3 연습),
+     *   마지막 P1 공격 배율, 그 기준, 마지막 한 방 KO 프레임, 무한 체력 되돌림 수, 프레임, 0x57C6, 0x5726, 세이브에 남기기로 8 을 쓰는 중] (cheat.h) */
+    public static native int[] nativeCheatStatus();
 }
