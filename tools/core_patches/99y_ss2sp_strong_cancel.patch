@@ -1,0 +1,119 @@
+diff --git a/src/ss2sp.c b/src/ss2sp.c
+index 6f5026b..d3d4a36 100644
+--- a/src/ss2sp.c
++++ b/src/ss2sp.c
+@@ -212,6 +212,11 @@ static int q_inj;                  /* 지금 큐가 «써 넣고 버튼만» 인
+    (받는 틈은 기본기마다 다르다 — 갈포드·하오마루·아수라·주베이 약베기는 +2·+3, 나코루루 약베기는 훨씬 뒤. +4·+5 를 피하는 것만 한다) */
+ static int ss2_gate_on(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_GATE"); v=e?atoi(e):1;} return v; }
+ static int hs_seen_basic; static uint32_t hs_end_f;
++static int hs_val_prev; static uint32_t hs_val_since;   /* 히트스톱 값이 바뀐 프레임 — 끝 = 그 프레임 + 2 × 값 */
++/* 99x 강 — 유저가 SP 를 잡은 프레임 수(엣지부터). 9 프레임을 넘기면 «강을 원함» — 미뤘다 써 넣을 때 유저가 이미 뗐어도
++   버튼 칸을 강이 터질 만큼(10 프레임) 잡는다. 전엔 지금 잡고 있을 때만 늘려, 일찍 길게 누르고 뗀 강이 약으로 나갔다 */
++static int sp_hold_total, fin_frames;
++static int sp_want_strong(void) { return sp_hold_total >= STRONG_FRAMES; }
+ static int ss2_cancel_ctx(void)
+ {
+    int act = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8);
+@@ -229,10 +234,19 @@ static int ss2_inject(const ss2_move *m, int tk, int mirror)
+    {
+       int act = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8);
+       if (ss2_atk_young(act)) { deferred = m; deferred_tk = tk; deferred_left = 40; return -1; }
+-      /* 99x: 자기 기본기가 맞아 히트스톱 중이면 끝날 때까지 미룬다 — 게임은 버튼을 잡은 길이를 히트스톱 중에도 재서,
+-         히트스톱 동안 잡고 있다 떼면 강(0x80)으로 쳐 캔슬을 안 받았다(약베기 맞히고 바로 SP = 기본기가 끝난 뒤 따로 나감).
+-         히트스톱이 끝나는 프레임에 눌러 2 프레임 뒤 떼면 약(0x40)으로 바로 받는다 */
+-      if (ss2_gate_on() && act >= 0x50 && act <= 0xFF && CPUExRAM[OFF_HITSTOP]) { deferred = m; deferred_tk = tk; deferred_left = 40; return -1; }
++      /* 99x: 자기 기본기가 맞아 히트스톱 중이면 미룬다 — 게임은 버튼을 잡은 길이를 히트스톱 중에도 잰다(누른 틱 + 8 프레임이면
++         떼기 전에 강 0x80 이 터지고, 그 전에 떼면 뗄 때 약 0x40). 엔진이 히트스톱 동안 내내 잡고 있어 강이 받는 틈 밖에서 터져
++         캔슬을 안 받았다(약베기 맞히고 바로 SP = 기본기가 끝난 뒤 따로 나감).
++         약(SP 짧게): 히트스톱이 끝나는 프레임에 눌러 2 프레임 뒤 뗀다 → 끝 +3 틱에 약.
++         강(SP 를 9 프레임 넘게 잡았다): 끝나기 5 프레임 전에 눌러 잡고 있는다 → 끝 +3 틱에 강(늦게 알면 2 프레임 전 → +7 틱).
++         히트스톱은 2 프레임마다 1 씩 준다(실측 5·4·3·2·1) — 끝 = 값이 바뀐 프레임 + 2 × 값 */
++      if (ss2_gate_on() && act >= 0x50 && act <= 0xFF && CPUExRAM[OFF_HITSTOP])
++      {
++         int left = (int)(hs_val_since + 2 * (unsigned)CPUExRAM[OFF_HITSTOP] - frame_no);   /* 히트스톱 끝까지 남은 프레임 */
++         /* 강은 누른 틱 + 8 프레임에 터진다 → 끝 5 프레임 전에 누르면 끝 +3 틱(받는 틈), 6~3 프레임 전이면 +5 틱(안 받는 틈)이라
++            그때는 2 프레임 전까지 더 미뤄 +7 틱에 */
++         if (!(sp_want_strong() && (left == 5 || left <= 2))) { deferred = m; deferred_tk = tk; deferred_left = 40; return -1; }
++      }
+       /* 기본기 중이면(받아 줄 수도, 안 받아 줄 수도) — 안 나가면 기본기가 끝날 때 한 번 더 */
+       if (act >= 0x50 && act <= 0xFF) { retry_m = m; retry_tk = tk; retry_left = 60; qr_live = ss2_qr_on(); qr_tries = 0; }
+       else { retry_m = 0; qr_live = 0; }
+@@ -266,8 +280,8 @@ static int ss2_inject(const ss2_move *m, int tk, int mirror)
+    q_n = q_i = 0;
+    q[q_n].pad = fin; q[q_n].frames = HOLD_FRAMES; q[q_n].sustain = 1; q_n++;   /* 트리거를 잡고 있으면 늘어난다(강) */
+    q[q_n].pad = 0; q[q_n].frames = TAIL_FRAMES; q[q_n].sustain = 0; q_n++;
+-   q_inj = 1;
+-   if (ss2_dbg()) fprintf(stderr, "[ss2sp] inject %s c=%d ne=%d fin=%02x\n", m->name, c, ne, fin);
++   q_inj = 1; fin_frames = 0;
++   if (ss2_dbg()) fprintf(stderr, "[ss2sp] inject %s c=%d ne=%d fin=%02x strong=%d\n", m->name, c, ne, fin, sp_want_strong());
+    return 1;
+ }
+ 
+@@ -283,7 +297,7 @@ static int ss2_repress(void)
+    q[q_n].pad = inj_fin; q[q_n].frames = 2; q[q_n].sustain = 0; q_n++;
+    q[q_n].pad = 0; q[q_n].frames = TAIL_FRAMES; q[q_n].sustain = 0; q_n++;
+    q_left = q[0].frames;
+-   qr_attempt = 1; q_inj = 1;
++   qr_attempt = 1; q_inj = 1; fin_frames = 0;
+    if (ss2_dbg()) fprintf(stderr, "[ss2sp] repress %d c=%d\n", qr_tries, c);
+    return 1;
+ }
+@@ -459,6 +473,15 @@ static uint8_t ss2_step_out(int held)
+       return 0;
+    }
+    out = q[q_i].pad;
++   if (q_inj && q_i == 0)
++   {
++      fin_frames++;
++      if (sp_want_strong() && fin_frames <= STRONG_FRAMES && !qr_attempt)
++      {  /* 99x: 강을 원했다 — 잡은 길이를 게임이 재므로 히트스톱과 상관없이 10 프레임은 잡는다 */
++         hold_elapsed = fin_frames; if (fin_frames >= STRONG_FRAMES) ss2sp_last_strong = 1;
++         return out;
++      }
++   }
+    {  if (ss2_rawhold() > 0) {
+          if (--q_left <= 0) { if (++q_i < q_n) q_left = q[q_i].frames; else { q_n = q_i = 0; q_left = 0; } }
+          return out; } }
+@@ -507,6 +530,7 @@ uint8_t ss2sp_frame(uint8_t pad, uint16_t trig)
+ 
+    /* 걷기 감지 — 순수 좌/우(아래 없음)만 오염원이다 */
+    frame_no++;
++   if (hold_bit && (trig & hold_bit)) { if (sp_hold_total < 1000) sp_hold_total++; }   /* 99x: SP 를 잡은 길이 */
+    if (CPUExRAM[OFF_MODE] == 241) { if (ss2_mode_warm < 1000) ss2_mode_warm++; }
+    else ss2_mode_warm = 0;
+    {  /* 자기 기본기 나이 — 새 기본기(다른 액션)로 바뀌면 다시 0 부터. 유저가 A·B 를 새로 누른 때도 */
+@@ -517,7 +541,8 @@ uint8_t ss2sp_frame(uint8_t pad, uint16_t trig)
+       atk_prev = a;
+       if (b & ~prev_btn) btn_since = frame_no;
+       prev_btn = b;
+-      /* 99x: 자기 기본기의 히트스톱 끝 */
++      /* 99x: 히트스톱 값이 바뀐 때(끝 맞추기) · 자기 기본기의 히트스톱 끝 */
++      if (CPUExRAM[OFF_HITSTOP] != hs_val_prev) { hs_val_prev = CPUExRAM[OFF_HITSTOP]; hs_val_since = frame_no; }
+       if (a < 0) { hs_seen_basic = 0; hs_end_f = 0; }
+       else if (CPUExRAM[OFF_HITSTOP]) { hs_seen_basic = 1; hs_end_f = 0; }
+       else if (hs_seen_basic && !hs_end_f) hs_end_f = frame_no;
+@@ -602,6 +627,7 @@ uint8_t ss2sp_frame(uint8_t pad, uint16_t trig)
+       if (ab && !prev_ab && back && !ss2_active() && !pending)
+       {
+          hold_bit = 0;                       /* 비오의는 강약이 없다 */
++         sp_hold_total = 0;
+          btn_since = (uint32_t)-1000;        /* 이 A+B 는 비오의 트리거 — 기본기로 보고 미루지 않는다(게임엔 안 들어간다) */
+          if (CPUExRAM[OFF_Y] == 128 && ss2_actable()) ss2_compile(&ss2_super);
+          else { pending = &ss2_super; pending_left = 40;   /* v0.5.4: 90f(1.5초) → 40f(0.67초) */ }
+@@ -623,6 +649,7 @@ uint8_t ss2sp_frame(uint8_t pad, uint16_t trig)
+          int slot = -1, b;
+          for (b = 0; b < 9; b++) if (edge & (1u << b)) { slot = b; break; }
+          hold_bit = (uint16_t)(slot >= 0 ? (1u << slot) : 0);   /* 이 버튼을 잡고 있으면 강 */
++         sp_hold_total = 1;                                    /* 99x: 이 프레임부터 잰다 */
+ 
+          /* v0.5: 버튼은 SP 하나뿐이다. 기술은 전부 **SP + 방향**(기술 배치)으로 나가고,
+             비오의는 뒤+A+B 로 옮겼다. SP2~SP8 은 눌러도 아무 일도 하지 않는다
+@@ -827,7 +854,7 @@ void ss2sp_reset(void)
+    hold_bit = 0; hold_elapsed = 0; ss2sp_last_strong = 0;
+    verify_left = 0;
+    ss2_mode_warm = 0;
+-   inj_ne = 0; inj_fin = 0; qr_live = 0; qr_tries = 0; qr_attempt = 0; q_inj = 0; hs_seen_basic = 0; hs_end_f = 0;
++   inj_ne = 0; inj_fin = 0; qr_live = 0; qr_tries = 0; qr_attempt = 0; q_inj = 0; hs_seen_basic = 0; hs_end_f = 0; hs_val_prev = 0; hs_val_since = 0; sp_hold_total = 0; fin_frames = 0;
+    deferred = 0; deferred_left = 0; atk_prev = -1; retry_m = 0; btn_since = (uint32_t)-1000; prev_btn = 0;
+    ss2sp_last_ok = -1;
+    ss2sp_last_name = 0;
