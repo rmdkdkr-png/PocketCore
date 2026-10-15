@@ -174,6 +174,7 @@ public class EmuActivity extends Activity {
             /* 메뉴가 열려 있는 동안 게임을 멈춘다 — 고르는 사이 맞지 않게(Delta 의 멈춤 메뉴). 옵션 창이 떠 있으면 그 창이 멈춤을 쥔다 */
             @Override public void onMenu(boolean open) {
                 if (open) { releasePhysical(); refreshSlotInfo(); }
+                if (fdView != null && fdWanted) fdView.setVisibility(open ? View.GONE : View.VISIBLE);   /* 프레임 미터가 버튼 아래 줄에 서면 메뉴 칸(저장·로드) 위를 덮는다 — 메뉴 동안 숨김 */
                 if (!loaded) return;
                 Emu.nativeSetPaused(open || (sheet != null && sheet.isShowing()) || (leagueDlg != null && leagueDlg.isShowing())
                         || (leagueId != null && leagueArmed && nativeDone())     /* 결판이 잡혀 정산을 기다리는 동안은 멈춘 채로 */
@@ -328,6 +329,7 @@ public class EmuActivity extends Activity {
         gl.setLayoutParams(lp);
         if (pad != null) pad.setScreenBox(mx, my, mx + gw, my + gh);
         gameBox[0] = mx; gameBox[1] = my; gameBox[2] = mx + gw; gameBox[3] = my + gh;
+        placeFrameMeter();                                  /* 프레임 미터가 먼저 자리를 잡고 안내 띠는 그 아래로 */
         placeHubBanner();
     }
 
@@ -1426,17 +1428,20 @@ public class EmuActivity extends Activity {
             bannerPlacedH = hh;
         } else {                                                 /* 자동 — 게임 그림 아래, 버튼과 안 겹치는 첫 줄(폭이 화면 절반 이상) */
             int y = gameBox[3] + Math.round(6 * dp), step = Math.round(6 * dp);
+            int fdT = fdBox[3] > 0 ? fdBox[1] - Math.round(4 * dp) : 0, fdB = fdBox[3] > 0 ? fdBox[3] + Math.round(4 * dp) : 0;   /* 프레임 미터 자리는 건너뛴다 — 예전엔 미터 아래부터 찾아, 미터가 버튼 아래 줄에 서면 띠가 갈 곳이 없어 게임 그림 위(HUD)로 올라갔다 */
             int minW = Math.min(maxW, Math.round(W * (port ? 0.50f : 0.36f)));
             left = -1; top = -1; width = maxW;
             for (; y < H; y += step) {
                 int hh = bannerHeightAt(maxW);
                 if (y + hh > H - Math.round(4 * dp)) break;
+                if (fdB > 0 && y < fdB && y + hh > fdT) continue;
                 float[] sp = pad != null ? pad.freeSpan(y, y + hh) : new float[] { 0, W };
                 int spW = Math.round(sp[1] - sp[0]) - 2 * edge;
                 if (spW < minW) continue;
                 int w2 = Math.min(maxW, spW), h2 = bannerHeightAt(w2);   /* 좁으면 줄이 늘 수 있다 — 늘어난 높이로 다시 본다 */
                 if (h2 > hh) {
                     if (y + h2 > H - Math.round(4 * dp)) break;
+                    if (fdB > 0 && y < fdB && y + h2 > fdT) continue;
                     float[] sp2 = pad != null ? pad.freeSpan(y, y + h2) : sp;
                     if (Math.round(sp2[1] - sp2[0]) - 2 * edge < w2) continue;
                 }
@@ -1492,6 +1497,134 @@ public class EmuActivity extends Activity {
                 return true;
             case android.view.MotionEvent.ACTION_CANCEL:
                 bannerDragging = false;
+                return true;
+            }
+            return false;
+        }
+    };
+
+    /* ── 연습 대전 프레임 미터(SF6 식) ─────────────────────────────────
+       연습 메뉴 «표시: 프레임 · 둘 다» 일 때 경기 중에만 보인다. 자료는 practice.c 가 진짜 프레임마다 쌓고(런어헤드·프레임 생성의 숨은 프레임은 안 셈),
+       여기선 33ms 마다 판 번호가 바뀌었을 때만 다시 그린다(할당 없음).
+       자리: 안내 띠와 같은 규칙 — 게임 그림 아래에서 패드 버튼과 안 겹치는 첫 줄(PadView.freeSpan, 칸 3dp 이상이 들어가는 폭) →
+       없으면(가로 화면) 게임 그림 아래 끝에 반투명으로 겹친다(HUD 맨 아래 «PAUSE» 줄 · 분노 막대 아래 반). 안내 띠는 미터 아래로 비킨다.
+       손가락으로 끌면 그 자리를 기억(세로·가로 따로), 두 번 톡 = 자동 자리, 한 번 톡 = 색 설명 켜고 끄기. */
+    private FrameMeterView fdView;
+    private final byte[] fdCells = new byte[2 * FrameMeterText.VIEW];
+    private final int[] fdSum = new int[FrameMeterText.NSUM];
+    private boolean fdWanted = false, fdUserPos = false, fdDragging = false;
+    private final int[] fdBox = new int[4];                  /* 미터가 차지한 자리(안내 띠가 피한다) — 숨기면 0 */
+    private String fdKey() { return root != null && root.getHeight() > root.getWidth() ? "pocketcore_fdmeter_p" : "pocketcore_fdmeter_l"; }
+
+    private void setFrameMeter(boolean on) {
+        if (root == null || (on == fdWanted && (!on || fdView != null))) return;
+        fdWanted = on;
+        if (on) {
+            if (fdView == null) {
+                fdView = new FrameMeterView(this, hubFont());
+                root.addView(fdView, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,
+                        FrameLayout.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP | android.view.Gravity.LEFT));
+                fdView.setOnTouchListener(fdDrag);
+            }
+            fdView.setVisibility(pad != null && pad.isBarOpen() ? View.GONE : View.VISIBLE);
+            placeFrameMeter();
+            h.removeCallbacks(fdPoll); h.post(fdPoll);
+        } else {
+            h.removeCallbacks(fdPoll);
+            if (fdView != null) fdView.setVisibility(View.GONE);
+            fdBox[0] = fdBox[1] = fdBox[2] = fdBox[3] = 0;
+        }
+        placeHubBanner();
+    }
+
+    private final Runnable fdPoll = new Runnable() { @Override public void run() {
+        if (!fdWanted || fdView == null || leaving || !loaded) return;
+        int v = Emu.nativePracticeFrames(fdCells, fdSum);
+        if (fdSum[FrameMeterText.S_ON] == 0) { setFrameMeter(false); return; }
+        fdView.set(fdCells, fdSum, v);
+        h.postDelayed(this, 33);
+    }};
+
+    private void placeFrameMeter() {
+        if (fdView == null || root == null || !fdWanted) return;
+        int W = root.getWidth(), H = root.getHeight();
+        if (W <= 0 || H <= 0) return;
+        float dp = getResources().getDisplayMetrics().density;
+        boolean port = H > W;
+        int edge = Math.round(8 * dp);
+        int minW = Math.round(80 * 3 * dp + 40 * dp);            /* 칸 3dp × 80 + «상대» 이름 칸 */
+        int maxW = Math.min(W - 2 * edge, port ? W - 2 * edge : Math.round(W * 0.62f));
+        int left = -1, top = -1, width = maxW, hh = fdView.heightFor(maxW);
+        boolean overlay = false;
+        float[] pos = null;
+        String saved = Settings.load().get(fdKey());
+        if (saved != null) {
+            try { String[] a = saved.split(","); pos = new float[] { Float.parseFloat(a[0]), Float.parseFloat(a[1]) }; } catch (Exception e) { pos = null; }
+        }
+        fdUserPos = pos != null;
+        if (pos != null) {
+            left = Math.max(0, Math.min(W - width, Math.round(pos[0] * W - width / 2f)));
+            top = Math.max(0, Math.min(H - hh, Math.round(pos[1] * H - hh / 2f)));
+        } else {
+            for (int y = gameBox[3] + Math.round(4 * dp); y < H; y += Math.round(6 * dp)) {
+                if (y + hh > H - Math.round(4 * dp)) break;
+                float[] sp = pad != null ? pad.freeSpan(y, y + hh) : new float[] { 0, W };
+                int spW = Math.round(sp[1] - sp[0]) - 2 * edge;
+                if (spW < minW) continue;
+                width = Math.min(maxW, spW); hh = fdView.heightFor(width);
+                float[] sp2 = pad != null ? pad.freeSpan(y, y + hh) : sp;          /* 좁아져 칸이 높아졌을 수 있다 — 그 높이로 다시 */
+                if (Math.round(sp2[1] - sp2[0]) - 2 * edge < width) { width = maxW; hh = fdView.heightFor(maxW); continue; }
+                left = Math.round((sp[0] + sp[1]) / 2f - width / 2f); top = y;
+                break;
+            }
+            if (top < 0) {                                      /* 빈 줄이 없다 — 게임 그림 아래 끝에 겹쳐 */
+                width = Math.min(maxW, gameBox[2] - gameBox[0] - Math.round(8 * dp));
+                hh = fdView.heightFor(width);
+                left = gameBox[0] + ((gameBox[2] - gameBox[0]) - width) / 2;
+                top = gameBox[3] - hh - Math.round(2 * dp);
+                overlay = true;
+            }
+        }
+        fdView.setOverlay(overlay);
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) fdView.getLayoutParams();
+        lp.width = width; lp.height = hh; lp.leftMargin = left; lp.topMargin = top; lp.rightMargin = 0;
+        lp.gravity = android.view.Gravity.TOP | android.view.Gravity.LEFT;
+        fdView.setLayoutParams(lp);
+        fdBox[0] = left; fdBox[1] = top; fdBox[2] = left + width; fdBox[3] = overlay || fdUserPos ? 0 : top + hh;   /* 겹친 자리·옮긴 자리는 안내 띠가 안 피함 */
+    }
+
+    private final View.OnTouchListener fdDrag = new View.OnTouchListener() {
+        float x0, y0; int l0, t0; long lastUp = 0;
+        @Override public boolean onTouch(View v, android.view.MotionEvent e) {
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) v.getLayoutParams();
+            float slop = android.view.ViewConfiguration.get(EmuActivity.this).getScaledTouchSlop();
+            switch (e.getActionMasked()) {
+            case android.view.MotionEvent.ACTION_DOWN:
+                x0 = e.getRawX(); y0 = e.getRawY(); l0 = lp.leftMargin; t0 = lp.topMargin; fdDragging = false;
+                return true;
+            case android.view.MotionEvent.ACTION_MOVE: {
+                float dx = e.getRawX() - x0, dy = e.getRawY() - y0;
+                if (!fdDragging && Math.hypot(dx, dy) < slop) return true;
+                fdDragging = true;
+                lp.leftMargin = Math.max(0, Math.min(root.getWidth() - v.getWidth(), Math.round(l0 + dx)));
+                lp.topMargin = Math.max(0, Math.min(root.getHeight() - v.getHeight(), Math.round(t0 + dy)));
+                v.setLayoutParams(lp);
+                return true;
+            }
+            case android.view.MotionEvent.ACTION_UP:
+                if (fdDragging) {
+                    Settings.put(fdKey(), String.format(java.util.Locale.US, "%.4f,%.4f",
+                            (lp.leftMargin + v.getWidth() / 2f) / root.getWidth(), (lp.topMargin + v.getHeight() / 2f) / root.getHeight()));
+                    fdDragging = false;
+                    placeFrameMeter(); placeHubBanner();
+                } else {
+                    long now = android.os.SystemClock.uptimeMillis();
+                    if (now - lastUp < 350) { Settings.removePrefix(fdKey()); placeFrameMeter(); placeHubBanner(); toast("프레임 미터를 기본 자리로 돌렸어요"); lastUp = 0; }
+                    else { lastUp = now; fdView.toggleLegend(); placeFrameMeter(); }
+                }
+                return true;
+            case android.view.MotionEvent.ACTION_CANCEL:
+                fdDragging = false;
                 return true;
             }
             return false;
@@ -1956,6 +2089,7 @@ public class EmuActivity extends Activity {
     private void hidePracticeBanner() {
         h.post(new Runnable() { @Override public void run() {
             if (hubBanner != null && !leagueHub && leagueId == null) hubBanner.setVisibility(View.GONE);
+            setFrameMeter(false);
         }});
     }
 
@@ -1965,6 +2099,7 @@ public class EmuActivity extends Activity {
             int[] hs = Emu.nativeLeagueHubStatus(), ps = Emu.nativePracticeStatus();
             int[] dv = Emu.nativeHubDualStatus();                         /* 둘 다 꺼져 있어도 — 메뉴 화면(v[5])으로 띠를 고른다 */
             if (practiceDual && dv != null && dv.length >= 5 && dv[2] == 1) { switchSession(true, false); return; }   /* 셋째 줄 «리그 대전» — 리그 판으로 */
+            setFrameMeter(hs != null && ps != null && hs[0] == 4 && ps.length > 24 && ps[24] == 1);   /* 연습 메뉴 «표시: 프레임·둘 다» — 경기 중에만 */
             String t = (hs != null && ps != null) ? practiceText(hs[0], ps, dv) : null;
             if (t == null && hs != null && hs[0] == 1) t = lookHint();   /* 허브는 타이틀 그대로 1인·무한 대전 — 고르기 화면이면 컬러 안내 */
             /* 경기 중(메뉴 닫힘)엔 띠가 게임 그림 위로 올라가면(가로 화면 — 아래 자리가 없음) 숨긴다: 체력 막대·«2P» 를 연습 내내 가리지 않게 */

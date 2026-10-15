@@ -81,6 +81,8 @@ public final class Emu {
      *   보이는 대미지, 리셋 횟수, 리셋 기다림, 마지막 리셋 프레임, 가드 켬, 프레임, 빌린 타일, 쓰이던 빈 타일, 나가기 요청, 시작 물체 수, 메뉴 연 횟수,
      *   버린 리셋, 더미 캐릭터, 더미 검질] (practice.h) */
     public static native int[] nativePracticeStatus();
+    /** 연습 대전 프레임 미터 — cells[160](나 80칸 · 상대 80칸) · sum[40](practice.h PRACTICE_FD_NSUM). 돌려줌: 바뀔 때마다 오르는 판 번호 */
+    public static native int nativePracticeFrames(byte[] cells, int[] sum);
 
     /* 모든 모드 컬러(look.c) — 사무쇼2 확인한 판에서 캐릭터·검질 고르기 OPTION = 다음 컬러(길게 = 만들기 요청) · B = 2P색으로 결정.
        번호 0 기본 · 1 2P색 · 2~15 프리셋 · 16·17 내 색 1·2(Look.NAMES). 기억 칸 16개 = 캐릭터 0~13 · 14 안 씀 · 15 무작위 칸 */

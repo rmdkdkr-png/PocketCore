@@ -26,6 +26,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <string.h>
+#include <stddef.h>
 #include "practice.h"
 #include "league.h"
 #define PG_WANT_WINDOW
@@ -100,7 +101,8 @@ void practice_vram(void *chr, void *scr, void *pal, void *spr)
 
 /* 설정 — 세션 안에서 다음 경기에도 그대로 */
 typedef struct { int dummy_cpu, guard, rage[2], rpos, swap, num;
-                 int last_ok, last_x[2]; } Settings;   /* last_* = «고른 자리»로 고른 순간 두 사람 X(무대 좌표) — 다음 경기·불러오기에도 남게 설정에(리뷰) */
+                 int last_ok, last_x[2];
+                 int fd; } Settings;   /* fd = 프레임 미터(앱 위 덮개) 켬 — 끝에 붙여 옛 .prac(fd 없음)도 읽힌다 */   /* last_* = «고른 자리»로 고른 순간 두 사람 X(무대 좌표) — 다음 경기·불러오기에도 남게 설정에(리뷰) */
 static Settings PS;
 
 enum { M_NONE = 0, M_OPENING, M_OPEN, M_CLOSING, M_EXIT };
@@ -131,6 +133,7 @@ typedef struct {
    uint16_t dig_orig[3], dig_ours[3];
 } State;
 static State P;
+static void fd_reset(int keep_mem);
 
 /* 연습 메뉴 창이 빌린 것 — 칸(13줄 × 14칸 × 두 띠)·타일·팔레트 13·14 의 원래 값.
    두 띠: 게임은 싸움 내내(일시정지 중에도) 틱마다 첫째 판 가운데 화면줄(32~135)을 판의 줄 4~16 과 줄 19~31 사이에서 번갈아
@@ -249,6 +252,7 @@ static void do_reset(uint8_t *ram)
    P.prev_x[0] = x1; P.prev_x[1] = x2;
    P.settle = 6; P.settle_x[0] = x1; P.settle_x[1] = x2;
    P.resets++; P.last_reset_f = P.f;
+   fd_reset(1);                                    /* 순간이동 — 지금 순서·동작·지연 줄은 버리고 기술 기억만 남긴다 */
 }
 static void request_reset(int pos)
 {
@@ -367,6 +371,244 @@ static void game_writes(uint8_t *ram, int input)
    for (int p = 0; p < 2; p++) P.prev_hp[p] = ram[PB(p) + O_HP];
 }
 
+/* ── 프레임 데이터(FD) — SF6 식 프레임 미터 · 발동/지속/경직 · 유불리 ─────────────
+   설계: next/framedata/design.md 5장. 참조 구현 = x/fd_ref.py(같은 규칙, 호스트 시험이 프레임마다 비교).
+   진짜 프레임마다 practice_tick 안, game_writes 앞(우리가 램을 고치기 전)에 한 번. 라운드 진행·일시정지 아님일 때만.
+   램을 읽기만 한다(쓰기 0) — 켜고 꺼도 게임은 같다.
+
+     닿음      히트스톱 0x5DC7 이 0 → 0 아님 = 닿은 프레임. 맞은 쪽 = 콤보 수(+0x117)가 오른 쪽, 아니면 가드 비트(자세 & 0x18) 선 쪽(가드),
+               아니면 튕겨내기 비트(& 0x03) 쪽(상쇄). 히트스톱 없이 콤보 수가 0 → 1 = 잡기(이어지는 다단 타는 잡기가 아니다).
+     얼림      히트스톱이 이어지는 프레임(닿은 프레임 다음부터) — 미터에 안 쌓는다(SF6 처럼). 닿은 프레임은 쌓는다.
+     지속      싸움꾼 공격 상자 = 물체 +0x1C != 0xFF. 게임은 상자를 켠 다음 틱에 맞춤을 본다 → 쌓인 칸 둘 늦게(2칸 지연 줄)가 «닿을 수 있음».
+               순간이동 탐침(멀리서 헛친 기술의 j 번째 프레임에 더미를 앞에 둠)과 18기술 모두 같음.
+     장풍      0x4180 활성 목록의 4번 칸부터, 살아 있음(+06 != FF) 이고 공격 상자(+1E 또는 +1C) 켬, 주인 +0x27. 주인이 «동작 중»에 켠 것만(개·매는
+               걸을 때도 상자를 켠다). 켜진 프레임(2칸 지연) = 그 동작의 발동.
+     움직임    조작 0x4E: 0 = 움직일 수 있음 · 04/06 대시 · 08 점프 · 0A 맞음 · 0C 공중 맞음 · 10 다운 · 12 가드 · 그 밖(02 보통 공격 · FF 필살·잡기·반동 …) = 동작.
+               맞는 줄(0A·0C·10·12·콤보·닿음)에 들어가면 0 이 될 때까지 경직(기상 02 도 다운으로).
+     동작      움직일 수 있음·대시·점프에서 동작 값으로 바뀌면 시작. 보통 공격(02) 중 필살(ACT ≥ 0x180)로 바뀌면 캔슬 = 새 동작.
+     유불리    닿은 뒤 각자 조작이 처음 0 이 된 프레임(히트스톱 0)의 차 = P2 − P1(+ = 내가 먼저). combat_ref 와 같은 규칙(무작위 7대진 35000프레임 같음).
+     순서      누가 움직이기 시작하면 새 순서(미터 비움). 둘 다 움직일 수 있게 되면 끝(미터는 그대로 남김).
+               한 사람은 움직일 수 있고 다른 사람은 같은 경직이 8칸 넘게 이어지면 · 장풍만 날아가면 한 칸(줄임)만 남기고 센다. 80칸 넘으면 감는다. */
+#define FD_VIEW 80
+#define FD_MEM  32
+#define FD_RUN  8
+#define FD_NONE 0x7FFF
+enum { FK_IDLE = 0, FK_MOVE, FK_STARTUP, FK_ACTIVE, FK_RECOVERY, FK_ACTION, FK_HITSTUN, FK_BLOCKSTUN, FK_DOWN, FK_GAP };
+#define FK_F_PARRY 0x40
+#define FK_F_PROJ  0x80
+#define FK_EMPTY   0xFF
+enum { FC_NONE = 0, FC_HIT, FC_BLOCK, FC_THROW, FC_OTHER, FC_DOWN };
+#define R_OBJLIST A(0x4180)   /* 활성 물체 목록 — (칸 번호, 정렬 값) × 0x41C2 개 */
+#define O_SCR    0x4C         /* 0x59CC u16 — 공격 스크립트 자리(기술 열쇠) */
+
+typedef struct { uint8_t kc; uint16_t ka, ks; int16_t startup, active, recovery, total, adv[4]; } FdMem;   /* adv: 히트·다운·가드·잡기 (공격한 쪽 기준) */
+typedef struct { int live, start, n, first, last, proj, contact, contact_at, pfirst, plast; uint8_t kc; uint16_t ka, ks; } FdAct;
+typedef struct { int id, startup, active, recovery, total, contact, pstart, plen; uint8_t kc; uint16_t ka, ks; } FdSum;
+static struct {
+   int have_prev; uint8_t p_hs, p_ctrl[2], p_combo[2]; uint16_t p_act[2]; uint8_t p_cap[32];
+   int8_t armed[32];
+   uint8_t mode[2], stun[2], downseen[2], boxq[2][2], armq[2][2];
+   FdAct act[2];
+   int seq_on, len, gap_open, gap_n, run, last_pair, frozen_n; uint32_t seq_id;
+   uint8_t cell[2][FD_VIEW];
+   int wait_on, wait[2], last_kind, att, ckey_ok[2]; uint32_t f, contact_f; uint8_t ckc[2]; uint16_t cka[2], cks[2];
+   int adv, adv_kind, adv_att, adv_id, focus;
+   FdSum sum[2];
+   FdMem mem[FD_MEM]; int mem_n, mem_next;
+   uint32_t ver;
+} FD;
+
+static void fd_reset(int keep_mem)
+{
+   FdMem m[FD_MEM]; int mn = FD.mem_n, mx = FD.mem_next; uint32_t v = FD.ver + 1;
+   if (keep_mem) memcpy(m, FD.mem, sizeof m);
+   memset(&FD, 0, sizeof FD);
+   memset(FD.cell, FK_EMPTY, sizeof FD.cell);
+   memset(FD.armed, -1, sizeof FD.armed);
+   if (keep_mem) { memcpy(FD.mem, m, sizeof m); FD.mem_n = mn; FD.mem_next = mx; }
+   FD.adv = FD_NONE; FD.ver = v; FD.focus = -1;
+}
+static FdMem *fd_mem(uint8_t kc, uint16_t ka, uint16_t ks, int make)
+{
+   for (int i = 0; i < FD.mem_n; i++) if (FD.mem[i].kc == kc && FD.mem[i].ka == ka && FD.mem[i].ks == ks) return &FD.mem[i];
+   if (!make) return NULL;
+   int i = FD.mem_n < FD_MEM ? FD.mem_n++ : (FD.mem_next++ % FD_MEM);   /* 가득 차면 오래된 것부터 */
+   FdMem *m = &FD.mem[i];
+   m->kc = kc; m->ka = ka; m->ks = ks; m->startup = m->active = m->recovery = m->total = -1;
+   for (int k = 0; k < 4; k++) m->adv[k] = FD_NONE;
+   return m;
+}
+static void fd_end(int p, int why)          /* why 0 = 움직일 수 있게 됨 · 1 = 맞음 · 2 = 다음 동작(캔슬) */
+{
+   FdAct *a = &FD.act[p];
+   if (!a->live) return;
+   a->live = 0;
+   if (a->first < 0)                          /* 판정 없이 끝난 동작 — 보이는 칸의 «발동»을 «판정 없음»으로 고쳐 칠한다 */
+      for (int i = 0; i < a->n; i++) {
+         int j = a->start + i;
+         if (j < 0 || j >= FD.len || FD.len - j > FD_VIEW) continue;
+         uint8_t *c = &FD.cell[p][j % FD_VIEW];
+         if (*c != FK_EMPTY && (*c & 0x0F) == FK_STARTUP) *c = (uint8_t)((*c & 0xF0) | FK_ACTION);
+      }
+   FdSum *s = &FD.sum[p];
+   if (p == 0 || a->contact) FD.focus = p;    /* 숫자 줄이 보여 줄 동작 — 내 동작은 늘 · 상대 동작은 닿았을 때만 */
+   s->id++; s->total = a->n; s->contact = a->contact; s->kc = a->kc; s->ka = a->ka; s->ks = a->ks;
+   s->pstart = a->pfirst < 0 ? -1 : a->pfirst + 1; s->plen = a->pfirst < 0 ? 0 : a->plast - a->pfirst + 1;
+   if (a->first < 0) { s->startup = s->active = s->recovery = -1; }
+   else {
+      s->startup = a->first + 1; s->active = a->proj ? -2 : a->last - a->first + 1; s->recovery = a->n - 1 - a->last;
+      FdMem *m = fd_mem(a->kc, a->ka, a->ks, 1);
+      m->startup = (int16_t)s->startup;
+      if (!a->contact && why == 0) { m->active = (int16_t)s->active; m->recovery = (int16_t)s->recovery; m->total = (int16_t)s->total; }
+   }
+   FD.ver++;
+}
+static void fd_push(int c0, int c1)
+{
+   FD.cell[0][FD.len % FD_VIEW] = (uint8_t)c0; FD.cell[1][FD.len % FD_VIEW] = (uint8_t)c1;
+   FD.len++; FD.ver++;
+}
+static int fd_stun_kind(int c) { c &= 0x0F; return c == FK_HITSTUN || c == FK_BLOCKSTUN || c == FK_DOWN; }
+
+static void fd_tick(const uint8_t *ram)
+{
+   uint8_t ctrl[2], combo[2], st[2], box[2], proj[2], cap[32];
+   uint16_t act[2], y[2];
+   int hs = ram[R_HSTOP];
+   for (int p = 0; p < 2; p++) {
+      int b = PB(p), o = OBJ(p);
+      ctrl[p] = ram[b + O_CTRL]; combo[p] = ram[b + O_COMBO]; st[p] = ram[b + O_STANCE];
+      y[p] = (uint16_t)rd16(ram, b + O_Y); act[p] = (uint16_t)rd16(ram, o + 0x0E); box[p] = ram[o + 0x1C] != 0xFF;
+   }
+   memset(cap, 0, sizeof cap);
+   {
+      int n = ram[R_OBJN] > 30 ? 30 : ram[R_OBJN];
+      for (int i = 0; i < n; i++) {
+         int k = ram[R_OBJLIST + 2 * i];
+         if (k < 4 || k > 31) continue;
+         int o = OBJ(k);
+         if (ram[o + 0x06] != 0xFF && (ram[o + 0x1E] != 0xFF || ram[o + 0x1C] != 0xFF)) cap[k] = (uint8_t)(1 | (ram[o + 0x27] & 1) << 1 | (ram[o + 0x27] > 1 ? 4 : 0));
+      }
+   }
+   FD.f++;
+   if (!FD.have_prev) goto keep;
+   int frozen = hs && FD.p_hs;
+
+   /* 닿음 */
+   {
+      int kind = 0, d = -1;
+      if (hs && !FD.p_hs) {
+         for (int q = 0; q < 2 && d < 0; q++) if (combo[q] > FD.p_combo[q]) { d = q; kind = FC_HIT; }
+         for (int q = 0; q < 2 && d < 0; q++) if (st[q] & 0x18) { d = q; kind = FC_BLOCK; }
+         for (int q = 0; q < 2 && d < 0; q++) if (st[q] & 0x03) { d = q; kind = FC_OTHER; }
+         if (d < 0) kind = FC_OTHER;
+      } else if (!hs) {
+         for (int q = 0; q < 2 && d < 0; q++) if (combo[q] > FD.p_combo[q]) { d = q; kind = FD.p_combo[q] == 0 ? FC_THROW : (FD.last_kind ? FD.last_kind : FC_HIT); }
+      }
+      if (kind) {
+         FD.wait_on = 1; FD.wait[0] = FD.wait[1] = -1; FD.contact_f = FD.f; FD.last_kind = kind; FD.att = d >= 0 ? 1 - d : -1;
+         if (d >= 0) {
+            FD.mode[d] = 2; FD.stun[d] = kind == FC_BLOCK ? FC_BLOCK : FC_HIT;
+            FdAct *a = &FD.act[1 - d];
+            if (a->live && !a->contact) { a->contact = kind; a->contact_at = a->n; }
+            if (a->live) { FD.ckey_ok[1 - d] = 1; FD.ckc[1 - d] = a->kc; FD.cka[1 - d] = a->ka; FD.cks[1 - d] = a->ks; }
+         }
+      }
+   }
+   /* 장풍 arm — 주인이 동작 중에 켠 공격 상자만 */
+   for (int k = 4; k < 32; k++) {
+      if (!(cap[k] & 1)) { FD.armed[k] = -1; continue; }
+      int ow = (cap[k] & 4) ? -1 : (cap[k] >> 1) & 1;
+      if (!(FD.p_cap[k] & 1) && ow >= 0 && FD.mode[ow] == 1) FD.armed[k] = (int8_t)ow;
+   }
+   proj[0] = proj[1] = 0;
+   for (int k = 4; k < 32; k++) if (FD.armed[k] >= 0) proj[FD.armed[k]] = 1;
+   if (frozen) { FD.frozen_n++; goto adv; }
+
+   /* 칸 */
+   {
+      int cls[2];
+      for (int p = 0; p < 2; p++) {
+         int act_now = FD.boxq[p][1], proj_now = FD.armq[p][1], c;
+         int pflag = proj_now ? FK_F_PROJ : 0;                              /* 캔슬로 지연 줄을 비워도 이 칸의 장풍 표시는 그대로(참조 구현과 같게) */
+         FD.boxq[p][1] = FD.boxq[p][0]; FD.boxq[p][0] = box[p];
+         FD.armq[p][1] = FD.armq[p][0]; FD.armq[p][0] = proj[p];
+         int flags = ((st[p] & 0x03) ? FK_F_PARRY : 0);
+         if (ctrl[p] == 0) {
+            fd_end(p, 0); FD.mode[p] = 0; FD.downseen[p] = 0;
+            c = y[p] < 128 ? FK_MOVE : FK_IDLE;
+         } else if (FD.mode[p] == 2 || ctrl[p] == 0x0A || ctrl[p] == 0x0C || ctrl[p] == 0x10 || ctrl[p] == 0x12) {
+            if (FD.mode[p] != 2) { FD.stun[p] = ctrl[p] == 0x12 ? FC_BLOCK : FC_HIT; FD.downseen[p] = 0; }
+            fd_end(p, 1); FD.mode[p] = 2;
+            if (ctrl[p] == 0x10) FD.downseen[p] = 1;
+            c = FD.downseen[p] ? FK_DOWN : (FD.stun[p] == FC_BLOCK || ctrl[p] == 0x12) ? FK_BLOCKSTUN : FK_HITSTUN;
+         } else if (ctrl[p] == 0x04 || ctrl[p] == 0x06 || ctrl[p] == 0x08) {
+            fd_end(p, 0); FD.mode[p] = 0;
+            c = FK_MOVE;
+         } else {
+            FdAct *a = &FD.act[p];
+            int cancel = FD.mode[p] == 1 && FD.p_ctrl[p] == 0x02 && act[p] >= 0x180 && act[p] != FD.p_act[p];
+            if (FD.mode[p] != 1 || cancel) {
+               fd_end(p, 2);
+               memset(a, 0, sizeof *a);
+               a->live = 1; a->start = FD.len; a->first = a->last = a->pfirst = a->plast = -1; a->contact_at = -1;
+               a->kc = ram[PB(p) + O_CHAR]; a->ka = act[p]; a->ks = (uint16_t)rd16(ram, PB(p) + O_SCR);
+               act_now = 0; FD.boxq[p][0] = box[p]; FD.boxq[p][1] = 0;      /* 캔슬 — 앞 동작의 상자가 지연 줄에 남지 않게 */
+               proj_now = 0; FD.armq[p][0] = proj[p]; FD.armq[p][1] = 0;
+            }
+            FD.mode[p] = 1;
+            if (act_now) { if (a->first < 0) a->first = a->n; a->last = a->n; c = FK_ACTIVE; }
+            else if (proj_now && a->first < 0) { a->first = a->last = a->n; a->proj = 1; c = FK_ACTIVE; }
+            else c = a->first >= 0 ? FK_RECOVERY : FK_STARTUP;
+            if (st[p] & 0x03) { if (a->pfirst < 0) a->pfirst = a->n; a->plast = a->n; }
+            a->n++;
+         }
+         cls[p] = c | flags | pflag;
+      }
+      int actor = (cls[0] & 0x0F) != FK_IDLE || (cls[1] & 0x0F) != FK_IDLE, flying = proj[0] || proj[1];
+      if (!FD.seq_on && (actor || flying)) {
+         FD.seq_on = 1; FD.seq_id++; FD.len = 0; FD.gap_open = 0; FD.gap_n = 0; FD.run = 0; FD.last_pair = -1; FD.frozen_n = 0;
+         memset(FD.cell, FK_EMPTY, sizeof FD.cell);
+         for (int p = 0; p < 2; p++) if (FD.act[p].live && FD.mode[p] == 1) FD.act[p].start = 0;
+         FD.ver++;
+      }
+      if (FD.seq_on) {
+         int pair = cls[0] << 8 | cls[1];
+         FD.run = pair == FD.last_pair ? FD.run + 1 : 1; FD.last_pair = pair;
+         int waitrun = actor && FD.run > FD_RUN && ((cls[0] & 0x0F) == FK_IDLE || (cls[1] & 0x0F) == FK_IDLE) && (fd_stun_kind(cls[0]) || fd_stun_kind(cls[1]));
+         if (actor && !waitrun) { fd_push(cls[0], cls[1]); FD.gap_open = 0; }
+         else if (actor || flying) {
+            if (!FD.gap_open) {
+               if (waitrun) fd_push(FK_GAP, FK_GAP); else fd_push(FK_GAP | (cls[0] & FK_F_PROJ), FK_GAP | (cls[1] & FK_F_PROJ));
+               FD.gap_open = 1;
+            }
+            FD.gap_n++;
+         } else { FD.seq_on = 0; FD.ver++; }
+      }
+   }
+adv:
+   /* 유불리 */
+   if (FD.wait_on && FD.f - FD.contact_f > 400) FD.wait_on = 0;
+   if (FD.wait_on && FD.att >= 0 && ctrl[1 - FD.att] == 0x10 && FD.last_kind == FC_HIT) FD.last_kind = FC_DOWN;
+   if (FD.wait_on && !hs) {
+      for (int p = 0; p < 2; p++) if (FD.wait[p] < 0 && ctrl[p] == 0) FD.wait[p] = (int)FD.f;
+      if (FD.wait[0] >= 0 && FD.wait[1] >= 0) {
+         FD.adv = FD.wait[1] - FD.wait[0]; FD.adv_kind = FD.last_kind; FD.adv_att = FD.att; FD.adv_id++; FD.wait_on = 0; FD.ver++;
+         if (FD.att >= 0 && FD.ckey_ok[FD.att]) {
+            static const int SLOT[6] = { -1, 0, 2, 3, -1, 1 };   /* FC_* → adv[] 칸(히트·다운·가드·잡기) */
+            int sl = SLOT[FD.last_kind];
+            FdMem *m = sl >= 0 ? fd_mem(FD.ckc[FD.att], FD.cka[FD.att], FD.cks[FD.att], 1) : NULL;
+            if (m) m->adv[sl] = (int16_t)(FD.att == 0 ? FD.adv : -FD.adv);
+         }
+      }
+   }
+keep:
+   FD.p_hs = (uint8_t)hs;
+   for (int p = 0; p < 2; p++) { FD.p_ctrl[p] = ctrl[p]; FD.p_combo[p] = combo[p]; FD.p_act[p] = act[p]; }
+   memcpy(FD.p_cap, cap, sizeof cap);
+   FD.have_prev = 1;
+}
+
 /* ── HUD: «COM» → «2P»(F9) · 대미지 숫자(F8) ──────────────────────── */
 static int hud_layout(void)
 {
@@ -477,7 +719,7 @@ static int row_value(int r)
    case 3: return PS.rage[1];
    case 4: return PS.rpos;
    case 5: return PS.swap;
-   case 6: return PS.num;
+   case 6: return PS.num == 0 ? (PS.fd ? 2 : 0) : (PS.fd ? 1 : 3);   /* 표시: 0 대미지 · 1 프레임 · 2 둘 다 · 3 끔 */
    default: return -1;
    }
 }
@@ -597,7 +839,7 @@ static void change_value(int r, int d)
       if (v == RP_LAST) { PS.last_x[0] = P.menu_x[0]; PS.last_x[1] = P.menu_x[1]; PS.last_ok = 1; }   /* 고른 자리 = 이 값을 고른 순간(= 메뉴를 연 자리) */
       break;
    case 5: PS.swap = v; break;
-   case 6: PS.num = v; break;
+   case 6: { static const int NUM[4] = { 0, 1, 0, 1 }, FDV[4] = { 0, 1, 1, 0 }; PS.num = NUM[v]; PS.fd = FDV[v]; } break;
    default: break;
    }
 }
@@ -627,6 +869,7 @@ static void activate(const uint8_t *ram, int dummy, int dsty)
    memset(&P, 0, sizeof P);
    memset(&W, 0, sizeof W);
    P.active = 1; P.dummy = dummy; P.dsty = dsty; P.cpu_ok = cpu_ok(dummy, dsty);
+   fd_reset(1);
    P.objn0 = ram[R_OBJN] < 4 ? 4 : ram[R_OBJN];
    for (int p = 0; p < 2; p++) { P.prev_hp[p] = ram[PB(p) + O_HP]; P.prev_combo[p] = ram[PB(p) + O_COMBO]; }
    P.shown = -1; P.shown_side = -1; P.cpu_set = -1; P.rng = 0x2545F491u;
@@ -706,7 +949,7 @@ void practice_tick(uint8_t *ram, size_t n, int input)
    }
    if (P.or_left > 0 && (P.menu == M_OPENING || P.menu == M_CLOSING)) { orr |= IN_OPT; P.or_left--; }
 
-   if (lv && !paused && P.menu != M_EXIT) game_writes(ram, input);
+   if (lv && !paused && P.menu != M_EXIT) { fd_tick(ram); game_writes(ram, input); }   /* 프레임 데이터는 우리가 램을 고치기 전에 읽는다 */
    if (P.menu != M_EXIT) hud_update();
    block |= P.holds;
    practice_in_block = block; practice_in_or = orr;
@@ -728,6 +971,7 @@ void practice_forget(void)
 {
    pthread_mutex_lock(&P_mu);
    P.active = 0; P.menu = M_NONE; P.exit_req = 0; W.open = 0; W.npool = 0; W.fx_orig[0] = W.fx_orig[1] = -1;
+   fd_reset(1);
    practice_in_block = 0; practice_in_or = 0; practice_opt_mask = 0;
    pthread_mutex_unlock(&P_mu);
 }
@@ -748,6 +992,7 @@ void practice_status(int v[PRACTICE_NSTAT])
    v[10] = P.shown; v[11] = P.resets; v[12] = P.rq; v[13] = (int)P.last_reset_f; v[14] = P.g_on; v[15] = (int)P.f;
    v[16] = W.npool; v[17] = W.skipped; v[18] = P.exit_req; v[19] = P.objn0; v[20] = P.opens; v[21] = P.dropped;
    v[22] = P.active ? P.dummy : -1; v[23] = P.active ? P.dsty : -1;
+   v[24] = PS.fd; v[25] = (int)FD.seq_id;
    pthread_mutex_unlock(&P_mu);
 }
 
@@ -764,6 +1009,7 @@ void practice_set(int key, int value)
    case 6: PS.num = value ? 1 : 0; break;
    case 7: if (P.active) request_reset(value >= 0 && value <= 3 ? value : PS.rpos); break;
    case 8: if (P.active && value > 0 && value <= 128) P.set_hp2 = value; break;   /* 시험용: 더미 체력 */
+   case 9: PS.fd = value ? 1 : 0; break;                                          /* 프레임 미터 */
    default: break;
    }
    pthread_mutex_unlock(&P_mu);
@@ -780,30 +1026,54 @@ size_t practice_settings_get(void *buf, size_t cap)
 }
 void practice_settings_set(const void *buf, size_t n)
 {
-   if (!buf || n != sizeof PS) return;
+   if (!buf || (n != sizeof PS && n != offsetof(Settings, fd))) return;   /* 옛 판(프레임 미터 전) .prac 도 — fd 는 끔 */
    Settings t;
-   memcpy(&t, buf, sizeof t);
+   memset(&t, 0, sizeof t);
+   memcpy(&t, buf, n);
    pthread_mutex_lock(&P_mu);
    PS.dummy_cpu = t.dummy_cpu ? 1 : 0; PS.guard = t.guard >= 0 && t.guard <= 3 ? t.guard : 0;
    PS.rage[0] = t.rage[0] ? 1 : 0; PS.rage[1] = t.rage[1] ? 1 : 0;
    PS.rpos = t.rpos >= 0 && t.rpos <= 3 ? t.rpos : 0; PS.swap = t.swap ? 1 : 0; PS.num = t.num ? 1 : 0;
    PS.last_ok = t.last_ok ? 1 : 0; PS.last_x[0] = t.last_x[0]; PS.last_x[1] = t.last_x[1];   /* do_reset 이 무대 안으로 자른다 */
+   PS.fd = t.fd ? 1 : 0;
    pthread_mutex_unlock(&P_mu);
 }
 
-size_t practice_state_size(void) { return sizeof(State) + sizeof(Settings); }
+size_t practice_state_size(void) { return sizeof(State) + sizeof(Settings) + sizeof FD; }
 void practice_state_get(void *buf)
 {
    pthread_mutex_lock(&P_mu);
-   memcpy(buf, &P, sizeof P); memcpy((uint8_t *)buf + sizeof P, &PS, sizeof PS);
+   memcpy(buf, &P, sizeof P); memcpy((uint8_t *)buf + sizeof P, &PS, sizeof PS); memcpy((uint8_t *)buf + sizeof P + sizeof PS, &FD, sizeof FD);
    pthread_mutex_unlock(&P_mu);
 }
 void practice_state_set(const void *buf)
 {
    pthread_mutex_lock(&P_mu);
-   memcpy(&P, buf, sizeof P); memcpy(&PS, (const uint8_t *)buf + sizeof P, sizeof PS);
+   memcpy(&P, buf, sizeof P); memcpy(&PS, (const uint8_t *)buf + sizeof P, sizeof PS); memcpy(&FD, (const uint8_t *)buf + sizeof P + sizeof PS, sizeof FD);
    W.open = 0; W.npool = 0; W.fx_orig[0] = W.fx_orig[1] = -1;
    pthread_mutex_unlock(&P_mu);
+}
+
+/* 프레임 미터 읽기 — cells[2 × FD_VIEW](P1 줄 · P2 줄, FK_* | FK_F_* · 0xFF 빈칸), sum[PRACTICE_FD_NSUM](practice.h). 돌려줌: 바뀔 때마다 오르는 판 번호 */
+uint32_t practice_fd_get(uint8_t *cells, int *sum)
+{
+   pthread_mutex_lock(&P_mu);
+   if (cells) memcpy(cells, FD.cell, sizeof FD.cell);
+   if (sum) {
+      for (int i = 0; i < PRACTICE_FD_NSUM; i++) sum[i] = 0;
+      sum[0] = PS.fd && P.active; sum[1] = (int)FD.seq_id; sum[2] = FD.len; sum[3] = FD.seq_on; sum[4] = FD.frozen_n; sum[5] = FD.gap_n; sum[6] = (int)FD.ver; sum[7] = FD.focus;
+      for (int p = 0; p < 2; p++) {
+         int *o = sum + 8 + 14 * p; const FdSum *s = &FD.sum[p];
+         FdMem *m = s->id ? fd_mem(s->kc, s->ka, s->ks, 0) : NULL;
+         o[0] = s->id; o[1] = s->startup; o[2] = s->active; o[3] = s->recovery; o[4] = s->total; o[5] = s->contact; o[6] = s->pstart; o[7] = s->plen;
+         o[8] = m ? m->active : -1; o[9] = m ? m->recovery : -1;
+         for (int k = 0; k < 4; k++) o[10 + k] = m ? m->adv[k] : FD_NONE;
+      }
+      sum[36] = FD.adv; sum[37] = FD.adv_kind; sum[38] = FD.adv_att; sum[39] = FD.adv_id;
+   }
+   uint32_t v = FD.ver;
+   pthread_mutex_unlock(&P_mu);
+   return v;
 }
 
 #define JNI(ret, name) JNIEXPORT ret JNICALL Java_com_dudu_pocketcore_Emu_##name
@@ -822,4 +1092,18 @@ JNI(jintArray, nativePracticeStatus)(JNIEnv *env, jclass cls)
    jintArray a = (*env)->NewIntArray(env, PRACTICE_NSTAT);
    if (a) (*env)->SetIntArrayRegion(env, a, 0, PRACTICE_NSTAT, jv);
    return a;
+}
+
+/* 프레임 미터 — Java 가 33ms 마다(연습 경기 · 미터 켬일 때만) 부른다. 배열은 Java 가 한 번 만들어 계속 쓴다(할당 없음). 돌려줌: 판 번호(바뀌었을 때만 다시 그림) */
+JNI(jint, nativePracticeFrames)(JNIEnv *env, jclass cls, jbyteArray cells, jintArray sum)
+{
+   (void)cls;
+   uint8_t c[2 * FD_VIEW]; int s[PRACTICE_FD_NSUM]; jint js[PRACTICE_FD_NSUM];
+   uint32_t v = practice_fd_get(c, s);
+   if (cells && (*env)->GetArrayLength(env, cells) >= 2 * FD_VIEW) (*env)->SetByteArrayRegion(env, cells, 0, 2 * FD_VIEW, (const jbyte *)c);
+   if (sum && (*env)->GetArrayLength(env, sum) >= PRACTICE_FD_NSUM) {
+      for (int i = 0; i < PRACTICE_FD_NSUM; i++) js[i] = s[i];
+      (*env)->SetIntArrayRegion(env, sum, 0, PRACTICE_FD_NSUM, js);
+   }
+   return (jint)v;
 }
