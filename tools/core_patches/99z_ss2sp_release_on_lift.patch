@@ -1,0 +1,30 @@
+diff --git a/src/ss2sp.c b/src/ss2sp.c
+index d3d4a36..415ae6e 100644
+--- a/src/ss2sp.c
++++ b/src/ss2sp.c
+@@ -210,6 +210,7 @@ static int q_inj;                  /* 지금 큐가 «써 넣고 버튼만» 인
+ /* 99x 떼는 때 고르기 — 자기 기본기가 맞아 히트스톱이 끝난 프레임(hs_end_f, 엔진 프레임)을 기억해, 버튼을 떼는 프레임이
+    +4·+5 에 걸리지 않게 한다(갈포드 등 약베기는 +2·+3 에 받고 +4·+5 는 버린다 — 위 설명).
+    (받는 틈은 기본기마다 다르다 — 갈포드·하오마루·아수라·주베이 약베기는 +2·+3, 나코루루 약베기는 훨씬 뒤. +4·+5 를 피하는 것만 한다) */
++static int ss2_z_on(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_Z"); v=e?atoi(e):1;} return v; }   /* 99z 시험 스위치 */
+ static int ss2_gate_on(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_GATE"); v=e?atoi(e):1;} return v; }
+ static int hs_seen_basic; static uint32_t hs_end_f;
+ static int hs_val_prev; static uint32_t hs_val_since;   /* 히트스톱 값이 바뀐 프레임 — 끝 = 그 프레임 + 2 × 값 */
+@@ -496,6 +497,17 @@ static uint8_t ss2_step_out(int held)
+          if (++hold_elapsed >= STRONG_FRAMES) ss2sp_last_strong = 1;
+          return out;
+       }
++      /* 99z: 유저가 SP 를 뗐고 버튼 칸이 이미 HOLD_FRAMES 넘게 나가 있었다(틱 하나는 봤다) — 남은 칸을 더 잡지 않고 이 프레임에
++         뗀다(받는 틈이면). 전엔 뗀 뒤에도 2 프레임을 더 잡아, SP 를 5~8 프레임 톡 누르면 버튼 칸이 8 프레임을 넘겨 강이 터지거나
++         (히트스톱 끝 무렵에 누르면 29 강 · 31 강 — 콤보 끊김) 받는 틱을 하나 놓쳐 27 이 됐다(유저 「히트시 캔슬 타이밍이 다른데」) */
++      if (ss2_z_on() && fin_frames > HOLD_FRAMES)
++      {
++         int k0 = k - 1;                                              /* 이 프레임에 떼면 */
++         if (k0 < 2 || k0 == 4 || k0 == 5) return out;                /* 안 받는 틱 — 한 프레임 더 */
++         if (++q_i < q_n) { q_left = q[q_i].frames; out = q[q_i].pad; if (--q_left <= 0) { if (++q_i < q_n) q_left = q[q_i].frames; else { q_n = q_i = 0; q_left = 0; } } }
++         else { q_n = q_i = 0; q_left = 0; out = 0; }
++         return out;
++      }
+       if (q_left <= 1 && (k < 2 || k == 4 || k == 5)) return out;     /* 한 프레임 더 잡는다 */
+       if (--q_left <= 0) { if (++q_i < q_n) q_left = q[q_i].frames; else { q_n = q_i = 0; q_left = 0; } }
+       return out;
