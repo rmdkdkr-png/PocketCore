@@ -67,6 +67,10 @@ public final class LaunchSheet {
     /* 135: 커서 테는 패드·키를 쓸 때만 그린다(패드가 붙어 있거나 키가 한 번이라도 오면) — 손가락만 쓰면 테 없이 깔끔하게 */
     private boolean padMode = KeyMap.physicalPresent();
     private Dialog dlg;
+    /* 139: 창은 화면 전체(투명) 하나로 고정하고 시트는 그 안 아래에 — 치트 창으로 갈아 끼우거나 설명이 펼쳐져 시트 높이가 바뀌어도
+       창 크기·자리는 그대로다. 예전엔 아래 붙은 WRAP_CONTENT 창이라 높이가 바뀌면 창이 옮겨 가며 안드로이드 9 의 창 이동 애니메이션이 돌았고,
+       그 끝에서 SurfaceFlinger 가 멈춰 시스템이 통째로 재시작했다(에뮬레이터 API 28 · «치트 ›» 누를 때마다, 런처·게임 안 모두). */
+    private android.widget.FrameLayout frame;
     private KeyMap keymap;
     /* 치트 창(사무쇼2) — 같은 창 안에서 내용만 갈아 끼운다: 런처·게임이 쥔 이 창 하나로 패드 키가 그대로 오고(창을 따로 띄우면 키를 받는 창이 갈린다),
        닫기·바깥 탭의 onClose(게임 안: 멈춤 풀기 + 치트 넣기)도 그대로 돈다. 겉 창으로 돌아올 때 다시 그리려고 롬·썸네일·제목을 둔다 */
@@ -214,12 +218,17 @@ public final class LaunchSheet {
         dlg = new Dialog(a);
         dlg.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dlg.setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);   /* 창이 떠 있어도 볼륨 키 = 게임 소리 */
-        dlg.setContentView(build(rom, thumb, title));
+        frame = new android.widget.FrameLayout(a);
+        frame.setOnClickListener(new View.OnClickListener() {     /* 시트 바깥(투명한 곳) 탭 = 예전 «바깥 탭 닫기»와 같다 */
+            @Override public void onClick(View v) { dlg.cancel(); }
+        });
+        dlg.setContentView(frame);
+        setSheet(build(rom, thumb, title));
         Window w = dlg.getWindow();
         if (w != null) {
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             w.setGravity(Gravity.BOTTOM);
-            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);   /* 139: 창 크기 고정(머리말) */
             w.setDimAmount(0.62f);
             w.getDecorView().setSystemUiVisibility(a.getWindow().getDecorView().getSystemUiVisibility());
         }
@@ -232,6 +241,25 @@ public final class LaunchSheet {
         });
         dlg.show();
         paintFocus();
+    }
+
+    /** 시트 갈아 끼우기 — 창은 그대로, 틀 안의 내용만(139) */
+    private void setSheet(View sheet) {
+        sheet.setClickable(true);                                   /* 시트 위 탭이 틀(바깥 닫기)로 새지 않게 */
+        frame.removeAllViews();
+        frame.addView(sheet, new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
+    }
+
+    /** 높이 상한이 있는 스크롤 — 재기(onMeasure)에서 바로 자른다. 예전 OnGlobalLayoutListener 는 떼지 않아 창에 쌓였고 그릴 때마다 다시 쟀다(139) */
+    private ScrollView cappedScroll(final int maxH) {
+        return new ScrollView(a) {
+            @Override protected void onMeasure(int wSpec, int hSpec) {
+                int mode = View.MeasureSpec.getMode(hSpec), size = View.MeasureSpec.getSize(hSpec);
+                if (mode == View.MeasureSpec.UNSPECIFIED || size > maxH) hSpec = View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST);
+                super.onMeasure(wSpec, hSpec);
+            }
+        };
     }
 
     private View build(File rom, Bitmap thumb, String title) {
@@ -287,21 +315,15 @@ public final class LaunchSheet {
                          list.addView(dv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1)); }
             list.addView(row(i));
         }
-        ScrollView sv = new ScrollView(a);
-        sv.addView(list);
         /* 항목이 많아 반 화면을 넘으면 스크롤된다 — 아래에 더 있다는 걸 보이게 스크롤바를 켜 둔다 */
+        ScrollView sv = cappedScroll((int) (a.getResources().getDisplayMetrics().heightPixels * 0.50f));
+        sv.addView(list);
         sv.setVerticalScrollBarEnabled(true);
         sv.setScrollbarFadingEnabled(false);
-        int maxH = (int) (a.getResources().getDisplayMetrics().heightPixels * 0.50f);
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT);
         sp.topMargin = dp(12);
         col.addView(sv, sp);
-        sv.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override public void onGlobalLayout() {
-                if (sv.getHeight() > maxH) { sv.getLayoutParams().height = maxH; sv.requestLayout(); }
-            }
-        });
 
         /* 버튼: 취소 | 시작 */
         LinearLayout btns = new LinearLayout(a);
@@ -574,7 +596,7 @@ public final class LaunchSheet {
         Map<String, String> m = Settings.load();
         for (Settings.Item it : Settings.GROUPS.get(Cheats.GROUP)) opts.add(fromItem(it, m));
         focus = 0;
-        dlg.setContentView(buildCheats());
+        setSheet(buildCheats());
         paintFocus();
     }
 
@@ -583,7 +605,7 @@ public final class LaunchSheet {
         cheatView = false;
         opts.clear(); clearViews();
         buildOpts();
-        dlg.setContentView(build(romFile, thumbBmp, titleText));
+        setSheet(build(romFile, thumbBmp, titleText));
         focus = cheatLink >= 0 ? opts.size() + 1 + cheatLink : opts.size();
         paintFocus();
     }
@@ -626,19 +648,13 @@ public final class LaunchSheet {
         face(warn, false, false);
         warn.setPadding(dp(12), dp(10), dp(12), dp(4));
         list.addView(warn);
-        final ScrollView sv = new ScrollView(a);
+        ScrollView sv = cappedScroll((int) (a.getResources().getDisplayMetrics().heightPixels * 0.58f));   /* 줄 11개 — 겉 창(50%)보다 조금 길게 */
         sv.addView(list);
         sv.setVerticalScrollBarEnabled(true);
         sv.setScrollbarFadingEnabled(false);
-        final int maxH = (int) (a.getResources().getDisplayMetrics().heightPixels * 0.58f);   /* 줄 11개 — 겉 창(50%)보다 조금 길게 */
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         sp.topMargin = dp(12);
         col.addView(sv, sp);
-        sv.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
-            @Override public void onGlobalLayout() {
-                if (sv.getHeight() > maxH) { sv.getLayoutParams().height = maxH; sv.requestLayout(); }
-            }
-        });
 
         TextView btn = pill(inGame ? "적용  ▶" : "닫기", GOLD, INK, true);   /* 단추 하나 — 게임 안은 다시 열지 않고 바로 게임으로 */
         btn.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { go(); } });
