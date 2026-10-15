@@ -70,6 +70,13 @@ public final class Emu {
     /* 연습 대전(practice.c) — 일반 세션에서 타이틀 «2 인 대전» 자리 = «연습 대전». 판정 주소를 확인한 롬 판(League.romLabel)에서만 켤 것.
        autostart = 로고·메뉴를 넘겨 상대 선택까지 대신 누름(실행 창 «연습 대전으로» 링크). 상태·허브 상태는 nativeLeagueHubStatus 와 같이 본다 */
     public static native void  nativePracticeHub(boolean on, boolean autostart);
+    /* 리그·연습 «둘 다»(실행 창 «리그·연습») — 허브를 켠 뒤 켠다. 타이틀 셋째 줄 ◀▶ 로 연습·리그.
+       상태 [둘 다 켜짐, 셋째 줄에 보이는 종류(0 리그 · 1 연습), 갈아타기 요청(0 없음 · 1 리그 · 2 연습), 셋째 줄에 커서, 이 판의 종류] */
+    public static native void  nativeHubDual(boolean on);
+    public static native int[] nativeHubDualStatus();
+    public static native void  nativeHubHandoffClear();
+    /* 갈아탄 리그 판 — 로고·메뉴를 넘겨 바로 상대 선택까지 */
+    public static native void  nativeHubGo();
     /** [경기 중, 메뉴(0 닫힘·1 여는 중·2 열림·3 닫는 중), 메뉴 줄, 더미(0 서기·1 CPU), 가드, 내 분노, 상대 분노, 리셋 위치, 리셋 좌우, 숫자,
      *   보이는 대미지, 리셋 횟수, 리셋 기다림, 마지막 리셋 프레임, 가드 켬, 프레임, 빌린 타일, 쓰이던 빈 타일, 나가기 요청, 시작 물체 수, 메뉴 연 횟수,
      *   버린 리셋, 더미 캐릭터, 더미 검질] (practice.h) */

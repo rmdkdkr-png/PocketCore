@@ -598,25 +598,8 @@ public class MainActivity extends Activity {
         finish();
     }
 
-    /** 게임 속 리그전 — 게임을 랭크전 판(고정 롬 사본·동봉 코어)으로 켜고 타이틀 «리그 대전»에서 시작한다. 마지막 게임으로 기억하지 않는다. */
-    void openLeagueHub(File rom) {
-        stopBoot();
-        stopTheme();
-        Thumbs.stop = true;
-        synchronized (Thumbs.LOCK) { }
-        Intent i = new Intent(this, EmuActivity.class);
-        i.putExtra("rom", rom.getAbsolutePath());
-        i.putExtra(EmuActivity.EXTRA_LEAGUE_HUB, true);
-        startActivity(i);
-        finish();
-    }
 
-    /** 연습 대전 — 평소처럼 켜되(내 세이브·실행 옵션 그대로) 타이틀 «연습 대전» → 상대 선택까지 대신 누른다(EmuActivity.EXTRA_PRACTICE). */
-    void openPractice(File rom) { launch(rom.getAbsolutePath(), true); }
-
-    private void launch(String romPath) { launch(romPath, false); }
-
-    private void launch(String romPath, boolean practice) {
+    private void launch(String romPath) {
         stopBoot();      /* 부팅송이 도는 7초 안에 게임을 켜도 확실히 끊는다 */
         stopTheme();
         /* 백그라운드 썸네일 캡처와 코어 전역 상태가 겹치면 안 된다 —
@@ -626,7 +609,6 @@ public class MainActivity extends Activity {
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST, romPath).putString(KEY_PLAYED, romPath).apply();
         Intent i = new Intent(this, EmuActivity.class);
         i.putExtra("rom", romPath);
-        if (practice) i.putExtra(EmuActivity.EXTRA_PRACTICE, true);
         startActivity(i);
         finish();
     }

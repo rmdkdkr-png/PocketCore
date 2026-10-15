@@ -56,6 +56,13 @@ public class EmuActivity extends Activity {
     /* 연습 대전(practice.c) — 일반 세션이고 판정 주소를 확인한 롬 판이면 타이틀 «2 인 대전» 자리가 «연습 대전». 실행 창 링크로 열면 상대 선택까지 자동 */
     static final String EXTRA_PRACTICE = "practice_hub";
     private boolean practiceHub = false, practiceAutoUsed = false;
+    /* 리그·연습 «둘 다»(실행 창 «리그·연습», pocketcore_ss2_hub) — 타이틀 셋째 줄 ◀▶ 로 연습 대전 ↔ 리그 대전. 리그는 따로 세이브·고정 롬·동봉 코어(랭크전 판)라
+       고르면 이 창을 내리고 그 판으로 새로 연다(switchSession). 리그 판으로 갈아탄 창은 EXTRA_HUB_GO 로 로고·메뉴를 넘겨 바로 상대 선택까지 */
+    static final String EXTRA_HUB_GO = "hub_go", EXTRA_FROM_GAME = "hub_from_game";   /* FROM_GAME = 일반 판에서 갈아타 왔다(리그를 못 열면 그 게임으로 돌려보낸다) */
+    private boolean practiceDual = false, hubDual = false, hubGoUsed = false, dualWarned = false;
+    private int[] hubDualV;
+    private boolean hubToPick = false;          /* 리셋 뒤 타이틀에서 멈추지 않고 상대 선택으로 가는 중(바로 상대 선택 · «다른 상대») — 띠 «상대 선택으로…» */
+    private boolean dualHintShown = false;
     /** 랭크전 판으로 돌고 있나 — 한 경기(leagueId) 또는 게임 속 리그 세션 전체. 롬 사본·동봉 코어·리그 세이브 폴더·저장/불러오기 막기 */
     private boolean ranked() { return leagueId != null || leagueHub; }
     private String leagueId = null;            /* 랭크전이면 경기 id — 기록은 늘 이 id 로 League 에서 다시 찾는다 */
@@ -357,7 +364,7 @@ public class EmuActivity extends Activity {
             if (Games.LANGS[i].equals(lang)) suffix += " · " + Games.LANGS_KO[i];
         if (patched) suffix += " 패치";
         if (ranked() && game != null) {          /* 랭크전은 롬처럼 코어도 고정 — 판정 주소를 실측한 앱 동봉 코어만 */
-            coreLabel = game.ko + " · 동봉 코어(랭크전)" + suffix;
+            coreLabel = game.ko + " · 동봉 코어(리그)" + suffix;
             return getApplicationInfo().nativeLibraryDir + "/" + game.core;
         }
         File[] f = new File(MainActivity.root(), "cores").listFiles();
@@ -488,7 +495,9 @@ public class EmuActivity extends Activity {
     private void handleAction(int action) {
         if (ranked() && (action == PadView.ACT_LOAD || action == PadView.ACT_UNDO || action == PadView.ACT_RESET
                 || action == PadView.ACT_CFG || action == PadView.ACT_SAVE || action == PadView.ACT_QSAVE)) {
-            toast("랭크전 중에는 쓸 수 없어요 — 그만두려면 뒤로 가기");   /* 저장도 막는다: 슬롯 파일 이름이 자유 플레이와 같다 */
+            toast(leagueId != null ? "리그 경기 중엔 저장·불러오기·리셋·설정을 못 써요 — 그만두려면 뒤로"
+                    : hubDual ? "리그 판에선 저장·불러오기·리셋·설정이 막혀요 — 셋째 줄 «연습 대전»이나 뒤로로 나가면 돼요"
+                    : "리그 판에선 저장·불러오기·리셋·설정이 막혀요 — 뒤로로 나가면 돼요");   /* 저장도 막는다: 슬롯 파일 이름이 자유 플레이와 같다 */
             return;
         }
         if (ranked() && (action == PadView.ACT_PICK || action == PadView.ACT_QUIT)) {
@@ -1045,7 +1054,7 @@ public class EmuActivity extends Activity {
         org.json.JSONObject m = lm();
         org.json.JSONObject o = (m != null) ? League.oppById(m.optString("opp")) : null;
         leagueTag = new TextView(this);
-        leagueTag.setText("랭크전 · " + (o != null ? o.optString("nick") + " (" + League.CHAR[o.optInt("char")] + " · "
+        leagueTag.setText("리그 경기 · " + (o != null ? o.optString("nick") + " (" + League.CHAR[o.optInt("char")] + " · "
                 + League.STYLE[o.optInt("style")] + ")" : "?"));
         leagueTag.setTextColor(0xffd9a441);
         leagueTag.setTextSize(11);
@@ -1131,7 +1140,7 @@ public class EmuActivity extends Activity {
            재개는 이미 시작한 경기라 바로 «진행 중»(지난 사유는 지운다). */
         leagueStarted = fromCk;
         if (fromCk) League.setStatus(leagueId, "playing", "");
-        toast(fromCk ? "랭크전 — 내려간 자리에서 이어합니다" : "랭크전 — 캐릭터 고르기로 들어갑니다. 캐릭터·검질·카드를 고르세요");
+        toast(fromCk ? "리그 경기 — 멈춘 자리부터 이어 해요" : "리그 경기 — 내 캐릭터·검질·카드를 고르세요");
         h.postDelayed(leaguePoll, 250);
     }
 
@@ -1210,12 +1219,16 @@ public class EmuActivity extends Activity {
     private void leagueBlocked(final String msg) {
         leagueDone = true;
         h.post(new Runnable() { @Override public void run() {
-            new android.app.AlertDialog.Builder(EmuActivity.this).setTitle("가상 리그 — 이어할 수 없음")
+            android.app.AlertDialog.Builder d0 = new android.app.AlertDialog.Builder(EmuActivity.this)
+                    .setTitle(leagueId != null ? "멈춘 리그 경기를 이어할 수 없어요" : "리그 대전을 열 수 없어요")
                     .setMessage(msg)
                     .setCancelable(false)
                     .setPositiveButton("리그 화면으로", new android.content.DialogInterface.OnClickListener() {
-                        @Override public void onClick(android.content.DialogInterface d, int w) { leagueExit(null); } })
-                    .show();
+                        @Override public void onClick(android.content.DialogInterface d, int w) { leagueExit(null); } });
+            if (leagueHub && getIntent().getBooleanExtra(EXTRA_FROM_GAME, false))   /* 일반 판에서 갈아타 왔다 — 그 게임으로도 */
+                d0.setNeutralButton("게임으로", new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int w) { switchSession(false, false); } });
+            d0.show();
         }});
     }
 
@@ -1228,7 +1241,7 @@ public class EmuActivity extends Activity {
         if (!leagueStarted) { leagueLeaveBeforeStart(); return; }
         leagueChoosing = false;
         Emu.nativeSetPaused(true);
-        leagueDlg = new android.app.AlertDialog.Builder(this).setTitle("랭크전 중")
+        leagueDlg = new android.app.AlertDialog.Builder(this).setTitle("리그 경기 중")
                 .setMessage("나중에 이어하면 지금 자리에서 한 번만 다시 열 수 있습니다. 기권하면 패배로 기록됩니다.")
                 .setPositiveButton("계속하기", null)
                 .setNeutralButton("나중에 이어하기", new android.content.DialogInterface.OnClickListener() {
@@ -1273,7 +1286,7 @@ public class EmuActivity extends Activity {
     private void leagueLeaveBeforeStart() {
         leagueChoosing = false;
         Emu.nativeSetPaused(true);
-        leagueDlg = new android.app.AlertDialog.Builder(this).setTitle("랭크전 — 경기 시작 전")
+        leagueDlg = new android.app.AlertDialog.Builder(this).setTitle("리그 경기 — 시작 전")
                 .setMessage("아직 첫 라운드가 시작되지 않았습니다. 그만두면 이 경기는 무효로 닫히고 점수는 그대로입니다.")
                 .setPositiveButton("계속하기", null)
                 .setNegativeButton("그만두기(무효)", new android.content.DialogInterface.OnClickListener() {
@@ -1357,7 +1370,7 @@ public class EmuActivity extends Activity {
         g.setColor(0xe6140d08); g.setStroke(Math.round(2 * dp), 0xffb8862b); g.setCornerRadius(4 * dp);
         hubBanner.setBackground(g);
         hubBanner.setPadding(Math.round(10 * dp), Math.round(6 * dp), Math.round(10 * dp), Math.round(6 * dp));
-        hubBanner.setText("가상 리그 — 메뉴의 「리그 대전」을 고르세요");
+        hubBanner.setText("리그 대전 — 메뉴 셋째 줄");
         root.addView(hubBanner, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP | android.view.Gravity.LEFT));
         hubBanner.setOnTouchListener(bannerDrag);
@@ -1483,11 +1496,17 @@ public class EmuActivity extends Activity {
     }
 
     private void hubStart() {
-        if (!loaded) { leagueBlocked("코어·롬을 불러오지 못했습니다."); return; }
+        boolean fromGame = getIntent().getBooleanExtra(EXTRA_FROM_GAME, false);
+        if (!loaded) { if (fromGame) hubBlockedBack("코어·롬을 불러오지 못했습니다."); else leagueBlocked("코어·롬을 불러오지 못했습니다."); return; }
         String why = hubVersionProblem();
+        League.db();                                                     /* dbProblem 은 기록 파일을 한 번 읽어야 정해진다 */
         if (why == null) why = League.dbProblem;
         if (why == null) why = League.writeProblem();
-        if (why != null) { leagueBlocked("가상 리그를 열 수 없습니다 — " + why); return; }
+        if (why != null) {
+            if (fromGame) hubBlockedBack(why);                         /* 일반 판에서 갈아타 왔다 — 원래 게임으로 돌려보낸다(순위표에서 열었으면 순위표로) */
+            else leagueBlocked("리그 대전을 열 수 없어요 — " + why);
+            return;
+        }
         byte[] sty = new byte[15], dif = new byte[15];
         java.util.Arrays.fill(sty, (byte) -1); java.util.Arrays.fill(dif, (byte) 1);
         org.json.JSONArray os = League.opps();
@@ -1502,11 +1521,16 @@ public class EmuActivity extends Activity {
         for (int c = 0; c < 15; c++) home[c] = (byte) (hubOpp[c] != null ? League.homeStage(hubOpp[c]) : -1);
         hubStageSel = League.prefStage(); hubColor = League.prefColor();
         Emu.nativeLeagueHubLook(home, hubStageSel, hubColor);
+        hubDual = hubOn() && !"0".equals(Settings.load().get(practiceOkKey()));   /* 셋째 줄 ◀▶ — «연습 대전»을 고르면 일반 판으로(그 판에서 연습이 안 켜진다고 알면 리그만) */
+        Emu.nativeHubDual(hubDual);
         org.json.JSONObject open = League.openMatch();
+        boolean resumeOpen = false;
         if (open != null) {
             if ("ready".equals(open.optString("status"))) League.cancel(open.optString("id"), "게임 속 리그를 새로 열며 정리(대진 전)");
-            else { leagueId = open.optString("id"); leagueStart(); }      /* 내려간 경기 — 체크포인트로 이어 하고, 결판 뒤 허브로 */
+            else { leagueId = open.optString("id"); leagueStart(); resumeOpen = true; }   /* 내려간 경기 — 체크포인트로 이어 하고, 결판 뒤 허브로 */
         }
+        if (!resumeOpen && !hubGoUsed && getIntent().getBooleanExtra(EXTRA_HUB_GO, false)) { hubGoUsed = true; hubToPick = true; Emu.nativeHubGo(); }   /* 바로 상대 선택까지 */
+        if (hubOn() && !hubDual && !dualHintShown) { dualHintShown = true; toast("이 롬 사본에선 연습이 안 켜져서 셋째 줄은 리그 대전만 돼요 — 조작 패치를 끄면 둘 다"); }
         h.postDelayed(hubPoll, 200);
     }
 
@@ -1521,6 +1545,13 @@ public class EmuActivity extends Activity {
 
     private void hubTick(int[] hs) {
         int st = hs[0], hover = hs[1], picked = hs[2];
+        if (st == 1 || st == 2) hubToPick = false;
+        hubDualV = Emu.nativeHubDualStatus();                            /* 둘 다 꺼져 있어도 — 메뉴 화면(v[5])으로 띠를 고른다 */
+        if (hubDual && hubDualV != null && hubDualV.length >= 5 && hubDualV[2] != 0) {
+            if (hubDualV[2] == 2 && leagueId == null && hubCard == null) { switchSession(false, true); return; }   /* 셋째 줄 «연습 대전» — 일반 판으로 */
+            Emu.nativeHubHandoffClear();                                 /* 지금은 못 갈아탄다(남은 경기 기록 등) — 메뉴가 멈춘 채 남지 않게 */
+            toast("지금은 연습 대전으로 못 가요 — 뒤로 가기로 나간 뒤 다시");
+        }
         if (hs.length > 8) hubGen = hs[8];
         if (hs.length > 11) {                                           /* B(배경)·옵션(컬러)을 바꿨으면 다음에도 그대로(기록 파일 pref) */
             if (hs[9] != hubStageSel || hs[10] != hubColor) { hubStageSel = hs[9]; hubColor = hs[10]; League.setPrefLook(hubStageSel, hubColor); }
@@ -1550,51 +1581,67 @@ public class EmuActivity extends Activity {
         /* 결과 카드가 떠 있는 동안은 카드 안내를 그대로 두고, 카드를 닫은 직후(리셋이 GL 스레드에 닿기 전 — 허브는 아직 «경기»)는 «돌아가는 중» */
         /* 이어 하는 경기(체크포인트)는 허브가 타이틀 상태인 채로 싸운다 — 띠는 경기 안내로 */
         int shown = leagueId != null && st <= 2 ? 4 : st == 4 && leagueId == null ? 5 : st;
-        if (hubBanner != null && hubCard == null) hubBanner.setText(hubText(shown, hover, picked, hs[4]));
+        if (hubBanner != null && hubCard == null) {
+            hubBanner.setText(hubText(shown, hover, picked, hs[4]));
+            /* 경기 중 띠가 게임 그림 위로 올라가 있으면(가로 화면 — 아래 자리가 없음) 숨긴다: 체력 막대를 경기 내내 가리지 않게(연습과 같은 규칙) */
+            boolean over = shown == 4 && !bannerUserPos && ((FrameLayout.LayoutParams) hubBanner.getLayoutParams()).topMargin < gameBox[3];
+            hubBanner.setVisibility(over ? View.GONE : View.VISIBLE);
+        }
     }
 
-    /** 상대 고르기 안내 세 줄 — 이름·캐릭터·난도 / 순위·점수·상대 전적 / 별칭·버튼 (머리말이 이미 «상대 선택» 이라 앞말은 빼고,
-     *  스테이지 이름은 게임 화면 오른쪽 세로 칸에 나오니 버튼만) */
+    /** 상대 고르기 안내 네 줄 — 이름·캐릭터·난도 / 순위·점수·상대 전적 / 걸린 점수(SF6 LP 처럼 «이기면 +12 · 지면 −12»)·별칭 / 버튼.
+     *  머리말이 이미 «상대 선택» 이라 앞말은 빼고, 스테이지 이름은 게임 화면 오른쪽 세로 칸에 나오니 버튼만.
+     *  줄 수를 늘 넷으로 — 커서를 옮길 때 띠 높이가 출렁이지 않게(좁은 띠에서 한 줄이 접히지 않게 줄마다 짧게) */
     private String hubOppLine(org.json.JSONObject o, String why) {
         int myW = o.optInt("l"), myL = o.optInt("w");
-        String t = o.optString("nick") + " · " + League.CHAR[o.optInt("char")] + " " + League.STYLE[o.optInt("style")]
-                 + " · " + League.DIFF[o.optInt("diff")] + "\n" + League.rankOf(o.optString("id")) + "위 · " + o.optInt("score") + "점 · 나와 "
-                 + myW + "승 " + myL + "패" + (o.optInt("d") > 0 ? " " + o.optInt("d") + "무" : "") + "\n";
-        if (why != null) return t + "도전할 수 없음: " + why;
         java.util.List<String> tg = League.tags(o);
         String tag = o.optInt("char") == 14 ? "가운데 칸 = 숨은 상대" : tg.isEmpty() ? null : tg.get(0);   /* 유가는 고르기 판에 없어 무작위 칸에 */
-        return t + (tag == null ? "" : tag + "  ·  ") + "A 도전  ·  B 스테이지";
+        int me = League.me().optInt("score"), op = o.optInt("score");
+        int win = League.delta(me, op, "W"), lose = League.delta(me, op, "L");
+        String t = o.optString("nick") + "  " + League.CHAR[o.optInt("char")] + " " + League.STYLE[o.optInt("style")]
+                 + " · " + League.DIFF[o.optInt("diff")] + "\n" + League.rankOf(o.optString("id")) + "위 " + op + "점 · 나와 "
+                 + myW + "승 " + myL + "패" + (o.optInt("d") > 0 ? " " + o.optInt("d") + "무" : "") + "\n"
+                 + (tag == null ? "이기면 +" + win + " · 지면 −" + (-lose) : "+" + win + "/−" + (-lose) + " · " + tag) + "\n";
+        if (why != null) return t + "도전 불가 — " + why;
+        return t + "A 도전  ·  OPTION 스테이지";
+    }
+
+    /** 리그 판 타이틀 둘째 줄 — 내 순위 */
+    private static String myRankLine() {
+        org.json.JSONObject me = League.me();
+        return "내 순위 " + League.rankOf("me") + "위/" + League.order().size() + "명 · " + me.optInt("score") + "점 · " + me.optInt("w") + "승 " + me.optInt("l") + "패";
     }
 
     private String hubText(int st, int hover, int picked, int label) {
-        org.json.JSONObject me = League.me();
         switch (st) {
-        case 1: return "가상 리그 — 메뉴의 " + (label == 1 ? "「리그 대전」을" : label == 2 ? "「LEAGUE」를" : "셋째 줄을")
-                + " 고르세요\n다른 메뉴는 평소대로 · 리그 기록 안 됨\n내 순위 " + League.rankOf("me") + "위 / " + League.order().size() + "명 · "
-                + me.optInt("score") + "점 · " + me.optInt("w") + "승 " + me.optInt("l") + "패";
+        case 1: {
+            int[] dv = hubDualV;
+            if (dv != null && dv.length >= 5 && dv[0] == 1 && dv[3] == 1)      /* 셋째 줄에 커서 — ◀▶ 로 고른다 */
+                return "◀▶ 리그 대전 / 연습 대전  ·  A 시작\n" + (dv[1] == 1 ? "연습은 내 세이브 판에서 해요" : myRankLine());
+            return "리그 대전 — 메뉴 셋째 줄" + (label == 2 ? " «LEAGUE»" : "") + "\n" + myRankLine();
+        }
         case 2: {
-            if (hover < 0) return "이 칸은 고를 수 없습니다\n캐릭터마다 그 캐릭터를 주캐로 쓰는\n가상 상대가 있습니다";
+            if (hover < 0) return "고를 수 없는 칸\n리그 상대가 있는\n캐릭터 칸을 고르세요\n ";
             String oid = hover < 15 ? hubOpp[hover] : null;
             org.json.JSONObject o = oid != null ? League.oppById(oid) : null;
-            if (o == null) return League.CHAR[hover] + " : 리그 상대 없음\n다른 캐릭터를 고르세요\n ";
+            if (o == null) return League.CHAR[hover] + " — 리그 상대 없음\n다른 캐릭터를 고르세요\n \n ";
             return hubOppLine(o, League.blockedWhy(o));
         }
         case 3: {
             org.json.JSONObject o = (picked >= 0 && picked < 15 && hubOpp[picked] != null) ? League.oppById(hubOpp[picked]) : null;
-            return "상대: " + (o != null ? o.optString("nick") + " · " + League.CHAR[o.optInt("char")] + " " + League.STYLE[o.optInt("style")]
-                    + " · " + League.DIFF[o.optInt("diff")] : "?") + "\n내 캐릭터·검질·카드 (카드는 올카드) · 스테이지 " + League.stageName(hubStage)
-                    + "\nA 결정  ·  B 2P색으로 결정  ·  옵션 컬러";   /* 컬러 이름은 게임 화면 오른쪽 세로 칸에 */
+            int scr = hubDualV != null && hubDualV.length >= 6 ? hubDualV[5] : 2;
+            return "vs " + (o != null ? o.optString("nick") + " (" + League.CHAR[o.optInt("char")] + " " + League.STYLE[o.optInt("style")]
+                    + ") · " + League.DIFF[o.optInt("diff")] : "?") + "\n스테이지 " + League.stageName(hubStage) + " · 카드 전부 열림"
+                    + "\n" + myPickKeys(scr, true);   /* 컬러 이름은 게임 화면 오른쪽 세로 칸에 */
         }
         case 4: {
             org.json.JSONObject m = lm();
             org.json.JSONObject o = m != null ? League.oppById(m.optString("opp")) : null;
-            org.json.JSONObject lk = m != null ? m.optJSONObject("look") : null;
-            return "랭크전 · " + (o != null ? o.optString("nick") + " · " + League.CHAR[o.optInt("char")] + " " + League.STYLE[o.optInt("style")] : "?")
-                    + "\n2선승 · 라운드 60초 · 경기 전체 결판만 기록"
-                    + (lk != null ? "\n스테이지 " + League.stageName(lk.optInt("stage", 0)) + " · 내 컬러 «" + League.COLORS[lk.optInt("color", 0) & 3] + "»" : "");
+            return "리그 경기 · vs " + (o != null ? o.optString("nick") + " (" + League.CHAR[o.optInt("char")] + " " + League.STYLE[o.optInt("style")] + ")" : "?")
+                    + "\n2선승 · 라운드 60초 · 뒤로 = 그만두기";
         }
-        case 5: return "가상 리그 · 타이틀로 돌아가는 중…";
-        default: return "가상 리그";
+        case 5: return hubToPick ? "상대 선택으로…" : "타이틀로…";
+        default: return "리그 대전";
         }
     }
 
@@ -1617,12 +1664,10 @@ public class EmuActivity extends Activity {
             org.json.JSONObject r = m.optJSONObject("result");
             if (o != null) sb.append(o.optString("nick")).append(" (").append(League.CHAR[o.optInt("char")]).append(" ").append(League.STYLE[o.optInt("style")]).append(")\n");
             if (r != null && !m.optBoolean("forfeit")) sb.append("최종 ").append(r.optInt("w1")).append(" : ").append(r.optInt("w2")).append("\n");
-            org.json.JSONObject lk = m.optJSONObject("look");
-            if (lk != null) sb.append(League.stageName(lk.optInt("stage", 0))).append(" · 내 컬러 «").append(League.COLORS[lk.optInt("color", 0) & 3]).append("»\n");
             org.json.JSONObject s0 = m.optJSONObject("score_before");
             int d = m.optInt("delta");
-            if (s0 != null) sb.append("점수 ").append(s0.optInt("me")).append(" → ").append(s0.optInt("me") + d).append(" (").append(d > 0 ? "+" + d : String.valueOf(d)).append(")\n")
-                              .append("순위 ").append(m.optInt("rank_before")).append("위 → ").append(m.optInt("rank_after")).append("위\n");
+            if (s0 != null) sb.append("점수 ").append(s0.optInt("me")).append(" → ").append(s0.optInt("me") + d).append(" (").append(d > 0 ? "+" + d : String.valueOf(d)).append(")")
+                              .append("  ·  순위 ").append(m.optInt("rank_before")).append(" → ").append(m.optInt("rank_after")).append("위\n");
             org.json.JSONObject af = m.optJSONObject("after");
             if (af != null && o != null) sb.append(League.gwa(o.optString("nick"))).append("의 전적 ").append(af.optInt("h2h_w")).append("승 ").append(af.optInt("h2h_l")).append("패")
                     .append(af.optInt("h2h_d") > 0 ? " " + af.optInt("h2h_d") + "무" : "").append("\n");
@@ -1646,7 +1691,7 @@ public class EmuActivity extends Activity {
         row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         final boolean canRe = o != null && League.blockedWhy(o) == null && o.optInt("char", -1) >= 0 && o.optInt("char") < 15 && hubOpp[o.optInt("char")] != null;
         if (canRe) row.addView(hubPill("재대결", new Runnable() { @Override public void run() { hubReturn(o.optInt("char")); } }));
-        row.addView(hubPill("계속", new Runnable() { @Override public void run() { hubReturn(-1); } }));
+        row.addView(hubPill("다른 상대", new Runnable() { @Override public void run() { hubReturn(-2); } }));   /* 리셋 뒤 바로 상대 선택(−2) */
         row.addView(hubPill("순위표", new Runnable() { @Override public void run() { hubCard = null; leagueExitBoard(); } }));
         card.addView(row);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -1654,7 +1699,7 @@ public class EmuActivity extends Activity {
         lp.topMargin = gameBox[1] + Math.round(8 * dp);
         root.addView(card, lp);
         hubCard = card;
-        if (hubBanner != null) hubBanner.setText("가상 리그 · 결과가 기록되었습니다");
+        if (hubBanner != null) hubBanner.setText("결과를 기록했어요");
     }
 
     private TextView hubPill(String s, final Runnable r) {
@@ -1665,6 +1710,7 @@ public class EmuActivity extends Activity {
         g.setColor(0xffd9a441); g.setCornerRadius(4 * dp);
         t.setBackground(g);
         t.setPadding(Math.round(14 * dp), Math.round(8 * dp), Math.round(14 * dp), Math.round(8 * dp));
+        t.setMinHeight(Math.round(48 * dp));                 /* 손가락이 닿게 */
         android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
         lp.leftMargin = Math.round(5 * dp); lp.rightMargin = Math.round(5 * dp);
@@ -1674,34 +1720,79 @@ public class EmuActivity extends Activity {
         return t;
     }
 
-    /** 결과 카드 닫기 → 리셋 뒤 타이틀 «리그 대전» 칸(rematch ≥ 0 이면 같은 상대로 바로 내 캐릭터 고르기까지). */
+    /** 결과 카드 닫기 → 리셋 뒤 타이틀 «리그 대전» 칸(rematch ≥ 0 이면 같은 상대로 바로 내 캐릭터 고르기까지 · −2 «다른 상대» = 바로 상대 선택). */
     private void hubReturn(final int rematch) {
         if (hubCard != null) { root.removeView(hubCard); hubCard = null; }
         org.json.JSONObject m = lm();                       /* 상대만 고르고 대진 전에 타이틀로 — 준비 기록은 무효로(열린 채 남지 않게) */
         if (m != null && "ready".equals(m.optString("status"))) League.cancel(leagueId, "게임 속 리그 — 대진 전에 타이틀로");
         hubWaitGen = hubGen + 1;
+        hubToPick = rematch == -2;
         leagueId = null; leagueArmed = false; leagueDone = false; leagueStarted = false; leagueRetry = 0;
         h.removeCallbacks(leaguePoll);
         Emu.nativeSetPaused(pad != null && pad.isBarOpen());
         gl.queueEvent(new Runnable() { @Override public void run() { Emu.nativeLeagueHubReturn(rematch); } });
     }
 
-    /** 경기 밖(타이틀·상대 고르기)에서 뒤로 가기 — 상대 다시 고르기(타이틀로) / 순위표로 나가기 / 계속 */
+    /** 경기 밖(타이틀·상대 고르기)에서 뒤로 가기 — 계속 / 순위표 / (상대 고르기) 타이틀로 · (타이틀) 게임 목록으로 */
     private void hubLeave() {
         if (leagueDlg != null && leagueDlg.isShowing()) return;
         Emu.nativeSetPaused(true);
-        android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(this).setTitle("가상 리그")
-                .setPositiveButton("계속하기", null)
-                .setNegativeButton("순위표로 나가기", new android.content.DialogInterface.OnClickListener() {
+        android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(this).setTitle("리그 대전")
+                .setPositiveButton("계속", null)
+                .setNegativeButton("순위표", new android.content.DialogInterface.OnClickListener() {
                     @Override public void onClick(android.content.DialogInterface x, int w) { leagueExitBoard(); } });
-        if (hubLastState == 1 || hubLastState == 2) {
-            d.setMessage(hubLastState == 2 ? "상대 고르기를 그만두고 타이틀로 돌아갈 수 있습니다(이 게임은 캐릭터 고르기에서 뒤로 갈 수 없어 리셋합니다)."
-                    : "리그 순위표로 나가거나, 게임을 리셋해 타이틀 메뉴(「리그 대전」 칸)로 돌아갈 수 있습니다.");
+        if (hubLastState == 2 || hubLastState == 3) {
+            d.setMessage("상대 고르기를 그만둘까요? 이 게임은 캐릭터 고르기에서 뒤로 갈 수 없어 리셋해 타이틀로 가요.");
             d.setNeutralButton("타이틀로", new android.content.DialogInterface.OnClickListener() {
                 @Override public void onClick(android.content.DialogInterface x, int w) { hubReturn(-1); } });
-        } else d.setMessage("리그 순위표로 나갈까요?");
+        } else {
+            d.setMessage("리그 순위표나 게임 목록으로 나갈까요?");
+            d.setNeutralButton("목록으로", new android.content.DialogInterface.OnClickListener() {
+                @Override public void onClick(android.content.DialogInterface x, int w) { leagueHub = false; goList(); } });
+        }
         leagueDlg = d.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
             @Override public void onDismiss(android.content.DialogInterface x) { if (hubCard == null) Emu.nativeSetPaused(pad.isBarOpen()); } }).show();
+    }
+
+    /** 리그 판을 못 열 때(연습 판에서 셋째 줄 «리그 대전»으로 갈아타 왔을 때) — 이유를 보이고 원래 게임(일반 판)으로 돌려보낸다 */
+    private void hubBlockedBack(final String why) {
+        leagueDone = true;
+        h.post(new Runnable() { @Override public void run() {
+            new android.app.AlertDialog.Builder(EmuActivity.this).setTitle("리그 대전을 열 수 없어요")
+                    .setMessage(why)
+                    .setCancelable(false)
+                    .setPositiveButton("게임으로 돌아가기", new android.content.DialogInterface.OnClickListener() {
+                        @Override public void onClick(android.content.DialogInterface d, int w) { switchSession(false, false); } })
+                    .show();
+        }});
+    }
+
+    /** 일반 판 ↔ 리그 판 갈아타기(타이틀 셋째 줄 ◀▶ 에서 다른 판의 모드를 A) — 이 창은 코어를 내리고(일반 판은 오토세이브), 같은 롬으로 새 창을 연다.
+     *  리그 판은 바로 상대 선택까지(EXTRA_HUB_GO), 일반 판은 practiceAuto 면 연습 상대 선택까지(EXTRA_PRACTICE) */
+    private void switchSession(final boolean toLeague, final boolean practiceAuto) {
+        if (leaving) return;
+        leaving = true;
+        if (hubBanner != null) { hubBanner.setText(toLeague ? "리그 대전으로…" : practiceAuto ? "연습 대전으로…" : "게임으로…"); hubBanner.setVisibility(View.VISIBLE); }
+        final String rom = getIntent().getStringExtra("rom");
+        final boolean saveAuto = autoSave && !ranked();
+        gl.queueEvent(new Runnable() { @Override public void run() {
+            if (loaded) {
+                Emu.nativeLeagueDisarm();
+                Emu.nativeSaveSram();
+                if (saveAuto) Emu.nativeSaveState(autoStatePath().getAbsolutePath());   /* 다음에 평소처럼 켜면 이 타이틀에서 */
+                Emu.nativeUnload(); loaded = false;
+            }
+            runOnUiThread(new Runnable() { @Override public void run() {
+                Intent i = new Intent(EmuActivity.this, EmuActivity.class);
+                i.putExtra("rom", rom);
+                if (toLeague) { i.putExtra(EXTRA_LEAGUE_HUB, true); i.putExtra(EXTRA_HUB_GO, true); i.putExtra(EXTRA_FROM_GAME, true); }
+                else if (practiceAuto) i.putExtra(EXTRA_PRACTICE, true);
+                startActivity(i);
+                overridePendingTransition(0, 0);
+                finish();
+                overridePendingTransition(0, 0);
+            }});
+        }});
     }
 
     /** 순위표(리그 화면)로 나가기 — 결과 창 없이 */
@@ -1731,17 +1822,40 @@ public class EmuActivity extends Activity {
         return getIntent().getBooleanExtra(EXTRA_PRACTICE, false) && !practiceAutoUsed && practiceRomOk();
     }
 
+    /** 실행 창 «리그·연습» 줄 — 켜면(기본) 타이틀 셋째 줄이 «◀ 연습 대전 ▶», ←→ 로 «리그 대전». 끄면 원래 «2인 대전» */
+    private boolean hubOn() { return "enabled".equals(readOpt("pocketcore_ss2_hub", "enabled")); }
+    /** 일반 판에서 연습이 켜지나(지금 롬 사본·패치 기준) — 리그 판이 셋째 줄에 «연습 대전»을 내놓을지 정할 때 쓴다(리그 판은 다른 사본이라 직접 못 본다) */
+    private String practiceOkKey() {                                   /* 롬 파일마다(원본 경로 이름) — 다른 롬·사본 결과와 섞이지 않게 */
+        String r = getIntent().getStringExtra("rom");
+        return "pocketcore_ss2_practice_ok_" + (r != null ? new File(r).getName().replaceAll("[^A-Za-z0-9._-]", "_") : "");
+    }
+    private void notePracticeOk(boolean ok) {
+        String v = ok ? "1" : "0";
+        if (!v.equals(Settings.load().get(practiceOkKey()))) Settings.put(practiceOkKey(), v);
+    }
+
     /** 코어를 올린 뒤(loadCore — UI·GL 스레드 어느 쪽에서든) — resumed = 이어하기 상태를 불러왔나(그러면 자동 진입은 안 한다) */
     private void practiceSetup(boolean resumed) {
-        practiceHub = false;
+        practiceHub = false; practiceDual = false;
         if (!loaded || ranked() || game == null || !"ss2".equals(game.id)) { hidePracticeBanner(); return; }
         final boolean want = getIntent().getBooleanExtra(EXTRA_PRACTICE, false) && !practiceAutoUsed;
+        if (!hubOn() && !want) { hidePracticeBanner(); return; }        /* «리그·연습» 끔 — 원래 게임 그대로 */
         if (!practiceRomOk()) {
             hidePracticeBanner();
-            if (want) toast("연습 대전을 켤 수 없는 롬 판입니다 — 수동 패치·조작 패치가 든 사본");
+            notePracticeOk(false);
+            String md5 = League.md5(new File(romPath));                  /* 알림은 롬 판마다 한 번(또는 연습을 고르고 들어왔을 때) — 켤 때마다 뜨지 않게 */
+            if (want || !md5.equals(Settings.load().get("pocketcore_ss2_hub_warned"))) {
+                if (!dualWarned) toast("이 롬 판에선 리그·연습이 안 켜져요 — 조작·수동 패치가 들었거나 확인 안 된 판");
+                dualWarned = true; Settings.put("pocketcore_ss2_hub_warned", md5);
+            }
             return;
         }
+        notePracticeOk(true);
         Emu.nativePracticeHub(true, want && !resumed);
+        League.db();                                                     /* dbProblem 은 기록 파일을 한 번 읽어야 정해진다 */
+        practiceDual = hubOn() && League.dbProblem == null && League.writeProblem() == null;   /* 리그 기록을 못 쓰면 셋째 줄은 연습만 */
+        if (hubOn() && !practiceDual && !dualHintShown) { dualHintShown = true; toast("리그 기록을 못 써서 셋째 줄은 연습 대전만 돼요 — 저장소 권한을 확인해 주세요"); }
+        Emu.nativeHubDual(practiceDual);
         if (want) practiceAutoUsed = true;
         practiceHub = true;
         h.post(new Runnable() { @Override public void run() {
@@ -1761,7 +1875,9 @@ public class EmuActivity extends Activity {
         if (!practiceHub || leaving || leagueHub || leagueId != null) return;
         if (loaded && hubBanner != null) {
             int[] hs = Emu.nativeLeagueHubStatus(), ps = Emu.nativePracticeStatus();
-            String t = (hs != null && ps != null) ? practiceText(hs[0], ps) : null;
+            int[] dv = Emu.nativeHubDualStatus();                         /* 둘 다 꺼져 있어도 — 메뉴 화면(v[5])으로 띠를 고른다 */
+            if (practiceDual && dv != null && dv.length >= 5 && dv[2] == 1) { switchSession(true, false); return; }   /* 셋째 줄 «리그 대전» — 리그 판으로 */
+            String t = (hs != null && ps != null) ? practiceText(hs[0], ps, dv) : null;
             /* 경기 중(메뉴 닫힘)엔 띠가 게임 그림 위로 올라가면(가로 화면 — 아래 자리가 없음) 숨긴다: 체력 막대·«2P» 를 연습 내내 가리지 않게 */
             if (t != null && hs[0] == 4 && (ps.length < 2 || ps[1] == 0) && !bannerUserPos     /* 유저가 옮겨 둔 자리면 그대로 보인다 */
                     && ((FrameLayout.LayoutParams) hubBanner.getLayoutParams()).topMargin < gameBox[3]) t = null;
@@ -1771,14 +1887,27 @@ public class EmuActivity extends Activity {
         h.postDelayed(this, 150);
     }};
 
-    /** 띠 안내 — 버튼만(허브 상태 2 상대 선택 · 3 내 캐릭터 · 4 경기). 타이틀·리셋 뒤 돌아가는 중엔 띠를 숨긴다 */
-    private static String practiceText(int hubState, int[] ps) {
+    /** 띠 안내 — 버튼만(허브 상태 2 상대 선택 · 3 내 캐릭터 · 4 경기). 타이틀은 셋째 줄에 커서가 있을 때만(◀▶ 고르기), 그 밖·돌아가는 중엔 숨긴다.
+     *  버튼 이름은 패드 글자 그대로(A · B · OPTION) — 레퍼런스: 철권8 «[BACK]+[←] 벽을 등지고», KOF XV «왼쪽 = 화면 왼쪽 끝» 처럼 방향마다 결과를 적는다 */
+    /** 내 캐릭터 쪽 버튼 안내 — 화면마다(캐릭터: B = 2P색으로 결정 · 검질: B 는 게임의 «뒤로» · 카드: 게임 그대로). 그 밖(이야기·라운드 연출)은 빈 줄/숨김 */
+    private static String myPickKeys(int scr, boolean league) {
+        if (scr == 2) return "A 결정  ·  B 2P색  ·  OPTION 컬러";
+        if (scr == 4) return "A 결정  ·  OPTION 컬러";
+        if (scr == 6) return league ? "카드 고르기 (전부 열림)" : "카드 고르기";
+        return league ? "곧 시작" : null;
+    }
+
+    private static String practiceText(int hubState, int[] ps, int[] dv) {
         switch (hubState) {
-        case 2: return "A 수라  ·  B 나찰  ·  옵션 스테이지";
-        case 3: return "A 결정  ·  B 2P색으로 결정  ·  옵션 컬러";
-        case 4:
-            if (ps.length > 1 && ps[1] != 0) return "↑↓ 고르기  ·  ←→ 바꾸기  ·  A 실행  ·  B 닫기";
-            return "옵션 연습 메뉴  ·  옵션+↓ 리셋  ·  옵션+←↑→ 위치";
+        case 1:
+            if (dv != null && dv.length >= 5 && dv[0] == 1 && dv[3] == 1)
+                return "◀▶ 연습 대전 / 리그 대전  ·  A 시작" + (dv[1] == 0 ? "\n리그는 따로 세이브 판에서 해요" : "");
+            return null;
+        case 2: return "A 수라 · B 나찰 · OPTION 스테이지";   /* 고르는 캐릭터 = 더미(검질은 A·B) — 좁은 띠에서도 한 줄 */
+        case 3: return myPickKeys(dv != null && dv.length >= 6 ? dv[5] : 2, false);
+        case 4:   /* 좁은 띠(버튼 사이)에서도 줄이 접히지 않게 두 줄로 */
+            if (ps.length > 1 && ps[1] != 0) return "↑↓ 고르기 · ←→ 바꾸기\nA 실행 · B 닫기";
+            return "OPTION 메뉴 · OPTION+↓ 리셋\n+← 왼쪽 · +↑ 가운데 · +→ 오른쪽";
         default: return null;
         }
     }

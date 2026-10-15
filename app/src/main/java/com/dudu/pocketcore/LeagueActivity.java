@@ -109,7 +109,7 @@ public class LeagueActivity extends Activity {
     /** 도전할 수 없는 이유(없으면 null) — 상대·열린 경기·기록 파일(League) + 롬(확인 중이면 그것도 이유). */
     private String challengeWhy(JSONObject o) {
         String why = League.blockedWhy(o);
-        if (why == null && rom == null) why = "롬 경로가 없습니다 — 런처에서 사무쇼2 카드를 눌러 「가상 리그」로 들어오세요";
+        if (why == null && rom == null) why = "롬 경로가 없습니다 — 런처에서 사무쇼2 카드를 눌러 「리그 순위표」로 들어오세요";
         if (why == null && !rom.equals(romChecked)) why = "롬 확인 중입니다 — 잠시 뒤 다시 눌러 주세요";
         if (why == null && romWhy != null) why = romWhy;
         return why;
@@ -153,14 +153,14 @@ public class LeagueActivity extends Activity {
         col.removeAllViews();
         TextView h = text("가상 리그", 24, TXT, true);
         col.addView(h);
-        TextView sub = text("사무라이 쇼다운! 2 · 랭크전(시험) — 가상 상대 12명은 모두 게임 CPU 입니다. 닉네임은 지어낸 이름이며 실제 사람이 아닙니다.", 12, DIM, false);
+        TextView sub = text("사무라이 쇼다운! 2 · 리그 대전(시험) — 상대 12명은 모두 게임 CPU예요. 닉네임은 지어낸 이름이에요.", 12, DIM, false);
         sub.setPadding(0, dp(4), 0, dp(14));
         col.addView(sub);
 
         final JSONObject open = League.openMatch();
         if (open != null) col.addView(openCard(open));
-        if (open == null && rom != null) {                 /* 게임 속 리그전 — 타이틀 «리그 대전»에서 상대 고르기 */
-            TextView go = pill("게임 속 리그전  ›  (타이틀 「리그 대전」)", GOLD, INK);
+        if (open == null && rom != null) {                 /* 리그 대전 — 게임을 리그 판으로 켜서 로고·메뉴를 넘겨 바로 상대 선택까지 */
+            TextView go = pill("리그 대전 하러 가기  ›", GOLD, INK);
             go.setOnClickListener(v -> {
                 String why = League.dbProblem != null ? League.dbProblem : romWhy != null ? romWhy
                         : !rom.equals(romChecked) ? "롬 확인 중입니다 — 잠시 뒤 다시 눌러 주세요" : null;
@@ -170,6 +170,7 @@ public class LeagueActivity extends Activity {
                 Intent i = new Intent(this, EmuActivity.class);
                 i.putExtra("rom", rom);
                 i.putExtra(EmuActivity.EXTRA_LEAGUE_HUB, true);
+                i.putExtra(EmuActivity.EXTRA_HUB_GO, true);
                 startActivity(i);
                 finish();
             });
@@ -206,7 +207,7 @@ public class LeagueActivity extends Activity {
         TextView rules = text("규칙 · " + League.POINTS + "선승(3판 2승) · 라운드 " + League.TIME
                 + "초 · 카드 전원 올카드 해금(CPU 는 카드 없음) · 도전하면 1인 대전 캐릭터 고르기까지 자동으로 들어갑니다."
                 + " 내 캐릭터·검질·카드를 고르면 첫 상대가 가상 상대로 나옵니다. 경기 전체 결판만 기록하고,"
-                + " 랭크전 중에는 불러오기·되돌리기·리셋을 쓸 수 없습니다. 랭크전 세이브는 원작 세이브와 따로입니다."
+                + " 리그 경기 중에는 불러오기·되돌리기·리셋을 쓸 수 없습니다. 리그 세이브는 원작 세이브와 따로입니다."
                 + "\n점수 · 시작 때 두 점수 차이로 정합니다: 상대가 101점 이상 높으면 이기면 +18·지면 −6, ±100 안이면 ±12,"
                 + " 101점 이상 낮으면 +6·−18. 내가 얻은 만큼 상대가 잃습니다. 무승부는 점수 그대로. 상대 난도는 점수에 따라 바뀌지 않습니다.", 12, DIM, false);
         rules.setPadding(0, dp(12), 0, 0);
@@ -234,7 +235,7 @@ public class LeagueActivity extends Activity {
             w.setPadding(0, dp(10), 0, 0);
             col.addView(w);
         } else if (rom == null || romWhy != null) {
-            TextView w = text(rom == null ? "롬 경로가 없어 도전할 수 없습니다 — 런처에서 사무쇼2 카드를 눌러 「가상 리그」로 들어오세요."
+            TextView w = text(rom == null ? "롬 경로가 없어 도전할 수 없습니다 — 런처에서 사무쇼2 카드를 눌러 「리그 순위표」로 들어오세요."
                                           : "도전할 수 없습니다: " + romWhy, 12, LOSE, false);
             w.setPadding(0, dp(10), 0, 0);
             col.addView(w);
@@ -287,7 +288,7 @@ public class LeagueActivity extends Activity {
           .append("\n이 상대는 늘 같은 캐릭터·검질·난도로 나옵니다. 난도는 원작 게임 설정의 난이도로 적용합니다(한글판 표기 쉬움 = 하 · 보통 = 중 · 어려움 = 상).")
           .append("\n내 캐릭터·검질·카드는 도전한 뒤 게임 안에서 고릅니다(카드 전원 올카드 해금).")
           .append("\n스테이지 ").append(League.stageLabel(League.prefStage(), o.optString("id")))
-          .append(" · 내 컬러 «").append(League.COLORS[League.prefColor()]).append("» — 게임 속 리그전에서 B(스테이지)·옵션(컬러)으로 바꿉니다.");
+          .append(" · 내 컬러 «").append(League.COLORS[League.prefColor()]).append("» — 게임 속 리그 대전의 상대 선택·내 캐릭터 화면에서 OPTION 으로 바꿉니다.");
         List<JSONObject> hist = League.history(o.optString("id"), 5);
         if (!hist.isEmpty()) {
             sb.append("\n\n최근 경기");

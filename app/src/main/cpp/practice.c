@@ -100,7 +100,7 @@ void practice_vram(void *chr, void *scr, void *pal, void *spr)
 
 /* 설정 — 세션 안에서 다음 경기에도 그대로 */
 typedef struct { int dummy_cpu, guard, rage[2], rpos, swap, num;
-                 int last_ok, last_x[2]; } Settings;   /* last_* = «지난 위치»로 고른 순간 두 사람 X(무대 좌표) — 다음 경기·불러오기에도 남게 설정에(리뷰) */
+                 int last_ok, last_x[2]; } Settings;   /* last_* = «고른 자리»로 고른 순간 두 사람 X(무대 좌표) — 다음 경기·불러오기에도 남게 설정에(리뷰) */
 static Settings PS;
 
 enum { M_NONE = 0, M_OPENING, M_OPEN, M_CLOSING, M_EXIT };
@@ -221,7 +221,7 @@ static void do_reset(uint8_t *ram)
    target_pos(P.rq_pos, &x1, &x2);
    x1 = x1 < 16 ? 16 : x1 > 303 ? 303 : x1;
    x2 = x2 < 16 ? 16 : x2 > 303 ? 303 : x2;
-   if (x1 > x2 - 32 && x1 < x2 + 32) {            /* 너무 붙어 있던 «지난 위치» — 가운데를 두고 32 씩 벌린다 */
+   if (x1 > x2 - 32 && x1 < x2 + 32) {            /* 너무 붙어 있던 «고른 자리» — 가운데를 두고 32 씩 벌린다 */
       int m = (x1 + x2) / 2; if (m < 32) m = 32; if (m > 287) m = 287;
       if (x1 <= x2) { x1 = m - 16; x2 = m + 16; } else { x1 = m + 16; x2 = m - 16; }
    }
@@ -594,7 +594,7 @@ static void change_value(int r, int d)
    case 3: PS.rage[1] = v; break;
    case 4:
       PS.rpos = v;
-      if (v == RP_LAST) { PS.last_x[0] = P.menu_x[0]; PS.last_x[1] = P.menu_x[1]; PS.last_ok = 1; }   /* 지난 위치 = 이 값을 고른 순간(= 메뉴를 연 자리) */
+      if (v == RP_LAST) { PS.last_x[0] = P.menu_x[0]; PS.last_x[1] = P.menu_x[1]; PS.last_ok = 1; }   /* 고른 자리 = 이 값을 고른 순간(= 메뉴를 연 자리) */
       break;
    case 5: PS.swap = v; break;
    case 6: PS.num = v; break;
@@ -616,7 +616,7 @@ static void menu_input(int input, int edge)
    if (edge & IN_A) {
       if (PG_NVAL[P.row]) change_value(P.row, +1);
       else if (P.row == 7) { menu_close(); request_reset(PS.rpos); return; }   /* 지금 리셋 — 멈춘 동안엔 동작을 끊을 수 없어 닫고 중립에서 */
-      else if (P.row == 8) { menu_exit(2); return; }                          /* 다시 고르기 */
+      else if (P.row == 8) { menu_exit(2); return; }                          /* 상대 고르기(예전 «다시 고르기») */
       else if (P.row == 9) { menu_exit(1); return; }                          /* 타이틀로 */
    }
    if (edge & (IN_B | IN_OPT)) menu_close();
@@ -769,7 +769,7 @@ void practice_set(int key, int value)
    pthread_mutex_unlock(&P_mu);
 }
 
-/* 연습 설정(더미·가드·분노·리셋·숫자) — 상태 저장 옆에 허브와 함께 남겨, 앱을 다시 열어 이어해도 그대로 */
+/* 연습 설정(더미·가드·분노·리셋·대미지) — 상태 저장 옆에 허브와 함께 남겨, 앱을 다시 열어 이어해도 그대로 */
 size_t practice_settings_get(void *buf, size_t cap)
 {
    if (cap < sizeof PS) return 0;

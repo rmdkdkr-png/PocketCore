@@ -18,6 +18,13 @@ void league_hub_cancel(void);
 void league_hub_status(int v[LEAGUE_NHUB]);
 /* 게임 속 리그 배경·컬러(home = 캐릭터마다 상대 기본 배경 0~7·없으면 −1, stage_sel −1 상대 기본·−2 무작위·0~7, color 0~3) */
 void league_hub_look(const signed char *home, int stage_sel, int color);
+/* 둘 다(실행 창 «리그·연습») — 셋째 줄 ◀▶ 로 연습·리그. 다른 판의 모드를 고르면 갈아타기 요청(league_hub_dual_status v[2]) */
+#define LEAGUE_NDUAL 6
+void league_hub_dual(int on);
+void league_hub_dual_status(int v[LEAGUE_NDUAL]);
+void league_hub_handoff_clear(void);
+/* 갈아탄 리그 판 — 로고·메뉴를 넘겨 바로 상대 선택까지 */
+void league_hub_go(void);
 /* 허브가 게임 대신 받는 입력 비트 — 입력 콜백은 사용자 입력에서 이 비트를 지운다 */
 extern volatile int league_in_block;
 /* 사용자 입력에 더할 비트(연습 대전: 이야기·대사 넘기기 A) — 입력 콜백 = (입력 & ~막는 비트) | 더할 비트 */

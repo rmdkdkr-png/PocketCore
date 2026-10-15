@@ -308,12 +308,8 @@ public final class LaunchSheet {
         }
 
         if (onSettings == null && rom != null && g != null && "ss2".equals(g.id) && a instanceof MainActivity) {
-            /* 연습 대전 — 평소 판(내 세이브)으로 켜서 타이틀 «연습 대전» → 상대 선택까지 자동. 판정 주소를 확인한 롬 판에서만 켜진다(EmuActivity) */
-            link(col, "연습 대전으로  ›", GOLD, new Runnable() { @Override public void run() {
-                dlg.dismiss(); ((MainActivity) a).openPractice(rom); } });
-            /* 가상 리그(시험) — CPU 상대 랭크전. 실행 옵션(한글·조작 패치 등)은 위에서 고른 그대로 쓴다 */
-            link(col, "가상 리그 (시험) — 게임 속 「리그 대전」으로  ›", GOLD, new Runnable() { @Override public void run() {
-                dlg.dismiss(); ((MainActivity) a).openLeagueHub(rom); } });
+            /* 연습 대전·리그 대전은 위 «리그·연습» 줄 하나로 켠다(타이틀 셋째 줄 ◀▶ — 예전의 «연습 대전으로»·«가상 리그로» 두 링크는 둘 중 하나만 됐다).
+               여기엔 순위표만 */
             link(col, "리그 순위표  ›", GOLD, new Runnable() { @Override public void run() {
                 dlg.dismiss(); ((MainActivity) a).openLeague(rom); } });
         }
