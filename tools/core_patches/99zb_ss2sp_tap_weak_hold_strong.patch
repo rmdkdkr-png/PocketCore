@@ -1,0 +1,69 @@
+diff --git a/src/ss2sp.c b/src/ss2sp.c
+index f537d9f..30222bd 100644
+--- a/src/ss2sp.c
++++ b/src/ss2sp.c
+@@ -244,6 +244,9 @@ static const struct { const char *id; unsigned char bits; } ss2_press_tbl[] = {
+ static int ss2_za_on(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_ZA"); v=e?atoi(e):1;} return v; }   /* 99za 시험 스위치 */
+ static int q_press;                /* 지금 써 넣은 기술이 누를 때 나가는 것인가 */
+ static int q_basic;                /* 99za: 자기 기본기 중에 써 넣었나(헛친 기본기 캔슬 포함) */
++/* 99zb: 지금 버튼 칸(sustain 스텝)이 몇 프레임 나갔나 — 큐를 새로 짤 때 sus_step = -1 */
++static int sus_step = -1, sus_out;
++static int ss2_zb_on(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_ZB"); v=e?atoi(e):1;} return v; }   /* 99zb 시험 스위치 */
+ static int qr_wait;                /* 99za: 다시 누르기가 고리 0 칸에 걸려 기다린 프레임 */
+ static const ss2_style *ss2_cur_style(void);
+ static int ss2_move_is_press(const ss2_move *m)
+@@ -351,7 +354,7 @@ static int ss2_inject(const ss2_move *m, int tk, int mirror)
+    if (tk) { uint8_t d9 = PAD_UP | PAD_RIGHT; if (mirror) d9 = ss2_mirror(d9); fin = (uint8_t)(d9 | m->btn); }
+    else    { uint8_t d = m->len ? m->motion[m->len - 1] : 0; if (mirror) d = ss2_mirror(d); fin = (uint8_t)(d | m->btn); }
+    inj_fin = fin;
+-   q_n = q_i = 0;
++   q_n = q_i = 0; sus_step = -1;
+    q[q_n].pad = fin; q[q_n].frames = HOLD_FRAMES; q[q_n].sustain = 1; q_n++;   /* 트리거를 잡고 있으면 늘어난다(강) */
+    q[q_n].pad = 0; q[q_n].frames = TAIL_FRAMES; q[q_n].sustain = 0; q_n++;
+    q_inj = 1; fin_frames = 0; q_press = ss2_move_is_press(m); qr_wait = 0;
+@@ -370,7 +373,7 @@ static int ss2_repress(void)
+    ne = inj_ne * rep;
+    CPUExRAM[OFF_CMDRING + ((c - ne) & 0x7F)] = 0xFF;
+    for (k = 0; k < ne; k++) CPUExRAM[OFF_CMDRING + ((c - ne + 1 + k) & 0x7F)] = inj_dirs[k / rep];
+-   q_n = q_i = 0;
++   q_n = q_i = 0; sus_step = -1;
+    /* 99za: 강을 원했으면(SP 를 9 프레임 넘게 잡음) 다시 누르기도 강 — 누른 틱 + 8 에 강이 터지게 10 프레임 잡는다(전엔 늘 약 — 나코루루 강이 35 약으로) */
+    q[q_n].pad = inj_fin; q[q_n].frames = (ss2_za_on() && sp_want_strong() && !q_press) ? STRONG_FRAMES + 1 : 2; q[q_n].sustain = 0; q_n++;
+    q[q_n].pad = 0; q[q_n].frames = TAIL_FRAMES; q[q_n].sustain = 0; q_n++;
+@@ -383,7 +386,7 @@ static int ss2_repress(void)
+ static void ss2_compile_ex(const ss2_move *m, int tk)
+ {
+    int i, mirror = (CPUExRAM[OFF_FACING] == 1);
+-   q_n = q_i = 0; q_inj = 0;
++   q_n = q_i = 0; q_inj = 0; sus_step = -1;
+ 
+    {
+       int r = ss2_inject(m, tk, mirror);
+@@ -551,6 +554,13 @@ static uint8_t ss2_step_out(int held)
+       return 0;
+    }
+    out = q[q_i].pad;
++   if (q[q_i].sustain) { if (sus_step != q_i) { sus_step = q_i; sus_out = 0; } sus_out++; }
++   if (ss2_zb_on() && !q_inj && q[q_i].sustain && sp_want_strong() && sus_out <= STRONG_FRAMES && !qr_attempt)
++   {  /* 99zb: 매크로(모션을 친 뒤 버튼 — 고리 0 칸에 걸릴 때)도 강을 원했으면(SP 9 프레임 넘게) 버튼 칸을 강이 터질 만큼 잡는다.
++         뗀 프레임에 바로 떼면 버튼 칸이 «손 길이 − 모션 치는 4 프레임»이라 강이 약으로 샜다 */
++      hold_elapsed = sus_out; if (sus_out >= STRONG_FRAMES) ss2sp_last_strong = 1;
++      return out;
++   }
+    if (q_inj && q_i == 0)
+    {
+       fin_frames++;
+@@ -603,8 +613,11 @@ static uint8_t ss2_step_out(int held)
+          return out;
+       }
+       /* 99za: 헛친 기본기 중에 써 넣었어도 뗀 프레임에 바로(99z 와 같은 까닭 — 뗀 뒤 2 프레임 더 잡아 5~8 프레임 톡이 강으로 샜다).
+-         서서 누른 SP 는 예전 그대로(뗀 뒤 2 프레임 더) */
+-      if (ss2_za_on() && q_inj && q_basic && q_i == 0 && q[q_i].sustain && fin_frames > HOLD_FRAMES)
++         99zb: 서서 누른 SP(매크로 포함)도 — 유저 2026-10-16 「서서 SP 톡 눌러도 강이 나가는 게 말이 됨?」. 뗀 뒤 2 프레임을 더 잡아
++         버튼 칸이 «손 길이 + 2» 였다 → 게임은 버튼 칸 6 프레임까지 약·7 은 틱 위상 따라·8 부터 강이라 4~5 프레임(0.07초) 톡도 강이 됐다.
++         이제 버튼 칸 = 손 길이(최소 HOLD_FRAMES) — 0.1초(6 프레임) 톡까지 약, 0.13초(8 프레임) 넘게 잡으면 강 */
++      if (((ss2_za_on() && q_inj && q_basic && q_i == 0 && fin_frames > HOLD_FRAMES) || (ss2_zb_on() && sus_out > HOLD_FRAMES))
++          && q[q_i].sustain)
+       {
+          if (++q_i < q_n) { q_left = q[q_i].frames; out = q[q_i].pad; if (--q_left <= 0) { if (++q_i < q_n) q_left = q[q_i].frames; else { q_n = q_i = 0; q_left = 0; } } }
+          else { q_n = q_i = 0; q_left = 0; out = 0; }
