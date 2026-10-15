@@ -734,6 +734,19 @@ int league_practice_match(int *dummy, int *sty)
    return on;
 }
 
+/* 치트(cheat.c)가 매 진짜 프레임 묻는다 — 1 = 리그가 쥔 세션(게임 속 리그 허브 종류 0 이 켜짐, 또는 허브 없이 무장된 랭크전 한 경기):
+   기록이 깨끗해야 해서 치트는 아무것도 안 쓴다. 2 = 연습 대전 흐름(허브 종류 1 의 상대 고르기 → 내 캐릭터 → 연습 경기 → 돌아가는 중):
+   연습이 시간·체력·분노·더미·배율을 맡으므로 경기 치트를 쉰다(경기 전에 쓴 공격 배율이 연습 경기까지 새지 않게 경기 전부터). 0 = 그 밖.
+   연습 허브는 H_PICK_ME 에서도 L.armed 를 세우므로 «armed» 하나로는 못 가른다 — 허브 종류를 같이 본다 */
+int league_session_owner(void)
+{
+   pthread_mutex_lock(&L_mu);
+   int r = (H.st != H_OFF && H.kind == 0) || (H.st == H_OFF && L.armed) ? 1
+         : H.st != H_OFF && H.kind == 1 && H.st != H_TITLE ? 2 : 0;
+   pthread_mutex_unlock(&L_mu);
+   return r;
+}
+
 /* 연습 메뉴 «상대 고르기»(repick 1)·«타이틀로»(0) — native.c 가 코어 잠금 안에서 리셋한 바로 뒤에 부른다.
    리그 결판 뒤 돌아오기와 같은 길: 로고·인트로를 넘겨 메뉴 셋째 줄로, 상대 고르기면 그대로 상대 선택까지 */
 void league_practice_return(int repick)
