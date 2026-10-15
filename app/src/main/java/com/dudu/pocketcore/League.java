@@ -122,7 +122,7 @@ final class League {
             j = fresh();
         }
         db = j;
-        if (upgrade(j)) save();
+        if (upgrade(j) | upgradeRanked(j)) save();       /* 랭크 칸은 처음 한 번 예전 기록에서 이어받는다(아래 «랭크 매치») */
         return db;
     }
 
@@ -325,6 +325,20 @@ final class League {
     }
     static JSONArray opps() { return db().optJSONArray("opps"); }
     static JSONArray matches() { return db().optJSONArray("matches"); }
+    /** 랭크 경기는 ranked.matches 에 따로 — 같은 폴더를 쓰는 예전 앱(랭크 이전)은 이 칸을 모르니 열린 랭크 경기를 예전 규칙으로
+     *  정산·기권하려다 막히지 않는다(예전 앱은 모르는 칸을 그대로 다시 쓴다) */
+    static synchronized JSONArray rmatches() {
+        JSONObject r = ranked();
+        JSONArray a = r.optJSONArray("matches");
+        if (a == null) { a = new JSONArray(); try { r.put("matches", a); } catch (Exception ignored) { } }
+        return a;
+    }
+    /** 아직 ranked 칸이 없으면 만들지 않고 빈 목록(찾기만 할 때) */
+    private static JSONArray rmatchesIfAny() {
+        JSONObject r = db().optJSONObject("ranked");
+        JSONArray a = r != null ? r.optJSONArray("matches") : null;
+        return a != null ? a : new JSONArray();
+    }
 
     static JSONObject oppById(String id) {
         JSONArray a = opps();
@@ -334,18 +348,18 @@ final class League {
 
     static JSONObject matchById(String id) {
         if (id == null) return null;
-        JSONArray a = matches();
-        for (int i = a.length() - 1; i >= 0; i--) if (id.equals(a.optJSONObject(i).optString("id"))) return a.optJSONObject(i);
+        for (JSONArray a : new JSONArray[]{ matches(), rmatchesIfAny() })
+            for (int i = a.length() - 1; i >= 0; i--) if (id.equals(a.optJSONObject(i).optString("id"))) return a.optJSONObject(i);
         return null;
     }
 
     /** 끝나지 않은 경기(준비·진행·복귀 대기) — 있으면 새 도전 전에 재개/기권을 고르게 한다. */
     static JSONObject openMatch() {
-        JSONArray a = matches();
-        for (int i = a.length() - 1; i >= 0; i--) {
-            String s = a.optJSONObject(i).optString("status");
-            if ("ready".equals(s) || "playing".equals(s) || "resume".equals(s)) return a.optJSONObject(i);
-        }
+        for (JSONArray a : new JSONArray[]{ matches(), rmatchesIfAny() })
+            for (int i = a.length() - 1; i >= 0; i--) {
+                String s = a.optJSONObject(i).optString("status");
+                if ("ready".equals(s) || "playing".equals(s) || "resume".equals(s)) return a.optJSONObject(i);
+            }
         return null;
     }
 
@@ -411,9 +425,11 @@ final class League {
 
     /** 리그 화면을 여는 때 «진행 중»인 경기는 게임 창이 이미 없다(앱이 경기 중에 내려갔다) — 복귀 대기로 바꾼다. */
     static synchronized void markInterrupted() {
-        JSONObject m = openMatch();
-        if (m != null && "playing".equals(m.optString("status")))
-            setStatus(m.optString("id"), "resume", "앱이 경기 중에 내려감");
+        for (JSONArray a : new JSONArray[]{ matches(), rmatchesIfAny() })   /* 두 목록 모두 — 같은 폴더의 다른 판이 연 경기도 */
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject m = a.optJSONObject(i);
+                if ("playing".equals(m.optString("status"))) setStatus(m.optString("id"), "resume", "앱이 경기 중에 내려감");
+            }
     }
 
     static synchronized boolean note(String id, String key, Object val) {
@@ -517,7 +533,8 @@ final class League {
         String backup = db.toString();
         try {
             JSONObject rule = m.optJSONObject("rule");
-            JSONObject o = oppById(m.optString("opp"));
+            boolean rk = isRanked(m);
+            JSONObject o = rk ? null : oppById(m.optString("opp"));
             JSONObject me = me();
             int bits = st[5], w1 = st[6], w2 = st[7], p1 = st[10], p2 = st[11];
             int need = st[9], time = st.length > 17 ? st[17] : rule.optInt("time");
@@ -530,7 +547,8 @@ final class League {
             if (st.length > 20) {                    /* 난도 적용 확인 — 1인 대전 첫 경기 CPU 단계 1+3×난도, 배율(하 00C0/0140 · 중 00D9/0126 · 상 00F3/010C) */
                 res.put("cpu_level", st[18]);
                 res.put("cpu_mult", String.format("%04X %04X", st[19], st[20]));
-                res.put("diff_ok", st[18] == 1 + 3 * rule.optInt("diff"));
+                res.put("diff_ok", rk ? rankedKnobWhy(rule, st) == null : st[18] == 1 + 3 * rule.optInt("diff"));
+                if (st.length > 21) res.put("cpu_cap", st[21]);
             }
             res.put("at", System.currentTimeMillis());
             m.put("result", res);
@@ -557,6 +575,7 @@ final class League {
             String why2 = null;
             if (out == null)
                 why2 = String.format("결판 판정 불일치: 결과 비트 0x%02X · 승수 %d:%d · 필요 승수 %d — 승패를 정할 수 없습니다", bits, w1, w2, need);
+            else if (rk) why2 = rankedKnobWhy(rule, st);     /* 랭크: 손잡이(단계·상한·배율)가 실제로 먹었나 */
             else if (st.length > 20 && st[18] != 1 + 3 * rule.optInt("diff"))
                 why2 = "난도 불일치: CPU 단계 " + st[18] + " (요청 난도 " + DIFF[rule.optInt("diff")] + " → " + (1 + 3 * rule.optInt("diff")) + ")";
             if (why2 != null) {
@@ -566,7 +585,7 @@ final class League {
                 ckpt(matchId).delete();
                 return m;
             }
-            apply(m, me, o, out);
+            if (rk) applyRanked(m, out, false); else apply(m, me, o, out);
             m.put("status", "settled");
             m.put("settled", System.currentTimeMillis());
             if (!save()) throw new IOException("save");
@@ -621,7 +640,7 @@ final class League {
         String backup = db.toString();
         try {
             m.put("forfeit", true);
-            apply(m, me(), oppById(m.optString("opp")), "L");
+            if (isRanked(m)) applyRanked(m, "L", true); else apply(m, me(), oppById(m.optString("opp")), "L");
             m.put("status", "forfeit");
             m.put("settled", System.currentTimeMillis());
             if (!save()) throw new IOException("save");
@@ -704,13 +723,15 @@ final class League {
     /** 보류·무효 경기(새것부터) — 원인과 복구 방법을 리그 화면에서 볼 수 있게. */
     static java.util.List<JSONObject> holds(int max) {
         java.util.List<JSONObject> out = new java.util.ArrayList<>();
-        JSONArray a = matches();
-        for (int i = a.length() - 1; i >= 0 && out.size() < max; i--) {
-            JSONObject m = a.optJSONObject(i);
-            String s = m.optString("status");
-            if ("hold".equals(s) || "cancelled".equals(s)) out.add(m);
-        }
-        return out;
+        for (JSONArray a : new JSONArray[]{ matches(), rmatchesIfAny() })
+            for (int i = a.length() - 1; i >= 0; i--) {
+                JSONObject m = a.optJSONObject(i);
+                String s = m.optString("status");
+                if ("cancelled".equals(s) && isRanked(m)) continue;   /* 랭크 무효 = 첫 라운드 전에 나감뿐(상대는 잡힌 채) — 오류가 아니라 목록에 안 쌓는다 */
+                if ("hold".equals(s) || "cancelled".equals(s)) out.add(m);
+            }
+        out.sort((x, y) -> Long.compare(y.optLong("created"), x.optLong("created")));   /* 두 목록을 합쳐 새것부터 */
+        return out.size() > max ? new java.util.ArrayList<>(out.subList(0, max)) : out;
     }
 
     static String statusKo(String s) {
@@ -738,5 +759,382 @@ final class League {
         String sc = (r != null && !m.optBoolean("forfeit")) ? " " + r.optInt("w1") + ":" + r.optInt("w2") : "";
         int d = m.optInt("delta");
         return outcomeKo(m) + sc + " · " + (d > 0 ? "+" + d : String.valueOf(d));
+    }
+
+    /* ── 랭크 매치(끝없는 매칭) — 내부 144 ───────────────────────────────
+       league.json 에 "ranked" 칸을 더한다(v 는 1 그대로 — 예전 앱은 모르는 칸을 읽고 다시 써도 지우지 않는다).
+       상대는 씨앗 하나로 만드는 가상 플레이어 4만 명 남짓(RankCore — id p<칸 3자리><번호 4자리>)과 예전 12명(o01~o12 = 라이벌).
+       숫자(MMR·LP·전적)는 진짜 경기로만 움직이고, 닉네임·칭호·지역·한마디·아바타는 지어낸 것 — 만난 상대는 그 모습을 글자 그대로 저장한다
+       (pool.json 을 고쳐도 이미 만난 상대는 안 바뀐다). 설계: handoff/ss2_next/설계/ranked.md · profile.md */
+
+    static final int RANK_RV = 1;
+    static final long PENDING_MS = 24L * 3600_000L;        /* 잡힌 상대는 하루 지나면 푼다 */
+
+    /** 처음 한 번 — 예전 리그 기록에서 이어받아 "ranked" 칸을 만든다. 예전 칸(me·opps·order)은 지우지 않는다. 바뀌었으면 true */
+    private static boolean upgradeRanked(JSONObject j) {
+        if (j.optJSONObject("ranked") != null) return false;
+        try {
+            JSONObject r = new JSONObject();
+            r.put("rv", RANK_RV); r.put("gen", RankCore.GEN);
+            r.put("seed", String.format("%016x", new java.security.SecureRandom().nextLong()));
+            r.put("season", 1); r.put("season_start", System.currentTimeMillis());
+            JSONArray ms = j.optJSONArray("matches"), os = j.optJSONArray("opps");
+            JSONObject me0 = j.optJSONObject("me");
+            int old = 0;
+            java.util.List<String> recent = new java.util.ArrayList<>();
+            java.util.Map<String, Integer> last = new java.util.HashMap<>();
+            for (int i = ms == null ? -1 : ms.length() - 1; i >= 0; i--) {
+                JSONObject m = ms.optJSONObject(i);
+                String st = m.optString("status");
+                if (m.has("mode") || !("settled".equals(st) || "forfeit".equals(st))) continue;
+                old++;
+                String oid = m.optString("opp"), out = m.optString("outcome");
+                if (!last.containsKey(oid)) last.put(oid, "W".equals(out) ? 1 : "L".equals(out) ? -1 : 0);
+                if (!recent.contains(oid) && recent.size() < 8) recent.add(oid);
+            }
+            int score = me0 != null ? me0.optInt("score", 1000) : 1000;
+            RankCore.Me me = new RankCore.Me();
+            if (old >= 5) {                                  /* 예전 점수(1000 = 보통 난도 상대들 사이)는 MMR 척도와 같은 자리 — 배치 없이 */
+                me.mmr = Math.max(700, Math.min(1300, score));
+                me.placementLeft = 0; me.games = 5;      /* 배치를 막 마친 사람과 같게 — K 64(배치) 대신 40부터 */
+                me.lp = Math.max(0, (int) Math.round(RankCore.lpOfMmr(me.mmr) - 200) / 10 * 10);
+                me.peakLp = me.lp;
+            } else {
+                me.mmr = Math.max(600, Math.min(1400, score)); me.placementLeft = 5;
+            }
+            me.recent.addAll(recent);
+            JSONObject ps = new JSONObject();
+            for (int i = 0; os != null && i < os.length(); i++) {
+                JSONObject o = os.optJSONObject(i);
+                if (o.optInt("w") + o.optInt("l") + o.optInt("d") == 0) continue;
+                String id = o.optString("id");
+                ps.put(id, new JSONObject().put("w", o.optInt("l")).put("l", o.optInt("w")).put("d", o.optInt("d"))
+                        .put("last", last.containsKey(id) ? last.get(id) : 0).put("broke", o.optInt("broke_streak"))
+                        .put("mmr_adj", 0).put("lp_adj", 0));
+            }
+            r.put("players", ps);
+            if (me0 != null) r.put("legacy", new JSONObject().put("score", score).put("w", me0.optInt("w")).put("l", me0.optInt("l"))
+                    .put("d", me0.optInt("d")).put("games", old).put("migrated_at", System.currentTimeMillis()));
+            putMe(r, me);
+            j.put("ranked", r);
+            return true;
+        } catch (Exception e) { return false; }
+    }
+
+    static synchronized JSONObject ranked() {
+        JSONObject r = db().optJSONObject("ranked");
+        if (r == null) { upgradeRanked(db()); save(); r = db().optJSONObject("ranked"); }
+        return r;
+    }
+    static long rankSeed() {
+        try { return Long.parseUnsignedLong(ranked().optString("seed", "0"), 16); } catch (Exception e) { return 0x5EED; }
+    }
+    static int today() { return RankCore.today(System.currentTimeMillis()); }
+
+    private static RankCore.Me meOf(JSONObject r) {
+        RankCore.Me m = new RankCore.Me();
+        m.mmr = r.optDouble("mmr", 1000); m.games = r.optInt("games"); m.placementLeft = r.optInt("placement", 5);
+        m.lp = r.optInt("lp"); m.shield = r.optBoolean("shield"); m.master = r.optBoolean("master"); m.mr = r.optInt("mr");
+        m.peakLp = r.optInt("peak_lp"); m.w = r.optInt("w"); m.l = r.optInt("l"); m.d = r.optInt("d");
+        m.streak = r.optInt("streak"); m.lstreak = r.optInt("lstreak"); m.best = r.optInt("best");
+        m.lastWinDay = r.has("last_win_day") ? r.optInt("last_win_day") : Integer.MIN_VALUE;
+        JSONArray rc = r.optJSONArray("recent");
+        for (int i = 0; rc != null && i < rc.length(); i++) m.recent.add(rc.optString(i));
+        JSONObject pd = r.optJSONObject("pending");
+        if (pd != null && System.currentTimeMillis() - pd.optLong("at") < PENDING_MS) m.pendingId = pd.optString("id", null);
+        return m;
+    }
+    private static void putMe(JSONObject r, RankCore.Me m) throws Exception {
+        r.put("mmr", Math.round(m.mmr * 10) / 10.0); r.put("games", m.games); r.put("placement", m.placementLeft);
+        r.put("lp", m.lp); r.put("shield", m.shield); r.put("master", m.master); r.put("mr", m.mr); r.put("peak_lp", m.peakLp);
+        r.put("w", m.w); r.put("l", m.l); r.put("d", m.d); r.put("streak", m.streak); r.put("lstreak", m.lstreak); r.put("best", m.best);
+        if (m.lastWinDay != Integer.MIN_VALUE) r.put("last_win_day", m.lastWinDay);
+        JSONArray rc = new JSONArray();
+        for (int i = 0; i < Math.min(12, m.recent.size()); i++) rc.put(m.recent.get(i));
+        r.put("recent", rc);
+    }
+    static synchronized RankCore.Me rankMe() { return meOf(ranked()); }
+
+    private static JSONObject players() {
+        JSONObject ps = ranked().optJSONObject("players");
+        if (ps == null) { ps = new JSONObject(); try { ranked().put("players", ps); } catch (Exception ignored) { } }
+        return ps;
+    }
+
+    /** 예전 12명 → 라이벌(RankCore.legacy) — CPU 가 싸우는 조합만 */
+    static java.util.List<RankCore.Player> rivals() {
+        java.util.List<RankCore.Player> out = new java.util.ArrayList<>();
+        JSONArray os = opps();
+        for (int i = 0; os != null && i < os.length(); i++) {
+            JSONObject o = os.optJSONObject(i);
+            if (!oppSupported(o.optInt("char"), o.optInt("style"))) continue;
+            out.add(RankCore.legacy(o.optString("id"), o.optString("nick"), o.optInt("char"), o.optInt("style"), o.optInt("diff"), o.optInt("score", 1000)));
+        }
+        return out;
+    }
+
+    static synchronized RankCore.Book book() {
+        final JSONObject ps = players();
+        final java.util.List<RankCore.Player> rv = rivals();
+        return new RankCore.Book() {
+            @Override public double adj(String id) { JSONObject p = ps.optJSONObject(id); return p != null ? p.optDouble("mmr_adj", 0) : 0; }
+            @Override public int[] h2h(String id) {
+                JSONObject p = ps.optJSONObject(id);
+                return p == null ? new int[5] : new int[]{ p.optInt("w"), p.optInt("l"), p.optInt("d"), p.optInt("last"), p.optInt("broke") };
+            }
+            @Override public java.util.List<RankCore.Player> rivals() { return rv; }
+            @Override public int lpAdj(String id) { JSONObject p = ps.optJSONObject(id); return p != null ? p.optInt("lp_adj") : 0; }
+        };
+    }
+    static int lpAdj(String id) { JSONObject p = players().optJSONObject(id); return p != null ? p.optInt("lp_adj") : 0; }
+    static int[] h2h(String id) { return book().h2h(id); }
+
+    static synchronized RankCore.Player rankPlayer(String id) { return RankCore.resolve(rankSeed(), id, book()); }
+
+    /** 상대의 지금 모습(오늘 MMR·LP·티어) — 화면용 */
+    static final class OppView { RankCore.Player p; double mmr; int lp, mr; String label; boolean master; }
+    static synchronized OppView oppView(RankCore.Player p) {
+        OppView v = new OppView(); v.p = p;
+        int day = today(); double adj = book().adj(p.id);
+        v.mmr = p.mmr(day, adj); v.lp = p.lp(day, adj, lpAdj(p.id));
+        v.mr = p.mr(day, adj);                        /* 무쌍이 아니어도 — 내가 무쌍이면 정산이 이 값을 상대 MR 로 쓴다(start.opp_mr) */
+        v.master = v.lp >= RankCore.MASTER_LP;
+        if (v.master) { v.lp = RankCore.MASTER_LP; v.label = RankCore.TIER[7] + " MR " + v.mr; }
+        else v.label = RankCore.label(v.lp);
+        return v;
+    }
+
+    /* ── 꾸밈 프로필(pool.json — ProfileGen) ── */
+    private static JSONObject pool;
+    static synchronized JSONObject pool(android.content.Context c) {
+        if (pool != null) return pool;
+        if (c == null) return null;
+        try (java.io.InputStream in = c.getAssets().open("league/pool.json")) {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[8192]; int n;
+            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            pool = new JSONObject(bo.toString("UTF-8"));
+        } catch (Exception e) { android.util.Log.e("PocketCore", "pool.json", e); }
+        return pool;
+    }
+    /** 이 상대의 프로필 — 만난 상대는 저장한 그대로(players[id].pf), 아니면 씨앗으로 만든다(같은 씨앗·같은 id = 늘 같음).
+     *  pool 을 못 읽으면 RankCore 의 닉네임·칭호·지역으로 */
+    private static final java.util.Map<String, JSONObject> PF_CACHE = new java.util.HashMap<>();   /* 안 만난 상대 프로필(씨앗·id 로 늘 같다) — 순위표를 다시 그릴 때 또 안 만들게 */
+    static synchronized JSONObject pfOf(android.content.Context c, RankCore.Player p) {
+        JSONObject saved = players().optJSONObject(p.id);
+        if (saved != null && saved.optJSONObject("pf") != null) return saved.optJSONObject("pf");
+        String ck = rankSeed() + ":" + p.id;
+        JSONObject hit = PF_CACHE.get(ck);
+        if (hit != null) return hit;
+        JSONObject made = makePf(c, p);
+        if (pool != null) { if (PF_CACHE.size() > 600) PF_CACHE.clear(); PF_CACHE.put(ck, made); }
+        return made;
+    }
+    private static JSONObject makePf(android.content.Context c, RankCore.Player p) {
+        JSONObject pl = pool(c);
+        JSONObject pf = null;
+        try {
+            if (p.legacy && pl != null && pl.optJSONObject("roster") != null && pl.optJSONObject("roster").optJSONObject(p.id) != null) {
+                pf = new JSONObject(pl.optJSONObject("roster").optJSONObject(p.id).toString());
+                pf.put("nick", p.nick);
+            } else if (pl != null) {
+                int diff = p.baseMmr < 900 ? 0 : p.baseMmr < 1100 ? 1 : 2;
+                long sd = RankCore.Rng.mix(rankSeed(), p.idHash(), 0x9F0F11EL);
+                for (int k = 0; k < 4 && pf == null; k++) {
+                    JSONObject x = ProfileGen.make(pl, sd + k, p.ch, p.sty, diff, java.util.Collections.<String>emptySet());
+                    if (!x.isNull("nick")) pf = x;
+                }
+            }
+            if (pf == null) {
+                pf = new JSONObject().put("nick", p.nick).put("title", p.title).put("region", p.region).put("cc", "KR")
+                        .put("tags", new JSONArray()).put("mood", "polite").put("cmt", "")
+                        .put("av", String.format("%016x", AvatarGen.fnv1a64("av:" + p.id)));
+            }
+            pf.put("persona", p.persona);
+        } catch (Exception e) { pf = new JSONObject(); }
+        return pf;
+    }
+    static String nickOf(android.content.Context c, RankCore.Player p) { return pfOf(c, p).optString("nick", p.nick); }
+
+    /* ── 매칭 ── */
+    /** 상대 찾기 — 잡힌 상대가 있으면 그 상대, 아니면 RankCore.pick. 고른 상대는 카드를 띄우기 전에 «잡힘»으로 바로 저장한다
+     *  (카드에서 나가거나 캐릭터 고르기에서 뒤로 가도 다음 찾기에 같은 상대 — 쉬운 상대만 골라 받기를 막는다) */
+    static synchronized RankCore.Pick rankedPick(android.content.Context c) {
+        RankCore.Me me = rankMe();
+        long seed = rankSeed();
+        RankCore.Pick pk = RankCore.pick(seed, me, today(), book(), new RankCore.Rng(System.nanoTime() ^ seed));
+        try {
+            JSONObject pd = ranked().optJSONObject("pending");
+            if (!pk.pending || pd == null || !pk.p.id.equals(pd.optString("id"))) {
+                RankCore.Knobs k = RankCore.knobs(pk.mmr, pk.p.personaIdx);
+                ranked().put("pending", new JSONObject().put("id", pk.p.id).put("at", System.currentTimeMillis())
+                        .put("mmr", Math.round(pk.mmr * 10) / 10.0).put("stage", pk.p.stage)
+                        .put("knobs", new JSONObject().put("diff", k.diff).put("lv", k.lv).put("cap", k.cap).put("floor", k.floor).put("atk", k.atk).put("dfn", k.dfn)));
+                save();
+            }
+        } catch (Exception ignored) { }
+        return pk;
+    }
+
+    /** 랭크 경기 시작 전 영속 저장 — 상대 모습 사본·손잡이·시작 값. v·k 는 카드에서 대진을 정한 그 값(허브에 넣은 손잡이와 같아야
+     *  정산의 «난도 확인»을 통과한다 — 자정을 넘겨도 같게 다시 계산하지 않는다). 열린 경기가 있거나 저장 실패면 null */
+    static synchronized JSONObject newRankedMatch(android.content.Context c, OppView v, RankCore.Knobs k, int stage, int rematchN) {
+        try {
+            RankCore.Player p = v != null ? v.p : null;
+            if (openMatch() != null || p == null || k == null || !oppSupported(p.ch, p.sty)) return null;
+            RankCore.Me me = rankMe();
+            JSONObject pf = pfOf(c, p);
+            JSONObject m = new JSONObject();
+            m.put("id", java.util.UUID.randomUUID().toString());
+            m.put("mode", "ranked");
+            m.put("opp", p.id);
+            m.put("created", System.currentTimeMillis());
+            m.put("status", "ready");
+            m.put("game", "ss2"); m.put("side", "P1");
+            JSONObject rule = new JSONObject();
+            rule.put("char", p.ch); rule.put("style", p.sty); rule.put("diff", k.diff);
+            rule.put("points", POINTS); rule.put("time", TIME); rule.put("cards", "all");
+            rule.put("cpu", new JSONObject().put("lv", k.lv).put("cap", k.cap).put("floor", k.floor).put("atk", k.atk).put("dfn", k.dfn));
+            m.put("rule", rule);
+            m.put("start", new JSONObject().put("mmr", Math.round(me.mmr * 10) / 10.0).put("lp", me.lp).put("mr", me.mr).put("master", me.master)
+                    .put("opp_mmr", Math.round(v.mmr * 10) / 10.0).put("opp_lp", v.lp).put("opp_mr", v.mr)
+                    .put("tier", me.placementLeft > 0 ? "배치" : me.master ? RankCore.TIER[7] : RankCore.label(me.lp)).put("placement_left", me.placementLeft));
+            m.put("opp_snap", new JSONObject().put("nick", pf.optString("nick", p.nick)).put("ch", p.ch).put("sty", p.sty).put("label", v.label)
+                    .put("lp", v.lp).put("mr", v.master ? v.mr : 0).put("title", pf.optString("title")).put("region", ProfileGen.regionLabel(pf))
+                    .put("av", pf.optString("av")).put("persona", p.persona).put("mood", pf.optString("mood")).put("legacy", p.legacy));
+            m.put("rematch_n", rematchN);
+            m.put("look", new JSONObject().put("stage", stage).put("color", 0));
+            JSONObject ps = players();
+            JSONObject pr = ps.optJSONObject(p.id);
+            if (pr == null) { pr = new JSONObject().put("w", 0).put("l", 0).put("d", 0).put("last", 0).put("broke", 0).put("mmr_adj", 0).put("lp_adj", 0); ps.put(p.id, pr); }
+            if (pr.optJSONObject("pf") == null) pr.put("pf", pf);       /* 처음 만난 모습을 글자 그대로 */
+            pr.put("at", System.currentTimeMillis());
+            trimPlayers(ps);
+            JSONArray rm = rmatches();
+            rm.put(m);
+            if (!save()) { rm.remove(rm.length() - 1); return null; }
+            return m;
+        } catch (Exception e) { return null; }
+    }
+    /** players 칸이 너무 커지지 않게 — 300명 넘으면 오래 안 만난(at) 사람부터(전적은 경기 기록에 남는다). 잡힌 상대·라이벌은 남긴다 */
+    private static void trimPlayers(JSONObject ps) {
+        if (ps.length() <= 300) return;
+        JSONObject pd = ranked().optJSONObject("pending");
+        String keep = pd != null ? pd.optString("id") : "";
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        java.util.Iterator<String> it = ps.keys();
+        while (it.hasNext()) { String id = it.next(); if (id.startsWith("p") && !id.equals(keep)) ids.add(id); }
+        ids.sort((a, b) -> Long.compare(ps.optJSONObject(a).optLong("at"), ps.optJSONObject(b).optLong("at")));
+        for (int i = 0; i < ids.size() && ps.length() > 300; i++) ps.remove(ids.get(i));
+    }
+
+    static boolean isRanked(JSONObject m) { return m != null && "ranked".equals(m.optString("mode")); }
+
+    /** 같은 상대와 이어 붙은 판 수(마지막부터 — 정산·기권만, 무효·보류는 건너뛴다) */
+    static synchronized int rematchCount(String oppId) {
+        JSONArray a = rmatches(); int n = 0;
+        for (int i = a.length() - 1; i >= 0; i--) {
+            JSONObject m = a.optJSONObject(i); String s = m.optString("status");
+            if (!isRanked(m)) continue;
+            if ("cancelled".equals(s) || "hold".equals(s)) continue;
+            if (!oppId.equals(m.optString("opp"))) break;
+            if ("settled".equals(s) || "forfeit".equals(s)) n++;
+        }
+        return n;
+    }
+
+    /** 결과를 MMR·LP·전적·최근 상대에 넣는다(메모리만 — 저장은 호출자). 시작 때 적은 상대 MMR·MR 로 */
+    private static void applyRanked(JSONObject m, String out, boolean forfeit) throws Exception {
+        JSONObject r = ranked();
+        RankCore.Me me = meOf(r);
+        JSONObject st = m.optJSONObject("start");
+        String oid = m.optString("opp");
+        JSONObject ps = players();
+        JSONObject pr = ps.optJSONObject(oid);
+        if (pr == null) { pr = new JSONObject().put("w", 0).put("l", 0).put("d", 0).put("last", 0).put("broke", 0).put("mmr_adj", 0).put("lp_adj", 0); ps.put(oid, pr); }
+        boolean revenge = m.optInt("rematch_n") > 0 && pr.optInt("last") == -1;
+        int streak0 = me.streak;
+        int omr = st.optInt("opp_mr");
+        if (omr <= 0) omr = (int) Math.round(1500 + (st.optDouble("opp_mmr", me.mmr) - 1600) * 1.5);   /* 상대 MR 이 안 적힌 경기 — Player.mr 과 같은 식 */
+        RankCore.Outcome o = RankCore.settle(me, out.charAt(0), st.optDouble("opp_mmr", me.mmr), omr, revenge, today());
+        if ("W".equals(out)) { pr.put("w", pr.optInt("w") + 1); pr.put("last", 1); pr.put("broke", 0); }
+        else if ("L".equals(out)) { pr.put("l", pr.optInt("l") + 1); pr.put("last", -1); if (streak0 >= 2) { pr.put("broke", streak0); m.put("broke_streak", streak0); } }
+        else { pr.put("d", pr.optInt("d") + 1); pr.put("last", 0); }
+        pr.put("mmr_adj", Math.max(-150, Math.min(150, pr.optDouble("mmr_adj") + o.oppMmrDelta)));
+        pr.put("lp_adj", Math.max(-600, Math.min(600, pr.optInt("lp_adj") + o.oppLpDelta)));
+        pr.put("at", System.currentTimeMillis());
+        me.recent.remove(oid); me.recent.add(0, oid);
+        JSONObject pd = r.optJSONObject("pending");
+        if (pd != null && oid.equals(pd.optString("id"))) r.remove("pending");
+        putMe(r, me);
+        m.put("outcome", out);
+        if (forfeit) m.put("forfeit", true);
+        m.put("lp_before", o.lpBefore); m.put("lp_after", o.lpAfter); m.put("lp_delta", o.lpDelta);
+        m.put("mmr_delta", Math.round((o.mmrAfter - o.mmrBefore) * 10) / 10.0);
+        m.put("mr_before", o.mrBefore); m.put("mr_after", o.mrAfter);
+        m.put("tier_before", st.optString("tier"));
+        m.put("tier_after", me.placementLeft > 0 ? "배치" : me.master ? RankCore.TIER[7] : RankCore.label(me.lp));
+        if (o.event != null) m.put("event", o.event);
+        m.put("bonus", new JSONObject().put("streak", o.bonusStreak).put("revenge", o.bonusRevenge).put("daily", o.bonusDaily));
+        m.put("placement_left", me.placementLeft);
+        m.put("after", new JSONObject().put("streak", me.streak).put("best", me.best)
+                .put("h2h_w", pr.optInt("w")).put("h2h_l", pr.optInt("l")).put("h2h_d", pr.optInt("d")));
+    }
+
+    /** 랭크 경기 정산의 확인(대진·규칙은 settle 이 본다) — CPU 손잡이가 실제로 먹었나: 첫 라운드 단계·배율, 결판 때 상한 */
+    private static String rankedKnobWhy(JSONObject rule, int[] st) {
+        JSONObject k = rule.optJSONObject("cpu");
+        if (k == null || st.length <= 20) return null;
+        if (st[18] != k.optInt("lv") || st[19] != k.optInt("atk") || st[20] != k.optInt("dfn") || (st.length > 21 && st[21] != k.optInt("cap")))
+            return String.format("난도 불일치: CPU 단계 %d·상한 %d·배율 %04X/%04X (요청 %d·%d·%04X/%04X)", st[18], st.length > 21 ? st[21] : -1, st[19], st[20],
+                    k.optInt("lv"), k.optInt("cap"), k.optInt("atk"), k.optInt("dfn"));
+        return null;
+    }
+
+    /** 최근 랭크 경기(정산·기권, 새것부터) */
+    static java.util.List<JSONObject> rankedHistory(int max) {
+        java.util.List<JSONObject> out = new java.util.ArrayList<>();
+        JSONArray a = rmatches();
+        for (int i = a.length() - 1; i >= 0 && out.size() < max; i--) {
+            JSONObject m = a.optJSONObject(i); String s = m.optString("status");
+            if (isRanked(m) && ("settled".equals(s) || "forfeit".equals(s))) out.add(m);
+        }
+        return out;
+    }
+    private static String signed(int v) { return v > 0 ? "+" + v : v < 0 ? "-" + (-v) : "±0"; }   /* RankUi.signed 와 같게(여기선 화면 클래스를 안 부른다) */
+    /** 랭크 결과 줄 — «승 2:1 · +95 LP» */
+    static String rankedResultLine(JSONObject m) {
+        JSONObject r = m.optJSONObject("result");
+        String sc = (r != null && !m.optBoolean("forfeit")) ? " " + r.optInt("w1") + ":" + r.optInt("w2") : "";
+        int d = m.optInt("lp_delta");
+        String lp;
+        if (m.optInt("placement_left", 0) > 0 || "배치".equals(m.optString("tier_before"))) lp = "배치";
+        else if (RankCore.TIER[7].equals(m.optString("tier_before"))) lp = signed(m.optInt("mr_after") - m.optInt("mr_before")) + " MR";   /* 무쌍은 LP 가 9000 그대로 — MR 로 */
+        else lp = signed(d) + " LP";
+        return outcomeKo(m) + sc + " · " + lp;
+    }
+    /** 내 랭크 한 줄 — «검객 ★3 · 2410 LP» / «배치 2/5» / «무쌍 MR 1712» */
+    static String myRankLabel(RankCore.Me me) {
+        if (me.placementLeft > 0) return "배치 경기 " + (5 - me.placementLeft) + "/5";
+        if (me.master) return RankCore.TIER[7] + " MR " + me.mr;
+        return RankCore.label(me.lp) + " · " + me.lp + " LP";
+    }
+    static long myKey(RankCore.Me me) { return RankCore.key(me.lp, me.master, me.mr); }
+    /** 경기의 상대 한 줄 — «달빛검객77 (나코루루 · 수라)». 랭크 경기는 경기에 적힌 모습 사본으로, 예전 경기는 명단으로 */
+    static String oppLabel(JSONObject m) {
+        if (m == null) return "?";
+        if (isRanked(m)) {
+            JSONObject s = m.optJSONObject("opp_snap"); JSONObject r = m.optJSONObject("rule");
+            if (s == null || r == null) return "?";
+            return s.optString("nick") + " (" + CHAR[r.optInt("char")] + " · " + STYLE[r.optInt("style") & 1] + ")";
+        }
+        JSONObject o = oppById(m.optString("opp"));
+        return o != null ? o.optString("nick") + " (" + CHAR[o.optInt("char")] + " · " + STYLE[o.optInt("style")] + ")" : "?";
+    }
+    static String oppNick(JSONObject m) {
+        if (m == null) return "?";
+        if (isRanked(m)) { JSONObject s = m.optJSONObject("opp_snap"); return s != null ? s.optString("nick", "?") : "?"; }
+        JSONObject o = oppById(m.optString("opp"));
+        return o != null ? o.optString("nick") : "?";
     }
 }

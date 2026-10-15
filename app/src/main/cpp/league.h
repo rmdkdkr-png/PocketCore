@@ -11,7 +11,7 @@ void league_tick_hub(uint8_t *ram, size_t n, int input);
 void league_vram(void *chr, void *scr, void *pal);
 /* 코어의 retro_ngp_palremap(없으면 NULL) — 컬러를 게임이 팔레트를 쓰는 순간 바꿔 넣어 깜빡임 없이(look_palremap_fn 에 넘김) */
 void league_palremap_fn(void *fn);
-#define LEAGUE_NHUB 12
+#define LEAGUE_NHUB 15
 void league_hub(int on, const signed char *sty, const signed char *dif);
 void league_hub_return(int rematch);
 void league_hub_cancel(void);
@@ -25,6 +25,13 @@ void league_hub_dual_status(int v[LEAGUE_NDUAL]);
 void league_hub_handoff_clear(void);
 /* 갈아탄 리그 판 — 로고·메뉴를 넘겨 바로 상대 선택까지 */
 void league_hub_go(void);
+/* 랭크 매치(끝없는 매칭) — 셋째 줄 A = 상대 찾기(H_SEARCH 6), 정해진 상대로 «상대 선택» 없이 내 캐릭터 고르기 */
+void league_hub_ranked(int on);
+void league_hub_search(int on);
+int  league_hub_match(int ch, int sty, int diff, int stage, int lv, int cap, int atk, int dfn, int floor, int go);
+int  league_hub_take_ev(void);
+/* 다음 league_arm 의 CPU 손잡이(시작 단계 0x5814 · 상한 0x5815 · 공격 배율 0x57E2 · 받는 피해 배율 0x57E4 · 경기 중 실시간 단계 바닥 0x5CF5, −1 그대로) — 한 번 쓰면 비움 */
+void league_cpu(int lv, int cap, int atk, int dfn, int floor);
 /* 허브가 게임 대신 받는 입력 비트 — 입력 콜백은 사용자 입력에서 이 비트를 지운다 */
 extern volatile int league_in_block;
 /* 사용자 입력에 더할 비트(연습 대전: 이야기·대사 넘기기 A) — 입력 콜백 = (입력 & ~막는 비트) | 더할 비트 */
@@ -45,7 +52,7 @@ void league_hub_before_save(void);
 size_t league_practice_blob(void *buf, size_t cap);
 void league_practice_resume(const void *buf, size_t n);
 
-#define LEAGUE_NSTAT 21
+#define LEAGUE_NSTAT 22
 #define LEAGUE_CARDS_OFF 1   /* 사용자 카드 없음(0xFF) */
 #define LEAGUE_ALLCARDS  2   /* 올카드 해금(소유 개수 8) */
 #define LEAGUE_AUTONAV   4   /* 새로 켠 판 — 1인 대전 캐릭터 고르기까지 메뉴 자동 진입 */

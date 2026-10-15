@@ -64,6 +64,13 @@ public final class Emu {
     public static native void nativeLeagueLook(int stage, int color);
     /** [상태 0 꺼짐·1 타이틀·2 상대 고르기·3 내 캐릭터·4 경기·5 타이틀로, 커서 캐릭터(−1 무작위), 고른 상대 캐릭터, 프레임, 메뉴 글자, 머리말 글자, 재대결, 대신 누르기] */
     public static native int[] nativeLeagueHubStatus();
+    /* 랭크 매치(끝없는 매칭, league.c) — 켬/끔 · 찾기 켬(타이틀)/취소 · 정해진 상대(캐릭터·검질·옵션 난도·배경·CPU 손잡이 5개, go = 찾는 중이면 바로 내 캐릭터 고르기로)
+       · 찾는 동안 모은 누름(1 A · 2 B · 4 OPTION · 8 ← · 16 → · 32 ↑ · 64 ↓, 가져가며 비움) · 다음 무장 한 번의 손잡이(체크포인트 이어 하기) */
+    public static native void nativeHubRanked(boolean on);
+    public static native void nativeHubSearch(boolean on);
+    public static native boolean nativeHubMatch(int ch, int sty, int diff, int stage, int lv, int cap, int atk, int dfn, int floor, boolean go);
+    public static native int nativeHubTakeEv();
+    public static native void nativeLeagueCpu(int lv, int cap, int atk, int dfn, int floor);
     /** 결판 뒤: 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
     public static native void  nativeLeagueHubReturn(int rematch);
 
