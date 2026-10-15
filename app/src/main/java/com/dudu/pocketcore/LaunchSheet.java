@@ -662,8 +662,8 @@ public final class LaunchSheet {
      *  창을 띄웠으면 true(값은 창이 정한다). 치트 줄이면 «바뀜» 표시도 여기서 */
     private boolean guardCheat(final int i, final int k) {
         if (!cheatView) return false;
-        cheatsChanged = true;
         final Opt o = opts.get(i);
+        if (k != o.idx()) cheatsChanged = true;                     /* 같은 값을 다시 누른 건 바뀜이 아니다(«치트 적용» 알림 없이) */
         if (!Cheats.CARDS_KEY.equals(o.key) || !Cheats.CARDS_SAVE.equals(o.vals[k]) || Cheats.CARDS_SAVE.equals(o.cur)) return false;
         final int prev = o.idx();
         final File rom = inGame ? cheatRom : romFile;

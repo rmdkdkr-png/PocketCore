@@ -573,7 +573,7 @@ public class EmuActivity extends Activity {
                     new Runnable() { @Override public void run() {
                         startActivity(new Intent(EmuActivity.this, SettingsActivity.class).putExtra("rom", orig)); } });
             sheet.cheatRom = new File(orig);                   /* 치트 «세이브에 남기기» — 세이브 보관 이름 */
-            if (game != null && Cheats.GAME.equals(game.id) && !cheatOk) sheet.cheatOff = "이 롬 판에선 치트가 안 켜져요";
+            if (game != null && Cheats.GAME.equals(game.id) && !cheatOk) sheet.cheatOff = ranked() ? "리그 대전에선 치트가 꺼져요" : "이 롬 판에선 치트가 안 켜져요";
             sheet.onClose = new Runnable() { @Override public void run() {
                 Emu.nativeSetPaused(pad.isBarOpen());          /* 메뉴가 아직 열려 있으면 계속 멈춤 */
                 applyDisplay(); pushCoreOpts();
@@ -1858,10 +1858,10 @@ public class EmuActivity extends Activity {
             int[] v = Emu.nativeCheatStatus();
             if (v != null && v.length >= 16) {
                 showCheatTag(v[1] == 0 || v[0] != 0 ? null : v[7] == 3 && cheatFight ? "치트 · 연습 중엔 경기 치트 쉼" : "치트");
-                if (v[12] > 120) {                                       /* 부팅 때 읽은 값은 «원래 들어가 있던 것» — 그 뒤 이 세션에서 0→1 이 된 순간만 */
-                    if (cheatPermPrev == 0 && v[5] == 1 && v[15] == 1) toast("올카드가 세이브에 들어갔어요");
-                    cheatPermPrev = v[5];
-                }
+                /* [5]: 게임이 세이브를 다시 읽은 값이 모두 8(1)·아님(0)·아직 모름(−1 — 올린 뒤·불러온 뒤 첫 다시 읽기 전). «모름 → 1» 은 원래 들어가 있던 것 —
+                   이 세션에서 «0 → 1» 이 된 순간만 알린다(이어하기로 연 판에서 처음 모드를 고를 때 잘못 알리지 않게) */
+                if (v[5] < 0) cheatPermPrev = -1;
+                else { if (cheatPermPrev == 0 && v[5] == 1 && v[15] == 1) toast("올카드가 세이브에 들어갔어요"); cheatPermPrev = v[5]; }
             }
         }
         h.postDelayed(this, 1000);

@@ -1101,6 +1101,7 @@ JNI(jint, nativeSaveState)(JNIEnv *env, jclass cls, jstring jpath)
    size_t sz = c_serialize_size();
    void *buf = sz ? malloc(sz) : NULL;
    int ok = buf && c_serialize(buf, sz);
+   if (c_get_memory_data) cheat_after_save((uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM));   /* before_save 가 돌려 둔 치트 값을 되씀 */
    uint8_t side[PRAC_SIDE_MAX];          /* 연습 경기 중이면 허브·설정 — 같은 잠금 안에서(상태와 한 순간) */
    size_t sn = ok ? prac_side_make(side, buf, sz) : 0;
    CORE_UNLOCK();

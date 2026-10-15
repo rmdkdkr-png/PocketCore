@@ -64,7 +64,7 @@ static struct {
    int win; uint8_t snap[120];       /* 올카드(이번만) 창 안 · 들어올 때 보관한 소유 개수 */
    int perm_on, perm_ok;             /* 세이브에 남기기로 8 을 쓰는 중 · perm_snap 이 지금 램에 맞는 값인가 */
    uint8_t perm_snap[120];           /* 그 전 값(게임이 마지막에 세이브에서 읽은 값) — 세이브에 남기기를 끄면 되돌린다 */
-   int perm_saved;                   /* 모드 고를 때 다시 읽은 값이 모두 8 이었다 */
+   int perm_saved;                   /* 모드 고를 때 다시 읽은 값이 모두 8 이었다(1) · 아니었다(0) · 아직 모름(−1 — 올린 뒤·불러온 뒤 첫 다시 읽기 전) */
    int prev_prog, prev_sub, hover;
    int yuga_pick;                    /* 이번 고르기에서 가운데 칸을 확정 */
    int prev_hp[2], hp_fixes, last_ko;
@@ -74,8 +74,9 @@ static struct {
    int atk_base, atk_last;           /* P1 공격 배율 기준(게임이 정한 값) · 마지막으로 쓴 값(−1 없음) */
    int diff_prev;
    int used, why;
+   int sv_atk, sv_cpu, sv_nextt;     /* 상태 저장 동안 원래 값으로 돌려 둔 경기 치트 값(−1 없음) — 저장 뒤 cheat_after_save 가 되쓴다 */
    unsigned f;
-} S = { .atk_last = -1 };
+} S = { .atk_last = -1, .perm_saved = -1, .sv_atk = -1, .sv_cpu = -1, .sv_nextt = -1 };
 
 static int rd16(const uint8_t *r, int o) { return r[o] | (r[o + 1] << 8); }
 static void wr16(uint8_t *r, int o, int v) { r[o] = (uint8_t)v; r[o + 1] = (uint8_t)(v >> 8); }
@@ -268,7 +269,7 @@ void cheat_set(int key, int value)
 void cheat_reset_all(void)
 {
    pthread_mutex_lock(&C_mu);
-   memset(CV, 0, sizeof CV); memset(&S, 0, sizeof S); S.atk_last = -1; locked = 0;
+   memset(CV, 0, sizeof CV); memset(&S, 0, sizeof S); S.atk_last = -1; S.perm_saved = -1; S.sv_atk = S.sv_cpu = S.sv_nextt = -1; locked = 0;
    pthread_mutex_unlock(&C_mu);
 }
 
@@ -285,6 +286,7 @@ void cheat_forget(void)
    pthread_mutex_lock(&C_mu);
    S.win = 0; S.perm_ok = 0; S.yuga_pick = 0; S.cpu_off = 0; S.time_on = 0; S.atk_last = -1; S.max_keep[0] = S.max_keep[1] = 0;
    S.prev_hp[0] = S.prev_hp[1] = 128; S.prev_prog = -1;
+   S.perm_saved = -1;                /* 상태 파일은 플래시 내용도 싣고 온다 — 다음 다시 읽기까지 «모름» */
    pthread_mutex_unlock(&C_mu);
 }
 
@@ -292,6 +294,28 @@ void cheat_before_save(uint8_t *ram)
 {
    pthread_mutex_lock(&C_mu);
    if (S.win && ram) { memcpy(ram + R_OWN, S.snap, 120); S.win = 0; }   /* 다음 프레임에 창이면 다시 보관·쓰기 */
+   /* 경기 치트로 바꿔 둔 값 중 상태에 실려 다니며 게임이 그 판 안에 다시 안 쓰는 것 — 공격 배율·상대 CPU 비트·다음 라운드 시간 — 도 저장 동안만 원래 값으로.
+      안 그러면 그 상태를 불러올 때 곱한 배율이 새 기준이 돼 또 곱해지고(2배 → 4배), 치트를 끈 뒤 불러와도 상대가 가만히·시간 ∞ 로 남는다.
+      저장 뒤 cheat_after_save 가 되쓴다(그 사이 에뮬레이션이 없어 한 프레임도 원래 값으로 안 돈다) */
+   S.sv_atk = S.sv_cpu = S.sv_nextt = -1;
+   if (ram) {
+      if (S.atk_last >= 0 && rd16(ram, R_P1ATK) == S.atk_last) { S.sv_atk = S.atk_last; wr16(ram, R_P1ATK, S.atk_base); }
+      if (S.cpu_off) { S.sv_cpu = ram[PB(1) + O_CPU]; ram[PB(1) + O_CPU] |= 1; }
+      int prog = ram[R_PROG];
+      if (S.time_on && (prog == 0x06 || prog == 0x0C)) { S.sv_nextt = ram[R_NEXTT]; ram[R_NEXTT] = prog == 0x0C ? 0x80 : ram[R_OPTT]; }
+   }
+   pthread_mutex_unlock(&C_mu);
+}
+
+void cheat_after_save(uint8_t *ram)
+{
+   pthread_mutex_lock(&C_mu);
+   if (ram) {
+      if (S.sv_atk >= 0) wr16(ram, R_P1ATK, S.sv_atk);
+      if (S.sv_cpu >= 0) ram[PB(1) + O_CPU] = (uint8_t)S.sv_cpu;
+      if (S.sv_nextt >= 0) ram[R_NEXTT] = (uint8_t)S.sv_nextt;
+   }
+   S.sv_atk = S.sv_cpu = S.sv_nextt = -1;
    pthread_mutex_unlock(&C_mu);
 }
 
