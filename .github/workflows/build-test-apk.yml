@@ -195,7 +195,8 @@ jobs:
             --title "CI — 사무쇼2 코어 ($CORE_COMMIT + 앱 방 패치)" --notes "$(cat out/SOURCE.txt)"
 
   # SVC 코어(사무쇼2 말고 모든 게임) — ss2-sp-core 의 SP 4.06 소스(1c66151, src 덮어쓰기까지 코어 방 빌드와 같게) + 앱 방 패치
-  # (tools/core_svc_patches — 내부 150 코어 보간 ngpfg). 결과 .so 는 태그 ci-core-svc — 세션이 받아 jniLibs·코어 색인에 넣는다.
+  # (tools/core_svc_patches — 151: 흑백 창 고침만. 150 의 코어 보간 ngpfg 는 유저 「ss2만 되는걸로 해」로 뺐다 — 패치는 4064ee5·152f76a 에).
+  # 결과 .so 는 태그 ci-core-svc — 세션이 받아 jniLibs 에 넣는다.
   core-svc:
     runs-on: ubuntu-latest
     env:
