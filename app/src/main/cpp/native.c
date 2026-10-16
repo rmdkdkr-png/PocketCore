@@ -77,6 +77,12 @@ static unsigned  g_fg_cap = 0;
 static unsigned  g_prev_w = 0, g_prev_h = 0;
 static int       g_fg_mode = FG_OFF;     /* Java 가 설정에서 넣는다 */
 static int       g_mid_ready = 0, g_mid_dirty = 0;
+/* «박자» 모드(fg_cadence.c, 내부 149) — 실제 프레임 셋을 보고 그린 두 칸을 S배(4 = ¼px, 업스케일러면 1)로.
+   [1] = n½ 칸(120Hz 에서만, 새 프레임이 나온 vsync 에), [0] = G(n+1)(다음 vsync 에 — 60Hz 화면이면 바로) */
+static uint8_t  *g_cad[2] = { NULL, NULL };
+static unsigned  g_cad_cap = 0, g_cad_w = 0, g_cad_h = 0;
+static int       g_cad_S = 4, g_cad_have = 0, g_cad_pend = 0, g_cad_cur = 0, g_cad_dirty = 0;
+static volatile int g_cad_gen = 0;       /* 내리기·상태 불러오기마다 +1 — 고리 비우라는 표시 */
 static double    g_vsync_ema = 0.0;      /* 실측 vsync 간격(초) — 120Hz 인지는 이걸로 판단 */
 static double    g_last_vsync = 0.0;
 static float     g_panel_hz_hint = 0.f;  /* Java 가 알려 준 Display.getRefreshRate() — 실측 전 대용 */
@@ -100,8 +106,9 @@ static volatile int32_t g_input = 0;   /* bitmask of RETRO_DEVICE_ID_* */
 static int g_loaded = 0;
 
 /* GL */
-static GLuint g_prog = 0, g_tex = 0, g_tex_mid = 0;
+static GLuint g_prog = 0, g_tex = 0, g_tex_mid = 0, g_tex_cad = 0;
 static unsigned g_tex_w = 0, g_tex_h = 0;   /* g_tex 에 지금 잡힌 크기 — 같으면 glTexSubImage2D 로 덮기만 */
+static unsigned g_tex_cad_w = 0, g_tex_cad_h = 0;
 static GLint  a_pos, a_uv, u_tex;
 static int    g_vw = 1, g_vh = 1;
 static int    g_integer_scale = 1;
@@ -560,6 +567,14 @@ static void gl_setup(void)
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glGenTextures(1, &g_tex_cad);
+   g_tex_cad_w = g_tex_cad_h = 0;
+   glBindTexture(GL_TEXTURE_2D, g_tex_cad);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   g_cad_dirty = g_cad_have;
    glGenTextures(1, &g_tex_gh);
    glBindTexture(GL_TEXTURE_2D, g_tex_gh);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -573,9 +588,14 @@ static void gl_setup(void)
    glClearColor(0.f, 0.f, 0.f, 1.f);
 }
 
-static void gl_draw(int show_mid)
+/* show: 0 = 코어 그림(g_fb) · 1 = 중간 그림(g_mid) · 2 = «박자» 칸(g_cad[g_cad_cur], g_cad_S 배) */
+static void gl_draw(int show)
 {
+   int show_mid = show == 1;
    if (!g_fb || !g_fb_w) return;
+   if (show == 2 && (!g_cad_have || !g_cad[g_cad_cur])) show = 0;
+   const uint8_t *img = show == 2 ? g_cad[g_cad_cur] : show_mid ? g_mid : g_fb;
+   unsigned iw = show == 2 ? g_cad_w : g_fb_w, ih = show == 2 ? g_cad_h : g_fb_h;
 
    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
    glBindTexture(GL_TEXTURE_2D, g_tex);
@@ -595,14 +615,25 @@ static void gl_draw(int show_mid)
                    GL_RGBA, GL_UNSIGNED_BYTE, g_mid);
       g_mid_dirty = 0;
    }
+   if (show == 2 && g_cad_dirty) {
+      glBindTexture(GL_TEXTURE_2D, g_tex_cad);
+      if (g_tex_cad_w != iw || g_tex_cad_h != ih) {
+         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, img);
+         g_tex_cad_w = iw; g_tex_cad_h = ih;
+      } else
+         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, iw, ih, GL_RGBA, GL_UNSIGNED_BYTE, img);
+      g_cad_dirty = 0;
+   }
 
    /* aspect-correct, integer-scaled viewport.
       기둥(사이드 아트) 프레임은 288폭이지만 **게임 몫은 160** — 크기는 게임 160폭으로 정하고 기둥은
       남는 옆자리에만 그린다(넘치면 잘린다). 288 전체를 화면 폭에 맞추면 게임이 반토막 나고 아래가
       텅 빈다는 제보(유저: 「양쪽에 붙이면 될 걸 표시영역을 아래로 늘리지 마라」). */
    /* 서기 그리기(코어 패치 95)를 켜면 코어가 4배(640×608)로 내보낸다 — 화면 상자·정수배·필터는 «게임 칸»(160×152) 기준 */
-   int sub = (g_fb_w >= 320 && g_fb_w % 160 == 0 && g_fb_h == 152u * (g_fb_w / 160)) ? (int)(g_fb_w / 160) : 1;
-   int lw = (int)g_fb_w / sub, lh = (int)g_fb_h / sub;
+   /* «박자» 칸은 S배로 그린 것 — 기둥(288폭)도 288·S 라 160 의 배수 판정 대신 S 를 그대로 */
+   int sub = show == 2 ? g_cad_S
+           : (g_fb_w >= 320 && g_fb_w % 160 == 0 && g_fb_h == 152u * (g_fb_w / 160)) ? (int)(g_fb_w / 160) : 1;
+   int lw = (int)iw / sub, lh = (int)ih / sub;
    float ar = g_av.geometry.aspect_ratio > 0.f
             ? g_av.geometry.aspect_ratio : (float)lw / (float)lh;
    int game_w = (lw > 160 && lw <= 320) ? 160 : lw;   /* NGP 게임 화면은 늘 160 */
@@ -622,18 +653,18 @@ static void gl_draw(int show_mid)
       int y0 = g_vh - dh - (int)(g_vh * 0.07f);
       if (g_vw > g_vh) y0 = (g_vh - dh) / 2;   /* 가로 화면(게임기)에선 세로 가운데 */
       if (y0 < 0) y0 = 0;
-      { static int ldw=-1, ldh=-1, lvw=-1; if (dw!=ldw||dh!=ldh||g_vw!=lvw) { LOGI("viewport %d x %d in %d x %d (fb %u x %u, game_w %d, int %d)", dw, dh, g_vw, g_vh, g_fb_w, g_fb_h, game_w, g_integer_scale); ldw=dw; ldh=dh; lvw=g_vw; } }
+      { static int ldw=-1, ldh=-1, lvw=-1; if (dw!=ldw||dh!=ldh||g_vw!=lvw) { LOGI("viewport %d x %d in %d x %d (img %u x %u, sub %d, game_w %d, int %d)", dw, dh, g_vw, g_vh, iw, ih, sub, game_w, g_integer_scale); ldw=dw; ldh=dh; lvw=g_vw; } }
       glViewport((g_vw - dw) / 2, y0, dw, dh);
    }
 
    static const GLfloat pos[] = { -1,-1,  1,-1, -1, 1,  1, 1 };
    static const GLfloat uv[]  = {  0, 1,  1, 1,  0, 0,  1, 0 };
 
-   GLuint tex = show_mid ? g_tex_mid : g_tex;
+   GLuint tex = show == 2 ? g_tex_cad : show_mid ? g_tex_mid : g_tex;
    if (g_d_ghost > 0) {           /* 잔상 — 화면에 낼 그림(중간 그림 포함)을 누적해 따로 올린다 */
-      const uint8_t *gs = ghost_apply(show_mid ? g_mid : g_fb, g_fb_w, g_fb_h);
+      const uint8_t *gs = ghost_apply(img, iw, ih);
       glBindTexture(GL_TEXTURE_2D, g_tex_gh);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_fb_w, g_fb_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, gs);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, gs);
       tex = g_tex_gh;
    } else g_gh_valid = 0;
 
@@ -858,6 +889,7 @@ static void unload_locked(void)
    g_lib = NULL;
    g_loaded = 0;
    g_mid_ready = 0; g_mid_dirty = 0; g_prev_w = g_prev_h = 0;
+   g_cad_gen++;                          /* «박자» 고리는 GL 스레드가 다음 vsync 에 비운다(다른 스레드에서 만지지 않게) */
 }
 
 JNI(void, nativeUnload)(JNIEnv *env, jclass cls)
@@ -909,10 +941,18 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
    g_last_vsync = t;
    /* 프레임 생성은 화면이 게임보다 «충분히» 빠를 때만 — 60Hz 화면에선 끼울 빈 vsync 가 없다.
       배속 중에도 끈다(한 vsync 에 여러 프레임이 돈다). */
-   int fg_on = g_fg_mode != FG_OFF && !g_turbo && g_loaded
+   int fg_on = g_fg_mode != FG_OFF && g_fg_mode != FG_CADENCE && !g_turbo && g_loaded
             && g_vsync_ema > 0.0 && g_vsync_ema < dt * 0.70
             && g_fb_w <= 320;                       /* 4배 그림(서기 그리기)엔 앱 보간을 안 돌린다 — 16배 일 */
-   if (g_paused) { g_next_t = t; maxsteps = 0; fg_on = 0; }   /* 멈춤 — 풀리면 시계를 지금부터 다시 */
+   /* «박자» — 60Hz 화면에서도 돈다(1단계: 실제 프레임 칸을 60 박자로). 120Hz 면 사이 칸까지(2단계).
+      코어가 이미 4배·120 으로 내보내면(사무쇼2) 폭이 320 을 넘거나 코어 fps 가 화면만큼 빨라 저절로 비켜선다. */
+   int hi = g_vsync_ema > 0.0 && g_vsync_ema < dt * 0.70;
+   int cad = g_fg_mode == FG_CADENCE && !g_turbo && g_loaded && g_fb && g_fb_w && g_fb_w <= 320 && dt > 0.012;
+   if (g_paused) { g_next_t = t; maxsteps = 0; fg_on = 0; cad = 0; }   /* 멈춤 — 풀리면 시계를 지금부터 다시 */
+   { static int last_mode = -1, last_gen = -1;              /* 모드가 바뀌었거나 게임·상태가 바뀌면 고리를 비운다(GL 스레드에서만) */
+     if (g_fg_mode != last_mode || g_cad_gen != last_gen) { last_mode = g_fg_mode; last_gen = g_cad_gen; fg_cad_reset(); g_cad_have = 0; g_cad_pend = 0; } }
+   if (!cad && (g_cad_have || fg_cad_ready())) { fg_cad_reset(); g_cad_have = 0; g_cad_pend = 0; }
+   int cad_new = 0;
    while (g_next_t <= t && steps < maxsteps) {
       CORE_LOCK();                       /* retro_run 한 번 단위 — 그 사이에 UI 스레드의 저장이 끼어들 수 있게 */
       if (g_loaded) {
@@ -952,6 +992,8 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
          }
       }
       CORE_UNLOCK();
+      /* «박자» — 진짜 프레임마다 고리에 넣는다(한 vsync 에 둘 돌면 둘 다) */
+      if (cad && g_loaded && g_fb && g_fb_w) { if (fg_cad_push(g_fb, (int)g_fb_w, (int)g_fb_h)) cad_new = 1; }
       g_next_t += dt; steps++;
    }
    /* 이번 vsync 에 새 프레임이 나왔으면 «중간 그림»을 먼저 보여 주고, 다음 vsync 에 새 프레임.
@@ -961,8 +1003,26 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
       fg_build(g_prev, g_fb, g_mid, (int)g_fb_w, (int)g_fb_h, g_fg_mode);
       g_mid_ready = 1; g_mid_dirty = 1; show_mid = 1;
    }
+   /* «박자»: 새 프레임 F(n+2) 가 들어온 vsync 엔 n½ 칸(120Hz) — G(n+1) 은 다음 vsync. 60Hz 화면이면 G(n+1) 을 바로.
+      그 사이 vsync(144Hz 등 남는 칸)엔 마지막 칸을 그대로. 고리가 차기 전(처음 두 프레임)엔 코어 그림. */
+   if (cad && cad_new) {
+      int S = (g_d_up > 0 && g_d_mix > 0) ? 1 : 4;          /* 업스케일러는 도트 한 칸 = 텍셀 한 칸이어야 — 1배로 */
+      unsigned need = g_fb_w * S * g_fb_h * S * 4;
+      if (need > g_cad_cap) {
+         free(g_cad[0]); free(g_cad[1]);
+         g_cad[0] = (uint8_t *)malloc(need); g_cad[1] = (uint8_t *)malloc(need);
+         g_cad_cap = (g_cad[0] && g_cad[1]) ? need : 0;
+      }
+      if (g_cad_cap >= need) {
+         g_cad_S = S; g_cad_w = g_fb_w * S; g_cad_h = g_fb_h * S;
+         fg_cad_render(0, g_cad[0], S);
+         if (hi) { fg_cad_render(1, g_cad[1], S); g_cad_cur = 1; g_cad_pend = 1; }
+         else { g_cad_cur = 0; g_cad_pend = 0; }
+         g_cad_have = 1; g_cad_dirty = 1;
+      }
+   } else if (cad && g_cad_have && g_cad_pend) { g_cad_cur = 0; g_cad_pend = 0; g_cad_dirty = 1; }
    glClear(GL_COLOR_BUFFER_BIT);
-   gl_draw(show_mid);
+   gl_draw(cad && g_cad_have ? 2 : show_mid);
 }
 
 JNI(jfloat, nativePanelHz)(JNIEnv *env, jclass cls) { (void)env; (void)cls; return panel_hz(); }
@@ -977,7 +1037,8 @@ JNI(void, nativeSetPanelHz)(JNIEnv *env, jclass cls, jfloat hz)
 JNI(void, nativeSetFrameGen)(JNIEnv *env, jclass cls, jint mode)
 {
    (void)env; (void)cls;
-   g_fg_mode = (mode == FG_BLEND || mode == FG_MOTION) ? mode : FG_OFF;
+   /* UI 스레드에서 온다 — «박자» 고리는 GL 스레드(nativeFrame)만 만진다: 모드가 바뀐 걸 거기서 보고 비운다 */
+   g_fg_mode = (mode == FG_BLEND || mode == FG_MOTION || mode == FG_CADENCE) ? mode : FG_OFF;
    LOGI("framegen mode %d", g_fg_mode);
 }
 
@@ -987,6 +1048,7 @@ JNI(jint, nativeFrameGenActive)(JNIEnv *env, jclass cls)
    (void)env; (void)cls;
    double fps = g_av.timing.fps > 1.0 ? g_av.timing.fps : 60.0;
    if (g_vsync_ema <= 0.0) return -1;                         /* 아직 모름 */
+   if (g_fg_mode == FG_CADENCE) return g_cad_have ? (jint)(1.0 / g_vsync_ema + 0.5) : 0;   /* 박자는 60Hz 화면에서도(1단계) */
    return (g_fg_mode != FG_OFF && g_vsync_ema < (1.0 / fps) * 0.70) ? (jint)(1.0 / g_vsync_ema + 0.5) : 0;
 }
 
@@ -1186,6 +1248,7 @@ JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
       look_forget();                                 /* 컬러: 화면 칸은 잊고, 경기 컬러는 .look 이 맞을 때만(아니면 버림) */
       look_resume(lsn ? lside + 12 : NULL, lsn ? lsn - 12 : 0);
       cheat_forget();                                /* 치트: 램이 통째로 바뀜 — 보관한 카드는 버리고 다음 프레임부터 새로 */
+      g_cad_gen++;                                   /* «박자»: 앞 장면 프레임과 섞지 않게 고리를 비운다(GL 스레드가) */
    }
    CORE_UNLOCK();
    free(buf);

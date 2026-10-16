@@ -33,7 +33,8 @@ public final class Emu {
     public static native void nativeAudioPause();   /* 백그라운드 — 오디오 장치를 놓는다 */
     public static native void nativeAudioResume();  /* 복귀 — 새 스트림으로 다시 연다 */
     public static native void nativeRunFrames(int n); /* GL 없이 n프레임 — 썸네일 캡처용 */
-    /* 프레임 생성(중간 프레임 보간) — 0=끔 1=섞기 2=움직임 보정. 120Hz 같은 빠른 화면에서만 실제로 끼운다 */
+    /* 프레임 생성(중간 프레임 보간) — 0=끔 1=섞기 2=움직임 보정 3=박자(게임 박자에 맞춰 60·120, ¼픽셀 — 60Hz 화면에서도 1단계).
+       1·2 는 120Hz 같은 빠른 화면에서만 실제로 끼운다 */
     public static native void nativeSetFrameGen(int mode);
     /** 실측 전 대용 패널 주사율(Display.getRefreshRate) — 코어의 GET_TARGET_REFRESH_RATE 답에 쓴다. */
     public static native void nativeSetPanelHz(float hz);

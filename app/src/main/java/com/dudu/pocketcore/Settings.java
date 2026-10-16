@@ -162,7 +162,7 @@ public final class Settings {
         GROUPS.put("보간", new Item[]{
             new Item(MOTION, "보간",
                 "120Hz = 화면이 120Hz 일 때 가장 좋은 조합 — 사무쇼2 는 코어 보간 4배·예측·이펙트 옮기기·날아가는 몸 섞기·서기 그리기,"
-                + " 다른 게임은 앱 보간(움직임, 약 8ms 늦음). 60Hz = 화면이 60Hz 일 때 — 사무쇼2 는 30Hz 로 움직이는 캐릭터·배경의"
+                + " 다른 게임은 앱 보간(박자 — 게임 박자에 맞춰 ¼픽셀씩, 약 25ms 늦음). 60Hz = 화면이 60Hz 일 때 — 사무쇼2 는 30Hz 로 움직이는 캐릭터·배경의"
                 + " 사이 그림을 2프레임 미리 돌려(예측) 60 에 맞춤 + 서기 그리기, 지연 없음·120Hz 안 씀(배터리). 다른 게임은 아직 보간 없음."
                 + " 커스텀 = 「보간 고급」에서 맞춘 내 조합(따로 기억 — 120Hz·60Hz 로 갔다 와도 그대로 돌아옴).",
                 new String[]{ "120", "60", "custom" },
@@ -176,11 +176,14 @@ public final class Settings {
                 + " 자동 = 화면이 120Hz 면 120 출력, 아니면 60Hz 사이 그림 · 120Hz = 120 출력 고정 · 60Hz = 120 없이 사이 그림만(코어 패치 90).",
                 new String[]{ "auto", "enabled", "60", "disabled" },
                 new String[]{ "자동", "120Hz", "60Hz", "끔" }, "auto").g("ss2"),
+            /* 149: 박자(fg_cadence.c) — 유저 2026-10-16 「앱보간 타이밍이 틀려서 효과가 없었네」·「60목표로 1차 120목표로 추가」 */
             new Item("pocketcore_framegen", "앱 보간",
-                "모든 게임. 완성된 화면의 움직임을 찾아 중간 그림을 끼웁니다(약 8ms 늦음). 코어 보간이 도는 동안은 저절로 쉽니다."
-                + " 움직임 = 반만큼 옮김 · 섞기 = 앞뒤 반반(잔상). 2배까지 — 4배는 다음 그림을 미리 알아야 해서 코어 보간만 됩니다.",
-                new String[]{ "off", "motion", "blend" },
-                new String[]{ "끔", "움직임", "섞기" }, "off"),
+                "모든 게임. 완성된 화면의 움직임을 찾아 사이 그림을 끼웁니다. 코어 보간이 도는 동안은 저절로 쉽니다."
+                + " 박자 = 게임 그림이 움직이는 박자(초당 30번 등)에 맞춰 ¼픽셀씩 고르게 — 60 을 먼저 채우고 120Hz 화면이면 120 까지."
+                + " 다음 그림을 보고 그려서 약 25ms 늦음, 60Hz 화면에서도 됨."
+                + " 움직임 = 실제 프레임 둘 사이에 반만큼(약 8ms 늦음, 2 프레임마다 움직이는 게임엔 효과가 적음) · 섞기 = 앞뒤 반반(잔상).",
+                new String[]{ "off", "cadence", "motion", "blend" },
+                new String[]{ "끔", "박자", "움직임", "섞기" }, "off"),
         });
         GROUPS.put("코어 보간 세부", new Item[]{
             new Item("ngp_framegen_mode", "방식",
@@ -353,7 +356,8 @@ public final class Settings {
 
     /* ── 보간 묶음 ── (MOTION 열쇠는 맨 위 — GROUPS 초기화가 먼저 쓴다) */
     static final String[] MOTION_KEYS = { "ngp_framegen", "pocketcore_framegen", "ngp_framegen_mode", "ngp_framegen_mult", "ngp_framegen_fx", "ngp_framegen_pose", "ngp_framegen_idle", "ngp_framegen_motion" };
-    static final String[] MOTION_120  = { "auto", "motion", "predict", "4", "move", "blend", "draw", "cache" };
+    /* 149: 다른 게임의 앱 보간 = 박자(예전 움직임은 2 프레임마다 움직이는 게임에서 «멈춤 셋 + 반 걸음» — 효과가 적었다) */
+    static final String[] MOTION_120  = { "auto", "cadence", "predict", "4", "move", "blend", "draw", "cache" };
     /* 60Hz = 사무쇼2 코어 «60Hz 사이 그림»(패치 90 — 4배의 2프레임 예측을 그대로, 120 출력 없이) + 앱 보간 끔(60Hz 화면엔 끼울 빈 vsync 가 없다).
        유저 2026-10-11 「60Hz 도 넣어야지 … 4배 하던 거에서(2프레임 미리) 60 프레임에 맞출 만한 노력만 하면 되잖어」 */
     static final String[] MOTION_60   = { "60", "off", "predict", "4", "move", "blend", "draw", "cache" };
@@ -427,6 +431,11 @@ public final class Settings {
         if (m.containsKey(MOTION) && !m.containsKey("ngp_framegen_idle")) { put("ngp_framegen_idle", "draw"); m = load(); }
         /* 111: 동작 사이 그림(모션 캐시, 코어 패치 97)도 같은 식으로 — 켠 채로 시작 */
         if (m.containsKey(MOTION) && !m.containsKey("ngp_framegen_motion")) { put("ngp_framegen_motion", "cache"); m = load(); }
+        /* 149: 120Hz 묶음의 앱 보간이 움직임 → 박자. 묶음 그대로 쓰던 사람만 한 번(커스텀·직접 고른 값은 그대로) */
+        if (!"1".equals(m.get("pocketcore_mig149_cad"))) {
+            put("pocketcore_mig149_cad", "1");
+            if ("120".equals(m.get(MOTION)) && "motion".equals(m.get("pocketcore_framegen"))) { put("pocketcore_framegen", "cadence"); m = load(); }
+        }
         /* 내부 106 의 60Hz 는 «보간 끔»이었다 — 107 부터 사이 그림. 106 에서 60Hz 를 골라 둔 사람은 새 묶음으로 다시 깐다 */
         if ("60".equals(m.get(MOTION)) && "disabled".equals(m.get("ngp_framegen"))) { putUser(MOTION, "60"); return; }
         /* 107 의 「직접」 → 108 커스텀 칸: 기억해 둔 조합이 없으면 지금 조합을 내 조합으로 */

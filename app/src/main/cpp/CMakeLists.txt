@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(pocketcore C)
 
-add_library(pocketcore SHARED native.c framegen.c league.c practice.c look.c vpanel.c cheat.c)
+add_library(pocketcore SHARED native.c framegen.c fg_cadence.c league.c practice.c look.c vpanel.c cheat.c)
 
 target_compile_options(pocketcore PRIVATE -O2 -Wall)
 

@@ -557,9 +557,9 @@ public class EmuActivity extends Activity {
             toggleCoreOpt("ngp_svcsp_band", "기술명 띠");
             break;
         case PadView.ACT_FRAMEGEN: {
-            /* 앱 방식: 끔 → 움직임 → 섞기 → 끔 */
+            /* 앱 방식: 끔 → 박자 → 움직임 → 섞기 → 끔 */
             String cur = readOpt("pocketcore_framegen", "off");
-            persistOption("pocketcore_framegen", "off".equals(cur) ? "motion" : "motion".equals(cur) ? "blend" : "off");
+            persistOption("pocketcore_framegen", "off".equals(cur) ? "cadence" : "cadence".equals(cur) ? "motion" : "motion".equals(cur) ? "blend" : "off");
             applyFrameGen(true);
             break; }
         case PadView.ACT_COREFG: {
@@ -610,13 +610,14 @@ public class EmuActivity extends Activity {
        그러려면 화면이 실제로 120Hz 여야 한다 — 삼성은 정적 화면을 60Hz 로 내리므로
        켜져 있을 때는 창·표면에 최고 주사율을 요청한다. 끄면 요청도 거둔다(배터리). */
     /* ── 프레임 생성 — 시험판이라 «두 방식을 따로» 켜고 끈다 ──
-       앱 방식(pocketcore_framegen: 끔/움직임/섞기) — 모든 게임. 완성된 화면에서 움직임을 찾아 중간 그림.
+       앱 방식(pocketcore_framegen: 끔/박자/움직임/섞기) — 모든 게임. 완성된 화면에서 움직임을 찾아 중간 그림.
+       박자(149) = 게임 박자에 맞춰 60 먼저·120 까지 ¼픽셀(fg_cadence.c) — 60Hz 화면에서도 1단계가 돈다.
        코어 방식(ngp_framegen: 자동/켬/끔) — 사무쇼2 코어만. 스프라이트·스크롤 위치를 보간해 다시 그림.
        둘 다 켜면: 코어가 120.5fps 로 내보내는 동안은 120Hz 화면에 빈 vsync 가 없어 앱 방식은 저절로 비켜선다.
        코어가 60 으로 돌아가면(패널 60·차단) 앱 방식이 대신 끼운다 — 결과적으로 «코어 우선, 앱은 대타». */
-    private int fgMode = 0;   /* 앱 보간 모드(native) 0 끔 · 1 섞기 · 2 움직임 */
+    private int fgMode = 0;   /* 앱 보간 모드(native) 0 끔 · 1 섞기 · 2 움직임 · 3 박자 */
 
-    private static int fgModeOf(String v) { return "motion".equals(v) ? 2 : "blend".equals(v) ? 1 : 0; }
+    private static int fgModeOf(String v) { return "cadence".equals(v) ? 3 : "motion".equals(v) ? 2 : "blend".equals(v) ? 1 : 0; }
     /** 이 게임은 코어 프레임 생성이 있는가 — ss2 코어(ss2-sp-core framegen). */
     private boolean coreFg() { return "ss2".equals(romType); }
     private boolean coreFgOn() { return coreFg() && !"disabled".equals(readOpt("ngp_framegen", "auto")); }
@@ -625,7 +626,7 @@ public class EmuActivity extends Activity {
         fgMode = fgModeOf(readOpt("pocketcore_framegen", "off"));
         Emu.nativeSetFrameGen(fgMode);
         if (pad != null) {
-            pad.setFrameGenLabel(fgMode == 2 ? "앱:움직임" : fgMode == 1 ? "앱:섞기" : "앱:끔");
+            pad.setFrameGenLabel(fgMode == 3 ? "앱:박자" : fgMode == 2 ? "앱:움직임" : fgMode == 1 ? "앱:섞기" : "앱:끔");
             pad.setCoreFg(coreFg(), coreFgOn() ? "코어:켬" : "코어:끔");
         }
         applyFrameRate();
@@ -648,8 +649,11 @@ public class EmuActivity extends Activity {
         sb.append(" · 앱: ");
         if (fgMode == 0) sb.append("끔");
         else if (coreOut) sb.append("비켜섬(코어가 이미 120)");
-        else if (Emu.nativeFrameGenActive() > 0) sb.append(fgMode == 2 ? "움직임 보간 중" : "섞기 보간 중");
-        else sb.append("대기(화면이 게임보다 빠르지 않음)");
+        else if (fgMode == 3 && coreFgOn()) sb.append("비켜섬(코어 보간)");
+        else if (Emu.nativeFrameGenActive() > 0)
+            sb.append(fgMode == 3 ? (hz >= 100 ? "박자 보간 중(60+120)" : "박자 보간 중(60 — 120Hz 화면이면 120 까지)")
+                    : fgMode == 2 ? "움직임 보간 중" : "섞기 보간 중");
+        else sb.append(fgMode == 3 ? "준비 중" : "대기(화면이 게임보다 빠르지 않음)");
         return sb.toString();
     }
 
