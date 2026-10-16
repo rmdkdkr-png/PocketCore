@@ -49,11 +49,11 @@ final class RankVs {
         }
         int ow = b.width(on); b.text(on, 157 - ow, 1, PAL_NAME, 1, 2, 0);
         int w = b.tier(me, 2);
-        if (me.lp >= 0) { int lx = snap(2 + w + 2), lw = miniW(Integer.toString(me.lp)); if (lx + lw <= 69) b.mini(Integer.toString(me.lp), lx, 20, PAL_LP, 1, 2); }   /* VS 상자 왼쪽 2px 띄움 */
+        if (me.lp >= 0) { int lx = snap(2 + w + 2), lw = miniW(Integer.toString(me.lp)); if (lx + lw <= 70) b.mini(Integer.toString(me.lp), lx, 20, PAL_LP, 1, 2); }   /* 그림자까지 70 — VS 상자(72~) 왼쪽 1px 띄움(69 면 수련생 ★2~5 «100»~«499» 가 빠졌다) */
         int tw = b.tierW(opp), tx = 157 - tw;
         if (opp.lp >= 0) {
             String s = Integer.toString(opp.lp); int lw = miniW(s), lx = (tx / 8) * 8 - 2 - lw;
-            if (lx >= 89) b.mini(s, lx, 20, PAL_LP, 1, 2);       /* VS 상자(72~87) 오른쪽 */
+            if (lx >= 88) b.mini(s, lx, 20, PAL_LP, 1, 2);       /* VS 상자(72~87 · 가장자리는 검정) 바로 다음 칸부터 — 89 면 수련생 ★2~5 가 빠졌다 */
         }
         b.tier(opp, tx);
         return b.encode();

@@ -497,7 +497,7 @@ final class League {
             JSONObject rule = new JSONObject();
             rule.put("char", o.optInt("char")); rule.put("style", o.optInt("style")); rule.put("diff", o.optInt("diff"));
             rule.put("points", POINTS); rule.put("time", TIME);
-            rule.put("cards", "all");                   /* 초기안: 전원 올카드 해금(기획서 2장) — CPU 는 카드 없음 */
+            rule.put("cards", "all");                   /* 전원 올카드 해금(기획서 2장) — CPU 도 자기 카드 두 장(155 · 센 상대는 ★ 높은 카드) */
             m.put("rule", rule);
             m.put("start_score", new JSONObject().put("me", me().optInt("score")).put("opp", o.optInt("score")));
             m.put("rank_before", rankOf("me"));

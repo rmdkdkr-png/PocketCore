@@ -159,7 +159,7 @@ public class EmuActivity extends Activity {
         applyFrameGen();
         applyDisplay();
         pad.setListener(new PadView.Listener() {
-            @Override public void onMask(int mask) { padMask = mask; if (rankQ != null) rankQKey(mask | keyMask | axisMask); }   /* 153 겹창 B = 그만 */
+            @Override public void onMask(int mask) { padMask = mask; if (rankQ != null || rankQFading != null) rankQKey(mask | keyMask | axisMask); }   /* 153 겹창 B = 그만(내려가며 사라지는 동안도) */
             @Override public void onAction(int action) { handleAction(action); }
             @Override public void onTurbo(boolean on) { Emu.nativeSetTurbo(on); }
             @Override public void onScreenDrag(float dxFrac, float dyFrac) {
@@ -342,6 +342,11 @@ public class EmuActivity extends Activity {
         placeFrameMeter();                                  /* 프레임 미터가 먼저 자리를 잡고 안내 띠는 그 아래로 */
         placeHubBanner();
         rankQPlace();                                       /* 153 찾기 겹창 — 게임 그림 자리 그대로 */
+        if (hubCard != null && hubCard.getLayoutParams() instanceof FrameLayout.LayoutParams) {   /* 결과 카드 — 돌리면 새 게임 그림 위로(랭크 카드는 남는 높이만큼 — 넘치면 민다) */
+            FrameLayout.LayoutParams cl = (FrameLayout.LayoutParams) hubCard.getLayoutParams();
+            cl.topMargin = gameBox[1] + Math.round(8 * getResources().getDisplayMetrics().density);
+            hubCard.setLayoutParams(cl);
+        }
     }
 
     private void persistScreen() {
@@ -752,7 +757,7 @@ public class EmuActivity extends Activity {
         if (ask != null) { ask.cancel(); return; }            /* 확인 카드 — 뒤로 = 취소(취소 못 하는 카드면 그대로) */
         if (lookEditor != null) { lookEditorClose(); return; }   /* 컬러 만들기 창에서 뒤로 = 취소 */
         if (hubCard != null) { hubReturn(-1); return; }      /* 결과 카드에서 뒤로 = 계속 */
-        if (rankQ != null && !(pad != null && pad.isBarOpen())) { rankQBack(); return; }   /* 153 찾기 겹창 — 그만(상대를 보였으면 잡힌 채). 바가 열려 있으면 멈춘 채 아래(hubLeave)로 */
+        if ((rankQ != null || rankQFading != null) && !(pad != null && pad.isBarOpen())) { rankQBack(); return; }   /* 153 찾기 겹창(사라지는 중 포함) — 그만(상대를 보였으면 잡힌 채). 바가 열려 있으면 멈춘 채 아래(hubLeave)로 */
         if (hubPickBack()) { hubReturn(-1); return; }         /* 리그 판 고르기 화면 — 확인 창 없이 바로 타이틀로(유저 「타이틀로 가는 거 메시지 없이」) */
         if (leagueId != null) { leagueLeave(); return; }
         if (leagueHub) { hubLeave(); return; }
@@ -1658,6 +1663,13 @@ public class EmuActivity extends Activity {
         hubBanner.setLayoutParams(lp);
     }
 
+    /** 안내 띠가 게임 그림에 걸쳐 있나(아래 빈 줄이 없어 그림 위쪽 가장자리로 올라갔거나 유저가 옮겨 둠) */
+    private boolean bannerOnGame() {
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) hubBanner.getLayoutParams();
+        int bw = hubBanner.getWidth() > 0 ? hubBanner.getWidth() : Math.max(0, lp.width), bh = hubBanner.getHeight() > 0 ? hubBanner.getHeight() : Math.max(0, bannerPlacedH);
+        return lp.topMargin < gameBox[3] && lp.topMargin + bh > gameBox[1] && lp.leftMargin < gameBox[2] && lp.leftMargin + bw > gameBox[0];
+    }
+
     private final View.OnTouchListener bannerDrag = new View.OnTouchListener() {
         float x0, y0; int l0, t0; long lastUp = 0;
         @Override public boolean onTouch(View v, android.view.MotionEvent e) {
@@ -1940,6 +1952,11 @@ public class EmuActivity extends Activity {
             hubBanner.setText(rankQ != null ? rankQBanner() : hubText(shown, hover, picked, hs[4]));   /* 153 겹창 동안은 상대를 미리 안 보인다 */
             /* 경기 중 띠가 게임 그림 위로 올라가 있으면(가로 화면 — 아래 자리가 없음) 숨긴다: 체력 막대를 경기 내내 가리지 않게(연습과 같은 규칙) */
             boolean over = shown == 4 && !bannerUserPos && ((FrameLayout.LayoutParams) hubBanner.getLayoutParams()).topMargin < gameBox[3];
+            if (!over && hubRanked && !bannerDragging && bannerOnGame()) {                  /* 153 띠가 게임 그림 위(가로 화면 등) — 찾기 겹창 머리·VS 띠(序章~배너 2~4)를 가리지 않게. 직접 고르기 화면(VS 1)엔 그대로 */
+                int[] vs = rankQ == null ? vsStatus() : null;
+                int vp = vs != null ? vs[0] & 15 : 0;
+                over = rankQ != null || (vp >= 2 && vp <= 4);
+            }
             hubBanner.setVisibility(over || shown == 5 ? View.GONE : View.VISIBLE);   /* 5 = 타이틀·상대 선택으로 돌아가는 중 — 안내 없이 */
         }
     }
@@ -2238,7 +2255,9 @@ public class EmuActivity extends Activity {
     /* 겹창 — Q_SEARCH = 허브 찾기(6)에서 go 를 기다림(로고·메뉴가 도는 동안 포함) · Q_RUN = go 보냄(−4 포함): 인트로(대신 고름)·고르기 화면(직접)을 기다림 */
     private static final int Q_SEARCH = 1, Q_RUN = 2;
     private static final long Q_FLASH = 500, Q_GO_LOST = 2500, Q_TAIL_MAX = 6000, Q_AUTO_HARD = 60000;   /* 자동이 6·8 어느 쪽에도 안 닿는 마지막 안전망 */
+    private static final long Q_FLASH_TAIL = 1100;  /* 직접 고르는 판 — «상대 발견! · B 그만두기»를 읽을 틈(내려가면 B 는 게임의 2P색 고르기) */
     private RankUi.Quick rankQ;
+    private RankUi.Quick rankQFading;               /* 내려가며 사라지는 겹창(160ms) — 그동안도 입력 0 · B = 그만(아직 «B 그만두기»가 보인다) */
     private int rankQMode;
     private boolean rankQTail, rankQRevealed, rankQRematch, rankNoSearch;
     private long rankQT0, rankQEnd, rankQRevealAt, rankQGoAt, rankQFrozenAt;
@@ -2365,13 +2384,15 @@ public class EmuActivity extends Activity {
     /** 153 VS 띠 — 경기 직전 무대 인트로(두 캐릭터가 고른 무대에 마주 선 장면)의 맨 위 검은 띠에 나·상대(닉네임·티어·LP·VS)를 게임 타일로(RankVs).
      *  허브가 序章을 A 로 넘기고, 대사 단계를 RankVs.HOLD 프레임 보여 준 뒤 A 를 대신 눌러 «자아 당당히 → 1회전 → 승부» 배너 → 첫 라운드.
      *  못 그리면(타일 겹침·다른 상대·옛 native) 띠 없이 게임 그대로 */
-    private void rankVsArm(RankCore.Player p) {
-        if (!natVs) return;
+    private void rankVsArm(RankCore.Player p) { rankVsArm(p, rankAuto == 2); }
+    /** mySty = 내 이름 옆 검질 표시(저장한 내 캐릭터로 대신 고르는 판) — 자동이 캐릭터·검질에서 막혀 직접 고르면 뺀다 */
+    private void rankVsArm(RankCore.Player p, boolean mySty) {
+        if (!natVs || p == null) return;
         try {
             RankCore.Me me = League.rankMe();
             League.OppView v = rankOppV != null && rankOppV.p == p ? rankOppV : League.oppView(p);
             org.json.JSONObject pf = League.pfOf(this, p);
-            League.Main mn = rankAuto == 2 ? League.main() : null;
+            League.Main mn = mySty ? League.main() : null;
             RankVs.Side a = RankVs.side(League.myNick(), mn != null && mn.cell != 15 ? League.STYLE[mn.sty] : null, me.lp, me.master, me.mr);
             if (me.placementLeft > 0) RankVs.placement(a, 6 - me.placementLeft);
             RankVs.Side b = RankVs.side(pf.optString("nick", p.nick), null, v.lp, v.master, v.mr);
@@ -2414,14 +2435,21 @@ public class EmuActivity extends Activity {
         rankQPlaceLp(lp);
         rankQ.root.setLayoutParams(lp);
     }
-    /** 겹창을 닫는다 — fade = 무대 인트로가 보이게 살짝(인트로 첫 ~19프레임은 검은 화면) */
+    /** 겹창을 닫는다 — fade = 무대 인트로가 보이게 살짝(인트로 첫 ~19프레임은 검은 화면). 사라지는 동안도 입력 0 · B = 그만 —
+     *  다 사라지면 입력을 푼다(그때 쥐고 있던 키는 뗄 때까지 qHeld 가 삼킨다). 바로 닫기(fade false)는 사라지던 것도 바로 */
     private void rankQClose(boolean fade) {
         h.removeCallbacks(rankQPoll);
-        final RankUi.Quick q = rankQ;
-        rankQ = null; rankQMode = 0; rankQBlock = false;
-        if (q == null) return;
-        if (!fade) { root.removeView(q.root); return; }
-        q.root.animate().alpha(0f).setDuration(160).withEndAction(new Runnable() { @Override public void run() { root.removeView(q.root); } }).start();
+        final RankUi.Quick q = rankQ, f = rankQFading;
+        rankQ = null; rankQMode = 0;
+        if (fade && q == null) return;
+        if (f != null) { f.root.animate().cancel(); root.removeView(f.root); rankQFading = null; }   /* cancel — 끝 동작(입력 풂)은 안 돈다 */
+        if (!fade) { rankQBlock = false; if (q != null) root.removeView(q.root); return; }
+        rankQFading = q;
+        q.root.animate().alpha(0f).setDuration(160).withEndAction(new Runnable() { @Override public void run() {
+            root.removeView(q.root);
+            if (rankQFading == q) { rankQFading = null; if (rankQ == null) rankQBlock = false; }
+        } }).start();
+        h.postDelayed(rankQPoll, 50);                                    /* 사라지는 동안도 물리 패드 B 를 본다 */
     }
     /** 나 — 아바타(씨앗 고정) · 이름 · 티어 · 내 캐릭터 */
     private RankUi.Side rankMeSide(RankCore.Me me) {
@@ -2478,7 +2506,10 @@ public class EmuActivity extends Activity {
     }
 
     private final Runnable rankQPoll = new Runnable() { @Override public void run() {
-        if (rankQ == null) return;
+        if (rankQ == null) {                                             /* 내려가며 사라지는 중 — B 만 본다 */
+            if (rankQFading != null && !leaving && !rankQKey(padMask | keyMask | axisMask)) h.postDelayed(this, 50);
+            return;
+        }
         if (!leaving) rankQStep();
         if (rankQ != null) h.postDelayed(this, 50);
     }};
@@ -2512,11 +2543,14 @@ public class EmuActivity extends Activity {
             }
             return;
         }
-        if (st == 4) { rankQDrop(0); return; }                               /* 벌써 경기(라운드) — 바로 */
-        if (st != 3 || !rankQRevealed || now - rankQRevealAt < Q_FLASH) return;   /* «상대 발견!» 은 잠깐이라도 보인다 */
+        if (st == 4) { rankQClose(false); return; }                          /* 벌써 경기(라운드) — 바로(사라지는 틈의 B 를 «그만»으로 받지 않게) */
+        if (st != 3 || !rankQRevealed || now - rankQRevealAt < (rankQTail ? Q_FLASH_TAIL : Q_FLASH)) return;   /* «상대 발견!» 은 잠깐이라도 보인다 */
         if (!rankQTail) {
             int[] as = autoStatus(), vs = vsStatus();
-            if (as != null && as[0] == 8) rankQDrop(2);                       /* 자동이 막힘 — 직접 고르기로 */
+            if (as != null && as[0] == 8) {                                   /* 자동이 막힘 — 직접 고르기로 */
+                if (as[4] <= 3) rankVsArm(rankOppV != null ? rankOppV.p : null, false);   /* 부팅·캐릭터·검질에서 막힘 — 다른 걸 고를 수 있으니 띠의 내 검질 표시를 빼고 다시(띠가 얹히기 전이라 바뀐다) · 카드부터면 그대로 */
+                rankQDrop(2);
+            }
             else if (as != null && as[0] >= 6) rankQDrop(0);                  /* 무대 인트로 — VS 띠 */
             else if (vs != null && ((vs[0] & 15) == 3 || (vs[0] & 15) == 4)) rankQDrop(0);
             else if (as == null) rankQDrop(2);                                /* 옛 native — 직접 */
@@ -2539,20 +2573,21 @@ public class EmuActivity extends Activity {
     /** B 누름(터치 패드 · 물리 패드) — 그만. 창·멈춤 바가 떠 있으면 그쪽 몫 */
     private boolean rankQKey(int m) {
         int rise = m & ~rankQKeys; rankQKeys = m;
-        if (rankQ == null || (rise & NGP_B) == 0 || ask != null || (pad != null && pad.isBarOpen())) return false;
+        if ((rankQ == null && rankQFading == null) || (rise & NGP_B) == 0 || ask != null || (pad != null && pad.isBarOpen())) return false;
         rankQBack();
         return true;
     }
-    /** 겹창에서 B·뒤로 — 그만(LP 그대로 · 준비 기록은 사용자가 그만둔 것으로 닫음). 상대를 보였으면 잡힌 채(다음 찾기에 같은 상대) */
+    /** 겹창에서 B·뒤로 — 그만(LP 그대로 · 준비 기록은 사용자가 그만둔 것으로 닫음). 상대를 보였으면 잡힌 채(다음 찾기에 같은 상대).
+     *  내려가며 사라지는 중(rankQFading — 늘 go 뒤 · 상대를 보인 뒤)도 같다: 고르기 화면·인트로에 B 가 새어 기본 캐릭터로 골라지지 않게 */
     private void rankQBack() {
-        if (rankQ == null) return;
+        if (rankQ == null && rankQFading == null) return;
         boolean seen = rankQRevealed && !rankQRematch, search = rankQMode == Q_SEARCH;   /* 재대결은 잡지 않는다(rankQReveal) — «상대가 기다려요» 아님 */
         rankQClose(false);
         rankCap = false;
         if (search) {                                                        /* go 전 — 타이틀 메뉴 그대로(로고가 도는 중이면 찾기에 닿자마자) */
             int[] hs = Emu.nativeLeagueHubStatus();
             if (hs != null && hs.length > 0 && hs[0] == 6) Emu.nativeHubSearch(false); else if (hs == null || hs.length == 0 || hs[0] != 1) rankNoSearch = true;   /* 타이틀(1)이면 할 일 없음 */
-        } else hubReturn(-1);                                                /* go 뒤(고르기·−4) — 리셋해 타이틀로(띠·자동도 native 가 지운다) */
+        } else { hubVs(null, null, 0, 0); hubReturn(-1); }                   /* go 뒤(고르기·−4·사라지는 중) — 리셋해 타이틀로(자동도 native 가 지운다) */
         toast(seen ? "그만뒀어요 — 상대가 기다려요" : "그만뒀어요");
     }
     /** 겹창 동안 허브 안내 띠 — 상대가 미리 보이지 않게(case 3 의 «vs …» 대신) */
@@ -2584,8 +2619,8 @@ public class EmuActivity extends Activity {
     }
 
     private int rankHomeStage(RankCore.Player p) { int s = p.legacy ? League.homeStage(p.id) : p.stage; return s >= 0 && s < 8 ? s : 0; }
-    /** 결과 카드의 스테이지 이름 — 상대 기본은 이름을 안 보인다(누가 나올지 미리 알려 주지 않게) */
-    private static String rankStageLabel(int sel) { return "스테이지 · " + (sel == -1 ? "상대 기본" : sel == -2 ? "무작위" : League.stageName(sel)); }
+    /** 결과 카드의 스테이지 이름 — 상대 기본은 이름을 안 보인다(누가 나올지 미리 알려 주지 않게). «스테이지 · » 앞말은 뺀다(◀▶ 가 말해 준다 — 320dp 세로에서 잘렸다) */
+    private static String rankStageLabel(int sel) { return sel == -1 ? "상대 기본" : sel == -2 ? "무작위" : League.stageName(sel); }
     /** 결과 카드 ◀▶ — 다음 판부터 그대로(pref · 허브 값도 맞춘다 — 허브 값이 옛 값이면 hubTick 이 pref 를 되돌린다) */
     private int rankStageStep(int d) {
         int sel = League.prefStage(), i = 0;
@@ -2730,11 +2765,14 @@ public class EmuActivity extends Activity {
             row2.addView(ch, cl);
         }
         card.addView(row2, new android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
+        android.widget.ScrollView sc = new android.widget.ScrollView(this);   /* 가로 화면(높이 360dp 안팎)이면 카드가 화면보다 길다 — 밀어서 둘째 줄까지 닿게 */
+        sc.setScrollbarFadingEnabled(false);                              /* 밀 수 있을 때만 막대가 보인다 */
+        sc.addView(card, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT));
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
-        lp.topMargin = gameBox[1] + Math.round(8 * dp);
-        root.addView(card, lp);
-        hubCard = card;
+        lp.topMargin = gameBox[1] + Math.round(8 * dp); lp.bottomMargin = Math.round(8 * dp);
+        root.addView(sc, lp);
+        hubCard = sc;
         if (hubBanner != null) hubBanner.setText("결과를 기록했어요");
     }
     /** 결과 카드 닫기 → 리셋 뒤 타이틀 «리그 대전» 칸(rematch ≥ 0 이면 같은 상대로 바로 내 캐릭터 고르기까지 · −2 «다른 상대» = 바로 상대 선택). */

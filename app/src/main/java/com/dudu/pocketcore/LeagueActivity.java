@@ -569,7 +569,7 @@ public class LeagueActivity extends Activity {
 
     private void rulesTab() {
         JSONObject lg = League.ranked().optJSONObject("legacy");
-        String s = "경기 · " + League.POINTS + "선승(3판 2승) · 라운드 " + League.TIME + "초 · 카드 전원 올카드 해금(CPU 는 카드 없음). "
+        String s = "경기 · " + League.POINTS + "선승(3판 2승) · 라운드 " + League.TIME + "초 · 카드 전원 올카드 해금 · CPU 도 자기 카드 두 장(센 상대는 ★ 높은 카드). "
                 + "랭크에 처음 들어오면 내 캐릭터·검질·카드를 한 번만 골라요 — 그다음부터는 상대를 찾자마자 그 캐릭터로 바로 붙어요(결과 카드 «캐릭터 바꾸기»로 다시 골라요). "
                 + "랭크 경기 중에는 불러오기·되돌리기·리셋을 쓸 수 없고, 리그 세이브는 원작 세이브와 따로예요.\n\n"
                 + "상대 · 씨앗 하나로 만든 가상 플레이어 약 4만 명(모두 게임 CPU)과 예전 리그 12명(라이벌). "
