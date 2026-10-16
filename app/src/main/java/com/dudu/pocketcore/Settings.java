@@ -177,7 +177,7 @@ public final class Settings {
         /* ── 조작 ── */
         GROUPS.put("터치 패드", new Item[]{
             new Item("pocketcore_touchpad", "터치 버튼",
-                "자동 = 물리 게임패드가 붙으면 숨기고 메뉴 알약만 남김.",
+                "자동 = 물리 게임패드를 쓰면 숨기고 메뉴 알약만 남김 — 화면을 만지면 다시 나와 그대로 눌림, 다음 패드 입력에 다시 숨음 · 항상 표시 · 숨김 = 늘 숨김(메뉴 알약만).",
                 new String[]{ "auto", "on", "off" },
                 new String[]{ "자동", "항상 표시", "숨김" }, "auto"),
             new Item("pocketcore_padskin", "버튼 모양",

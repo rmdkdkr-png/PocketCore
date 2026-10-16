@@ -247,11 +247,15 @@ public class EmuActivity extends Activity {
         applyPadMode(m);
     }
 
-    /** 터치 패드 표시 — auto: 실제 게임패드가 붙어 있으면 숨기고 메뉴 알약만 남긴다(게임기 용). */
+    /** 터치 패드 표시 — auto: 물리 게임패드가 붙어 있거나(장치 목록) 이번 판에 패드로 게임 입력이 들어왔으면 숨기고 메뉴 알약만 남긴다.
+     *  화면을 만지면 다시 나온다(PadView). off(숨김) = 늘 숨김. 151: 전엔 PadView 상수로 숨김이 꺼져 있어 둘 다 아무 일도 안 했다 */
+    private String touchpadOpt = "auto";
+    private int padHideMode() {
+        return "off".equals(touchpadOpt) ? 2 : ("auto".equals(touchpadOpt) && (physSeen || KeyMap.physicalPresent())) ? 1 : 0;
+    }
     private void applyPadMode(java.util.Map<String, String> m) {
-        String v = or(m.get("pocketcore_touchpad"), "auto");
-        boolean hide = "off".equals(v) || ("auto".equals(v) && KeyMap.physicalPresent());
-        if (pad != null) pad.setPhysicalMode(hide);
+        touchpadOpt = or(m.get("pocketcore_touchpad"), "auto");
+        if (pad != null) pad.setPhysicalMode(padHideMode());
         Theme.init(this); Theme.refresh();      /* 121: 버튼 모양이 테마를 따른다 — 설정에서 바꾸고 돌아오면 새로 굽는다 */
         if (pad != null) pad.setArt(!"flat".equals(or(m.get("pocketcore_padskin"), "art")));
         if (pad != null) pad.setPadAlpha(intOf(m.get("pocketcore_pad_alpha"), 100));     /* 122: 버튼 투명도 */
@@ -259,7 +263,7 @@ public class EmuActivity extends Activity {
     private final android.hardware.input.InputManager.InputDeviceListener devListener =
             new android.hardware.input.InputManager.InputDeviceListener() {
         @Override public void onInputDeviceAdded(int id)   { applyScreenLayout(); }
-        @Override public void onInputDeviceRemoved(int id) { axisByDev.delete(id); releasePhysical(); applyScreenLayout(); }
+        @Override public void onInputDeviceRemoved(int id) { axisByDev.delete(id); releasePhysical(); physSeen = false; applyScreenLayout(); }
         @Override public void onInputDeviceChanged(int id) { }
     };
     @Override public void onConfigurationChanged(android.content.res.Configuration c) {
@@ -903,6 +907,13 @@ public class EmuActivity extends Activity {
     /* 매핑표(KeyMap, 설정 pocketcore_keymap)로 푼다 — 예전 고정 switch 는 KeyMap 의 기본값으로 옮겼다. */
     private int mapKey(int code) { return keymap != null ? keymap.bitOf(code) : 0; }
 
+    /** 이번 판에 물리 패드로 게임 입력이 들어왔나 — 장치 목록에 게임패드로 안 잡히는 패드(키보드·십자 출처로 오는 것)도 터치 버튼 자동 숨김에 넣는다 */
+    private boolean physSeen = false;
+    private void onPhysicalInput() {
+        if (!physSeen) { physSeen = true; if (pad != null) pad.setPhysicalMode(padHideMode()); }
+        if (pad != null) pad.physicalInput();
+    }
+
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
         if (KeyMap.isVolume(e.getKeyCode())) return super.dispatchKeyEvent(e);   /* 음량은 늘 시스템으로 — 창이 떠 있어도 */
         if (ask != null) { ask.handleKey(e); return true; }   /* 확인 카드가 떠 있으면 패드·키는 카드만 — 게임엔 안 간다 */
@@ -952,6 +963,7 @@ public class EmuActivity extends Activity {
             if (e.getAction() == KeyEvent.ACTION_DOWN) {
                 if (e.getRepeatCount() == 0) {
                     keyMask |= bit;
+                    onPhysicalInput();
                     /* 물리 키 → 기능 → 비트를 한 줄 남긴다 — 「키가 반대다」 같은 제보를 logcat 한 줄로 가르기 위해 */
                     android.util.Log.i("PocketCore", "key " + e.getKeyCode() + " → " + (keymap != null ? keymap.funcOf(e.getKeyCode()) : "?") + " bit 0x" + Integer.toHexString(bit));
                 }
@@ -994,6 +1006,7 @@ public class EmuActivity extends Activity {
             axisPrev = all; axisMask = 0;
             return true;
         }
+        if ((all & ~axisPrev) != 0) onPhysicalInput();   /* 새로 누른 방향 — 터치 버튼 자동 숨김 */
         axisPrev = all;
         axisMask = all;                        /* 장치별로 들고 OR — 두 번째 장치의 중립이 첫 장치의 방향을 지우지 않게 */
         return true;
