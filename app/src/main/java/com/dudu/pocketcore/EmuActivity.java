@@ -2237,7 +2237,7 @@ public class EmuActivity extends Activity {
 
     /* 겹창 — Q_SEARCH = 허브 찾기(6)에서 go 를 기다림(로고·메뉴가 도는 동안 포함) · Q_RUN = go 보냄(−4 포함): 인트로(대신 고름)·고르기 화면(직접)을 기다림 */
     private static final int Q_SEARCH = 1, Q_RUN = 2;
-    private static final long Q_FLASH = 500, Q_GO_LOST = 2500, Q_TAIL_MAX = 6000, Q_AUTO_MAX = 20000;
+    private static final long Q_FLASH = 500, Q_GO_LOST = 2500, Q_TAIL_MAX = 6000, Q_AUTO_HARD = 60000;   /* 자동이 6·8 어느 쪽에도 안 닿는 마지막 안전망 */
     private RankUi.Quick rankQ;
     private int rankQMode;
     private boolean rankQTail, rankQRevealed, rankQRematch, rankNoSearch;
@@ -2338,7 +2338,10 @@ public class EmuActivity extends Activity {
     /** −4 길 — 상대를 허브에(go 0) · VS 띠 · 돌려보내기(GL 스레드) */
     private void rankArmNext(RankCore.Player p) {
         RankCore.Knobs k = rankKnobs;
-        Emu.nativeHubMatch(p.ch, p.sty, k.diff, rankStageRes, k.lv, k.cap, k.atk, k.dfn, k.floor, false);
+        if (!Emu.nativeHubMatch(p.ch, p.sty, k.diff, rankStageRes, k.lv, k.cap, k.atk, k.dfn, k.floor, false)) {
+            rankQClose(false); hubReturn(-1); toast("상대를 잡지 못했어요 — 다시 찾아 주세요");   /* 옛 대진이 남아 다른 상대로 붙지 않게 */
+            return;
+        }
         rankVsArm(p);                                                    /* 띠는 돌려보내기(−4) 뒤에도 남는다 */
         rankCap = rankAuto == 1; rankCapRefine = false;
         hubReturn(-4);
@@ -2516,7 +2519,9 @@ public class EmuActivity extends Activity {
             if (as != null && as[0] == 8) rankQDrop(2);                       /* 자동이 막힘 — 직접 고르기로 */
             else if (as != null && as[0] >= 6) rankQDrop(0);                  /* 무대 인트로 — VS 띠 */
             else if (vs != null && ((vs[0] & 15) == 3 || (vs[0] & 15) == 4)) rankQDrop(0);
-            else if (as == null || now - rankQGoAt > Q_AUTO_MAX) rankQDrop(2);
+            else if (as == null) rankQDrop(2);                                /* 옛 native — 직접 */
+            else if (now - rankQGoAt > Q_AUTO_HARD) { rankQClose(false); hubReturn(-1); toast("준비가 너무 늦어 그만뒀어요 — 다시 찾아 주세요"); }
+            /* 오래 걸려도 native 가 아직 1~5 단계(4배·입력 막음)면 겹창을 내리지 않는다 — 단계마다 제한이 있어 곧 6(인트로) 이나 8(막힘)이 온다 */
             return;
         }
         int[] dv = Emu.nativeHubDualStatus();
@@ -2565,7 +2570,8 @@ public class EmuActivity extends Activity {
         if (rankCap) {
             int[] as = autoStatus();
             if (as == null) { rankCap = false; return; }
-            if (!(st == 3 || st == 4) || as[0] < 5 || as[0] > 7 || mp[0] != 1) return;
+            boolean late8 = as[0] == 8 && as.length > 4 && as[4] >= 5;       /* 고르기는 끝났고 이야기·인트로에서 막힘 — 고른 건 그대로 쓴다 */
+            if (!(st == 3 || st == 4) || !((as[0] >= 5 && as[0] <= 7) || late8) || mp[0] != 1) return;
             rankCap = false;
             if (!League.setMain(mp) && League.main() == null) return;       /* 값이 이상하다 — 다음 판도 직접 */
             pushMain();
