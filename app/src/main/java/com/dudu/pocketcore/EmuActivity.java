@@ -1237,7 +1237,7 @@ public class EmuActivity extends Activity {
         return st != null && st.length > 22 ? st[22] : -1;
     }
     /** 149: 승리 대사 동안 게임을 멈춰 둘 이유 — 메뉴 바·옵션 창·확인 카드. 없으면 대사는 돈다(정산 전에 걸린 멈춤이 남지 않게 poll 이 다시 맞춘다) */
-    private boolean postPaused() { return (pad != null && pad.isBarOpen()) || (sheet != null && sheet.isShowing()) || ask != null; }
+    private boolean postPaused() { return (pad != null && pad.isBarOpen()) || (sheet != null && sheet.isShowing()) || ask != null || hubCard != null; }
     private static final String POST_HINT = "결과를 기록했어요 · B 결과 바로 보기";
     private String postHinted = null;                   /* 띠가 안 보일 때 알림은 경기마다 한 번 */
     /** 승리 대사가 도는 중이면 true — 안내·멈춤을 맞추고 100ms 뒤 다시 본다(화면에 떠 있을 때만 — 내려가 있으면 onResume 이 다시 건다) */
@@ -1504,7 +1504,10 @@ public class EmuActivity extends Activity {
         int ps = leagueDone && leagueArmed && !leaving && hubCard == null ? postState() : -1;
         if (ps >= 1) { if (ps == 1) postSkip(); else leagueExit(leagueId); return; }   /* 149: 승리 대사 중(·걸쇠 뒤 카드 전) 뒤로 = 바로 결과 카드(카드가 떠 있으면 예전대로) */
         if (leagueDone || !leagueArmed) { leagueExit(null); return; }
-        if (leagueSettleNow()) { if (leagueDone && resumedNow) leagueExit(leagueId); return; }
+        if (leagueSettleNow()) {                              /* 결판이 막 잡혔다(poll 전) — 149: 대사 중이면 위와 같이 건너뛰기(카드를 먼저 띄우면 poll 이 대사를 다시 돌린다) */
+            if (leagueDone && resumedNow) { if (postState() == 1) postSkip(); else leagueExit(leagueId); }
+            return;
+        }
         if (leagueDlg != null && leagueDlg.isShowing()) return;
         leagueSyncStarted();
         if (!leagueStarted) { leagueLeaveBeforeStart(); return; }
