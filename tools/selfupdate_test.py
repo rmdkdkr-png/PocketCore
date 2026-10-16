@@ -1,8 +1,9 @@
-"""「새 판 받기」 세션 설치(SelfUpdate, 120~) 에뮬레이터 시험 — CI 작업 selfupdate 가 부른다(커밋 메시지에 [upd]).
+"""「새 판 받기」 에뮬레이터 시험 — CI 작업 selfupdate 가 부른다(커밋 메시지에 [upd]).
 
-판 A(내부 500)를 깔고, 러너에서 판 B(내부 501, 같은 시험 서명)를 http 로 내놓은 뒤
-런처를 열어 「새 판 받기」 버튼을 누른다. 확인 창(패키지 설치기) 없이 501 로 바뀌고, 앱이 저절로 다시 열리면 통과.
-뒤에서 저절로 까는 것은 없다(유저가 누를 때만).
+154~: 앱은 APK 를 깔지 않는다(REQUEST_INSTALL_PACKAGES 없음 — 유저 「유해한앱이라고 안뜨게해줭」).
+판 A(내부 500)를 깔고, 러너에서 판 B(내부 501, 같은 시험 서명)를 http 로 내놓은 뒤(디버그 판만 10.0.2.2 평문 허용)
+런처의 「새 판 받기」를 누르면 시스템 다운로드가 B 를 받고 → 다운로드 알림을 눌러 → 시스템 설치기 「업데이트」 → 501 이면 통과.
+(120~153 은 앱이 PackageInstaller 세션으로 직접 깔았다 — 그 시험은 c89fa3d 까지의 이 파일)
 
 사용: python3 tools/selfupdate_test.py <a.apk> <b.apk> <출력 폴더>"""
 import http.server
@@ -111,8 +112,12 @@ def main():
 
     say("install A", adb("install", "-r", "-g", a_abs))
     sh("appops set --uid %s MANAGE_EXTERNAL_STORAGE allow" % PKG)
-    sh("appops set %s REQUEST_INSTALL_PACKAGES allow" % PKG)
+    # 다운로드 알림을 누르면 설치를 여는 쪽(다운로드·파일 앱)이 «출처» — 유저는 처음 한 번 「이 출처 허용」, 시험은 미리 켜 둔다
+    for src in ("com.android.providers.downloads", "com.android.providers.downloads.ui", "com.android.documentsui", "com.google.android.documentsui"):
+        sh("appops set %s REQUEST_INSTALL_PACKAGES allow" % src)
+    say("perm", sh("dumpsys package %s | grep -i 'REQUEST_INSTALL'" % PKG).strip() or "no REQUEST_INSTALL_PACKAGES (good)")
     sh("mkdir -p /sdcard/PocketCore/roms")
+    sh("rm -f /sdcard/Download/b*.apk")
     open(os.path.join(OUT, "options.txt"), "w").write(
         "pocketcore_update_url=http://10.0.2.2:8765\npocketcore_level=stable\npocketcore_launcher_snd=disabled\n")
     adb("push", os.path.join(OUT, "options.txt"), "/sdcard/PocketCore/options.txt")
@@ -131,39 +136,64 @@ def main():
     if not b:
         b = find_button(["업데이트 확인"])
         say("fallback button", b)
-    ok = False
-    relaunched = False
-    installer_seen = False
+    downloaded = notif = installer_seen = ok = False
     if b:
         sh("input tap %d %d" % (b[1], b[2]))
-        t0 = time.time()
-        for i in range(60):
+        time.sleep(2)
+        shot("2_after_tap")
+        want = os.path.getsize(B_APK)
+        for i in range(60):                       # 시스템 다운로드가 /sdcard/Download/b.apk 로
             time.sleep(1)
-            r = resumed()
-            if "packageinstaller" in r: installer_seen = True
-            if i in (1, 3): shot("2_after_tap_%ds" % (i + 1))
-            v = version()
-            say("poll", i, v, r)
-            if v == "versionCode=501":
-                ok = True
+            out = sh("ls -l /sdcard/Download/ 2>/dev/null")
+            m = re.search(r"\s(\d+)\s+\S+\s+\S+\s+(b[^\s]*\.apk)", out)
+            say("dl", i, m.group(1) if m else "-", m.group(2) if m else "")
+            if m and int(m.group(1)) == want:
+                downloaded = True
                 break
-        say("installed in %.1fs" % (time.time() - t0) if ok else "not installed")
-        for i in range(10):
+        time.sleep(2)
+        sh("cmd statusbar expand-notifications")
+        time.sleep(2)
+        shot("3_notifications")
+        n = None
+        for i in range(5):
+            n = find_button(["Legacito 새 판", "b.apk"])
+            if n: break
             time.sleep(1)
-            r = resumed()
-            say("after", i, r)
-            if "packageinstaller" in r: installer_seen = True
-            if PKG in r and ("MainActivity" in r or ".Home" in r):   # 121~ 런처 클래스는 Home(MainActivity 는 아이콘 별칭)
-                relaunched = True
-                break
-        shot("3_after_install")
+        say("notification", n)
+        if n:
+            notif = True
+            sh("input tap %d %d" % (n[1], n[2]))
+            time.sleep(3)
+            shot("4_after_notification")
+            for i in range(20):
+                r = resumed()
+                say("resumed", i, r)
+                if "packageinstaller" in r or "PackageInstaller" in r:
+                    installer_seen = True
+                    break
+                time.sleep(1)
+            for i in range(10):                   # 시스템 설치기 「업데이트」(또는 「설치」)
+                u = find_button(["Update", "UPDATE", "업데이트", "Install", "INSTALL", "설치"])
+                if u:
+                    say("installer button", u)
+                    sh("input tap %d %d" % (u[1], u[2]))
+                    break
+                time.sleep(1)
+            for i in range(40):
+                time.sleep(1)
+                v = version()
+                say("poll", i, v)
+                if v == "versionCode=501":
+                    ok = True
+                    break
+            shot("5_after_install")
     open(os.path.join(OUT, "logcat.txt"), "wb").write(adb("logcat", "-d", "-v", "time", out=True))
     say("after", version())
-    say("RESULT", "PASS" if ok and not installer_seen else "FAIL",
-        "installed=%s installer_ui=%s relaunched=%s" % (ok, installer_seen, relaunched))
+    res = "PASS" if ok else "FAIL"
+    say("RESULT", res, "downloaded=%s notification=%s installer=%s installed=%s" % (downloaded, notif, installer_seen, ok))
     open(os.path.join(OUT, "result.txt"), "w").write(
-        "%s installed=%s installer_ui=%s relaunched=%s\n" % ("PASS" if ok and not installer_seen else "FAIL", ok, installer_seen, relaunched))
-    sys.exit(0 if ok and not installer_seen else 1)
+        "%s downloaded=%s notification=%s installer=%s installed=%s\n" % (res, downloaded, notif, installer_seen, ok))
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":

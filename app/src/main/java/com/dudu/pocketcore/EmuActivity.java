@@ -363,25 +363,6 @@ public class EmuActivity extends Activity {
 
     private String coreLabel = "";
 
-    /** 받아 둔 코어(files/cores/<id>.ver) 판 표식 — 없으면 null */
-    static String readVer(File f) {
-        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
-            byte[] b = new byte[64];
-            int n = in.read(b);
-            return n > 0 ? new String(b, 0, n, "UTF-8").trim() : null;
-        } catch (Exception e) { return null; }
-    }
-
-    /** 150: 동봉 코어가 받아 둔 코어보다 새것인가. 받은 코어가 늘 동봉보다 새것이라는 가정이 처음 깨진 판 —
-     *  동봉 SVC 코어 = SP 4.06 + 앱 방 패치(151: 흑백 창 고침. 150 엔 코어 보간도 있었다)인데 색인의 svc 는 아직 그냥 4.06 이라,
-     *  받아 둔 기기는 새 앱을 깔아도 옛 코어로 돌았을 것. 숫자만인 판(예 "4.06", 시험 레벨 "-test" 붙음)이 4.06 이하면 동봉을 쓴다.
-     *  색인에 더 새 판(4.07…, 또는 "-fg" 처럼 표식 붙은 판)이 올라오면 그건 다시 받은 코어가 이긴다. */
-    static boolean bundledIsNewer(String id, String ver) {
-        if (!"svc".equals(id) || ver == null) return false;
-        String v = ver.endsWith("-test") ? ver.substring(0, ver.length() - 5) : ver;
-        if (!v.matches("\\d+(\\.\\d+)?")) return false;
-        try { return Double.parseDouble(v) <= 4.06 + 1e-9; } catch (NumberFormatException e) { return false; }
-    }
 
     /** 코어 선택 — 밖에 둔 코어는 **게임별 이름 규칙일 때만** 받는다.
      *  cores/ss2*.so → SS2 롬에만, cores/svc*.so → 그 밖의 롬에. 나머지 .so 는 무시한다.
@@ -396,26 +377,9 @@ public class EmuActivity extends Activity {
             coreLabel = game.ko + " · 동봉 코어(리그)" + suffix;
             return getApplicationInfo().nativeLibraryDir + "/" + game.core;
         }
-        File[] f = new File(MainActivity.root(), "cores").listFiles();
-        if (f != null) for (File x : f) {
-            String n = x.getName().toLowerCase();
-            if (n.endsWith(".so") && n.startsWith(want)) {
-                coreLabel = "외부 코어: " + x.getName();
-                return x.getAbsolutePath();
-            }
-        }
-        /* 「업데이트 확인」이 받아 둔 코어 — 앱 **내부** 저장소. sdcard 는 실행권이
-           없어(noexec) dlopen 이 안 되는 기기가 많아 내부에 둔다. 동봉 코어보다 새것. */
-        File dir = new File(getFilesDir(), "cores");
-        File auto = new File(dir, want + ".so");
-        if (auto.exists()) {
-            String v = readVer(new File(dir, want + ".ver"));
-            if (!bundledIsNewer(want, v)) {
-                coreLabel = ((game != null) ? game.ko : "순정 NGPC")
-                          + ((v != null) ? " · 코어 " + v : "") + suffix;
-                return auto.getAbsolutePath();
-            }
-        }
+        /* 154: 늘 동봉 코어 — 밖에 둔 코어(PocketCore/cores/*.so)·「업데이트 확인」이 받아 둔 코어(files/cores)는 안 쓴다.
+           인터넷·저장소에서 온 실행 코드를 dlopen 하는 모양이 Play 프로텍트 «유해한 앱» 판정 거리(유저 「유해한앱이라고 안뜨게해줭」).
+           새 코어는 새 APK 로 */
         String lib = (game != null) ? game.core : Games.fallbackCore();
         coreLabel = ((game != null) ? game.ko : "순정 NGPC") + suffix;
         return getApplicationInfo().nativeLibraryDir + "/" + lib;

@@ -55,13 +55,9 @@ public final class Thumbs {
             } catch (Throwable ignored) { }
             String romPath = Patcher.resolve(ctx, rom.getPath(), game, lang, false, false);
 
-            /* 코어 선택 — EmuActivity 와 같은 순서의 축약판: 내부 자동 → 동봉 */
-            String want = (game != null && "ss2".equals(game.id)) ? "ss2" : "svc";
-            File auto = new File(new File(ctx.getFilesDir(), "cores"), want + ".so");
-            String core = (auto.exists() && !EmuActivity.bundledIsNewer(want, EmuActivity.readVer(new File(auto.getParentFile(), want + ".ver"))))
-                    ? auto.getAbsolutePath()
-                    : ctx.getApplicationInfo().nativeLibraryDir + "/"
-                      + ((game != null) ? game.core : Games.fallbackCore());
+            /* 코어 — 늘 동봉(154, EmuActivity.corePath 와 같게) */
+            String core = ctx.getApplicationInfo().nativeLibraryDir + "/"
+                    + ((game != null) ? game.core : Games.fallbackCore());
 
             int rc = Emu.nativeLoad(core, romPath,
                     MainActivity.sysDir().getAbsolutePath(),
