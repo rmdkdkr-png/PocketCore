@@ -42,8 +42,8 @@ public class PadView extends View {
     public static final int ACT_BAND = 9;   /* 코어 옵션을 게임 중에 뒤집는 칸 */
     /* ACT_SIDES(기둥) 는 2026-09-07 폐기 — 코어에서 빠지는 기능을 화면에 남기지 않는다. */
     public static final int ACT_QUIT = 11;                    /* 앱 종료 — 「목록」(ACT_PICK)과 달라야 한다(유저 2026-09-05) */
-    public static final int ACT_FRAMEGEN = 12;                /* 앱 프레임 생성 끔→움직임→섞기 */
-    public static final int ACT_COREFG = 13;                  /* 코어 프레임 생성(사무쇼2) 켬/끔 */
+    /* 12 = 옛 ACT_FRAMEGEN(앱 보간 — 151 폐기) */
+    /* 13 = 옛 ACT_COREFG(즉석 칸 — 104 에 화면에서 뺐고 151 에 동작도 뺌) */
     public static final int ACT_UNDO = 14;                    /* 되돌리기 — 불러오기·리셋 직전 자리로(5초 동안 칩) */
     public static final int ACT_QSAVE = 15;                   /* 빠른 저장 — 메뉴 알약 길게 누르기 */
     public static final int ACT_LAYOUT_DEFAULT = 16;          /* 배치 「처음대로」 — 게임 화면 자리도 자동 맞춤으로 */
@@ -284,7 +284,6 @@ public class PadView extends View {
     private final RectF resetBtn = new RectF();
     private long resetArmUntil = 0;
     /** (옛 「앱보간」·「코어120」 칸 — 2026-10-10 상단바에서 뺐다. 부르는 쪽이 남아 있어도 아무 일 없게) */
-    public void setFrameGenLabel(String s) { }
     public void setCoreFg(boolean has, String label) { hasCoreFg = has; }
 
     /** "ss2"·"svc"·"ngp" — 롬 헤더로 EmuActivity 가 정한다 */

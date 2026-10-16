@@ -205,27 +205,7 @@ def settings_pages(tag, pages, custom_check=False):
         if tap_text(page):
             time.sleep(2)
             scroll_shots("%s_07_%s" % (tag, page), 3)
-            if page == "움직임·반응" and tap_text("보간 고급"):      # 숨은 쪽(고급)
-                time.sleep(2)
-                if custom_check and tap_text("배수"):                 # 세부 하나를 바꾸면 보간 = 「커스텀」(108)
-                    time.sleep(1)
-                scroll_shots("%s_07_adv" % tag, 2)
-                sh("input keyevent 4")
-                time.sleep(1.5)
-                if custom_check:
-                    # 돌아온 「움직임·반응」 — 다시 짜여 「커스텀」 칸이 켜져야 한다(107 까지는 옛 칸이 켜진 채)
-                    scroll_top()
-                    shot("%s_07c_custom" % tag)
-                    bar = dial_under("120Hz = ")
-                    if bar:                                            # 120Hz 칸을 눌러 묶음으로 되돌린다
-                        sh("input tap %d %d" % (bar[0] + (bar[2] - bar[0]) // 6, (bar[1] + bar[3]) // 2))
-                        time.sleep(1)
-                        shot("%s_07d_back120" % tag)
-                        if tap_text("보간 고급"):                      # 배수가 4배로 돌아왔나
-                            time.sleep(2)
-                            shot("%s_07e_adv_after" % tag)
-                            sh("input keyevent 4")
-                            time.sleep(1.5)
+            # 151: 「보간 고급」·커스텀 확인 뺌 — 프레임 패치는 켬/끔 하나
             sh("input keyevent 4")
             time.sleep(1.5)
 

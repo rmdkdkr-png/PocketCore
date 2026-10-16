@@ -74,8 +74,7 @@ public final class Thumbs {
             Emu.nativeSetOption("ngp_svcsp_band", "disabled");
             Emu.nativeSetOption("ngp_framegen_idle", "off");     /* 썸네일은 원래 크기(160) — 서기 그리기는 4배로 내보낸다 */
             Emu.nativeSetOption("ngp_framegen_motion", "off");
-            /* 150: SVC 코어도 코어 보간(ngpfg)이 켜져 있으면 늘 4배(640×608)로 내보내고 숨은 프레임 2장을 더 돌린다 —
-               썸네일은 1배·빠르게(900 프레임) */
+            /* 사무쇼2 코어는 프레임 패치가 켜져 있으면 숨은 프레임을 더 돌린다 — 썸네일은 끄고 1배·빠르게(900 프레임) */
             Emu.nativeSetOption("ngp_framegen", "disabled");
             Emu.nativeRunFrames(BOOT_FRAMES);
             int w = Emu.nativeFrameWidth(), h = Emu.nativeFrameHeight();

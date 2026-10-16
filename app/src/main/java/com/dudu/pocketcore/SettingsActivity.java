@@ -282,27 +282,13 @@ public class SettingsActivity extends Activity {
         String note = null;
         if ("screen".equals(p.id) || "motion".equals(p.id))
             note = "게임으로 돌아가면 바로 바뀝니다.";
-        else if ("motion_adv".equals(p.id))
-            note = "여기서 바꾸면 보간이 「커스텀」이 되고 이 조합을 따로 기억합니다. 120Hz·60Hz 로 갔다가 「커스텀」을 누르면 이대로 돌아옵니다.";
         else if ("control".equals(p.id) || "game".equals(p.id) || "sound".equals(p.id))
             note = "조작 패치·언어·배경음악은 게임을 다시 열 때 반영됩니다(게임 안 「설정 › 적용하고 이어하기」로 바로).";
         header(col, p.title, note);
 
         for (String sec : p.sections) section(col, sec, visible(sec));
 
-        if ("motion".equals(p.id)) {
-            /* 고급 — 자주 안 쓰는 세부는 한 칸 안쪽에(유저 2026-10-11 「나머지 조정하려면 고급으로」) */
-            LinearLayout adv = sectionCard(col, "고급");
-            adv.addView(actionRow("보간 고급",
-                    "코어 보간 · 앱 보간 · 방식 · 배수 · 이펙트 · 날아가는 몸을 하나씩",
-                    new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    Intent i = new Intent(SettingsActivity.this, SettingsActivity.class).putExtra("page", "motion_adv");
-                    if (rom != null) i.putExtra("rom", rom);
-                    startActivity(i);
-                }
-            }));
-        }
+        /* 151: 「움직임·반응 › 고급(보간 고급)」 줄 뺌 — 프레임 패치는 켬/끔 하나(유저 「프레임패치 온오프만 만들어」) */
 
         if ("control".equals(p.id)) {
             /* 조작 패치(mods) — 게임마다 따로라 게임 이름으로 소절을 나눈다 */

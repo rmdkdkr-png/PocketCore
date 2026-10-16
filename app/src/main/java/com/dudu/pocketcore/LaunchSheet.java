@@ -96,7 +96,7 @@ public final class LaunchSheet {
         return s;
     }
     /** 런처 카드 아래 한 줄 — 이 게임에 지금 걸린 실행 옵션. 창을 열지 않아도 무엇으로 켜질지 보이게(2026-10-11).
-     *  켜진 것만 짧게: 「한글 · 원버튼 · SS1 음악 · 코어 보간 자동」. */
+     *  켜진 것만 짧게: 「한글 · 원버튼 · SS1 음악 · 프레임 패치」. *
     public static String summary(Activity a, Games.Game g) {
         if (g == null) return "";
         LaunchSheet s = new LaunchSheet(a, g, null);

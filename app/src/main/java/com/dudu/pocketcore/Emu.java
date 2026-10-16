@@ -33,17 +33,11 @@ public final class Emu {
     public static native void nativeAudioPause();   /* 백그라운드 — 오디오 장치를 놓는다 */
     public static native void nativeAudioResume();  /* 복귀 — 새 스트림으로 다시 연다 */
     public static native void nativeRunFrames(int n); /* GL 없이 n프레임 — 썸네일 캡처용 */
-    /* 프레임 생성(중간 프레임 보간) — 0=끔 1=섞기 2=움직임 보정 3=박자(게임 박자에 맞춰 60·120, ¼픽셀 — 60Hz 화면에서도 1단계).
-       1·2 는 120Hz 같은 빠른 화면에서만 실제로 끼운다 */
-    public static native void nativeSetFrameGen(int mode);
+    /* 151: 앱 보간(nativeSetFrameGen·nativeFrameGenActive) 폐기 — 120Hz 사이 칸은 코어의 프레임 패치만 */
     /** 실측 전 대용 패널 주사율(Display.getRefreshRate) — 코어의 GET_TARGET_REFRESH_RATE 답에 쓴다. */
     public static native void nativeSetPanelHz(float hz);
     /** 코어 멈춤 — 게임 안 「설정」 창이 떠 있는 동안. 그림은 마지막 것을 계속 그린다. */
     public static native void nativeSetPaused(boolean on);
-    /** 지금 끼우고 있으면 화면 Hz, 화면이 느려 못 끼우면 0, 아직 모르면 -1. */
-    public static native int  nativeFrameGenActive();
-    /** 150: 지금 코어에 코어 보간이 있나(사무쇼2 코어·새 SVC 코어) — 로드 전이면 0 */
-    public static native int  nativeCoreHasFg();
     /** 실측 패널 주사율(60/90/120…) — 상태 토스트용. */
     public static native float  nativePanelHz();
     /** 코어가 지금 선언한 fps — 사무쇼2 코어가 프레임 생성을 켜면 120.5. */

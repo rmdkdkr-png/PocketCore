@@ -152,7 +152,7 @@ public class EmuActivity extends Activity {
         pad.setProfile(profile, (game != null) ? game.id : "ngp");
         /* 상단바의 게임별 칸 — 코어가 이 게임에서 실제로 쓰는 기능만. 게임 표가 단일 출처다. */
         pad.setCoreFeatures(game != null && game.has(Games.F_BAND));
-        applyFrameGen(false);
+        applyFrameGen();
         applyDisplay();
         pad.setListener(new PadView.Listener() {
             @Override public void onMask(int mask) { padMask = mask; }
@@ -369,8 +369,8 @@ public class EmuActivity extends Activity {
     }
 
     /** 150: 동봉 코어가 받아 둔 코어보다 새것인가. 받은 코어가 늘 동봉보다 새것이라는 가정이 처음 깨진 판 —
-     *  동봉 SVC 코어 = SP 4.06 + 코어 보간(ngpfg)인데 색인의 svc 는 아직 4.06(보간 없음)이라, 받아 둔 기기는 새 앱을 깔아도
-     *  옛 코어로 돌아 «모든 게임 코어 보간»이 안 보였을 것. 숫자만인 판(예 "4.06", 시험 레벨 "-test" 붙음)이 4.06 이하면 동봉을 쓴다.
+     *  동봉 SVC 코어 = SP 4.06 + 앱 방 패치(151: 흑백 창 고침. 150 엔 코어 보간도 있었다)인데 색인의 svc 는 아직 그냥 4.06 이라,
+     *  받아 둔 기기는 새 앱을 깔아도 옛 코어로 돌았을 것. 숫자만인 판(예 "4.06", 시험 레벨 "-test" 붙음)이 4.06 이하면 동봉을 쓴다.
      *  색인에 더 새 판(4.07…, 또는 "-fg" 처럼 표식 붙은 판)이 올라오면 그건 다시 받은 코어가 이긴다. */
     static boolean bundledIsNewer(String id, String ver) {
         if (!"svc".equals(id) || ver == null) return false;
@@ -428,8 +428,6 @@ public class EmuActivity extends Activity {
                 (ranked() ? League.saveDir() : MainActivity.saveDir()).getAbsolutePath(),
                 MainActivity.optsFile().getAbsolutePath());
         loaded = rc == 0;
-        /* 150: 코어 보간이 있는지는 로드 뒤에 안다(SVC 코어도 생김) — 120Hz 요청·게임 중 칸을 다시 맞춘다 */
-        if (loaded) h.post(new Runnable() { @Override public void run() { applyFrameGen(false); } });
         snapCoreOpts();
         romMtime = new File(romPath).lastModified();
         toast(loaded ? coreLabel : "코어/롬 로드 실패 (code " + rc + ")");
@@ -574,20 +572,6 @@ public class EmuActivity extends Activity {
         case PadView.ACT_BAND:
             toggleCoreOpt("ngp_svcsp_band", "기술명 띠");
             break;
-        case PadView.ACT_FRAMEGEN: {
-            /* 앱 방식: 끔 → 박자 → 움직임 → 섞기 → 끔 */
-            String cur = readOpt("pocketcore_framegen", "off");
-            persistOption("pocketcore_framegen", "off".equals(cur) ? "cadence" : "cadence".equals(cur) ? "motion" : "motion".equals(cur) ? "blend" : "off");
-            applyFrameGen(true);
-            break; }
-        case PadView.ACT_COREFG: {
-            /* 코어 방식(사무쇼2): 자동 ↔ 끔. 게임 중에 바로 — nativeSetOption 이 코어에 «옵션 바뀜»을 알린다 */
-            String v = coreFgOn() ? "disabled" : "auto";
-            persistOption("ngp_framegen", v);
-            if (loaded) Emu.nativeSetOption("ngp_framegen", v);
-            synchronized (coreOptSnap) { coreOptSnap.put("ngp_framegen", v); }
-            applyFrameGen(true);
-            break; }
         case PadView.ACT_CFG: {
             /* 게임 중 옵션 창 — 실행 전 선택 창과 같은 것. 「적용하고 이어하기」= 지금 자리 저장 → 옵션대로 다시 굽기 → 다시 열어 그 자리부터
                (유저 2026-09-05 「게임 중간에도 이 창 되게 — 오토세이브하고 리로드」). 전체 설정은 창 아래 링크로. */
@@ -623,63 +607,24 @@ public class EmuActivity extends Activity {
         }
     }
 
-    /* ── 프레임 생성 ─────────────────────────────────────────────
-       코어는 60.25fps 그대로 돌리고, 120Hz 화면의 «빈 vsync» 에 중간 그림을 끼운다(native.c · framegen.c).
-       그러려면 화면이 실제로 120Hz 여야 한다 — 삼성은 정적 화면을 60Hz 로 내리므로
-       켜져 있을 때는 창·표면에 최고 주사율을 요청한다. 끄면 요청도 거둔다(배터리). */
-    /* ── 프레임 생성 — 시험판이라 «두 방식을 따로» 켜고 끈다 ──
-       앱 방식(pocketcore_framegen: 끔/박자/움직임/섞기) — 모든 게임. 완성된 화면에서 움직임을 찾아 중간 그림.
-       박자(149) = 게임 박자에 맞춰 60 먼저·120 까지 ¼픽셀(fg_cadence.c) — 60Hz 화면에서도 1단계가 돈다.
-       코어 방식(ngp_framegen: 자동/켬/끔) — 사무쇼2 코어만. 스프라이트·스크롤 위치를 보간해 다시 그림.
-       둘 다 켜면: 코어가 120.5fps 로 내보내는 동안은 120Hz 화면에 빈 vsync 가 없어 앱 방식은 저절로 비켜선다.
-       코어가 60 으로 돌아가면(패널 60·차단) 앱 방식이 대신 끼운다 — 결과적으로 «코어 우선, 앱은 대타». */
-    private int fgMode = 0;   /* 앱 보간 모드(native) 0 끔 · 1 섞기 · 2 움직임 · 3 박자 */
-
-    private static int fgModeOf(String v) { return "cadence".equals(v) ? 3 : "motion".equals(v) ? 2 : "blend".equals(v) ? 1 : 0; }
-    /** 이 게임은 코어 프레임 생성이 있는가 — ss2 코어(ss2-sp-core framegen), 150 부터 SVC 코어(ngpfg — 모든 게임)도.
-     *  로드 뒤엔 코어가 retro_ngp_fg_state 를 내놓는지로(밖에 둔 옛 SVC 코어면 없다) */
-    private boolean coreFg() { return "ss2".equals(romType) || (loaded && Emu.nativeCoreHasFg() != 0); }
+    /* ── 프레임 패치(옛 «코어 보간») — 사무쇼2 코어만 ─────────────────────────
+       코어가 다음 2프레임을 미리 돌려 보고 몸·배경 자리는 ¼픽셀로, 서기·동작은 사이 그림(캐시)으로, 이펙트는 옮겨서 4배로 다시 그린다.
+       설정은 켬/끔 하나(Settings MOTION — 켜면 늘 최선 조합, ngp_framegen=auto). 120Hz 화면이면 코어가 120.5fps 로 내보낸다 —
+       삼성은 정적 화면을 60Hz 로 내리므로 켜져 있을 때는 창·표면에 최고 주사율을 요청한다.
+       151: 앱 보간(완성된 화면에서 움직임을 짐작해 사이 그림 — framegen.c·fg_cadence.c) 폐기(유저 「앱보간 폐기해라」),
+       150 의 SVC 코어(다른 게임) 프레임 패치도 뺐다(「ss2만 되는걸로 해」 — 자리만 옮겨 체감이 없었다) */
+    /** 이 게임은 프레임 패치가 있는가 — 사무쇼2 코어만(151) */
+    private boolean coreFg() { return "ss2".equals(romType); }
     private boolean coreFgOn() { return coreFg() && !"disabled".equals(readOpt("ngp_framegen", "auto")); }
 
-    private void applyFrameGen(boolean announce) {
-        fgMode = fgModeOf(readOpt("pocketcore_framegen", "off"));
-        Emu.nativeSetFrameGen(fgMode);
-        if (pad != null) {
-            pad.setFrameGenLabel(fgMode == 3 ? "앱:박자" : fgMode == 2 ? "앱:움직임" : fgMode == 1 ? "앱:섞기" : "앱:끔");
-            pad.setCoreFg(coreFg(), coreFgOn() ? "코어:켬" : "코어:끔");
-        }
+    /** 프레임 패치 상태를 화면 주사율 요청에 맞춘다(게임 시작·설정에서 돌아올 때) */
+    private void applyFrameGen() {
+        if (pad != null) pad.setCoreFg(coreFg(), coreFgOn() ? "프레임 패치:켬" : "프레임 패치:끔");
         applyFrameRate();
-        if (!announce) return;
-        /* 화면이 실제 몇 Hz 인지·코어가 켰는지는 조금 지나야 안다(주사율 전환·코어 판정) */
-        h.postDelayed(new Runnable() { @Override public void run() { toast(fgStatus()); }}, 1800);
     }
 
-    /** 지금 실제로 무슨 일이 일어나는지 한 줄 — 「켰는데 되는 건가」를 이 토스트로 판정한다. */
-    private String fgStatus() {
-        int hz = Math.round(Emu.nativePanelHz());
-        boolean coreOut = Emu.nativeCoreFps() > 90;          /* 코어가 120.5 를 선언했다 */
-        StringBuilder sb = new StringBuilder("화면 " + hz + "Hz");
-        if (coreFg()) {
-            boolean ss2 = "ss2".equals(romType);
-            boolean four = !ss2 || "4".equals(readOpt("ngp_framegen_mult", "4"));
-            boolean interp = ss2 && "interp".equals(readOpt("ngp_framegen_mode", "predict"));
-            sb.append(" · 코어: ").append(!coreFgOn() ? "끔" : coreOut
-                    ? "120Hz 출력 중(" + (four ? "4배" : "2배") + "·" + (interp ? "보간" : "예측") + ")" : "60Hz 사이 그림(예측)");
-        }
-        sb.append(" · 앱: ");
-        if (fgMode == 0) sb.append("끔");
-        else if (coreOut) sb.append("비켜섬(코어가 이미 120)");
-        else if (fgMode == 3 && coreFgOn()) sb.append("비켜섬(코어 보간)");
-        else if (Emu.nativeFrameGenActive() > 0)
-            sb.append(fgMode == 3 ? (hz >= 100 ? "박자 보간 중(60+120)" : "박자 보간 중(60 — 120Hz 화면이면 120 까지)")
-                    : fgMode == 2 ? "움직임 보간 중" : "섞기 보간 중");
-        else sb.append(fgMode == 3 ? "준비 중" : "대기(화면이 게임보다 빠르지 않음)");
-        return sb.toString();
-    }
-
-    /** 120Hz 를 요청할 이유 — 프레임 생성이 켜졌을 때(앱이든 코어든). 삼성은 요청이 없으면 60 으로 내린다. */
-    /* 「60Hz」(코어 사이 그림)은 120Hz 를 요청하지 않는다 — 60Hz 화면용·배터리 */
-    private boolean wantHighRefresh() { return fgMode != 0 || (coreFgOn() && !"60".equals(readOpt("ngp_framegen", "auto"))); }
+    /** 120Hz 를 요청할 이유 — 프레임 패치가 켜졌을 때. 삼성은 요청이 없으면 60 으로 내린다. */
+    private boolean wantHighRefresh() { return coreFgOn(); }
 
     /** 창에는 최고 주사율 모드를, 표면에는 120fps 를 요청한다(끄면 기본으로). */
     private void applyFrameRate() {
@@ -1100,7 +1045,7 @@ public class EmuActivity extends Activity {
         if (loaded) Emu.nativeAudioResume();
         keymap = KeyMap.load();   /* 매핑 화면에서 돌아온 경우 */
         pushCoreOpts();           /* 설정에서 코어 옵션(프레임 생성·런어헤드·띠)을 바꾸고 돌아온 경우 — 게임 중에 바로 */
-        applyFrameGen(false);     /* 설정에서 프레임 생성을 바꾸고 돌아온 경우 */
+        applyFrameGen();     /* 설정에서 프레임 패치를 바꾸고 돌아온 경우 */
         applyDisplay();           /* 업스케일러·필터 */
         applyScreenLayout();      /* 설정에서 돌아온 경우 바로 반영 (터치 패드 모드 포함) */
         try { ((android.hardware.input.InputManager) getSystemService(INPUT_SERVICE))
