@@ -66,3 +66,5 @@ void league_disarm(void);
 void league_status(int v[LEAGUE_NSTAT]);
 /* 허브가 고르기 화면 입력을 쓰는 중(상대 선택·대신 누르기)이면 1 — look_tick 의 ctx */
 int league_hub_owns_select(void);
+/* look_tick 의 ctx — BUSY(위와 같음) · HOLD(연습 «내 캐릭터 먼저»: 컬러는 look, 결정은 허브) · FREE */
+int league_hub_look_ctx(void);
