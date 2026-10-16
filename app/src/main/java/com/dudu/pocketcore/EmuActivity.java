@@ -2878,7 +2878,7 @@ public class EmuActivity extends Activity {
         h.postDelayed(this, 150);
     }};
 
-    /** 띠 안내 — 버튼만(허브 상태 2 상대 선택 · 3 내 캐릭터 · 4 경기). 타이틀은 셋째 줄에 커서가 있을 때만(◀▶ 고르기), 그 밖·돌아가는 중엔 숨긴다.
+    /** 띠 안내 — 버튼만(허브 상태 7 내 캐릭터 먼저 · 2 상대 선택 · 3 내 캐릭터 확정 뒤 · 4 경기). 타이틀은 셋째 줄에 커서가 있을 때만(◀▶ 고르기), 그 밖·돌아가는 중엔 숨긴다.
      *  버튼 이름은 패드 글자 그대로(A · B · OPTION) — 레퍼런스: 철권8 «[BACK]+[←] 벽을 등지고», KOF XV «왼쪽 = 화면 왼쪽 끝» 처럼 방향마다 결과를 적는다 */
     /** 내 캐릭터 쪽 버튼 안내 — 화면마다(캐릭터: B = 2P색으로 결정 · 검질: B 는 게임의 «뒤로» · 카드: 게임 그대로). 그 밖(이야기·라운드 연출)은 빈 줄/숨김 */
     private static String myPickKeys(int scr, boolean league) {
@@ -2895,7 +2895,8 @@ public class EmuActivity extends Activity {
             if (dv != null && dv.length >= 5 && dv[0] == 1 && dv[3] == 1)
                 return "◀▶ 연습 대전 / 리그 대전  ·  A 시작" + (dv[1] == 0 ? "\n리그는 따로 세이브 판에서 해요" : "");
             return null;
-        case 2: return "A 수라 · B 나찰 · OPTION 스테이지";   /* 고르는 캐릭터 = 더미(검질은 A·B) — 좁은 띠에서도 한 줄 */
+        case 2: return "상대 · A 수라 · B 나찰 · OPTION 스테이지";   /* 고르는 캐릭터 = 더미(검질은 A·B) — 좁은 띠에서도 한 줄 */
+        case 7:   /* 내 캐릭터 먼저(캐릭터 선택 — A 결정 · B 2P색 · OPTION 컬러), 그다음 상대(2) */
         case 3: return myPickKeys(dv != null && dv.length >= 6 ? dv[5] : 2, false);
         case 4:   /* 좁은 띠(버튼 사이)에서도 줄이 접히지 않게 두 줄로 */
             if (ps.length > 1 && ps[1] != 0) return "↑↓ 고르기 · ←→ 바꾸기\nA 실행 · B 닫기";

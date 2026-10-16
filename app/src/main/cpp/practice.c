@@ -1078,7 +1078,7 @@ uint32_t practice_fd_get(uint8_t *cells, int *sum)
 
 #define JNI(ret, name) JNIEXPORT ret JNICALL Java_com_dudu_pocketcore_Emu_##name
 
-/* 연습 대전 허브 켜기(일반 세션 · 확인한 롬 판만 — Java 가 가린다). autostart = 메뉴 «연습 대전» → 상대 선택까지 대신 누름 */
+/* 연습 대전 허브 켜기(일반 세션 · 확인한 롬 판만 — Java 가 가린다). autostart = 메뉴 «연습 대전» → 캐릭터 선택(내 캐릭터 먼저)까지 대신 누름 */
 JNI(void, nativePracticeHub)(JNIEnv *env, jclass cls, jboolean on, jboolean autostart)
 { (void)env; (void)cls; practice_forget(); league_practice_hub(on ? 1 : 0, autostart ? 1 : 0); }
 

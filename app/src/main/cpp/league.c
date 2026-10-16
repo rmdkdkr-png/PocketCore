@@ -69,6 +69,11 @@
 #define R_BOUT   A(0x5827)   /* 1인 대전 몇 번째 판(0~) — 배경(스테이지)은 상대가 아니라 이 값을 따른다. 0~7 = 서로 다른 배경 8개
                                 (0 후지산 마을 · 1 숲속 호숫가 · 2 산 위 신사 · 3 화염 사원(불타는 절, 밤) · 4 폐허 사원(불타는 절, 낮) ·
                                 5 불꽃 동굴 · 6 마계 제단 · 7 수정 신전). 판이 뜨기 전부터 매 프레임 쓰면 그 배경으로 뜬다 — CPU 단계·배율은 그대로(실측) */
+#define R_CCOL   A(0x5746)   /* 캐릭터 고르기 진짜 커서 칸 0~4 · 줄 0~2 (R_HOVER 는 화면 사본 — 쓰면 게임이 되돌림). 둘을 쓰면 다음 A 가 그 칸으로 결정(실측, 확인한 롬 판 모두) */
+#define R_CROW   A(0x5748)
+#ifndef PREPOS_F
+#define PREPOS_F 20          /* 고르기 화면이 뜬 뒤 커서 톡을 받기 시작 ~10프레임(실측) — 그 뒤에 커서를 옮긴다(넉넉히 · 시험은 -DPREPOS_F=1 로 다시 하기 길) */
+#endif
 #define IN_A     1           /* NGPC A = libretro JOYPAD_B(0) */
 #define IN_OPT   (1 << 3)    /* NGPC OPTION = libretro START(3) */
 #define IN_DOWN  (1 << 5)
@@ -125,18 +130,21 @@ static int look_stage = -1, look_color = 0;   /* 다음 무장에 쓸 배경(lea
    화면 글자는 코어의 문자/스크롤 램을 직접 고친다(롬·세이브는 안 건드림). 배치가 다르면(순정 롬 등) 글자는 그대로 두고 흐름만 같다.
 
    종류(kind) 1 = 연습 대전(일반 세션, practice.c) — 같은 상태 기계를 쓰되
-   H_TITLE    셋째 줄 글자 «연습 대전» / «PRACTICE».
+   H_TITLE    셋째 줄 글자 «연습 대전» / «PRACTICE». A → H_PICK_ME1(내 캐릭터 먼저 — 아래 enum 설명).
    H_PICK_OPP 머리말 «상대 선택», 15명 모두(가운데 무작위 칸 = 유가). A = 수라 더미 · B = 나찰 더미 · 옵션 = 스테이지(오른쪽 세로 칸).
               고르면 대진만 무장(카드·난도·규칙·올카드는 안 건드림 — 사용자 세이브 그대로).
-   H_PICK_ME  리그와 같다(옵션 컬러 · B 2P색). 검질 고르기를 본 뒤 카드 화면이 끝나면 첫 라운드까지 이야기·대사를 A 로 넘긴다.
+   H_PICK_ME  내 캐릭터 칸으로 커서를 되돌려 A 를 대신 누른 뒤(nav 4) 리그와 같다(옵션 컬러). 검질 고르기를 본 뒤 카드 화면이 끝나면 첫 라운드까지 이야기·대사를 A 로 넘긴다.
    H_MATCH    연습 경기(practice.c). 메뉴 «상대 고르기»/«타이틀로» → native.c 가 리셋 → league_practice_return → H_RETURN
-              (상대 고르기면 메뉴에서 바로 «연습 대전» → 상대 선택).
+              (상대 고르기면 메뉴에서 바로 «연습 대전» → 상대 선택 — 내 캐릭터는 그대로).
 
    둘 다(dual, league_hub_dual) — 실행 창 옵션 «리그·연습 대전» 하나로 두 모드를 다 쓴다. 셋째 줄에 커서가 오면 글자 양옆에 ◀ ▶ 를 그리고
    ←→ 로 «연습 대전» ↔ «리그 대전»을 바꾼다(sel). 이 판의 종류(kind)와 같은 쪽에서 A 면 위 흐름 그대로, 다른 쪽이면 A 를 받아 두고
    handoff 를 세운다 — 리그는 따로 세이브·고정 롬·동봉 코어로 돌아야 해서(랭크전 판) Java 가 판을 갈아 끼우고(일반 세션 ↔ 리그 세션)
    새 판은 league_hub_go 로 로고·메뉴를 넘겨 바로 상대 선택까지 간다(전원부터 1초 남짓 — 실측 61프레임). */
-enum { H_OFF = 0, H_TITLE, H_PICK_OPP, H_PICK_ME, H_MATCH, H_RETURN, H_SEARCH };
+enum { H_OFF = 0, H_TITLE, H_PICK_OPP, H_PICK_ME, H_MATCH, H_RETURN, H_SEARCH, H_PICK_ME1 };
+/* H_PICK_ME1 (연습만) 내 캐릭터 먼저 — 게임 머리말 «캐릭터 선택» 그대로, 컬러(OPTION)·2P색 표시(B)는 look(ctx HOLD). A·B 는 허브가 받아 두고
+              H_PICK_OPP(«상대 선택»)로. 상대를 고르면 커서를 내 캐릭터 칸으로 되돌려(nav 4) A 를 대신 눌러 확정 → H_PICK_ME(검질·카드는 게임 그대로).
+              연습 메뉴 «상대 고르기»는 내 캐릭터를 둔 채 바로 H_PICK_OPP(무작위 칸이었으면 뽑힌 캐릭터로 — 더미만 바뀐다). 번호는 뒤에 붙여 다른 상태 번호는 그대로 */
 /* H_SEARCH (랭크 매치) 타이틀 메뉴 그대로 두고 앱이 «상대 찾는 중…»·상대 카드를 게임 위에 띄운다. 허브는 게임 입력을 모두 막고 누름만 모은다(ev).
               앱이 상대를 정하면(league_hub_match) 재대결과 같은 길로 «상대 선택» 없이 바로 내 캐릭터 고르기(H_PICK_ME, 대진·손잡이 무장).
               취소(league_hub_search(0))면 H_TITLE. */
@@ -159,7 +167,14 @@ static struct {
    int color;                        /* 안 씀 — 컬러는 look.c(캐릭터마다 기억). .prac 덩어리가 sizeof H 그대로라 칸은 남긴다 */
    int hold_b;                       /* B 로 캐릭터를 확정한 뒤 사용자가 B 를 뗄 때까지 게임에 안 준다(검질 고르기에서 B = 뒤로) */
    int vp_on;                        /* 오른쪽 세로 이름 칸을 배경 글자로 바꿔 놓았나(표시만 — 칸의 주인·원래 값은 vpanel.c) */
-   uint16_t vp_orig[18];             /* 안 씀 — 원래 값은 vpanel.c 가 하나만 둔다(.prac 크기를 지키려고 칸은 남김) */
+   /* 연습 «내 캐릭터 먼저» — 예전 vp_orig[18](안 쓰던 36바이트) 자리라 .prac 덩어리 크기·뒤 칸 자리 그대로. 내부 133~137 은 이 자리에 세로 칸 타일 값을
+      남겼고(그 뒤 판도 덩어리째 이어 저장) 그 밖의 옛 덩어리는 0 — me_tag 가 PR_ME_TAG 가 아니면 되돌릴 때 비운다(pr_apply) */
+   int me_tag;                       /* PR_ME_TAG = 아래 칸이 이 판이 쓴 값 */
+   signed char me1, me_b2p, opp1, me_pin;   /* 내 칸 + 1(캐릭터 0~13 · 15 가운데 무작위 칸, 0 = 모름) · 2P색으로 골랐나 · 지난 더미 + 1 · 무작위 칸에서 뽑힌 캐릭터 + 1 */
+   int nav_ch, nav_a, nav_dir, nav_try;     /* nav 4: 커서를 옮길 칸(캐릭터 id · 15 가운데) · 옮긴 뒤 A · 톡 방향 · 다시 한 횟수 */
+   int prepos;                       /* 이번 고르기 화면에서 커서 미리 옮기기를 했나 */
+   int me_go;                        /* 내 캐릭터를 받았다 — 다음 프레임에 상대 고르기로(그 프레임 look 이 B 를 2P색으로 보게: ctx 는 허브 다음에 정해짐) */
+   int me_pad;                       /* 남는 칸(크기 맞춤) */
    int kind;                         /* 0 리그 · 1 연습 대전 */
    int pick_sty;                     /* 연습: 고른 더미 검질(A 수라 0 · B 나찰 1) */
    int repick;                       /* 연습: 리셋 뒤 메뉴에서 바로 «연습 대전» → 상대 선택까지(연습 «상대 고르기» · 리그 «다른 상대» · 갈아탄 새 판) */
@@ -341,6 +356,11 @@ static void hdr_put(int kind, int sangdae)
 static void vp_put(int lab) { if (lab >= 0 && lab < HUB_VLAB_N) { vpanel_put(HUB_VLAB + lab * 18 * 16); H.vp_on = vpanel_on(); } }   /* lab: 0~7 배경 · 8 무작위 */
 static void vp_restore(void) { vpanel_restore(); H.vp_on = 0; }
 
+/* 캐릭터 고르기 판(3줄 × 5칸) — 캐릭터 id → 줄·칸(14 유가는 판에 없음 → 가운데 15 칸). 확인한 롬 판 모두 같음(실측) */
+static const signed char CELL_R[16] = { 2, 2, 0, 0, 1, 1, 1, 1, 0, 2, 0, 2, 2, 0, 1, 1 };
+static const signed char CELL_C[16] = { 3, 1, 4, 0, 1, 3, 4, 0, 2, 2, 3, 4, 0, 1, 2, 2 };
+static void nav_to(int ch, int press_a) { H.nav = 4; H.nav_f = H.f; H.nav_ch = ch == 14 ? 15 : ch & 15; H.nav_a = press_a; H.nav_dir = 0; H.nav_try = 0; }
+
 static void arm_locked(int opp, int sty, int diff, int points, int timev, int flags, const int *knob);
 static void hub_go_fixed(uint8_t *ram)       /* 정해진 상대로 1인 대전 → 내 캐릭터 고르기(메뉴·커서 2 에서만 부른다) */
 {
@@ -387,6 +407,26 @@ static void hub_tick(uint8_t *ram, int input)
       league_ovr_mask = (!menu && ((d >= 20 && d < 24) || (d >= 200 && d < 204) || (d >= 380 && d < 384))) ? IN_A : 0;
       if (menu) { H.nav = 3; H.nav_f = H.f; H.downs = 2; league_ovr_mask = 0; }
       else if (d > 900) { H.nav = 0; league_ovr_on = 0; league_ovr_mask = 0; H.st = H_TITLE; }
+   } else if (H.nav == 4) {                           /* 고르기 커서를 nav_ch 칸으로 — 이웃 칸을 써 두고 그쪽으로 한 번 톡(게임이 미리보기·이름을 스스로 바꿈 ·
+                                                         가운데 칸은 바로 쓰면 A 를 안 받는다, 실측) → 맞으면 nav_a 일 때 A */
+      unsigned d = H.f + 1 - H.nav_f;
+      int t = H.nav_ch & 15, tr = CELL_R[t], tc = CELL_C[t];
+      int at = ram[R_CROW] == tr && ram[R_CCOL] == tc && (ram[R_HOVER] >> 2) == t;
+      league_ovr_on = 1; league_ovr_mask = 0;
+      if (d == 2) {
+         if (at) H.nav_dir = 0;
+         else { ram[R_CROW] = (uint8_t)tr; ram[R_CCOL] = (uint8_t)(tc > 0 ? tc - 1 : tc + 1); H.nav_dir = tc > 0 ? IN_RIGHT : IN_LEFT; }
+      }
+      if (d >= 2 && d < 6) league_ovr_mask = H.nav_dir;
+      if (d == 10 && !at) {                           /* 톡이 안 먹었다(화면이 막 뜸 등) — 세 번까지 다시, 그래도면 손 뗌(사용자가 고른다) */
+         int hv = ram[R_HOVER] >> 2;
+         if (H.nav_try < 3 && csel) { H.nav_try++; H.nav_f = H.f; }   /* 다음 틱이 d 2(다시 쓰기·톡) */
+         else {                                       /* 진짜 커서를 보이는 칸으로 되돌려 둔다(써 둔 이웃 칸이 남으면 A 가 안 보이는 칸을 고른다) */
+            if (csel && hv < 16) { ram[R_CROW] = (uint8_t)CELL_R[hv]; ram[R_CCOL] = (uint8_t)CELL_C[hv]; }
+            H.nav = 0; league_ovr_on = 0;
+         }
+      } else if (H.nav_a && d >= 12 && d < 16) league_ovr_mask = IN_A;
+      else if (d >= (H.nav_a ? 18u : 11u)) { H.nav = 0; league_ovr_on = 0; }
    } else if (H.nav == 3) {                           /* 메뉴 커서를 «리그 대전»(2)까지 아래로 */
       unsigned d = H.f + 1 - H.nav_f;
       league_ovr_on = 1; league_ovr_mask = ((d % 12) >= 4 && (d % 12) < 8 && H.downs > 0) ? IN_DOWN : 0;
@@ -404,6 +444,7 @@ static void hub_tick(uint8_t *ram, int input)
             H.st = H_SEARCH; H.ev = 0; H.go = 0;
          } else if (H.repick && menu && ram[R_MCUR] == 2) {   /* 연습 «상대 고르기»·리그 «다른 상대»·갈아탄 새 판: 바로 상대 선택 */
             ram[R_MCUR] = 0; H.nav = 1; H.nav_f = H.f; H.st = H_PICK_OPP; H.picked = -1; H.seen_csel = 0; H.csel_f = 0;
+            if (H.kind == 1) { H.prepos = 0; H.me_go = 0; if (!H.me1) H.st = H_PICK_ME1; }   /* 연습: 내 캐릭터를 모르면(새 판·갈아탄 판) 나부터 */
          }
          H.repick = 0;
       }
@@ -427,8 +468,8 @@ static void hub_tick(uint8_t *ram, int input)
                H.st = H_SEARCH; H.ev = 0; H.go = 0; H.hold_a = 1;
             }
             else if (a_edge) {                        /* «리그 대전»/«연습 대전» 선택 → 1인 대전 캐릭터 고르기로 */
-               ram[R_MCUR] = 0; H.nav = 1; H.nav_f = H.f; H.st = H_PICK_OPP; H.picked = -1; H.seen_csel = 0; H.csel_f = 0;
-               H.focus = 0;
+               ram[R_MCUR] = 0; H.nav = 1; H.nav_f = H.f; H.st = H.kind == 1 ? H_PICK_ME1 : H_PICK_OPP; H.picked = -1; H.seen_csel = 0; H.csel_f = 0;
+               H.focus = 0; H.prepos = 0; H.me_go = 0;
             }
          }
       }
@@ -450,8 +491,36 @@ static void hub_tick(uint8_t *ram, int input)
    case H_RETURN:                                    /* 돌아가는 중에도 메뉴가 뜨면 셋째 줄 글자를 바로(원래 «2 인 대전»이 잠깐 보이지 않게) */
       if (menu) { H.focus = 0; menu_relabel(mk, 0); H.label_menu = mk; }
       break;
+   case H_PICK_ME1:                                  /* 연습: 내 캐릭터 먼저 — 컬러(OPTION)·2P색 표시(B)는 look(ctx HOLD — B 로 A 를 대신 안 누름) */
+      if (csel) { H.seen_csel = 1; H.csel_f++; } else H.csel_f = 0;
+      if (csel && !H.nav) {
+         block = IN_A | IN_B;
+         int h = ram[R_HOVER] >> 2;
+         H.hover = (h >= 0 && h < 14) || h == 15 ? h : -1;
+         if (input & (IN_UP_DOWN | IN_LEFT | IN_RIGHT)) H.prepos = 1;   /* 사용자가 먼저 커서를 움직였으면 미리 옮기지 않는다(쥔 커서를 뺏지 않게) */
+         if (!H.prepos && H.csel_f >= PREPOS_F) {    /* 지난번 내 칸에서 시작(«타이틀로» 뒤 다시 연습 대전) */
+            H.prepos = 1;
+            if (H.me1 > 0 && h != H.me1 - 1) { nav_to(H.me1 - 1, 0); break; }
+         }
+         if (H.me_go) {                              /* 머리말 «상대 선택»은 10프레임 뒤(그때부터 고를 수 있음 — 두 번 눌러 안 보고 골라지지 않게) */
+            H.me_go = 0; H.st = H_PICK_OPP; H.picked = -1; H.csel_f = 10; H.prepos = 0;
+         } else if ((a_edge || b_edge) && H.csel_f >= 20 && H.hover >= 0 && !(look_in_block & IN_A)) {   /* look 이 A 까지 막음 = 컬러 만들기 창(패드 A 는 창 몫) */
+            int lv[LOOK_NSTAT];
+            look_status(lv);                         /* A = 보이는 색으로(B 를 먼저 눌러 2P색이 보이면 2P색 — look 이 혼자 고를 때와 같게) */
+            H.me1 = (signed char)(H.hover + 1); H.me_pin = 0; H.me_b2p = (signed char)(b_edge || (lv[0] && lv[6])); H.me_go = 1;
+            if (a_edge) H.hold_a = 1; else H.hold_b = 1;
+         }
+      } else if (menu && !H.nav && H.seen_csel) { H.st = H_TITLE; H.seen_csel = 0; H.vp_on = 0; H.me_go = 0; }   /* 캐릭터 고르기에서 뒤로 나감 */
+      else if (menu && !H.nav && !H.seen_csel && H.f - H.nav_f > 90) { H.st = H_TITLE; ram[R_MCUR] = 2; }   /* 대신 누른 A 를 게임이 안 받았다 */
+      break;
    case H_PICK_OPP:
       if (csel) { H.seen_csel = 1; H.csel_f++; } else H.csel_f = 0;
+      if (csel && !H.nav && H.kind == 1 && (input & (IN_UP_DOWN | IN_LEFT | IN_RIGHT))) H.prepos = 1;   /* 먼저 움직였으면 그대로(내 캐릭터를 고르자마자 더미 쪽으로 가는 손) */
+      if (csel && !H.nav && H.kind == 1 && !H.prepos && H.csel_f >= PREPOS_F) {   /* 연습: 지난 더미 칸에서 시작 */
+         int o = H.opp1 - 1 == 14 ? 15 : H.opp1 - 1;
+         H.prepos = 1;
+         if (H.opp1 > 0 && (ram[R_HOVER] >> 2) != o) { block = IN_A | IN_B | IN_OPT; nav_to(o, 0); break; }   /* 이 프레임도 막는다(대신 누르기는 다음 프레임부터 — 누른 A 가 게임에 새면 내 캐릭터 확정) */
+      }
       if (csel && !H.nav && H.kind == 1) {          /* 연습: A 수라 · B 나찰 더미 · 옵션 스테이지(게임은 이 화면에서 B·옵션을 안 쓴다) */
          block = IN_A | IN_B | IN_OPT;
          if (o_edge) H.stage_sel = H.stage_sel == -2 ? 0 : H.stage_sel >= 7 || H.stage_sel < -2 ? -2 : H.stage_sel + 1;
@@ -469,6 +538,13 @@ static void hub_tick(uint8_t *ram, int input)
             look_color = H.color;
             arm_locked(H.picked, H.pick_sty, -1, 0, 0, 0, NULL);   /* 대진·배경·컬러만 — 카드·난도·규칙·올카드는 사용자 세이브 그대로 */
             H.st = H_PICK_ME; H.style_seen = 0;
+            H.opp1 = (signed char)(H.picked + 1);
+            if (H.me1 > 0) {                         /* 커서를 내 캐릭터로 되돌려 A — 검질 고르기부터는 게임 그대로. 무작위 칸에서 뽑혔던 캐릭터가 있으면 그 칸(더미만 바뀐다) */
+               int pin = H.me1 == 16 && H.me_pin > 0 ? H.me_pin - 1 : -1;
+               vp_restore();
+               nav_to(pin >= 0 ? pin : H.me1 - 1, 1);
+               look_set_pick(H.me_b2p, pin);         /* 2P색·무작위 칸 컬러 — 리셋(look_forget)이 지웠다. L_mu → K_mu (허용된 순서) */
+            }
             if (a_edge) H.hold_a = 1; else H.hold_b = 1;
          }
       } else if (csel && !H.nav) {
@@ -504,6 +580,17 @@ static void hub_tick(uint8_t *ram, int input)
          if (ram[R_MODE] == 240 && ram[R_SCR] == 4) H.style_seen = 1;
          int story = H.style_seen && ((ram[R_MODE] == 241 && ram[R_SCR] == 0 && ram[R_FIGHT] == 0) || (ram[R_MODE] == 240 && ram[R_SCR] == 8));
          league_in_or = (story && (H.f % 30u) < 4) ? IN_A : 0;
+         if (csel && !H.nav) {                       /* 게임 쪽에서 다시 고르면(검질 고르기에서 B 로 뒤로) 그 칸이 내 칸 — 뽑혔던 캐릭터로 고정한 칸은 확정 연출 동안만 무작위 칸 그대로
+                                                        (뒤로 와서 그 칸을 다시 고르면 직접 고른 것 — look 도 그때 무작위 칸 컬러 기억을 놓는다) */
+            int h = ram[R_HOVER] >> 2;
+            if (((h >= 0 && h < 14) || h == 15) && h + 1 != H.me1 && (H.style_seen || !(H.me1 == 16 && h == H.me_pin - 1))) { H.me1 = (signed char)(h + 1); H.me_pin = 0; }
+         }
+      }
+      if (L.fight_seen && H.kind == 1) {            /* 연습 경기 시작 — 무작위 칸이면 뽑힌 캐릭터(P1 블록, 유가 치트면 14 → 고정 안 함), 2P색은 look 이 실제로 쓴 것 */
+         int c = ram[R_P1BLK] >> 4, lv[LOOK_NSTAT];
+         H.me_pin = (signed char)(H.me1 == 16 && c < 14 ? c + 1 : 0);
+         look_status(lv);
+         if (lv[0]) H.me_b2p = (signed char)(lv[6] != 0);
       }
       if (L.fight_seen) { H.st = H_MATCH; league_in_or = 0; }
       else if (menu && !H.nav && H.seen_csel) { L.armed = 0; H.st = H_TITLE; H.picked = -1; H.seen_csel = 0; H.vp_on = 0; league_in_or = 0; }   /* 대진 전에 타이틀로 — 무효 */
@@ -533,7 +620,7 @@ void league_hub(int on, const signed char *sty, const signed char *dif)
    pthread_mutex_unlock(&L_mu);
 }
 
-/* 연습 대전 허브(일반 세션, 확인한 롬 판만 — Java 가 가린다). on = 켜기, autostart = 로고·인트로를 넘겨 메뉴 «연습 대전» → 상대 선택까지
+/* 연습 대전 허브(일반 세션, 확인한 롬 판만 — Java 가 가린다). on = 켜기, autostart = 로고·인트로를 넘겨 메뉴 «연습 대전» → 캐릭터 선택(내 캐릭터 먼저)까지
    대신 누른다(실행 창의 «연습 대전으로» 링크 — 이어하기로 연 판에서는 Java 가 0 을 준다). 리그와 같은 허브를 종류 1 로 쓴다. */
 /* 연습 경기 이어가기 — 상태 저장 옆(.prac, native.c)에 남긴 허브(H·L·고른 배경·컬러)를 불러온 뒤 그대로 되돌린다. 옵션을 바꾸면 앱이
    «저장 → 코어 내림 → 다시 올림 → 불러오기»를 하고(applyLive), 이어하기·슬롯 불러오기도 같은 길이라, 안 그러면 연습이 꺼진 채
@@ -544,11 +631,21 @@ void league_hub(int on, const signed char *sty, const signed char *dif)
 #define PR_L_137 offsetof(__typeof__(L), k_lv)      /* L 도 손잡이 칸 앞까지(내부 134~137 의 L 크기) */
 #define PR_BLOB_OLD (PR_H_OLD + PR_L_137 + 2 * sizeof(int))
 #define PR_BLOB_137 (PR_H_137 + PR_L_137 + 2 * sizeof(int))
+_Static_assert(sizeof H == 628, ".prac 허브 크기(내부 138~) 그대로 — 새 칸은 남는 자리에");
+#define PR_ME_TAG 0x4D45C0DE                        /* me_tag — 아래 절반 0xC0DE(뒤집기 비트 둘)는 옛 vp_orig 의 세로 이름 칸 값일 수 없다 */
 static uint8_t pr_pend[PR_BLOB_N];
+static void pr_me_check(void)                       /* 내 캐릭터 칸(옛 vp_orig 자리) — 이 판이 쓴 값이고 범위 안일 때만, 아니면 «모름»(상대 고르기 = 나부터) */
+{
+   int ok = H.me_tag == PR_ME_TAG && H.me1 >= 0 && H.me1 <= 16 && H.me1 != 15 && (H.me_b2p == 0 || H.me_b2p == 1)
+         && H.opp1 >= 0 && H.opp1 <= 15 && H.me_pin >= 0 && H.me_pin <= 14;
+   if (!ok) { H.me1 = 0; H.me_b2p = 0; H.opp1 = 0; H.me_pin = 0; }
+   H.me_tag = PR_ME_TAG; H.nav_ch = 0; H.nav_a = 0; H.nav_dir = 0; H.nav_try = 0; H.prepos = 0; H.me_go = 0; H.me_pad = 0;
+}
 static void pr_apply(const uint8_t *b)
 {
    int dual = H.dual;                               /* 둘 다 켜짐은 지금 판(Java)이 정한 것 — 저장 때 값이 아니라 */
    memcpy(&H, b, sizeof H); memcpy(&L, b + sizeof H, sizeof L);
+   pr_me_check();
    H.dual = dual; H.sel = H.kind; H.handoff = 0; H.focus = 0; H.menu_saved = 0;
    memcpy(&look_stage, b + sizeof H + sizeof L, sizeof(int));
    memcpy(&look_color, b + sizeof H + sizeof L + sizeof(int), sizeof(int));
@@ -603,7 +700,7 @@ void league_practice_hub(int on, int autostart)
    memset(&H, 0, sizeof H);
    memset(&L, 0, sizeof L);
    hub_gen = 0;
-   H.kind = 1;
+   H.kind = 1; H.me_tag = PR_ME_TAG;
    H.st = !on ? H_OFF : autostart ? H_RETURN : H_TITLE;
    H.sel = 1;
    if (on && autostart) { H.nav = 2; H.nav_f = 0; H.repick = 1; }
@@ -728,7 +825,7 @@ void league_hub_cancel(void)
    pthread_mutex_unlock(&L_mu);
 }
 
-/* [허브 상태(0 꺼짐·1 타이틀·2 상대 고르기·3 내 캐릭터·4 경기·5 타이틀로 돌아가는 중), 커서 캐릭터, 고른 상대 캐릭터, 허브 프레임,
+/* [허브 상태(0 꺼짐·1 타이틀·2 상대 고르기·3 내 캐릭터·4 경기·5 타이틀로 돌아가는 중·6 랭크 상대 찾기·7 연습 내 캐릭터 먼저), 커서 캐릭터, 고른 상대 캐릭터, 허브 프레임,
     메뉴 글자 바꿈, 머리말 글자 바꿈, 재대결 상대, 대신 누르기 단계, 타이틀로 돌려보낸 횟수, 고른 배경(−1 상대 기본·−2 무작위·0~7),
     고르기 화면에 보이는 컬러(0~17 — look_cur), 무장한 경기의 배경(−1 없음)] */
 void league_hub_status(int v[LEAGUE_NHUB])
@@ -1029,6 +1126,14 @@ int league_hub_owns_select(void)
 {
    pthread_mutex_lock(&L_mu);
    int v = H.st == H_PICK_OPP || H.nav != 0 || league_ovr_on;
+   pthread_mutex_unlock(&L_mu);
+   return v;
+}
+/* look_tick 의 ctx(native.c) — BUSY 위와 같음 · HOLD 연습 «내 캐릭터 먼저»(커서 미리 옮기기 포함 — 컬러·2P색 표시는 look, 결정은 허브) · FREE */
+int league_hub_look_ctx(void)
+{
+   pthread_mutex_lock(&L_mu);
+   int v = H.st == H_PICK_ME1 ? LOOK_CTX_HOLD : (H.st == H_PICK_OPP || H.nav != 0 || league_ovr_on) ? LOOK_CTX_BUSY : LOOK_CTX_FREE;
    pthread_mutex_unlock(&L_mu);
    return v;
 }

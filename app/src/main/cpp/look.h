@@ -10,6 +10,8 @@
 /* look_tick 의 ctx — 허브가 고르기 화면 입력을 쓰는 중(league_hub_owns_select)이면 BUSY: 컬러는 손대지 않는다 */
 #define LOOK_CTX_FREE 0
 #define LOOK_CTX_BUSY 1
+/* 허브가 «결정»만 쥔다(연습 «내 캐릭터 먼저») — 컬러·2P색 표시는 look 이 하되 B 의 A 대신 누르기는 안 한다(허브가 상대를 고른 뒤 확정) */
+#define LOOK_CTX_HOLD 2
 void look_enable(int on);                               /* Java: 사쇼2 확인한 롬 판(일반 판 practiceRomOk · 리그 판) + 설정 «컬러 고르기» 켬 */
 void look_vram(void *chr, void *scr, void *pal);        /* league_vram 이 넘겨준다(세로 칸은 vpanel 로) */
 void look_palremap_fn(void *fn);                        /* 코어의 retro_ngp_palremap(옛 코어면 NULL — 프레임 뒤 고쳐 쓰기만) */
@@ -18,6 +20,8 @@ void look_tick(uint8_t *ram, size_t n, int input, int ctx);
 void look_set_mem(const signed char *mem, int n);       /* 캐릭터마다 기억한 컬러(Java 가 저장한 값) */
 int  look_get_mem(signed char *mem, int n);             /* 돌려줌 = 기억 바뀐 횟수 */
 void look_set_custom(int ch, int k, int c1, int c2, int c3);   /* 내 색 k(0·1) — 세 색 12비트 0x0BGR, c1 < 0 이면 지움 */
+void look_set_pick(int b2p, int rnd_ch);               /* 허브가 내 캐릭터 결정을 되살린다(연습 «상대 고르기» — 리셋이 look_forget 으로 지움): 2P색 ·
+                                                           무작위 칸에서 뽑혔던 캐릭터(0~13, −1 없음 — 그 칸이면 무작위 칸 컬러 기억) */
 void look_set_match(int idx);                           /* 이 경기 컬러를 정해 둔다(리그 체크포인트 이어 하기) — −1·0 = 정하지 않음 */
 void look_edit(int on, int c1, int c2, int c3);         /* 컬러 만들기 창: 고르기 화면 미리보기를 이 색으로(on 0 = 끝) — 그동안 게임 입력은 모두 막는다 */
 /* [켜짐, 고르기 화면을 쥠, 기억 바뀐 횟수, 보이는 컬러, 경기 컬러(−1), 경기 캐릭터(−1 = 0x57D5 로), 2P색 결정 중, 만들기 요청 횟수,

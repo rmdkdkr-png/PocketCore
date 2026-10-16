@@ -74,6 +74,7 @@ static struct {
    uint16_t pv_last[3]; int pv_has, pv_sty;   /* 미리보기에 마지막으로 쓴(보인) 세 색·그 검질 — 만드는 색을 바꾸거나 창을 닫으면 그 색은 표에 없어서, 이것으로 «우리 색»을 알아본다 */
    int prow, psty, pslot, sty_seen;   /* 미리보기 캐릭터 줄·검질·기억 칸(상태 저장 직전 되돌리기·만들기 창) · 검질 고르기에서 본 검질(−1) */
    int rand_pick;                     /* 가운데 무작위 칸에서 결정했다 — 검질 고르기 동안 게임이 커서를 뽑기처럼 돌려 실제 캐릭터에서 멈춘다(실측) */
+   int rand_pin;                      /* 무작위 칸에서 뽑혔던 캐릭터 + 1 — 허브가 그 칸으로 다시 고를 때 무작위 칸의 컬러 기억(look_set_pick · 타이틀에서 잊음) */
    const uint8_t *ram;
    int mem_gen, sel_gen, edit_req;    /* Java 가 보는 바뀜 셈 */
    unsigned f;
@@ -191,21 +192,21 @@ void look_tick(uint8_t *ram, size_t n, int input, int ctx)
    int md = ram[R_MODE], scr = ram[R_SCR];
    if (md == 240 && scr == 0 && vpanel_menu_kind()) {                 /* 타이틀 메뉴 — 경기 컬러를 잊는다(SCR 0 만으론 안 됨: 이어하기 뒤 8프레임 SCR 0) */
       if (K.sel >= 0) K.sel_gen++;
-      K.sel = -1; K.sel_ch = -1; K.b2p = 0;
+      K.sel = -1; K.sel_ch = -1; K.b2p = 0; K.rand_pin = 0;
    }
    int sel_scr = md == 240 && (scr == 2 || scr == 4) && vpanel_layout();
-   int owned = sel_scr && ctx == LOOK_CTX_FREE;
+   int owned = sel_scr && ctx != LOOK_CTX_BUSY;
    if (o_dn) { K.opt_f = (int)K.f; K.opt_own = owned && !K.edit; }
    if (owned) {
       int h = ram[R_HOVER] >> 2;
       if (scr == 2) K.rand_pick = h == 15;
-      int slot = (scr == 4 && K.rand_pick) || h == 15 ? 15 : h < 14 ? h : -1;   /* 무작위로 골랐으면 돌아가는 캐릭터와 상관없이 무작위 칸의 기억 */
+      int slot = (scr == 4 && K.rand_pick) || h == 15 || (K.rand_pin && h == K.rand_pin - 1) ? 15 : h < 14 ? h : -1;   /* 무작위로 골랐으면 돌아가는 캐릭터와 상관없이 무작위 칸의 기억 */
       int row = h < 14 ? h : h == 15 ? LOOK_ROW_KUROKO : -1;
       if (slot >= 0 && row >= 0) {
          int was2 = K.owned && K.last_scr == 2;                       /* 지난 프레임에도 캐릭터 고르기를 쥐고 있었나 — 검질 고르기의 «뒤로» B 가
                                                                          같은 프레임에 캐릭터 고르기로 넘어와 2P색 결정으로 또 잡히지 않게(실측) */
          int sty_now = scr == 4 ? (ram[R_STYC] & 1) : -1;
-         if (scr == 2 && K.last_scr == 4) K.b2p = 0;                 /* 검질 고르기에서 뒤로 — 2P색 결정 풀림 */
+         if (scr == 2 && K.last_scr == 4) { K.b2p = 0; K.rand_pin = 0; }   /* 검질 고르기에서 뒤로 — 2P색 결정 풀림 */
          K.last_scr = scr;
          if (K.edit) block = IN_ALL;                                  /* 컬러 만들기 창 — 게임에 아무것도 안 준다(고르기 화면엔 시간 제한이 없다, 실측) */
          else {
@@ -219,7 +220,7 @@ void look_tick(uint8_t *ram, size_t n, int input, int ctx)
                                                                          쿠로코 칸·무작위로 고른 검질 고르기 제외 — 내 색은 캐릭터마다라 기억 칸이 그 캐릭터일 때만) */
             if (scr == 2) {                                           /* 게임은 캐릭터 고르기에서 B 를 안 쓴다(실측) */
                block |= IN_B;
-               if (b_edge && was2 && !K.hold_b) { K.b2p = 1; K.inj = 1; K.inj_f = (int)K.f; K.hold_b = 1; }
+               if (b_edge && was2 && !K.hold_b) { K.b2p = 1; K.hold_b = 1; if (ctx != LOOK_CTX_HOLD) { K.inj = 1; K.inj_f = (int)K.f; } }   /* HOLD: 표시만(결정은 허브) */
             }
          }
          int m = K.mem[slot] >= 0 && K.mem[slot] < LOOK_NIDX && idx_ok(row, K.mem[slot], -1) ? K.mem[slot] : 0;
@@ -306,6 +307,12 @@ void look_set_custom(int ch, int k, int c1, int c2, int c3)
    pthread_mutex_lock(&K_mu);
    K.cus_ok[ch][k] = c1 >= 0;
    if (c1 >= 0) { K.cus[ch][k][0] = (uint16_t)(c1 & 0xFFF); K.cus[ch][k][1] = (uint16_t)(c2 & 0xFFF); K.cus[ch][k][2] = (uint16_t)(c3 & 0xFFF); }
+   pthread_mutex_unlock(&K_mu);
+}
+void look_set_pick(int b2p, int rnd_ch)
+{
+   pthread_mutex_lock(&K_mu);
+   K.b2p = K.on && b2p; K.rand_pin = rnd_ch >= 0 && rnd_ch < 14 ? rnd_ch + 1 : 0; K.sel_gen++;   /* 꺼진 판엔 2P색을 안 남긴다(켜면 다음 고르기에 새지 않게) */
    pthread_mutex_unlock(&K_mu);
 }
 void look_set_match(int idx)
@@ -397,6 +404,7 @@ void look_forget(void)
 {
    pthread_mutex_lock(&K_mu);
    K.sel = -1; K.sel_ch = -1; K.cur = 0; K.b2p = 0; K.edit = 0; K.owned = 0; K.hold_b = 0; K.inj = 0; K.last_scr = -1; K.prow = -1; K.opt_own = 0; K.pv_has = 0;
+   K.rand_pin = 0;
    rm_init = 0; vpanel_forget();
    look_in_block = 0; look_in_or = 0;
    pthread_mutex_unlock(&K_mu);

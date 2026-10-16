@@ -938,9 +938,9 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             league_vram(chr, scr, pal);
             league_palremap_fn(c_palremap);
             league_tick_hub(ram, ramsz, in);
-            /* 컬러(모든 모드) — 허브가 고르기 화면 입력을 쓰는 동안(상대 선택·대신 누르기)엔 «바쁨»: 컬러는 손대지 않는다.
-               허브 잠금은 league_hub_owns_select 안에서 풀린 뒤 look 잠금을 잡는다(겹치지 않음) */
-            look_tick(ram, ramsz, in, league_hub_owns_select() ? LOOK_CTX_BUSY : LOOK_CTX_FREE);
+            /* 컬러(모든 모드) — 허브가 고르기 화면 입력을 쓰는 동안(상대 선택·대신 누르기)엔 «바쁨»: 컬러는 손대지 않는다. 연습 «내 캐릭터 먼저»는
+               «쥠»(HOLD — 컬러·2P색 표시는 look, 결정은 허브). 허브 잠금은 league_hub_look_ctx 안에서 풀린 뒤 look 잠금을 잡는다(겹치지 않음) */
+            look_tick(ram, ramsz, in, league_hub_look_ctx());
             /* 연습 대전(허브가 연습 경기일 때만 일함) — 같은 잠금·같은 순서. 메뉴에서 나가기를 고르면 여기서 리셋하고 허브를 돌려보낸다 */
             practice_vram(chr, scr, pal, c_spriteram ? c_spriteram() : NULL);
             practice_tick(ram, ramsz, in);
