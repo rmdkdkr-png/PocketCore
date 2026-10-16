@@ -15,6 +15,7 @@
 #include <time.h>
 #include "libretro.h"
 #include "framegen.h"
+#include "pace.h"
 #include "league.h"
 #include "practice.h"
 #include "look.h"
@@ -134,6 +135,13 @@ static GLuint    g_tex_gh = 0;
 static int16_t g_ring[ARING_FRAMES * 2];
 static volatile uint32_t g_rd = 0, g_wr = 0;
 static AAudioStream *g_stream = NULL;
+/* 150: 소리 늘리고 줄이기 — 코어를 화면 vsync 수로 돌리면(pace.c) 게임이 60.25 → 60.0 처럼 조금 느려져 소리가 모자란다.
+   고리 버퍼를 «소리 카드가 한 번에 가져가는 양 + 700» 근처로 지키게 ±0.5% 늘리고 줄인다(음높이 차이 8.6 cent 안 — 안 들림) */
+static pace_t g_pace;
+static drc_t  g_drc;
+static volatile int32_t g_cb_frames = 0;   /* 소리 카드가 한 번에 가져간 가장 큰 양(오디오 스레드가 적는다) */
+static int16_t g_drc_out[8192 * 2];
+static int g_turbo_audio = 0;             /* 배속 중 — 소리를 늘리고 줄이지 않는다(nativeFrame 이 g_turbo 를 옮겨 적는다) */
 
 /* 코어 자물쇠(116) — libretro 코어는 한 스레드에서만 불려야 한다. 예전엔 onPause 오토세이브·SRAM 저장·옵션 바꾸기를
    UI 스레드에서 바로 불러, GL 스레드가 retro_run 을 도는 도중과 겹쳤다. 숨은 프레임(런어헤드·프레임 생성)이 «소리 칸을
@@ -354,7 +362,7 @@ static void cb_video(const void *data, unsigned w, unsigned h, size_t pitch)
    g_fb_dirty = 1;
 }
 
-static size_t cb_audio_batch(const int16_t *data, size_t frames)
+static void ring_push(const int16_t *data, size_t frames)
 {
    uint32_t wr = g_wr;
    for (size_t i = 0; i < frames; i++) {
@@ -365,6 +373,23 @@ static size_t cb_audio_batch(const int16_t *data, size_t frames)
       wr = next;
    }
    g_wr = wr;
+}
+
+static size_t cb_audio_batch(const int16_t *data, size_t frames)
+{
+   size_t done = 0;
+   while (done < frames) {                       /* 큰 묶음은 나눠서(출력 칸 8192) */
+      size_t n = frames - done > 4096 ? 4096 : frames - done;
+      uint32_t fill = (g_wr - g_rd + ARING_FRAMES) % ARING_FRAMES;
+      unsigned cb = (unsigned)g_cb_frames, target = cb + 700;
+      if (target < 900) target = 900;
+      if (g_turbo_audio) ring_push(data + done * 2, n);   /* 배속 중엔 그대로(넘치면 버림 — 예전과 같다) */
+      else {
+         size_t w = drc_run(&g_drc, data + done * 2, n, g_drc_out, 8192, drc_ratio(g_pace.drc_base, fill, target));
+         ring_push(g_drc_out, w);
+      }
+      done += n;
+   }
    return frames;
 }
 
@@ -397,6 +422,7 @@ static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
    (void)s; (void)ud;
    int16_t *out = (int16_t *)audioData;
    uint32_t rd = g_rd;
+   if (numFrames > g_cb_frames && numFrames < 8192) g_cb_frames = numFrames;
    for (int32_t i = 0; i < numFrames; i++) {
       if (rd == g_wr) {                /* underrun: hold silence */
          out[i * 2] = 0; out[i * 2 + 1] = 0;
@@ -856,6 +882,7 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
    sram_load();
    g_loaded = 1;
 
+   pace_reset(&g_pace); drc_reset(&g_drc);   /* 150: 새 게임 — 박자 잠금·소리 늘림을 처음부터 */
    audio_start(g_av.timing.sample_rate > 0 ? (int)g_av.timing.sample_rate : 44100);
    LOGI("loaded %ux%u @%.2f fps, %.0f Hz",
         g_av.geometry.base_width, g_av.geometry.base_height,
@@ -903,7 +930,6 @@ JNI(void, nativeSurfaceCreated)(JNIEnv *env, jclass cls) { (void)env; (void)cls;
 JNI(void, nativeResize)(JNIEnv *env, jclass cls, jint w, jint h)
 { (void)env; (void)cls; g_vw = w; g_vh = h; LOGI("resize view %d x %d (fb %u x %u)", w, h, g_fb_w, g_fb_h); }
 
-static double g_next_t;   /* 다음 코어 프레임 마감 시각 */
 static int g_turbo = 0;   /* 배속(▶▶) 누르는 동안 4배 */
 static volatile int g_paused = 0;   /* 게임 안 「설정」 창이 떠 있는 동안 — 코어를 멈추고 마지막 그림만 그린다 */
 
@@ -925,13 +951,12 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
       audio_start(g_audio_rate);
    }
    /* 화면 vsync(60/120Hz)마다 불리지만, 코어는 게임 fps 로만 돌린다 —
-      120Hz 폰에서 두 배속으로 돌던 문제의 수정. 밀리면 최대 2프레임까지 따라잡고
-      그 이상 밀린 시계는 버린다(일시정지·백그라운드 복귀 폭주 방지). */
+      120Hz 폰에서 두 배속으로 돌던 문제의 수정. 150: 몇 번 돌릴지는 pace.c — 화면 vsync 수가 게임 프레임의 정수배면
+      «k 번에 한 번»을 세어(예전 «시계가 마감을 넘었나»는 깨어나는 때가 조금만 흔들려도 한 번 거르고 두 번 돌았다),
+      아니면 예전처럼 시계로(밀리면 최대 2프레임까지 따라잡고, 그 이상 밀린 시계는 버린다). */
    double fps = g_av.timing.fps > 1.0 ? g_av.timing.fps : 60.0;
    double dt = 1.0 / fps, t = now_s();
-   int steps = 0, maxsteps = 2;
-   if (g_turbo) { dt *= 0.25; maxsteps = 6; }
-   if (g_next_t <= 0.0 || t - g_next_t > 0.25) g_next_t = t;
+   int steps = 0, nsteps;
    /* vsync 간격 실측 — 기기가 화면 주사율을 60/120 사이로 바꿔도 따라간다 */
    if (g_last_vsync > 0.0) {
       double iv = t - g_last_vsync;
@@ -939,21 +964,23 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
          g_vsync_ema = g_vsync_ema > 0.0 ? g_vsync_ema * 0.9 + iv * 0.1 : iv;
    }
    g_last_vsync = t;
+   g_turbo_audio = g_turbo;
+   nsteps = pace_steps(&g_pace, t, fps, g_panel_hz_hint, g_turbo, g_paused || !g_loaded);
    /* 프레임 생성은 화면이 게임보다 «충분히» 빠를 때만 — 60Hz 화면에선 끼울 빈 vsync 가 없다.
       배속 중에도 끈다(한 vsync 에 여러 프레임이 돈다). */
-   int fg_on = g_fg_mode != FG_OFF && g_fg_mode != FG_CADENCE && !g_turbo && g_loaded
-            && g_vsync_ema > 0.0 && g_vsync_ema < dt * 0.70
+   int fast = pace_fast_display(&g_pace, fps);
+   int fg_on = g_fg_mode != FG_OFF && g_fg_mode != FG_CADENCE && !g_turbo && g_loaded && fast
             && g_fb_w <= 320;                       /* 4배 그림(서기 그리기)엔 앱 보간을 안 돌린다 — 16배 일 */
    /* «박자» — 60Hz 화면에서도 돈다(1단계: 실제 프레임 칸을 60 박자로). 120Hz 면 사이 칸까지(2단계).
       코어가 이미 4배·120 으로 내보내면(사무쇼2) 폭이 320 을 넘거나 코어 fps 가 화면만큼 빨라 저절로 비켜선다. */
-   int hi = g_vsync_ema > 0.0 && g_vsync_ema < dt * 0.70;
+   int hi = fast;
    int cad = g_fg_mode == FG_CADENCE && !g_turbo && g_loaded && g_fb && g_fb_w && g_fb_w <= 320 && dt > 0.012;
-   if (g_paused) { g_next_t = t; maxsteps = 0; fg_on = 0; cad = 0; }   /* 멈춤 — 풀리면 시계를 지금부터 다시 */
+   if (g_paused) { fg_on = 0; cad = 0; }
    { static int last_mode = -1, last_gen = -1;              /* 모드가 바뀌었거나 게임·상태가 바뀌면 고리를 비운다(GL 스레드에서만) */
      if (g_fg_mode != last_mode || g_cad_gen != last_gen) { last_mode = g_fg_mode; last_gen = g_cad_gen; fg_cad_reset(); g_cad_have = 0; g_cad_pend = 0; } }
    if (!cad && (g_cad_have || fg_cad_ready())) { fg_cad_reset(); g_cad_have = 0; g_cad_pend = 0; }
    int cad_new = 0;
-   while (g_next_t <= t && steps < maxsteps) {
+   while (steps < nsteps) {
       CORE_LOCK();                       /* retro_run 한 번 단위 — 그 사이에 UI 스레드의 저장이 끼어들 수 있게 */
       if (g_loaded) {
          if (fg_on && g_fb && g_fb_w) {      /* 코어가 덮어쓰기 전에 지금 그림을 «직전»으로 */
@@ -994,7 +1021,7 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
       CORE_UNLOCK();
       /* «박자» — 진짜 프레임마다 고리에 넣는다(한 vsync 에 둘 돌면 둘 다) */
       if (cad && g_loaded && g_fb && g_fb_w) { if (fg_cad_push(g_fb, (int)g_fb_w, (int)g_fb_h)) cad_new = 1; }
-      g_next_t += dt; steps++;
+      steps++;
    }
    /* 이번 vsync 에 새 프레임이 나왔으면 «중간 그림»을 먼저 보여 주고, 다음 vsync 에 새 프레임.
       120Hz 에서 표시 순서 = 중간(n-1→n) · n · 중간(n→n+1) · n+1 … (반 프레임 지연) */
