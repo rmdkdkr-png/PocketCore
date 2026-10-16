@@ -12,6 +12,8 @@
 #define LOOK_CTX_BUSY 1
 /* 허브가 «결정»만 쥔다(연습 «내 캐릭터 먼저») — 컬러·2P색 표시는 look 이 하되 B 의 A 대신 누르기는 안 한다(허브가 상대를 고른 뒤 확정) */
 #define LOOK_CTX_HOLD 2
+/* 153 랭크 자동 진행 — 허브가 화면을 대신 밟는 동안: look 은 FREE 처럼 보이는 색·경기 컬러를 정하되 사용자 입력은 안 본다(OPTION·B 가 컬러를 바꾸거나 A 를 대신 누르지 않게) */
+#define LOOK_CTX_AUTO 3
 void look_enable(int on);                               /* Java: 사쇼2 확인한 롬 판(일반 판 practiceRomOk · 리그 판) + 설정 «컬러 고르기» 켬 */
 void look_vram(void *chr, void *scr, void *pal);        /* league_vram 이 넘겨준다(세로 칸은 vpanel 로) */
 void look_palremap_fn(void *fn);                        /* 코어의 retro_ngp_palremap(옛 코어면 NULL — 프레임 뒤 고쳐 쓰기만) */

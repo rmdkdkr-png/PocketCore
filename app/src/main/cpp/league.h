@@ -11,7 +11,7 @@ void league_tick_hub(uint8_t *ram, size_t n, int input);
 void league_vram(void *chr, void *scr, void *pal);
 /* 코어의 retro_ngp_palremap(없으면 NULL) — 컬러를 게임이 팔레트를 쓰는 순간 바꿔 넣어 깜빡임 없이(look_palremap_fn 에 넘김) */
 void league_palremap_fn(void *fn);
-#define LEAGUE_NHUB 15
+#define LEAGUE_NHUB 15   /* 늘리지 않는다 — 고정 크기로 받는 하네스가 있다(153 자동 진행·VS 띠는 따로: league_hub_autostatus · league_hub_vs_status) */
 void league_hub(int on, const signed char *sty, const signed char *dif);
 void league_hub_return(int rematch);
 void league_hub_cancel(void);
@@ -30,8 +30,23 @@ void league_hub_ranked(int on);
 void league_hub_search(int on);
 int  league_hub_match(int ch, int sty, int diff, int stage, int lv, int cap, int atk, int dfn, int floor, int go);
 int  league_hub_take_ev(void);
+/* 153 VS 띠 — 다음 경기 무대 인트로 위 검은 띠에 Java 가 그린 타일(league.c 설명). tiles NULL = 끄기 */
+#define LEAGUE_VS_THRU_BANNER 1
+int  league_hub_vs(const uint8_t *tiles, int n, const uint16_t *map, int hold, int flags);
+#define LEAGUE_NVS 3
+void league_spr(void *spr);   /* 153 — 스프라이트 램(VS 띠 겹침 검사). native.c 가 league_vram 옆에서 */
+void league_hub_vs_status(int v[LEAGUE_NVS]);   /* [단계|0x10 얹힘|0x20 겹침 포기, 대사 단계 프레임, hold] */
 /* 다음 league_arm 의 CPU 손잡이(시작 단계 0x5814 · 상한 0x5815 · 공격 배율 0x57E2 · 받는 피해 배율 0x57E4 · 경기 중 실시간 단계 바닥 0x5CF5, −1 그대로) — 한 번 쓰면 비움 */
 void league_cpu(int lv, int cap, int atk, int dfn, int floor);
+/* 153 랭크 자동 진행 — 내 캐릭터(칸 0~13 · 15 무작위)·검질·2P색·카드 칸 두 개(−1 없음)로 go 부터 무대 인트로까지 입력 없이(league.c 설명).
+   flags 2 = tail(on 0: 직접 고른 판도 이야기부터 자동 · 내 고르기 기록) · 4 = 단계 1~5 동안 4배속·소리 끔. 다음 go 부터. 1 = 받음 */
+int  league_hub_autopick(int on, int cell, int sty, int b2p, int k1, int k2, int flags);
+#define LEAGUE_NMYPICK 8
+void league_hub_mypick(int v[LEAGUE_NMYPICK]);     /* [있음, 칸, 캐릭터, 검질, 2P색, 카드 1, 2, 경기 컬러] */
+#define LEAGUE_NAUTO 5
+void league_hub_autostatus(int v[LEAGUE_NAUTO]);   /* [단계 0~8(6 무대 인트로 · 8 막힘), go 뒤 프레임, go→장면, go→첫 라운드, 막힌 단계] */
+/* 153: native.c 가 프레임마다(잠금 없이) — 1 = 코어 4배속(pace 배속) · 1 = 게임 소리를 버린다(자동 진행 단계 1~5 · −4 리셋부터, autopick flags 4) */
+extern volatile int league_ff, league_mute;
 /* 허브가 게임 대신 받는 입력 비트 — 입력 콜백은 사용자 입력에서 이 비트를 지운다 */
 extern volatile int league_in_block;
 /* 사용자 입력에 더할 비트(연습 대전: 이야기·대사 넘기기 A) — 입력 콜백 = (입력 & ~막는 비트) | 더할 비트 */
