@@ -472,7 +472,7 @@ static void arm_locked(int opp, int sty, int diff, int points, int timev, int fl
      검질    0x572A 04 인 동안 0x574C 를 쓰고 A(16프레임마다) — 받으면 확정 연출(0C, 캐릭터·검질 따라 41~187프레임 · 무작위 칸은 뽑기 ~370)
      카드    «안받음»(A → 창 → R → A, 0x572A·0x573A 로 확인하며) 뒤 이야기 동안 0x57DC/DD 에 내 카드를 직접 쓴다
              (실측 e3d: 진짜 두 장 고르기와 전투 칸 0x5B56/57 · 배율 0x57D8/DA 가 같다)
-     이야기  序章(MODE 241 · SCR 0)을 A 로 — 0x57CB 가 0 인 동안만(넘김이 먹으면 3·6·0x0C — 그 뒤 A 가 인트로 첫 프레임에 새면 대사 단계가 바로 끝남)
+     이야기  序章(MODE 241 · SCR 0)을 A 로(story_skip_a — 넘김이 먹어 0x57CB 가 3·6·0x0C 가 되면 그만: 인트로 첫 프레임에 새면 대사 단계가 바로 끝남)
      장면    MODE 240 · SCR ≥ 8 = 무대 인트로(두 캐릭터·무대 · 첫 프레임에 P1·P2 블록. SCR = 8 + 2 × 딸린 것 수). 여기서 앱은 찾기 겹창을 내린다(단계 6).
              인트로는 VS 띠(위 VS)의 몫 — 띠가 걸려 있으면 대사를 hold 만큼 보이고 띠 쪽이 A. 띠가 없으면(안 걸림·상대 다름) 여기서
              FIGHT 1(대사) 인 동안 A 로 넘긴다(FIGHT 0 «자아 당당히», 정해진 ~206프레임에서 멈추니 라운드로 안 샘)
@@ -622,7 +622,7 @@ static int pick_me_153(uint8_t *ram)
          my_track(ram);
          if (!MY.done && story_start(ram)) {         /* 직접 고르기가 끝남(카드 화면을 나감) — 내 고르기를 남기고, tail(·고르기에서 막힌 자동)이면 이야기부터 자동 */
             my_commit(ram, 0);
-            if ((AP.tail && !AP.on && AP.ph == AP_OFF) || (AP.ph == AP_FAIL && AP.why < AP_STORY)) { AP.manual = 1; auto_next(AP_STORY); blk = auto_tick(ram, &a_or); }
+            if (((AP.tail || APC.tail) && !AP.on && AP.ph == AP_OFF) || (AP.ph == AP_FAIL && AP.why < AP_STORY)) { AP.manual = 1; auto_next(AP_STORY); blk = auto_tick(ram, &a_or); }   /* tail 은 go 뒤에 켜도(이야기 전까지) */
          }
       }
    }
