@@ -215,6 +215,7 @@ volatile int league_in_block = 0;     /* 입력 콜백이 사용자 입력에서
 static int hub_scr = -1;              /* 지난 프레임 메뉴 화면(MODE 240 일 때 R_SCR: 0 타이틀 · 2 캐릭터 · 4 검질 · 6 카드 · 8 대사, 아니면 −1) — 띠 안내를 화면마다 */
 static unsigned hub_gen;              /* 타이틀로 돌려보낸 횟수 — Java 가 «돌려보냄이 코어에 닿았나»를 본다(닿기 전의 옛 상태로 경기 기록을 만들지 않게) */
 
+static uint8_t *hub_ram;               /* 마지막 league_tick_hub 의 램(L_mu 안에서만) */
 static uint8_t *g_chr, *g_scr;        /* 코어 문자 램(타일 512 × 16바이트) · 스크롤 램(두 판 × 32 × 32 × 2바이트) */
 /* 팔레트 램·세로 칸은 look·vpanel 이 쓴다 — native.c(·호스트 하네스)는 그대로 league_vram 하나만 부른다 */
 void league_vram(void *chr, void *scr, void *pal) { g_chr = (uint8_t *)chr; g_scr = (uint8_t *)scr; look_vram(chr, scr, pal); }
@@ -521,8 +522,10 @@ static void hub_tick(uint8_t *ram, int input)
          } else if ((a_edge || b_edge) && H.csel_f >= 20 && H.hover >= 0 && !(look_in_block & IN_A)) {   /* look 이 A 까지 막음 = 컬러 만들기 창(패드 A 는 창 몫) */
             int lv[LOOK_NSTAT];
             look_status(lv);                         /* A = 보이는 색으로(B 를 먼저 눌러 2P색이 보이면 2P색 — look 이 혼자 고를 때와 같게) */
-            H.me1 = (signed char)(H.hover + 1); H.me_pin = 0; H.me_b2p = (signed char)(b_edge || (lv[0] && lv[6])); H.me_go = 1;
-            if (a_edge) H.hold_a = 1; else H.hold_b = 1;
+            if (a_edge || lv[0]) {                   /* 컬러 고르기 꺼짐이면 B 는 아무 일도 안 한다(띠도 «A 결정» 뿐 — 2P색 뜻을 남기면 나중에 켰을 때 샌다) */
+               H.me1 = (signed char)(H.hover + 1); H.me_pin = 0; H.me_b2p = (signed char)(lv[0] && (b_edge || lv[6])); H.me_go = 1;
+               if (a_edge) H.hold_a = 1; else H.hold_b = 1;
+            }
          }
       } else if (menu && !H.nav && H.seen_csel) { H.st = H_TITLE; H.seen_csel = 0; H.vp_on = 0; H.me_go = 0; }   /* 캐릭터 고르기에서 뒤로 나감 */
       else if (menu && !H.nav && !H.seen_csel && H.f - H.nav_f > 90) { H.st = H_TITLE; ram[R_MCUR] = 2; }   /* 대신 누른 A 를 게임이 안 받았다 */
@@ -604,7 +607,7 @@ static void hub_tick(uint8_t *ram, int input)
          int c = ram[R_P1BLK] >> 4, lv[LOOK_NSTAT];
          H.me_pin = (signed char)(H.me1 == 16 && c < 14 ? c + 1 : 0);
          look_status(lv);
-         if (lv[0]) H.me_b2p = (signed char)(lv[6] != 0);
+         H.me_b2p = (signed char)(lv[0] && lv[6] != 0);   /* 컬러 꺼진 경기면 2P색 뜻도 지운다(옛 덩어리의 남은 1 도 여기서 낫는다) */
       }
       if (L.fight_seen) { H.st = H_MATCH; league_in_or = 0; }
       else if (menu && !H.nav && H.seen_csel) { L.armed = 0; H.st = H_TITLE; H.picked = -1; H.seen_csel = 0; H.vp_on = 0; league_in_or = 0; }   /* 대진 전에 타이틀로 — 무효 */
@@ -627,6 +630,7 @@ void league_hub(int on, const signed char *sty, const signed char *dif)
    pr_pend_on = 0;
    memset(&H, 0, sizeof H);
    post_clear_locked();
+   hub_ram = NULL;                                   /* 코어를 새로 올렸을 수 있다 — 다음 틱이 다시 잡는다 */
    hub_gen = 0;                                      /* 새 화면(Java)의 셈과 같이 0 부터 */
    H.st = on ? H_TITLE : H_OFF; H.picked = -1; H.hover = -1; H.rematch = -1; H.stage_sel = -1; H.sel = 0;
    for (int i = 0; i < 15; i++) { H.sty[i] = sty ? sty[i] : -1; H.dif[i] = dif ? dif[i] : 1; H.home[i] = -1; }
@@ -715,6 +719,7 @@ void league_practice_hub(int on, int autostart)
    memset(&H, 0, sizeof H);
    memset(&L, 0, sizeof L);
    post_clear_locked();
+   hub_ram = NULL;
    hub_gen = 0;
    H.kind = 1; H.me_tag = PR_ME_TAG;
    H.st = !on ? H_OFF : autostart ? H_RETURN : H_TITLE;
@@ -787,6 +792,11 @@ void league_hub_before_save(void)
 {
    pthread_mutex_lock(&L_mu);
    if (H.hdr_saved && hdr_layout()) hdr_put(0, 0);
+   if (hub_ram && H.nav == 4 && hub_ram[R_MODE] == 240 && hub_ram[R_SCR] == 2) {   /* 커서 옮기는 중(이웃 칸을 써 두고 톡이 아직)이면 진짜 커서를 보이는 칸으로 —
+                                                       저장된 상태를 불러와 A 를 누르면 보이는 캐릭터가 골라지게. 살아 있는 nav 는 d==10 확인에서 다시 한다 */
+      int hv = hub_ram[R_HOVER] >> 2;
+      if (hv < 16) { hub_ram[R_CROW] = (uint8_t)CELL_R[hv]; hub_ram[R_CCOL] = (uint8_t)CELL_C[hv]; }
+   }
    vp_restore();
    menu_restore();                                  /* 타이틀 셋째 줄 글자·화살표도 원래대로 */
    pthread_mutex_unlock(&L_mu);
@@ -970,6 +980,7 @@ void league_tick_hub(uint8_t *ram, size_t n, int input)
 {
    if (!ram || n < 0x4000) return;
    pthread_mutex_lock(&L_mu);
+   hub_ram = ram;                                  /* 저장 직전 손질(league_hub_before_save)이 램을 본다 — 코어 램 자리는 바뀌지 않는다 */
    if (H.st != H_OFF) hub_tick(ram, input);
    if (PQ.on) post_tick(ram, input);                 /* 허브 다음 — 허브가 league_in_block 을 새로 쓴 뒤에 더한다 */
    if (!L.armed || L.done) { pthread_mutex_unlock(&L_mu); return; }

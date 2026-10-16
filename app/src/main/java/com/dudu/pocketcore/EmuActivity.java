@@ -1204,15 +1204,11 @@ public class EmuActivity extends Activity {
     }
     /** 152: 승리 대사 동안 게임을 멈춰 둘 이유 — 메뉴 바·옵션 창·확인 카드. 없으면 대사는 돈다(정산 전에 걸린 멈춤이 남지 않게 poll 이 다시 맞춘다) */
     private boolean postPaused() { return (pad != null && pad.isBarOpen()) || (sheet != null && sheet.isShowing()) || ask != null || hubCard != null; }
-    private static final String POST_HINT = "결과를 기록했어요 · B 결과 바로 보기";
-    private String postHinted = null;                   /* 띠가 안 보일 때 알림은 경기마다 한 번 */
-    /** 승리 대사가 도는 중이면 true — 안내·멈춤을 맞추고 100ms 뒤 다시 본다(화면에 떠 있을 때만 — 내려가 있으면 onResume 이 다시 건다) */
+    /** 승리 대사가 도는 중이면 true — 멈춤을 맞추고 100ms 뒤 다시 본다(화면에 떠 있을 때만 — 내려가 있으면 onResume 이 다시 건다).
+     *  결판 순간엔 아무 글도 안 띄운다 — 결과는 대사가 끝난 뒤 카드로만(유저 «승부 정해지고 끝나고 메시지»). B·뒤로 건너뛰기는 말없이 된다 */
     private boolean postWait() {
         if (leaving || postState() != 1) return false;
         if (resumedNow) {
-            boolean shown = hubBanner != null && hubCard == null && hubBanner.getVisibility() == View.VISIBLE;
-            if (shown) hubBanner.setText(POST_HINT);
-            else if (leagueId != null && !leagueId.equals(postHinted)) { postHinted = leagueId; toast(POST_HINT); }   /* 띠가 없거나(한 판 경기) 게임 그림 위라 숨었다 */
             Emu.nativeSetPaused(postPaused());
             h.postDelayed(leaguePoll, 100);
         }
@@ -1964,7 +1960,7 @@ public class EmuActivity extends Activity {
         /* 이어 하는 경기(체크포인트)는 허브가 타이틀 상태인 채로 싸운다 — 띠는 경기 안내로 */
         int shown = leagueId != null && st <= 2 ? 4 : st == 4 && leagueId == null ? 5 : st;
         if (hubBanner != null && hubCard == null) {
-            hubBanner.setText(leagueId != null && leagueDone && postState() == 1 ? POST_HINT : hubText(shown, hover, picked, hs[4]));   /* 152: 승리 대사 중 */
+            hubBanner.setText(hubText(shown, hover, picked, hs[4]));
             /* 경기 중 띠가 게임 그림 위로 올라가 있으면(가로 화면 — 아래 자리가 없음) 숨긴다: 체력 막대를 경기 내내 가리지 않게(연습과 같은 규칙) */
             boolean over = shown == 4 && !bannerUserPos && ((FrameLayout.LayoutParams) hubBanner.getLayoutParams()).topMargin < gameBox[3];
             hubBanner.setVisibility(over || shown == 5 ? View.GONE : View.VISIBLE);   /* 5 = 타이틀·상대 선택으로 돌아가는 중 — 안내 없이 */
@@ -2939,7 +2935,7 @@ public class EmuActivity extends Activity {
             if (dv != null && dv.length >= 5 && dv[0] == 1 && dv[3] == 1)
                 return "◀▶ 연습 대전 / 리그 대전  ·  A 시작" + (dv[1] == 0 ? "\n리그는 따로 세이브 판에서 해요" : "");
             return null;
-        case 2: return "상대 · A 수라 · B 나찰 · OPTION 스테이지";   /* 고르는 캐릭터 = 더미(검질은 A·B) — 좁은 띠에서도 한 줄 */
+        case 2: return "A 수라 · B 나찰 · OPTION 스테이지";   /* 고르는 캐릭터 = 더미(검질은 A·B) — 머리말이 이미 «상대 선택». «상대 ·» 를 붙이면 세로 화면에서 두 줄로 꺾인다(152 에뮬 확인) */
         case 7:   /* 내 캐릭터 먼저(캐릭터 선택 — A 결정 · B 2P색 · OPTION 컬러), 그다음 상대(2) */
         case 3: return myPickKeys(dv != null && dv.length >= 6 ? dv[5] : 2, false);
         case 4:   /* 좁은 띠(버튼 사이)에서도 줄이 접히지 않게 두 줄로 */

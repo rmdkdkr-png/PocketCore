@@ -235,6 +235,12 @@ void look_tick(uint8_t *ram, size_t n, int input, int ctx)
          if (K.cur > 0 || K.edit)
             for (int k = 0; k < 2; k++) {                             /* 두 자리 — 검질 고르기에서 ←→ 로 검질을 바꿔도 바로 그 검질의 그 컬러 · 보이는 검질이 자리 0 */
                int sty = k ^ K.psty;
+               if (k && scr == 4 && K.rand_pick && !K.edit) {             /* 무작위 칸 뽑기에서 두 검질 컬러가 같으면 자리 1 을 비운다 — 다른 검질로 다시 그린 기본 색이
+                                                                             그대로 와야 preview_fix 가 그린 검질을 알아본다(저장 때 맞는 검질 기본 색으로 되돌리게) */
+                  uint16_t c0[3], c1[3];
+                  tri(row, 0, K.cur, c0); tri(row, 1, K.cur, c1);
+                  if (!memcmp(c0, c1, 6)) continue;
+               }
                tri(row, sty, 0, b);
                if (K.edit) memcpy(t, K.edit_c, 6); else tri(row, sty, K.cur, t);
                if (!k || memcmp(b, t, 6)) rm_want(want, 0, k, b, t);
