@@ -52,7 +52,7 @@ void league_hub_before_save(void);
 size_t league_practice_blob(void *buf, size_t cap);
 void league_practice_resume(const void *buf, size_t n);
 
-#define LEAGUE_NSTAT 22
+#define LEAGUE_NSTAT 26
 #define LEAGUE_CARDS_OFF 1   /* 사용자 카드 없음(0xFF) */
 #define LEAGUE_ALLCARDS  2   /* 올카드 해금(소유 개수 8) */
 #define LEAGUE_AUTONAV   4   /* 새로 켠 판 — 1인 대전 캐릭터 고르기까지 메뉴 자동 진입 */
@@ -63,6 +63,13 @@ void league_look(int stage, int color);
 /* 메뉴 자동 진입 중이면 on=1, 입력 콜백은 사용자 입력 대신 mask 를 돌려준다 */
 extern volatile int league_ovr_on, league_ovr_mask;
 void league_disarm(void);
+/* 결판 뒤 승리 대사(149) — 결판을 잡은 뒤에도 게임은 이긴 쪽 이름판·대사(0x5825 가 서기 전)까지 돈다(그동안 게임 입력은 모두 막는다).
+   0x5825 가 서는 프레임(·새로 누른 B·건너뛰기·장면 이탈·시간 끝)에 «멈춤 걸쇠»가 선다 — native.c 는 걸쇠가 서 있으면 다음 프레임을 돌리지 않는다.
+   걸쇠는 무장 해제(disarm)로는 안 풀리고 리셋·허브 돌려보내기·새 무장·새 허브·연습 허브·코어 올림/내림으로만 풀린다.
+   post_skip = 뒤로 가기(다음 진짜 프레임에 걸쇠) · post_clear = 리셋(nativeReset) */
+int  league_post_hold(void);
+void league_post_skip(void);
+void league_post_clear(void);
 void league_status(int v[LEAGUE_NSTAT]);
 /* 허브가 고르기 화면 입력을 쓰는 중(상대 선택·대신 누르기)이면 1 — look_tick 의 ctx */
 int league_hub_owns_select(void);

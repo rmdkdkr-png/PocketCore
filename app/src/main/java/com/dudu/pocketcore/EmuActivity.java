@@ -53,7 +53,7 @@ public class EmuActivity extends Activity {
     /* 게임 속 리그(허브) — 게임을 랭크전 판으로 켜고, 타이틀 «2인 대전» 자리(«리그 대전»)에서 상대를 고르게 한다(league.c 허브) */
     static final String EXTRA_LEAGUE_HUB = "league_hub";
     private boolean leagueHub = false;
-    /* 연습 대전(practice.c) — 일반 세션이고 판정 주소를 확인한 롬 판이면 타이틀 «2 인 대전» 자리가 «연습 대전». 실행 창 링크로 열면 상대 선택까지 자동 */
+    /* 연습 대전(practice.c) — 일반 세션이고 판정 주소를 확인한 롬 판이면 타이틀 «2 인 대전» 자리가 «연습 대전». 실행 창 링크로 열면 «캐릭터 선택»(내 캐릭터 먼저 → 상대)까지 자동 */
     static final String EXTRA_PRACTICE = "practice_hub";
     private boolean practiceHub = false, practiceAutoUsed = false;
     /* 리그·연습 «둘 다»(실행 창 «리그·연습», pocketcore_ss2_hub) — 타이틀 셋째 줄 ◀▶ 로 연습 대전 ↔ 리그 대전. 리그는 따로 세이브·고정 롬·동봉 코어(랭크전 판)라
@@ -179,7 +179,7 @@ public class EmuActivity extends Activity {
                 if (fdView != null && fdWanted) fdView.setVisibility(open ? View.GONE : View.VISIBLE);   /* 프레임 미터가 버튼 아래 줄에 서면 메뉴 칸(저장·로드) 위를 덮는다 — 메뉴 동안 숨김 */
                 if (!loaded) return;
                 Emu.nativeSetPaused(open || (sheet != null && sheet.isShowing()) || (leagueDlg != null && leagueDlg.isShowing())
-                        || (leagueId != null && leagueArmed && nativeDone())     /* 결판이 잡혀 정산을 기다리는 동안은 멈춘 채로 */
+                        || (leagueId != null && leagueArmed && nativeDone() && postState() != 1)   /* 결판이 잡혀 정산을 기다리는 동안은 멈춘 채로(152: 승리 대사 중엔 닫으면 대사가 이어 돈다 — 끝은 native 걸쇠가 멈춘다) */
                         || hubCard != null);                                     /* 게임 속 리그 결과 카드가 떠 있는 동안도 */
             }
         });
@@ -1038,7 +1038,10 @@ public class EmuActivity extends Activity {
         super.onResume(); Orient.apply(this); immersive(); gl.onResume();
         resumedNow = true;
         if (leagueId != null && leagueArmed && !leagueDone) League.ckpt(leagueId).delete();   /* 다시 올라왔다 — 경기는 이어서 돈다 */
-        if (leagueId != null && leagueArmed && leagueDone && !leaving) leagueExit(leagueId);  /* 백그라운드에서 정산됐다 — 이제 결과 창으로 */
+        if (leagueId != null && leagueArmed && leagueDone && !leaving) {                    /* 백그라운드에서 정산됐다 — 이제 결과 창으로 */
+            if (postState() == 1) { h.removeCallbacks(leaguePoll); h.post(leaguePoll); }      /* 152: 승리 대사 도중 내려갔다 — 대사를 마저 보고 */
+            else leagueExit(leagueId);
+        }
         if (rankStopNote != 0) {
             toast(rankStopNote == 1 ? "앱이 내려가서 찾기를 멈췄어요 — A로 다시 찾기" : "상대가 기다려요 — 다음에 또 만나요");
             rankStopNote = 0;
@@ -1193,13 +1196,45 @@ public class EmuActivity extends Activity {
         return st != null && st.length >= 21 && st[4] == 1;
     }
 
+    /** 152: 결판 뒤 승리 대사 — 0 없음 · 1 게임이 대사까지 도는 중(결과는 이미 정산) · 2 대사 끝 걸쇠(native 가 게임을 멈춰 둠 — 결과 카드 차례).
+     *  옛 native(칸 22개)면 −1 — 예전처럼 결판 자리에서 멈추고 바로 결과 */
+    private int postState() {
+        int[] st = Emu.nativeLeagueStatus();
+        return st != null && st.length > 22 ? st[22] : -1;
+    }
+    /** 152: 승리 대사 동안 게임을 멈춰 둘 이유 — 메뉴 바·옵션 창·확인 카드. 없으면 대사는 돈다(정산 전에 걸린 멈춤이 남지 않게 poll 이 다시 맞춘다) */
+    private boolean postPaused() { return (pad != null && pad.isBarOpen()) || (sheet != null && sheet.isShowing()) || ask != null || hubCard != null; }
+    private static final String POST_HINT = "결과를 기록했어요 · B 결과 바로 보기";
+    private String postHinted = null;                   /* 띠가 안 보일 때 알림은 경기마다 한 번 */
+    /** 승리 대사가 도는 중이면 true — 안내·멈춤을 맞추고 100ms 뒤 다시 본다(화면에 떠 있을 때만 — 내려가 있으면 onResume 이 다시 건다) */
+    private boolean postWait() {
+        if (leaving || postState() != 1) return false;
+        if (resumedNow) {
+            boolean shown = hubBanner != null && hubCard == null && hubBanner.getVisibility() == View.VISIBLE;
+            if (shown) hubBanner.setText(POST_HINT);
+            else if (leagueId != null && !leagueId.equals(postHinted)) { postHinted = leagueId; toast(POST_HINT); }   /* 띠가 없거나(한 판 경기) 게임 그림 위라 숨었다 */
+            Emu.nativeSetPaused(postPaused());
+            h.postDelayed(leaguePoll, 100);
+        }
+        return true;
+    }
+    /** 승리 대사 건너뛰기(뒤로 가기) — native 가 다음 진짜 프레임에 걸쇠를 세운다. 메뉴 바로 멈춰 있으면 닫는다(그래야 그 프레임이 돈다) */
+    private void postSkip() {
+        Emu.nativeLeaguePostSkip();
+        if (pad != null && pad.isBarOpen()) pad.barClose();
+        Emu.nativeSetPaused(postPaused());
+        h.removeCallbacks(leaguePoll); h.post(leaguePoll);
+    }
+
     /** 결판이 잡혀 있으면 바로 정산한다. 잡혀 있으면 true — 정산 저장이 실패했어도(그때는 체크포인트를 쓰지 않고, 결과는 코어 쪽에 둔 채 poll 이 다시 시도). */
     private boolean leagueSettleNow() {
         if (leagueDone) return true;
         if (!leagueArmed) return false;
         int[] st = Emu.nativeLeagueStatus();
         if (st == null || st.length < 21 || st[4] != 1) return false;
-        Emu.nativeSetPaused(true);                            /* 결과 화면은 최종 승패가 확정된 뒤에만 — 게임은 그 자리에서 멈춘다 */
+        /* 152: 정산은 결판 프레임 값으로 바로(대사 중에 나가도·꺼져도 결과는 같다) — 게임은 멈추지 않고 승리 대사까지 돈다(입력은 native 가 막음).
+           대사가 끝난 프레임에 native 걸쇠가 멈춘다 — 다음 장·이어하기 화면으로는 안 간다. 옛 native 면 예전처럼 그 자리에서 */
+        if (st.length <= 22) Emu.nativeSetPaused(true);
         if (League.settle(leagueId, st) == null) return true;
         leagueDone = true;
         Emu.nativeLeagueDisarm();
@@ -1218,7 +1253,10 @@ public class EmuActivity extends Activity {
     /** 결판 감시 — 진짜 프레임에서 league.c 가 잡은 결과를 가져와 한 번만 정산한다. 화면에 떠 있을 때만 리그 화면으로 넘어간다. */
     private final Runnable leaguePoll = new Runnable() { @Override public void run() {
         if (leagueId == null) return;
-        if (leagueDone) { leagueSaveAskClose(); if (resumedNow && !leaving) leagueExit(leagueId); return; }
+        if (leagueDone) {
+            if (postWait()) return;                            /* 152: 승리 대사 도는 중 — 끝(걸쇠)·B·뒤로를 기다린다 */
+            leagueSaveAskClose(); if (resumedNow && !leaving) leagueExit(leagueId); return;
+        }
         if (!loaded || leaving) return;
         if (lm() == null) { leagueVanished(); return; }    /* 경기 기록이 사라졌다(다시 읽기 등 — 있을 수 없는 일) */
         leagueSyncStarted();
@@ -1232,6 +1270,7 @@ public class EmuActivity extends Activity {
                 return;
             }
             leagueSaveAskClose();                              /* 다시 시도가 됐다 — 카드는 저절로 닫고 이어서 */
+            if (postWait()) return;                            /* 152: 결과는 적었다 — 승리 대사 뒤 카드 */
             if (resumedNow) leagueExit(leagueId);
             return;
         }
@@ -1428,8 +1467,13 @@ public class EmuActivity extends Activity {
 
     /** 뒤로 가기 — 계속 / 나중에 이어하기(체크포인트) / 기권. 결판이 이미 잡혀 있으면 창 없이 정산으로. */
     private void leagueLeave() {
+        int ps = leagueDone && leagueArmed && !leaving && hubCard == null ? postState() : -1;
+        if (ps >= 1) { if (ps == 1) postSkip(); else leagueExit(leagueId); return; }   /* 152: 승리 대사 중(·걸쇠 뒤 카드 전) 뒤로 = 바로 결과 카드(카드가 떠 있으면 예전대로) */
         if (leagueDone || !leagueArmed) { leagueExit(null); return; }
-        if (leagueSettleNow()) { if (leagueDone && resumedNow) leagueExit(leagueId); return; }
+        if (leagueSettleNow()) {                              /* 결판이 막 잡혔다(poll 전) — 152: 대사 중이면 위와 같이 건너뛰기(카드를 먼저 띄우면 poll 이 대사를 다시 돌린다) */
+            if (leagueDone && resumedNow) { if (postState() == 1) postSkip(); else leagueExit(leagueId); }
+            return;
+        }
         if (leagueDlg != null && leagueDlg.isShowing()) return;
         leagueSyncStarted();
         if (!leagueStarted) { leagueLeaveBeforeStart(); return; }
@@ -1920,7 +1964,7 @@ public class EmuActivity extends Activity {
         /* 이어 하는 경기(체크포인트)는 허브가 타이틀 상태인 채로 싸운다 — 띠는 경기 안내로 */
         int shown = leagueId != null && st <= 2 ? 4 : st == 4 && leagueId == null ? 5 : st;
         if (hubBanner != null && hubCard == null) {
-            hubBanner.setText(hubText(shown, hover, picked, hs[4]));
+            hubBanner.setText(leagueId != null && leagueDone && postState() == 1 ? POST_HINT : hubText(shown, hover, picked, hs[4]));   /* 152: 승리 대사 중 */
             /* 경기 중 띠가 게임 그림 위로 올라가 있으면(가로 화면 — 아래 자리가 없음) 숨긴다: 체력 막대를 경기 내내 가리지 않게(연습과 같은 규칙) */
             boolean over = shown == 4 && !bannerUserPos && ((FrameLayout.LayoutParams) hubBanner.getLayoutParams()).topMargin < gameBox[3];
             hubBanner.setVisibility(over || shown == 5 ? View.GONE : View.VISIBLE);   /* 5 = 타이틀·상대 선택으로 돌아가는 중 — 안내 없이 */
@@ -2655,7 +2699,7 @@ public class EmuActivity extends Activity {
     }
 
     /** 일반 판 ↔ 리그 판 갈아타기(타이틀 셋째 줄 ◀▶ 에서 다른 판의 모드를 A) — 이 창은 코어를 내리고(일반 판은 오토세이브), 같은 롬으로 새 창을 연다.
-     *  리그 판은 바로 상대 선택까지(EXTRA_HUB_GO), 일반 판은 practiceAuto 면 연습 상대 선택까지(EXTRA_PRACTICE) */
+     *  리그 판은 바로 상대 선택까지(EXTRA_HUB_GO), 일반 판은 practiceAuto 면 연습 «캐릭터 선택»까지(EXTRA_PRACTICE — 내 캐릭터 먼저) */
     private void switchSession(final boolean toLeague, final boolean practiceAuto) {
         if (leaving) return;
         leaving = true;
@@ -2795,7 +2839,7 @@ public class EmuActivity extends Activity {
        일반 세션(랭크전 아님)이고 사무쇼2이며, 지금 실행하는 롬(사본)의 md5 가 판정 주소를 실측한 판(League.romLabel)이거나,
        그 판에 배경음악(사무쇼1 곡·끔)만 심은 사본일 때(Patcher.musicBaseLabel — 소리 자료만 바뀌고 게임 램 배치는 같음, 끔 사본 롬 6판 시험)만 켠다 —
        모르는 판(수동·조작 패치를 입힌 사본 등)에서는 연습이 램을 하나도 쓰지 않는다.
-       화면 아래 띠에는 버튼 안내만(설계 4-사). 정보는 게임 화면 안(상대 선택 머리말·스테이지 칸·연습 메뉴 창·대미지 숫자)에 있다. */
+       화면 아래 띠에는 버튼 안내만(설계 4-사). 정보는 게임 화면 안(캐릭터·상대 선택 머리말·스테이지 칸·연습 메뉴 창·대미지 숫자)에 있다. */
 
     /** 연습을 켤 수 있는 판인가 — 사무쇼2 일반 세션이고 사본이 실측한 판이거나 그 판에 배경음악만 심은 것 */
     private boolean practiceRomOk() {
@@ -2804,7 +2848,7 @@ public class EmuActivity extends Activity {
         return League.romLabel(md5) != null || Patcher.musicBaseLabel(romPath, md5) != null;
     }
 
-    /** 실행 창 «연습 대전으로 ›» 로 막 연 판 — 그러면 자동 저장 이어하기를 건너뛰고 전원부터 상대 선택까지 대신 누른다
+    /** 실행 창 «연습 대전으로 ›» 로 막 연 판 — 그러면 자동 저장 이어하기를 건너뛰고 전원부터 «캐릭터 선택»(내 캐릭터 먼저 → 상대)까지 대신 누른다
         (안 그러면 사무쇼2 를 한 번이라도 한 사람은 늘 지난 자리로 이어져 링크가 아무 일도 안 했다 — 리뷰). 자동 저장 파일은 그대로 둔다 */
     private boolean practiceLinkFresh() {
         return getIntent().getBooleanExtra(EXTRA_PRACTICE, false) && !practiceAutoUsed && practiceRomOk();

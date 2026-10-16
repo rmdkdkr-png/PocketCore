@@ -66,6 +66,11 @@
 #define R_CCARD2 A(0x57E7)
 #define R_MCUR   A(0x624B)   /* 타이틀 메뉴 커서: 0 1인 대전 · 1 무한 대전 · 2 2인 대전(VS) · 3 카드 모음집 · 4 게임 설정 */
 #define R_HOVER  A(0x4E3C)   /* 캐릭터 고르기 커서 = 캐릭터 id × 4 (가운데 무작위 칸 = 15 × 4) */
+#define R_RSCR   A(0x5825)   /* «결과 화면» 코드 — 이긴 쪽 이름판·승리 대사가 사라진 바로 뒤 프레임에 C0(P1)/A0(P2)/90(무승부)로 선다(149 실측: 결판 + 320~650).
+                                그 2프레임 뒤 0x57C8 = 27(이김 → 다음 장 이야기)/24(짐·무승부 → 이어하기 화면) — 여기서 멈추면 게임은 다음 장으로 안 간다 */
+#define R_SEQ    A(0x57CB)   /* 결판 뒤 연출 단계(149 실측) — 63 = 이긴 쪽 이름판·대사가 뜬 동안 · 66 = 대사 끝(0x5825 2프레임 전). 표시용으로만 */
+#define POST_MAX 1800        /* 0x5825 가 끝내 안 서면 결판 + 30초에 멈춘다(안전판) */
+#define POST_BGRACE 60       /* 결판 + 1초 안에 새로 누른 B 는 싸우던 손(KO 뒤로 이어진 연타) — 건너뛰기로 안 센다 */
 #define R_BOUT   A(0x5827)   /* 1인 대전 몇 번째 판(0~) — 배경(스테이지)은 상대가 아니라 이 값을 따른다. 0~7 = 서로 다른 배경 8개
                                 (0 후지산 마을 · 1 숲속 호숫가 · 2 산 위 신사 · 3 화염 사원(불타는 절, 밤) · 4 폐허 사원(불타는 절, 낮) ·
                                 5 불꽃 동굴 · 6 마계 제단 · 7 수정 신전). 판이 뜨기 전부터 매 프레임 쓰면 그 배경으로 뜬다 — CPU 단계·배율은 그대로(실측) */
@@ -111,6 +116,15 @@ static struct {
 } L;
 #define NKNOB 5
 static int knob_next[NKNOB] = { -1, -1, -1, -1, -1 };   /* 다음 league_arm 에 쓸 손잡이(league_cpu) — 한 번 쓰면 비운다 */
+/* 결판 뒤 승리 대사(149) — L 과 따로(Java 가 정산 뒤 disarm 해도 이어 돈다). .prac 덩어리(H·L)엔 안 들어간다 */
+enum { PQ_NONE = 0, PQ_QUOTE, PQ_SKIP, PQ_SCENE, PQ_TIMEOUT, PQ_API };
+static struct { int on, hold, reason, prev_in, seen_quote, skip; unsigned f, quote_f; } PQ;
+#define IN_GAME_ALL (IN_A | IN_B | IN_OPT | IN_UP_DOWN | IN_LEFT | IN_RIGHT | IN_ABFOLD | (1 << 2))   /* 게임 입력 전부(SELECT 까지) */
+static void post_clear_locked(void)
+{
+   if (PQ.on || PQ.hold) league_in_block &= ~IN_GAME_ALL;   /* 대사 동안 막던 입력을 푼다(허브가 켜져 있으면 다음 틱에 어차피 새로 쓴다) */
+   memset(&PQ, 0, sizeof PQ);
+}
 static int look_stage = -1, look_color = 0;   /* 다음 무장에 쓸 배경(league_look) — 무장이 L 을 비워도 남게 따로. look_color 는 안 씀(.prac 칸 자리) */
 
 /* ── 컬러 — look.c(모든 모드: 1인·무한·연습·리그)로 옮겼다. 캐릭터·검질 고르기의 OPTION(다음 컬러)·B(2P색으로 결정)·미리보기 색·
@@ -612,6 +626,7 @@ void league_hub(int on, const signed char *sty, const signed char *dif)
    pthread_mutex_lock(&L_mu);
    pr_pend_on = 0;
    memset(&H, 0, sizeof H);
+   post_clear_locked();
    hub_gen = 0;                                      /* 새 화면(Java)의 셈과 같이 0 부터 */
    H.st = on ? H_TITLE : H_OFF; H.picked = -1; H.hover = -1; H.rematch = -1; H.stage_sel = -1; H.sel = 0;
    for (int i = 0; i < 15; i++) { H.sty[i] = sty ? sty[i] : -1; H.dif[i] = dif ? dif[i] : 1; H.home[i] = -1; }
@@ -699,6 +714,7 @@ void league_practice_hub(int on, int autostart)
    pthread_mutex_lock(&L_mu);
    memset(&H, 0, sizeof H);
    memset(&L, 0, sizeof L);
+   post_clear_locked();
    hub_gen = 0;
    H.kind = 1; H.me_tag = PR_ME_TAG;
    H.st = !on ? H_OFF : autostart ? H_RETURN : H_TITLE;
@@ -803,6 +819,7 @@ void league_hub_return(int rematch)
 {
    pthread_mutex_lock(&L_mu);
    L.armed = 0;
+   post_clear_locked();                               /* 리셋 뒤 — 멈춤 걸쇠를 푼다 */
    if (H.st != H_OFF) {
       H.st = H_RETURN; H.nav = 2; H.nav_f = H.f; H.picked = -1; H.hdr_saved = 0; H.vp_on = 0; H.hold_b = 0;
       H.sel = H.kind; H.handoff = 0; H.menu_saved = 0; H.focus = 0;
@@ -915,6 +932,38 @@ void league_cpu(int lv, int cap, int atk, int dfn, int floor)
    pthread_mutex_unlock(&L_mu);
 }
 
+static void post_start(const uint8_t *ram, int input)
+{
+   memset(&PQ, 0, sizeof PQ);
+   PQ.on = 1; PQ.prev_in = input;                     /* 결판 때 쥐고 있던 B 는 «건너뛰기»로 안 센다(뗐다 다시 눌러야) */
+   league_in_block |= IN_GAME_ALL;
+   if (ram[R_RSCR]) { PQ.on = 0; PQ.hold = 1; PQ.reason = PQ_QUOTE; }   /* 체크포인트가 이미 대사 뒤(멈춘 프레임) — 바로 */
+}
+static void post_tick(const uint8_t *ram, int input)
+{
+   PQ.f++;
+   league_in_block |= IN_GAME_ALL;                   /* 대사 동안 게임 입력은 모두 막는다 — A 는 대사를 건너뛰고, 진 판에선 이어하기 화면의 A 가 «이어하기»가 된다(실측) */
+   int b_edge = (input & IN_B) && !(PQ.prev_in & IN_B) && PQ.f > POST_BGRACE;   /* 쥔 채 넘어온 B·KO 직후 연타는 빼고 */
+   PQ.prev_in = input;
+   if (ram[R_SEQ] == 63 && !PQ.seen_quote) { PQ.seen_quote = 1; PQ.quote_f = PQ.f; }
+   int why = ram[R_RSCR] ? PQ_QUOTE
+           : b_edge ? PQ_SKIP
+           : PQ.skip ? PQ_API                                                       /* 뒤로 가기(Java) — 이 진짜 프레임에서 */
+           : (ram[R_MODE] != 241 || ram[R_SCR] == 0 || ram[R_SCR] == 2) ? PQ_SCENE   /* 대사 장면을 떠났다(0x5825 를 못 봤어도) */
+           : PQ.f >= POST_MAX ? PQ_TIMEOUT : PQ_NONE;
+   if (why) { PQ.on = 0; PQ.hold = 1; PQ.reason = why; }
+}
+int league_post_hold(void) { return PQ.hold; }      /* native.c 가 프레임마다 — 잠금 없이(int 하나) */
+/* 건너뛰기 요청 — 걸쇠는 바로 세우지 않고 다음 진짜 프레임(post_tick)에서 세운다: 코어 2배 출력(120Hz) 중이면 합성 호출 뒤에
+   멈춰 «사이 그림»이 남을 수 있어서. 그래서 멈춤(g_paused) 중이면 풀린 뒤에 선다(Java 는 메뉴 바를 닫고 부른다) */
+void league_post_skip(void)
+{
+   pthread_mutex_lock(&L_mu);
+   if (PQ.on) PQ.skip = 1;
+   pthread_mutex_unlock(&L_mu);
+}
+void league_post_clear(void) { pthread_mutex_lock(&L_mu); post_clear_locked(); pthread_mutex_unlock(&L_mu); }
+
 void league_tick(uint8_t *ram, size_t n) { league_tick_hub(ram, n, 0); }
 
 void league_tick_hub(uint8_t *ram, size_t n, int input)
@@ -922,6 +971,7 @@ void league_tick_hub(uint8_t *ram, size_t n, int input)
    if (!ram || n < 0x4000) return;
    pthread_mutex_lock(&L_mu);
    if (H.st != H_OFF) hub_tick(ram, input);
+   if (PQ.on) post_tick(ram, input);                 /* 허브 다음 — 허브가 league_in_block 을 새로 쓴 뒤에 더한다 */
    if (!L.armed || L.done) { pthread_mutex_unlock(&L_mu); return; }
    L.frames++;
 
@@ -971,6 +1021,7 @@ void league_tick_hub(uint8_t *ram, size_t n, int input)
       L.cpu_lv = ram[R_CPULV];                        /* 난도가 실제로 먹었는지의 증거 — 정산 기록에 남긴다 */
       L.cpu_atk = ram[R_CPUMUL] | (ram[R_CPUMUL + 1] << 8); L.cpu_def = ram[R_CPUMUL + 2] | (ram[R_CPUMUL + 3] << 8);
       L.cap_seen = ram[R_CPUCAP];
+      if (!(H.st != H_OFF && H.kind == 1)) post_start(ram, input);   /* 승리 대사까지 게임을 더 돌린다(149) — 리그·랭크만(연습 대전 허브도 무장하지만 거기선 멈추지 않는다) */
    }
    pthread_mutex_unlock(&L_mu);
 }
@@ -980,6 +1031,7 @@ static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v;
 static void arm_locked(int opp, int sty, int diff, int points, int timev, int flags, const int *knob)
 {
    memset(&L, 0, sizeof L);
+   post_clear_locked();
    /* 손잡이: 단계 0~15 · 상한 단계~15 · 배율 0x0080~0x0180(게임이 쓰는 값은 0x00B5~0x0140 — 앱은 그 안에서 고른다) */
    L.k_lv  = knob && knob[0] >= 0 ? clampi(knob[0], 0, 15) : -1;
    L.k_cap = knob && knob[1] >= 0 ? clampi(knob[1], L.k_lv > 0 ? L.k_lv : 0, 15) : -1;
@@ -1028,6 +1080,8 @@ void league_status(int v[LEAGUE_NSTAT])
    v[17] = L.timev_eff;
    v[18] = L.cpu_lv; v[19] = L.cpu_atk; v[20] = L.cpu_def;
    v[21] = L.cap_seen;
+   v[22] = PQ.on ? 1 : PQ.hold ? 2 : 0;              /* 결판 뒤: 0 없음 · 1 대사 도는 중 · 2 멈춤 걸쇠(결과 카드 차례) */
+   v[23] = PQ.reason; v[24] = (int)PQ.f; v[25] = PQ.seen_quote ? (int)PQ.quote_f : -1;
    pthread_mutex_unlock(&L_mu);
 }
 
@@ -1039,6 +1093,10 @@ JNI(void, nativeLeagueArm)(JNIEnv *env, jclass cls, jint opp, jint sty, jint dif
 
 JNI(void, nativeLeagueDisarm)(JNIEnv *env, jclass cls)
 { (void)env; (void)cls; league_disarm(); }
+
+/* 152: 승리 대사 건너뛰기(뒤로 가기) — 다음 진짜 프레임에 걸쇠(B 는 post_tick 이 입력에서 직접 본다) */
+JNI(void, nativeLeaguePostSkip)(JNIEnv *env, jclass cls)
+{ (void)env; (void)cls; league_post_skip(); }
 
 JNI(void, nativeLeagueHub)(JNIEnv *env, jclass cls, jboolean on, jbyteArray sty, jbyteArray dif)
 {

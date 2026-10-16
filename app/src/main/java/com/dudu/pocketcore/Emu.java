@@ -50,8 +50,12 @@ public final class Emu {
     public static native void  nativeLeagueDisarm();
     /** [무장, 프레임, bit7 0 봄, 경기 시작 봄, 결과 잡음, 결과 비트, 승수1, 승수2, KO, 실효 포인트,
      *   P1 블록, P2 블록(결판), P2 블록(경기 시작), 경기 시작 프레임, 결판 프레임, 사용자 카드 1, 2, 실효 시간,
-     *   CPU 단계(0x5814), CPU 공격 배율, CPU 받는 피해 배율] */
+     *   CPU 단계(0x5814), CPU 공격 배율, CPU 받는 피해 배율, 결판 때 CPU 단계 상한,
+     *   (149) 결판 뒤 0 없음·1 승리 대사 도는 중·2 멈춤 걸쇠, 걸쇠 사유(1 대사 끝·2 B·3 장면·4 시간·5 뒤로), 결판 뒤 프레임, 대사가 뜬 프레임(−1)]
+     *  옛 native 는 22칸 — 길이를 보고 쓴다 */
     public static native int[] nativeLeagueStatus();
+    /** 152: 승리 대사 건너뛰기(뒤로 가기) — 다음 진짜 프레임에 멈춤 걸쇠(결과 카드 차례). 게임이 멈춰 있으면 풀린 뒤에 선다 */
+    public static native void nativeLeaguePostSkip();
     /* 게임 속 리그(허브): 타이틀 «2인 대전» 자리 = «리그 대전». sty/dif = 캐릭터 id(0~14)별 리그 상대의 검질(없으면 −1)·난도 */
     public static native void  nativeLeagueHub(boolean on, byte[] sty, byte[] dif);
     public static native void  nativeLeagueHubCancel();
@@ -72,7 +76,7 @@ public final class Emu {
     public static native void  nativeLeagueHubReturn(int rematch);
 
     /* 연습 대전(practice.c) — 일반 세션에서 타이틀 «2 인 대전» 자리 = «연습 대전». 판정 주소를 확인한 롬 판(League.romLabel)에서만 켤 것.
-       autostart = 로고·메뉴를 넘겨 상대 선택까지 대신 누름(실행 창 «연습 대전으로» 링크). 상태·허브 상태는 nativeLeagueHubStatus 와 같이 본다 */
+       autostart = 로고·메뉴를 넘겨 «캐릭터 선택»(내 캐릭터 먼저 → 상대)까지 대신 누름(실행 창 «연습 대전으로» 링크). 상태·허브 상태는 nativeLeagueHubStatus 와 같이 본다 */
     public static native void  nativePracticeHub(boolean on, boolean autostart);
     /* 리그·연습 «둘 다»(실행 창 «리그·연습») — 허브를 켠 뒤 켠다. 타이틀 셋째 줄 ◀▶ 로 연습·리그.
        상태 [둘 다 켜짐, 셋째 줄에 보이는 종류(0 리그 · 1 연습), 갈아타기 요청(0 없음 · 1 리그 · 2 연습), 셋째 줄에 커서, 이 판의 종류] */
