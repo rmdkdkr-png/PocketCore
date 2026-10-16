@@ -1,6 +1,6 @@
 diff -ruN pa/build/Makefile.common pb/build/Makefile.common
---- a/build/Makefile.common	2026-10-16 18:10:49.930778608 +0900
-+++ b/build/Makefile.common	2026-10-16 18:10:49.932581738 +0900
+--- a/build/Makefile.common	2026-10-16 18:30:54.639897507 +0900
++++ b/build/Makefile.common	2026-10-16 18:30:54.641683041 +0900
 @@ -87,7 +87,8 @@
  	$(CORE_DIR)/svcsp.c \
  	$(CORE_DIR)/kofsp.c \
@@ -12,8 +12,8 @@ diff -ruN pa/build/Makefile.common pb/build/Makefile.common
  ifneq ($(STATIC_LINKING), 1)
  SOURCES_C += \
 diff -ruN pa/build/libretro.c pb/build/libretro.c
---- a/build/libretro.c	2026-10-16 18:10:49.919994358 +0900
-+++ b/build/libretro.c	2026-10-16 18:10:49.922390455 +0900
+--- a/build/libretro.c	2026-10-16 18:30:54.648908669 +0900
++++ b/build/libretro.c	2026-10-16 18:30:54.650772614 +0900
 @@ -90,6 +90,17 @@
  
  static int32 z80_runtime;
@@ -590,8 +590,8 @@ diff -ruN pa/build/libretro.c pb/build/libretro.c
  {
     if(type == RETRO_MEMORY_SYSTEM_RAM)
 diff -ruN pa/build/mednafen/ngp/gfx.c pb/build/mednafen/ngp/gfx.c
---- a/build/mednafen/ngp/gfx.c	2026-10-16 18:10:49.941368466 +0900
-+++ b/build/mednafen/ngp/gfx.c	2026-10-16 18:10:49.944441161 +0900
+--- a/build/mednafen/ngp/gfx.c	2026-10-16 18:30:54.660257252 +0900
++++ b/build/mednafen/ngp/gfx.c	2026-10-16 18:30:54.665883102 +0900
 @@ -19,6 +19,8 @@
  #include "neopop.h"
  #include "mem.h"
@@ -601,7 +601,15 @@ diff -ruN pa/build/mednafen/ngp/gfx.c pb/build/mednafen/ngp/gfx.c
  #include "interrupt.h"
  #include "dma.h"
  #include "TLCS-900h/TLCS900h_registers.h"
-@@ -628,6 +630,7 @@
+@@ -452,6 +454,7 @@
+          *scan++ = data16;
+ 
+       x = MIN(gfx->winx + gfx->winw, SCREEN_WIDTH);
++      scan = &cfb_scanline[x];   /* Legacito: 컬러 판처럼 — 빠져서 흑백 게임 창 오른쪽 밖이 안 칠해지고 이전 그림·쓰레기가 남던 것 */
+    }
+ 
+    /* Bottom and Top */
+@@ -628,6 +631,7 @@
     memset(gfx->SpriteVRAM, 0, sizeof(gfx->SpriteVRAM));
     memset(gfx->SpriteVRAMColor, 0, sizeof(gfx->SpriteVRAMColor));
     memset(gfx->ColorPaletteRAM, 0, sizeof(gfx->ColorPaletteRAM));
@@ -609,7 +617,7 @@ diff -ruN pa/build/mednafen/ngp/gfx.c pb/build/mednafen/ngp/gfx.c
  }
  
  
-@@ -672,6 +675,17 @@
+@@ -672,6 +676,17 @@
     bool ret = 0;
     MDFN_Surface *surface = (MDFN_Surface*)data;
  
@@ -627,7 +635,7 @@ diff -ruN pa/build/mednafen/ngp/gfx.c pb/build/mednafen/ngp/gfx.c
     /* Draw the scanline */
     if (gfx->raster_line < SCREEN_HEIGHT && !skip)
     {
-@@ -707,6 +721,14 @@
+@@ -707,6 +722,14 @@
     {
        gfx->BLNK = 1;
        ret = 1;
@@ -642,7 +650,7 @@ diff -ruN pa/build/mednafen/ngp/gfx.c pb/build/mednafen/ngp/gfx.c
  
        if(gfx->CONTROL_INT & 0x80) /* (statusIFF() <= 4 */
           TestIntHDMA(5, 0x0B);
-@@ -789,8 +811,21 @@
+@@ -789,8 +812,21 @@
     gfx->layer_enable = mask;
  }
  
@@ -665,8 +673,8 @@ diff -ruN pa/build/mednafen/ngp/gfx.c pb/build/mednafen/ngp/gfx.c
        gfx->ScrollVRAM[address - 0x9000] = data;
     else if(address >= 0xa000 && address <= 0xbfff)
 diff -ruN pa/build/mednafen/ngp/interrupt.c pb/build/mednafen/ngp/interrupt.c
---- a/build/mednafen/ngp/interrupt.c	2026-10-16 18:10:50.012756560 +0900
-+++ b/build/mednafen/ngp/interrupt.c	2026-10-16 18:10:50.015804017 +0900
+--- a/build/mednafen/ngp/interrupt.c	2026-10-16 18:30:54.675307259 +0900
++++ b/build/mednafen/ngp/interrupt.c	2026-10-16 18:30:54.677614274 +0900
 @@ -260,6 +260,7 @@
  
  extern int32_t ngpc_soundTS;
@@ -685,8 +693,8 @@ diff -ruN pa/build/mednafen/ngp/interrupt.c pb/build/mednafen/ngp/interrupt.c
        timer_hint -= TIMER_HINT_RATE;	/* Start of next scanline */
  
 diff -ruN pa/build/mednafen/ngp/mem.c pb/build/mednafen/ngp/mem.c
---- a/build/mednafen/ngp/mem.c	2026-10-16 18:10:49.956628034 +0900
-+++ b/build/mednafen/ngp/mem.c	2026-10-16 18:10:49.959880870 +0900
+--- a/build/mednafen/ngp/mem.c	2026-10-16 18:30:54.684902981 +0900
++++ b/build/mednafen/ngp/mem.c	2026-10-16 18:30:54.686851746 +0900
 @@ -28,6 +28,7 @@
  #include "../masmem.h"
  #endif
@@ -743,8 +751,8 @@ diff -ruN pa/build/mednafen/ngp/mem.c pb/build/mednafen/ngp/mem.c
              flash_write(address & 0xFFFF00, 256);
  
 diff -ruN pa/build/mednafen/ngp/sound.cpp pb/build/mednafen/ngp/sound.cpp
---- a/build/mednafen/ngp/sound.cpp	2026-10-16 18:10:49.970462505 +0900
-+++ b/build/mednafen/ngp/sound.cpp	2026-10-16 18:10:49.973031735 +0900
+--- a/build/mednafen/ngp/sound.cpp	2026-10-16 18:30:54.693864784 +0900
++++ b/build/mednafen/ngp/sound.cpp	2026-10-16 18:30:54.696014922 +0900
 @@ -18,10 +18,14 @@
  
  static Blip_Synth<blip_good_quality, 0xFF> synth;
@@ -819,8 +827,8 @@ diff -ruN pa/build/mednafen/ngp/sound.cpp pb/build/mednafen/ngp/sound.cpp
  {
     T6W28_ApuState sn_state;
 diff -ruN pa/build/mednafen/ngp/sound.h pb/build/mednafen/ngp/sound.h
---- a/build/mednafen/ngp/sound.h	2026-10-16 18:10:49.985403534 +0900
-+++ b/build/mednafen/ngp/sound.h	2026-10-16 18:10:49.988064050 +0900
+--- a/build/mednafen/ngp/sound.h	2026-10-16 18:30:54.703184236 +0900
++++ b/build/mednafen/ngp/sound.h	2026-10-16 18:30:54.704925487 +0900
 @@ -30,6 +30,7 @@
  void MDFNNGPCSOUND_SetEnable(bool set);
  void MDFNNGPCSOUND_Init(void);
@@ -830,8 +838,8 @@ diff -ruN pa/build/mednafen/ngp/sound.h pb/build/mednafen/ngp/sound.h
  int32_t MDFNNGPCSOUND_Flush(int16_t *SoundBuf, const int32_t MaxSoundFrames);
  
 diff -ruN pa/build/mednafen/state.c pb/build/mednafen/state.c
---- a/build/mednafen/state.c	2026-10-16 18:10:49.999501560 +0900
-+++ b/build/mednafen/state.c	2026-10-16 18:10:50.002051098 +0900
+--- a/build/mednafen/state.c	2026-10-16 18:30:54.711859487 +0900
++++ b/build/mednafen/state.c	2026-10-16 18:30:54.713782070 +0900
 @@ -407,32 +407,30 @@
  
        uint32_t tmp_size = 0;
@@ -875,8 +883,8 @@ diff -ruN pa/build/mednafen/state.c pb/build/mednafen/state.c
           return 0;
 diff -ruN pa/build/ngpfg.c pb/build/ngpfg.c
 --- a/build/ngpfg.c	1970-01-01 09:00:00.000000000 +0900
-+++ b/build/ngpfg.c	2026-10-16 18:10:50.018676149 +0900
-@@ -0,0 +1,533 @@
++++ b/build/ngpfg.c	2026-10-16 18:30:54.715587766 +0900
+@@ -0,0 +1,651 @@
 +/* ngpfg — 모든 NGPC 게임용 프레임 생성(코어 보간). 설명은 ngpfg.h. Legacito 내부 150.
 + *
 + * 그리기는 mednafen gfx.c 의 draw_scanline_colour / draw_scanline_mono 를 그대로 옮기되(창·배경색·반전·플레인 순서·
@@ -887,7 +895,7 @@ diff -ruN pa/build/ngpfg.c pb/build/ngpfg.c
 +#include "ngpfg.h"
 +#ifdef NGPFG_DEBUG
 +#include <stdio.h>
-+int ngpfg_debug_line = -1;
++int ngpfg_debug_line = -1, ngpfg_debug_tears = 0;
 +#endif
 +
 +/* ───────────── 캡처 ───────────── */
@@ -897,6 +905,8 @@ diff -ruN pa/build/ngpfg.c pb/build/ngpfg.c
 +static int fg_build = 0;
 +static uint8_t fg_build_dirty;
 +static long fg_stats[8];
++static long fg_tear[4];   /* 시험: 찢김 쌍의 갈래 — 움직임 vs 짝없음 / 움직임 vs 짝있는 정지 / 움직임 vs 다른 움직임 */
++void ngpfg_tear_stats(long *o4) { int i; for (i = 0; i < 4; i++) o4[i] = fg_tear[i]; }
 +
 +static int next_free(void)
 +{
@@ -1099,6 +1109,7 @@ diff -ruN pa/build/ngpfg.c pb/build/ngpfg.c
 +/* ───────────── 계획 ───────────── */
 +static const ngpfg_frame *pl_f0, *pl_f1, *pl_f2;
 +static int16_t pl_dx[2][64], pl_dy[2][64];         /* 칸마다 조각 옮김(¼ px) */
++static uint8_t pl_k[64];                           /* 조각마다 다음 바뀜(1·2, 0 = 안 옮김) */
 +static int16_t pl_sc[2][NGPFG_H][4];               /* 칸마다 줄·값(s1x s1y s2x s2y) 옮김(¼ px) — 스크롤 값이 커지는 쪽 */
 +static uint8_t pl_kexp[NGPFG_H][2];                /* 줄·플레인마다 새로 드러나는 칸을 가져올 프레임(0 없음 · 1 D+1 · 2 D+2) */
 +static int pl_ok = 0;
@@ -1138,6 +1149,7 @@ diff -ruN pa/build/ngpfg.c pb/build/ngpfg.c
 +   pl_ok = 1;
 +   fg_stats[0]++;
 +   match(f0, fm1, b1); match(f0, fm2, b2); match(f0, f1, g1); match(f0, f2, g2);
++   memset(pl_k, 0, sizeof pl_k);
 +   for (k = 0; k < 64; k++)
 +   {
 +      int K = 0, L, vx = 0, vy = 0, movedD, movedD1;
@@ -1154,9 +1166,123 @@ diff -ruN pa/build/ngpfg.c pb/build/ngpfg.c
 +      L = movedD ? 0 : movedD1 ? -1 : K - 2;
 +      if (L < K - 2) L = K - 2;
 +      for (h = 0; h < 2; h++) { pl_dx[h][k] = (int16_t)qmove(vx, K, L, h); pl_dy[h][k] = (int16_t)qmove(vy, K, L, h); }
++      pl_k[k] = (uint8_t)K;
 +      if (pl_dx[0][k] || pl_dy[0][k]) any |= 1;
 +      if (pl_dx[1][k] || pl_dy[1][k]) any |= 2;
 +      fg_stats[1]++;
++   }
++   {  /* 덩어리 굳히기 — 붙어 있는(9px 안·같은 갈래, 또는 같은 체인) 조각 덩어리 안에서 옮김을 맞춘다. 몸 일부만 앞서 가 찢겨 보이던 것.
++         ① 정지 조각(짝 찾음)이 더 많은 덩어리에서 D+2 에만 움직인 일부 — 대개 포즈가 바뀌며 조각을 다시 늘어놓은 것(다리만 접힘 등) — 는
++            원래처럼 D+2 에 바뀌게 둔다(얼림)
++         ② 같은 곳으로 가는데(다음 바뀜 K 와 앞 짝 벡터가 같음) 지난 바뀜을 다르게 읽어(오락가락 판정 등) 안 옮긴 조각은,
++            같은 덩어리에서 같은 K·벡터로 옮긴 조각들의 옮김을 따른다
++         ③ 짝을 못 찾은 조각(D+1 포즈 바뀜)과, D+1 제자리·D+2 에 포즈가 바뀐 조각은(덩어리가 D+2 에 움직일 때) 덩어리에서 가장 많은
++            옮김을 따른다(그 옮김이 둘 이상이고 정지 조각보다 많을 때) */
++      int par[64], rt[64], i2, j2, k2, j3;
++      for (i2 = 0; i2 < 64; i2++) par[i2] = i2;
++      for (i2 = 0; i2 < 64; i2++)
++      {
++         if (!f0->vis[i2]) continue;
++         for (j2 = i2 + 1; j2 < 64; j2++)
++         {
++            int a2, b3;
++            if (!f0->vis[j2] || f0->cls[j2] != f0->cls[i2]) continue;
++            if (f0->run[j2] != f0->run[i2] && (iabs(f0->sx[j2] - f0->sx[i2]) > 9 || iabs(f0->sy[j2] - f0->sy[i2]) > 9)) continue;
++            for (a2 = i2; par[a2] != a2; a2 = par[a2]) ;
++            for (b3 = j2; par[b3] != b3; b3 = par[b3]) ;
++            if (a2 != b3) par[b3] = a2;
++         }
++      }
++      for (i2 = 0; i2 < 64; i2++) { int r2 = i2; while (par[r2] != r2) r2 = par[r2]; rt[i2] = f0->vis[i2] ? r2 : -1; }
++#define MOVES(k) (pl_dx[0][k] || pl_dy[0][k] || pl_dx[1][k] || pl_dy[1][k])
++#define SAMEPL(a, b) (pl_dx[0][a] == pl_dx[0][b] && pl_dy[0][a] == pl_dy[0][b] && pl_dx[1][a] == pl_dx[1][b] && pl_dy[1][a] == pl_dy[1][b])
++      for (i2 = 0; i2 < 64; i2++)
++      {
++         int root = rt[i2], best = -1, bc = 0, nstat = 0;
++         if (root != i2) continue;                          /* 덩어리마다 한 번(뿌리에서) */
++         for (k2 = 0; k2 < 64; k2++)
++         {
++            int c2 = 0;
++            if (rt[k2] != root) continue;
++            if (!MOVES(k2)) { if (g1[k2].has && !g1[k2].vx && !g1[k2].vy && (g2[k2].has || !f2)) nstat++; continue; }
++            for (j3 = 0; j3 < 64; j3++) if (rt[j3] == root && SAMEPL(j3, k2)) c2++;
++            if (c2 > bc) { bc = c2; best = k2; }
++         }
++         if (best >= 0 && bc <= nstat)                       /* ① */
++         {
++            for (k2 = 0; k2 < 64; k2++)
++               if (rt[k2] == root && pl_k[k2] == 2)
++               { pl_dx[0][k2] = pl_dy[0][k2] = pl_dx[1][k2] = pl_dy[1][k2] = 0; pl_k[k2] = 0; fg_stats[1]--; }
++         }
++         for (k2 = 0; k2 < 64; k2++)                         /* ② */
++         {
++            int K2 = 0, vx2 = 0, vy2 = 0, m, bm = -1, bmc = 0;
++            if (rt[k2] != root || MOVES(k2)) continue;
++            if (g1[k2].has && (g1[k2].vx || g1[k2].vy)) { K2 = 1; vx2 = g1[k2].vx; vy2 = g1[k2].vy; }
++            else if (g1[k2].has && g2[k2].has && (g2[k2].vx || g2[k2].vy)) { K2 = 2; vx2 = g2[k2].vx; vy2 = g2[k2].vy; }
++            if (!K2) continue;
++            for (m = 0; m < 64; m++)
++            {
++               int c3 = 0;
++               if (rt[m] != root || !MOVES(m) || pl_k[m] != K2) continue;
++               if (K2 == 1 ? (g1[m].vx != vx2 || g1[m].vy != vy2) : (g2[m].vx != vx2 || g2[m].vy != vy2)) continue;
++               for (j3 = 0; j3 < 64; j3++) if (rt[j3] == root && MOVES(j3) && SAMEPL(j3, m)) c3++;
++               if (c3 > bmc) { bmc = c3; bm = m; }
++            }
++            if (bm < 0) continue;
++            pl_dx[0][k2] = pl_dx[0][bm]; pl_dy[0][k2] = pl_dy[0][bm];
++            pl_dx[1][k2] = pl_dx[1][bm]; pl_dy[1][k2] = pl_dy[1][bm];
++            pl_k[k2] = (uint8_t)K2;
++         }
++         if (best < 0 || bc < 2 || bc <= nstat || !MOVES(best)) continue;
++         for (k2 = 0; k2 < 64; k2++)                         /* ③ */
++         {
++            int unk1, unk2;
++            if (rt[k2] != root || MOVES(k2)) continue;
++            unk1 = !g1[k2].has;
++            unk2 = g1[k2].has && !g1[k2].vx && !g1[k2].vy && f2 && !g2[k2].has && pl_k[best] == 2;
++            if (!unk1 && !unk2) continue;
++            pl_dx[0][k2] = pl_dx[0][best]; pl_dy[0][k2] = pl_dy[0][best];
++            pl_dx[1][k2] = pl_dx[1][best]; pl_dy[1][k2] = pl_dy[1][best];
++            if (unk1) fg_stats[2]--;                        /* 짝없음으로 센 것을 덩어리로 옮김 */
++         }
++      }
++#undef MOVES
++#undef SAMEPL
++   }
++   {  /* 계기: 붙어 있는 같은 갈래 조각(8px 이웃)인데 칸 1 옮김이 ¼px 넘게 다른 쌍 — 몸이 찢겨 보이는 곳 */
++      int i2, j2;
++      for (i2 = 0; i2 < 64; i2++)
++      {
++         if (!f0->vis[i2]) continue;
++         for (j2 = i2 + 1; j2 < 64; j2++)
++         {
++            if (!f0->vis[j2] || f0->cls[j2] != f0->cls[i2]) continue;
++            if (iabs(f0->sx[j2] - f0->sx[i2]) > 8 || iabs(f0->sy[j2] - f0->sy[i2]) > 8) continue;
++            if (iabs(pl_dx[1][i2] - pl_dx[1][j2]) > 1 || iabs(pl_dy[1][i2] - pl_dy[1][j2]) > 1)
++            {
++               int mi = pl_dx[1][i2] || pl_dy[1][i2], mj = pl_dx[1][j2] || pl_dy[1][j2];
++               int u = mi ? j2 : i2;                         /* 안 움직인 쪽 */
++               fg_stats[7]++;
++               if (mi && mj) fg_tear[2]++;
++               else if (!g1[u].has) fg_tear[0]++;
++               else
++               {
++                  fg_tear[1]++;
++#ifdef NGPFG_DEBUG
++                  if (fg_tear[1] <= ngpfg_debug_tears)
++                  {
++                     int m2 = mi ? i2 : j2;
++                     fprintf(stderr, "찢김#%ld 계획%ld: 움직인 %d(%d,%d cls%d run%d g1 %d,%d,%d g2 %d,%d,%d → %d,%d|%d,%d) 정지 %d(%d,%d cls%d run%d g1 %d,%d,%d g2 %d,%d,%d b1 %d,%d,%d)\n",
++                             fg_tear[1], fg_stats[0], m2, f0->sx[m2], f0->sy[m2], f0->cls[m2], f0->run[m2], g1[m2].has, g1[m2].vx, g1[m2].vy, g2[m2].has, g2[m2].vx, g2[m2].vy,
++                             pl_dx[0][m2], pl_dy[0][m2], pl_dx[1][m2], pl_dy[1][m2],
++                             u, f0->sx[u], f0->sy[u], f0->cls[u], f0->run[u], g1[u].has, g1[u].vx, g1[u].vy, g2[u].has, g2[u].vx, g2[u].vy, b1[u].has, b1[u].vx, b1[u].vy);
++                  }
++#endif
++               }
++            }
++         }
++      }
 +   }
 +   if (f1)
 +      for (y = 0; y < NGPFG_H; y++)
@@ -1412,7 +1538,7 @@ diff -ruN pa/build/ngpfg.c pb/build/ngpfg.c
 +}
 diff -ruN pa/build/ngpfg.h pb/build/ngpfg.h
 --- a/build/ngpfg.h	1970-01-01 09:00:00.000000000 +0900
-+++ b/build/ngpfg.h	2026-10-16 18:10:50.018731183 +0900
++++ b/build/ngpfg.h	2026-10-16 18:30:54.715625811 +0900
 @@ -0,0 +1,79 @@
 +/* ngpfg — 모든 NGPC 게임용 프레임 생성(코어 보간). Legacito 내부 150.
 + *

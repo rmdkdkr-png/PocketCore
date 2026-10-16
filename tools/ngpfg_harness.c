@@ -203,8 +203,8 @@ int main(int argc, char **argv)
    if (!strcmp(mode, "time") || !strcmp(mode, "exact"))
    {
       long s8[8]; retro_ngp_fg_stats(s8);
-      printf("실제 호출 %.3f ms (%ld) · 합성 호출 %.3f ms (%ld) · fps %.2f · 계기 계획 %ld 옮긴조각 %ld 짝없음 %ld 스크롤줄 %ld 불가 %ld\n",
-             nreal ? treal / nreal * 1000 : 0, nreal, nsyn ? tsyn / nsyn * 1000 : 0, nsyn, fps, s8[0], s8[1], s8[2], s8[3], s8[4]);
+      printf("실제 호출 %.3f ms (%ld) · 합성 호출 %.3f ms (%ld) · fps %.2f · 계기 계획 %ld 옮긴조각 %ld 짝없음 %ld 스크롤줄 %ld 불가 %ld 조각오락가락 %ld 스크롤오락가락 %ld 찢김쌍 %ld\n",
+             nreal ? treal / nreal * 1000 : 0, nreal, nsyn ? tsyn / nsyn * 1000 : 0, nsyn, fps, s8[0], s8[1], s8[2], s8[3], s8[4], s8[5], s8[6], s8[7]);
    }
    return 0;
 }
