@@ -1952,10 +1952,11 @@ public class EmuActivity extends Activity {
             hubBanner.setText(rankQ != null ? rankQBanner() : hubText(shown, hover, picked, hs[4]));   /* 153 겹창 동안은 상대를 미리 안 보인다 */
             /* 경기 중 띠가 게임 그림 위로 올라가 있으면(가로 화면 — 아래 자리가 없음) 숨긴다: 체력 막대를 경기 내내 가리지 않게(연습과 같은 규칙) */
             boolean over = shown == 4 && !bannerUserPos && ((FrameLayout.LayoutParams) hubBanner.getLayoutParams()).topMargin < gameBox[3];
-            if (!over && hubRanked && !bannerDragging && bannerOnGame()) {                  /* 153 띠가 게임 그림 위(가로 화면 등) — 찾기 겹창 머리·VS 띠(序章~배너 2~4)를 가리지 않게. 직접 고르기 화면(VS 1)엔 그대로 */
+            if (!over && hubRanked && !bannerDragging && bannerOnGame()) {                  /* 153 띠가 게임 그림 위(가로 화면 등) — 찾기 겹창 머리·VS 띠(序章~배너 2~4)를 가리지 않게. 직접 고르기 화면(VS 1)엔 그대로 ·
+                                                                                               5(인트로 끝 ~ 첫 라운드 조작 전 — 허브는 아직 3)도 숨김: 체력 막대 자리에 한순간 다시 뜨지 않게(첫 라운드면 VS 가 0 이 되고 위 규칙) */
                 int[] vs = rankQ == null ? vsStatus() : null;
                 int vp = vs != null ? vs[0] & 15 : 0;
-                over = rankQ != null || (vp >= 2 && vp <= 4);
+                over = rankQ != null || (vp >= 2 && vp <= 5);
             }
             hubBanner.setVisibility(over || shown == 5 ? View.GONE : View.VISIBLE);   /* 5 = 타이틀·상대 선택으로 돌아가는 중 — 안내 없이 */
         }
