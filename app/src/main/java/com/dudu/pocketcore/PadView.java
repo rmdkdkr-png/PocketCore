@@ -182,13 +182,12 @@ public class PadView extends View {
     private int mask = 0;
     private boolean edit = false;
     private boolean land = false;      /* 가로 화면 — 배치 파일과 기본 좌표가 따로다 */
-    private boolean physical = false;  /* 물리 패드가 붙어 있나 (지금은 화면을 안 바꾼다) */
-    /* ★ 2026-09-06 유저: 「터치랑 패드입력은 둘다되도록해 왜 터치를 잠그냐」.
-       예전엔 물리 패드가 붙으면 화면 버튼을 그리지도 받지도 않았다.
-       물리 패드는 «더해지는» 것이지 «갈아타는» 것이 아니다 — 둘 다 살린다.
-       배관은 남겨 둔다. 「패드 붙으면 버튼 숨겨 달라」가 다시 나오면 이 상수만 되돌린다. */
-    private static final boolean PHYSICAL_HIDES_TOUCH = false;
-    private boolean hidesTouch() { return PHYSICAL_HIDES_TOUCH && physical && !edit; }
+    /* 터치 버튼 숨김 — 0 보임 · 1 물리 패드를 쓰는 동안 숨김(화면을 만지면 다시 나와 그 터치도 그대로 먹고, 다음 패드 입력에 다시 숨음) · 2 늘 숨김(설정 「숨김」).
+       ★ 2026-09-06 유저 「터치랑 패드입력은 둘다되도록해 왜 터치를 잠그냐」 — 그때는 숨기면 터치도 잠가서 숨김을 아예 껐다(상수 false).
+       그 뒤로 「자동」·「숨김」이 아무 일도 안 했다 → 151 유저 「물리키있어도 터치키가 안없어짐」. 이제 숨기되 잠그지 않는다(만지면 바로 나옴). */
+    private int hideMode = 0;
+    private boolean touchBack = false;   /* 1 에서 화면을 만져 버튼을 다시 꺼냈다 */
+    private boolean hidesTouch() { return !edit && (hideMode == 2 || (hideMode == 1 && !touchBack)); }
     /* 가로 기본 좌표(이름별). 십자는 왼쪽 아래, 버튼 무리는 오른쪽 아래, 유틸은 양 위 구석. */
     private static final Object[][] LAND = {
         /* 가로에서 게임 상자는 가운데 약 43%(160:152 를 세로에 맞춤)를 차지하므로 오른쪽 무리는 72% 밖에 둔다 */
@@ -381,16 +380,24 @@ public class PadView extends View {
         }
     }
 
-    /** 물리 패드 모드 — 게임 버튼·십자를 그리지도 받지도 않는다. 메뉴 알약과 유틸 바만 남는다. */
-    public void setPhysicalMode(boolean on) {
-        if (physical == on) return;
-        physical = on;
-        if (on && PHYSICAL_HIDES_TOUCH) {
-            mask = 0; dpadPid = -1; dpadMask = 0; dpadLast = 0;
-            if (ffDown) { ffDown = false; ffPid = -1; if (listener != null) listener.onTurbo(false); }   /* 배속 고착 방지(리뷰 F2) */
-            if (listener != null) listener.onMask(0);
-        }
+    /** 터치 버튼 숨김(위 hideMode) — 숨긴 동안은 게임 버튼·십자를 그리지 않고, 메뉴 알약과 유틸 바만 남는다. */
+    public void setPhysicalMode(int mode) {
+        if (hideMode == mode) return;
+        hideMode = mode; touchBack = false;
+        if (hidesTouch()) releaseTouch();
         invalidate();
+    }
+    /** 물리 패드로 게임 입력이 들어왔다 — 화면을 만져 꺼낸 버튼을 다시 숨긴다(손가락이 버튼을 쥐고 있으면 그대로) */
+    public void physicalInput() {
+        if (hideMode != 1 || !touchBack || edit) return;
+        if (mask != 0 || dpadPid >= 0 || ffDown) return;
+        touchBack = false;
+        invalidate();
+    }
+    private void releaseTouch() {
+        mask = 0; dpadPid = -1; dpadMask = 0; dpadLast = 0;
+        if (ffDown) { ffDown = false; ffPid = -1; if (listener != null) listener.onTurbo(false); }   /* 배속 고착 방지(리뷰 F2) */
+        if (listener != null) listener.onMask(0);
     }
     public void toggleBar() { barOpen = !barOpen; if (barOpen) barSel = firstVisible(); menuChanged(); invalidate(); }
     /** 터치·뒤로가기로 열기 — 패드 커서 강조 없이(135) */
@@ -892,8 +899,7 @@ public class PadView extends View {
 
     @Override public boolean onTouchEvent(MotionEvent e) {
         int act = e.getActionMasked();
-        /* 버튼을 숨기는 모드일 때만 눌림(DOWN)을 메뉴 알약·유틸 바용으로 걸러 받는다.
-           지금은 안 숨기므로 이 가름막이 서지 않는다 — 터치가 언제나 산다. */
+        /* 버튼을 숨긴 동안은 눌림(DOWN)만 메뉴 알약·유틸 바·«다시 꺼내기»용으로 받는다 */
         if (hidesTouch() && act != MotionEvent.ACTION_DOWN && act != MotionEvent.ACTION_POINTER_DOWN)
             return true;
 
@@ -1003,7 +1009,9 @@ public class PadView extends View {
                     return true;
                 }
             }
-            if (hidesTouch()) return true;            /* 버튼을 숨겼을 때만 게임 입력도 안 받는다 */
+            /* 151: 물리 패드라 숨겨 둔 버튼은 화면을 만지면 다시 나오고 이 터치도 그대로 먹는다(잠그지 않음) */
+            if (hideMode == 1 && !touchBack && !edit) { touchBack = true; invalidate(); }
+            if (hidesTouch()) return true;            /* 「숨김」(늘)일 때만 게임 입력을 안 받는다 */
             int fi = ffIndex();
             if (fi >= 0 && dist(x, y, cx(fi), cy(fi)) < radOf(fi) * 1.3f) {
                 ffDown = true; ffPid = e.getPointerId(idx);

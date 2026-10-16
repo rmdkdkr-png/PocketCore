@@ -318,6 +318,17 @@ def run(tag, size, density, bar_labels, with_settings):
     sh("input swipe %d %d %d %d 900" % (hx, hy, hx, hy))                 # 알약 길게 = 빠른 저장
     time.sleep(0.6)
     shot(tag + "_10_qsave")
+    # 151: 물리 패드 입력 → 터치 버튼 숨김(메뉴 알약만), 화면을 만지면 다시 나옴(유저 「물리키있어도 터치키가 안없어짐」)
+    time.sleep(1.5)
+    sh("input gamepad keyevent KEYCODE_BUTTON_A")
+    time.sleep(1.2)
+    shot(tag + "_11_pad_hidden")
+    sh("input tap %d %d" % (pv[0] + w // 2, pv[1] + int(h * 0.86)))      # 아래쪽(버튼 자리) 아무 데나
+    time.sleep(1.2)
+    shot(tag + "_12_touch_back")
+    sh("input gamepad keyevent KEYCODE_BUTTON_B")
+    time.sleep(1.2)
+    shot(tag + "_13_pad_again")
     save_logcat(tag)
 
 
