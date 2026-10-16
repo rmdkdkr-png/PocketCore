@@ -280,10 +280,10 @@ public final class Updater {
                 toast(act, "앱은 최신 " + (testLevel() ? "시험 판" : "정식 판") + "입니다 (v" + rn + " · 내부 " + my + ")");
             return true;
         }
-        /* 154: 앱이 APK 를 받아 직접 깔던 것(120~ PackageInstaller 세션, 그 전엔 설치창 호출 — REQUEST_INSTALL_PACKAGES)을 뺐다.
+        /* 154: 앱이 APK 를 받아 직접 깔던 것(120~ PackageInstaller 세션 + APK 프로바이더)을 뺐다.
            유저 2026-10-17 「유해한앱이라고 안뜨게해줭」 — 인터넷에서 APK·코어(.so)를 받아 스스로 깔고 실행하는 모양이 Play 프로텍트가
            «유해한 앱»으로 보는 드로퍼·로더와 같다. 이제는 시스템 다운로드(DownloadManager)에 맡기고, 다 받으면 그 알림을 눌러
-           시스템 설치기로 깐다(처음 한 번 「이 출처 허용」 — 우리 앱이 아니라 다운로드 쪽). 앱은 APK 를 열지도 깔지도 않는다. */
+           시스템 설치기로 깐다. 앱은 APK 를 열지도 깔지도 않는다(설치 출처 확인은 여전히 우리 앱 — 「이 출처 허용」은 120 부터 켜 둔 그것). */
         final String url = base + "/" + Uri.encode(apk);
         android.app.DownloadManager dm = (android.app.DownloadManager) act.getSystemService(android.content.Context.DOWNLOAD_SERVICE);
         android.content.SharedPreferences pf = act.getSharedPreferences("selfupdate", android.content.Context.MODE_PRIVATE);

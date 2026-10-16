@@ -13,8 +13,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 132: UPDATE_PACKAGES_WITHOUT_USER_ACTION 뺌(유저 2026-10-14 「유해한 앱이라고 아직도 떠」).
-         154: REQUEST_INSTALL_PACKAGES 도 뺌 — 앱이 APK 를 받아 직접 깔지 않는다(유저 2026-10-17 「유해한앱이라고 안뜨게해줭」).
-         「새 판 받기」는 시스템 다운로드에 맡기고 그 알림을 눌러 시스템 설치기로(Updater.checkApk). 코어(.so)도 더 받지 않는다 -->
+         154: 앱이 APK 를 받아 직접 깔던 것(PackageInstaller 세션·APK 프로바이더)을 뺐다(유저 2026-10-17 「유해한앱이라고 안뜨게해줭」) —
+         「새 판 받기」는 시스템 다운로드에 맡기고 그 알림을 눌러 시스템 설치기로(Updater.checkApk). 코어(.so)도 더 받지 않는다.
+         이 권한은 남는다: 시스템 다운로드 알림으로 여는 설치도 «받기를 맡긴 앱»의 권한을 본다(InstallStart 가 EXTRA_ORIGINATING_UID 로 —
+         CI API 33 에서 권한 없이 «Requesting uid needs to declare permission REQUEST_INSTALL_PACKAGES»로 설치기가 그냥 닫혔다) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />

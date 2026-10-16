@@ -1,6 +1,6 @@
 """「새 판 받기」 에뮬레이터 시험 — CI 작업 selfupdate 가 부른다(커밋 메시지에 [upd]).
 
-154~: 앱은 APK 를 깔지 않는다(REQUEST_INSTALL_PACKAGES 없음 — 유저 「유해한앱이라고 안뜨게해줭」).
+154~: 앱은 APK 를 직접 깔지 않는다(PackageInstaller 세션·APK 프로바이더 뺌 — 유저 「유해한앱이라고 안뜨게해줭」).
 판 A(내부 500)를 깔고, 러너에서 판 B(내부 501, 같은 시험 서명)를 http 로 내놓은 뒤(디버그 판만 10.0.2.2 평문 허용)
 런처의 「새 판 받기」를 누르면 시스템 다운로드가 B 를 받고 → 다운로드 알림을 눌러 → 시스템 설치기 「업데이트」 → 501 이면 통과.
 (120~153 은 앱이 PackageInstaller 세션으로 직접 깔았다 — 그 시험은 c89fa3d 까지의 이 파일)
@@ -112,10 +112,8 @@ def main():
 
     say("install A", adb("install", "-r", "-g", a_abs))
     sh("appops set --uid %s MANAGE_EXTERNAL_STORAGE allow" % PKG)
-    # 다운로드 알림을 누르면 설치를 여는 쪽(다운로드·파일 앱)이 «출처» — 유저는 처음 한 번 「이 출처 허용」, 시험은 미리 켜 둔다
-    for src in ("com.android.providers.downloads", "com.android.providers.downloads.ui", "com.android.documentsui", "com.google.android.documentsui"):
-        sh("appops set %s REQUEST_INSTALL_PACKAGES allow" % src)
-    say("perm", sh("dumpsys package %s | grep -i 'REQUEST_INSTALL'" % PKG).strip() or "no REQUEST_INSTALL_PACKAGES (good)")
+    # 다운로드 알림으로 여는 설치도 «받기를 맡긴 앱»(우리)이 출처 — 유저는 이미 「이 출처 허용」을 켜 두었다(120~), 시험은 미리 켠다
+    sh("appops set %s REQUEST_INSTALL_PACKAGES allow" % PKG)
     sh("mkdir -p /sdcard/PocketCore/roms")
     sh("rm -f /sdcard/Download/b*.apk")
     open(os.path.join(OUT, "options.txt"), "w").write(
