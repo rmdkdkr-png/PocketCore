@@ -2018,6 +2018,8 @@ public class EmuActivity extends Activity {
                 String lab = rm != null && rm.optJSONObject("opp_snap") != null ? rm.optJSONObject("opp_snap").optString("label") : rankOppV != null ? rankOppV.label : "";
                 if (rankCap && (scr == 2 || scr == 4)) return "랭크에서 쓸 내 캐릭터 — 한 번만 골라요\nvs " + who + " · " + lab + "\n" + myPickKeys(scr, true);   /* 153 첫 판(·바꾸기) */
                 if (rankCap && scr == 6) return "고른 카드는 다음 판부터 그대로\nvs " + who + " · " + lab + "\n" + myPickKeys(scr, true);
+                League.Main mn = rankAuto == 2 && scr != 2 && scr != 4 && scr != 6 ? League.main() : null;   /* 대신 고른 판 — 고르기 화면 대신 내 캐릭터 */
+                if (mn != null) return "vs " + who + " · " + lab + "\n스테이지 " + League.stageName(hubStage) + " · " + League.mainLabel(mn, -1) + "\n곧 시작해요";
                 return "vs " + who + " · " + lab + "\n스테이지 " + League.stageName(hubStage) + " · 카드 전부 열림\n" + myPickKeys(scr, true);
             }
             org.json.JSONObject o = (picked >= 0 && picked < 15 && hubOpp[picked] != null) ? League.oppById(hubOpp[picked]) : null;
