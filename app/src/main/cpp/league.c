@@ -1157,7 +1157,7 @@ void league_hub_status(int v[LEAGUE_NHUB])
 /* 153 자동 진행 상태 — league_hub_status 는 크기 그대로(15 — 고정 크기로 받는 곳이 있다).
    [단계(0 꺼짐 · 1 고르기 화면으로(−4 는 리셋부터) · 2 캐릭터 · 3 검질 · 4 카드 · 5 이야기 · 6 무대 인트로(앱이 찾기 겹창을 내릴 때) · 7 첫 라운드 ·
     8 막힘 = 사용자가 직접 — 고르기를 마치면 이야기부터 다시 5·6·7), go(−4 는 리셋) 뒤 프레임(−1 꺼짐), 장면 프레임(go 기준, −1 아직), 첫 라운드 프레임(−1), 막힌 단계(0 없음)]
-   Java 는 돌려보냄이 코어에 닿은 뒤(league_hub_status v[8] 가 늘어난 뒤)의 값만 믿는다 — 그 전엔 지난 판 값 */
+   결판 때 비운다(0) — «다음 상대»를 누른 뒤 돌려보냄(−4)이 코어에 닿기 전엔 0, 닿으면 1(league_hub_status v[8] 도 하나 는다) */
 void league_hub_autostatus(int v[LEAGUE_NAUTO])
 {
    pthread_mutex_lock(&L_mu);
@@ -1387,6 +1387,7 @@ void league_tick_hub(uint8_t *ram, size_t n, int input)
       L.cpu_atk = ram[R_CPUMUL] | (ram[R_CPUMUL + 1] << 8); L.cpu_def = ram[R_CPUMUL + 2] | (ram[R_CPUMUL + 3] << 8);
       L.cap_seen = ram[R_CPUCAP];
       if (!(H.st != H_OFF && H.kind == 1)) post_start(ram, input);   /* 승리 대사까지 게임을 더 돌린다(149) — 리그·랭크만(연습 대전 허브도 무장하지만 거기선 멈추지 않는다) */
+      if (H.st != H_OFF && H.kind == 0) auto_clear();   /* 153: 결판 — 자동 진행 상태를 비운다(«다음 상대» 뒤 돌려보냄이 코어에 닿기 전에 Java 가 지난 판의 단계 7 을 보지 않게 — 그동안 0) */
    }
    pthread_mutex_unlock(&L_mu);
 }
