@@ -497,6 +497,7 @@ static void hub_tick(uint8_t *ram, int input)
          block = IN_A | IN_B;
          int h = ram[R_HOVER] >> 2;
          H.hover = (h >= 0 && h < 14) || h == 15 ? h : -1;
+         if (input & (IN_UP_DOWN | IN_LEFT | IN_RIGHT)) H.prepos = 1;   /* 사용자가 먼저 커서를 움직였으면 미리 옮기지 않는다(쥔 커서를 뺏지 않게) */
          if (!H.prepos && H.csel_f >= PREPOS_F) {    /* 지난번 내 칸에서 시작(«타이틀로» 뒤 다시 연습 대전) */
             H.prepos = 1;
             if (H.me1 > 0 && h != H.me1 - 1) { nav_to(H.me1 - 1, 0); break; }
@@ -514,10 +515,11 @@ static void hub_tick(uint8_t *ram, int input)
       break;
    case H_PICK_OPP:
       if (csel) { H.seen_csel = 1; H.csel_f++; } else H.csel_f = 0;
+      if (csel && !H.nav && H.kind == 1 && (input & (IN_UP_DOWN | IN_LEFT | IN_RIGHT))) H.prepos = 1;   /* 먼저 움직였으면 그대로(내 캐릭터를 고르자마자 더미 쪽으로 가는 손) */
       if (csel && !H.nav && H.kind == 1 && !H.prepos && H.csel_f >= PREPOS_F) {   /* 연습: 지난 더미 칸에서 시작 */
          int o = H.opp1 - 1 == 14 ? 15 : H.opp1 - 1;
          H.prepos = 1;
-         if (H.opp1 > 0 && (ram[R_HOVER] >> 2) != o) { nav_to(o, 0); break; }
+         if (H.opp1 > 0 && (ram[R_HOVER] >> 2) != o) { block = IN_A | IN_B | IN_OPT; nav_to(o, 0); break; }   /* 이 프레임도 막는다(대신 누르기는 다음 프레임부터 — 누른 A 가 게임에 새면 내 캐릭터 확정) */
       }
       if (csel && !H.nav && H.kind == 1) {          /* 연습: A 수라 · B 나찰 더미 · 옵션 스테이지(게임은 이 화면에서 B·옵션을 안 쓴다) */
          block = IN_A | IN_B | IN_OPT;
@@ -578,9 +580,10 @@ static void hub_tick(uint8_t *ram, int input)
          if (ram[R_MODE] == 240 && ram[R_SCR] == 4) H.style_seen = 1;
          int story = H.style_seen && ((ram[R_MODE] == 241 && ram[R_SCR] == 0 && ram[R_FIGHT] == 0) || (ram[R_MODE] == 240 && ram[R_SCR] == 8));
          league_in_or = (story && (H.f % 30u) < 4) ? IN_A : 0;
-         if (csel && !H.nav) {                       /* 게임 쪽에서 다시 고르면(검질 고르기에서 B 로 뒤로) 그 칸이 내 칸 — 뽑혔던 캐릭터로 고정한 칸은 무작위 칸 그대로 */
+         if (csel && !H.nav) {                       /* 게임 쪽에서 다시 고르면(검질 고르기에서 B 로 뒤로) 그 칸이 내 칸 — 뽑혔던 캐릭터로 고정한 칸은 확정 연출 동안만 무작위 칸 그대로
+                                                        (뒤로 와서 그 칸을 다시 고르면 직접 고른 것 — look 도 그때 무작위 칸 컬러 기억을 놓는다) */
             int h = ram[R_HOVER] >> 2;
-            if (((h >= 0 && h < 14) || h == 15) && h + 1 != H.me1 && !(H.me1 == 16 && h == H.me_pin - 1)) { H.me1 = (signed char)(h + 1); H.me_pin = 0; }
+            if (((h >= 0 && h < 14) || h == 15) && h + 1 != H.me1 && (H.style_seen || !(H.me1 == 16 && h == H.me_pin - 1))) { H.me1 = (signed char)(h + 1); H.me_pin = 0; }
          }
       }
       if (L.fight_seen && H.kind == 1) {            /* 연습 경기 시작 — 무작위 칸이면 뽑힌 캐릭터(P1 블록, 유가 치트면 14 → 고정 안 함), 2P색은 look 이 실제로 쓴 것 */
