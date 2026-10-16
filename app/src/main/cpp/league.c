@@ -394,14 +394,24 @@ static void nav_to(int ch, int press_a) { H.nav = 4; H.nav_f = H.f; H.nav_ch = c
    Java 가 띠(league_hub_vs)를 넘겨 두면: (1) 은 A 로 넘기고, (2) 의 위 검은 띠에 닉네임·티어·LP·VS 를 얹은 채 hold 프레임 보여 준 뒤
    A 를 대신 눌러 (3) 으로 — 띠는 배너 동안에도 남기거나(VS_THRU_BANNER) 배너 시작에 거둔다. 경기(MODE 241)가 되면 꼭 거둔다(HUD 자리).
    그동안 사용자 A·B·OPTION 은 게임에 안 준다(한 번 누름에 대사가 끊기지 않게). 한 번 쓰면 끝(다음 경기에 Java 가 다시 넘긴다).
-   자동 진행(아래 AP)이 이야기를 밟는 판이면 (1) 은 그쪽이 누르고(같은 0x57CB 가드), 인트로는 늘 여기 몫 — 자동 진행은 대사를 안 넘긴다. */
+   자동 진행(아래 AP)이 이야기를 밟는 판이면 (1) 은 그쪽이 누르고(같은 story_skip_a), 인트로는 늘 여기 몫 — 자동 진행은 대사를 안 넘긴다. */
 enum { VS_OFF = 0, VS_WAIT, VS_STORY, VS_SHOW, VS_BANNER, VS_DONE, VS_FAIL };
 #define VS_THRU_BANNER 1
 static struct {
    int phase, hold, flags, style_seen, a_try, off_req;
    int opp, sty;                                      /* 띠를 받을 때 정해져 있던 상대(league_hub_match) — 인트로의 P2 가 이것일 때만 얹는다(남은 띠가 다른 상대에 안 붙게) */
+   int sq0;                                           /* 序章 동안 0x57CB 가 0 인 걸 봤나(story_skip_a) */
    unsigned story_f, show_f;
 } VS;
+/* 序章 넘기기 A(4프레임 누르고 4프레임 뗌) — 첫 A 는 글을 끝내고(0x57C8 → 0F · 0x57CB → 0), 다음 A(8프레임 넘어)가 인트로로(0x57CB 3·6·0C → ~6프레임 뒤 인트로).
+   리셋 뒤 둘째 판부터는 0x57CB 에 지난 경기 값이 남아 있다(0x42 등 — 序章이 끝날 때까지 그대로, 153 실측). 그래서 «0 인 동안»이 아니라
+   «0 을 본 뒤 0 이 아니게 되면(3 — 넘김이 먹음) 그만» — 인트로 첫 프레임에 A 가 새면 대사 단계가 바로 끝난다(vsgame probe2) */
+static int story_skip_a(const uint8_t *ram, int *seen0, unsigned d)
+{
+   if (ram[R_SEQ] == 0) *seen0 = 1;
+   else if (*seen0) return 0;
+   return (d & 7) < 4 ? IN_A : 0;
+}
 static void vs_reset_locked(int vram_ok)               /* vram_ok = 코어 잠금 안(GL 스레드) — 아니면 화면은 다음 틱이 거둔다 */
 {
    if (vram_ok) { vsband_restore(); vsband_clear(); memset(&VS, 0, sizeof VS); }
@@ -424,7 +434,7 @@ static int vs_tick(uint8_t *ram, int *orr_out, int story_auto)
    int intro = md == 240 && sc >= 8;                  /* 무대 인트로 — R_SCR = 8 + 2 × 딸린 것 수(나코루루 마마하하·리무루루 콘루·갈포드 포피: 8·10·12·14, 실측) */
    if ((VS.phase == VS_WAIT || VS.phase == VS_STORY) && story) {
       VS.phase = VS_STORY; blk = IN_A | IN_B | IN_OPT;
-      if (seq == 0 && !story_auto) { orr = (VS.story_f % 40u) < 4 ? IN_A : 0; VS.story_f++; }   /* 넘김이 먹으면 0x57CB 가 3·6·0x0C(실측 +47) — 그 뒤엔 안 누른다(인트로 첫 프레임에 새면 대사 단계가 바로 끝남) */
+      if (!story_auto) orr = story_skip_a(ram, &VS.sq0, VS.story_f++);   /* 넘김이 먹으면 0x57CB 3·6·0x0C — 그 뒤엔 안 누른다 */
    }
    if ((VS.phase == VS_WAIT || VS.phase == VS_STORY) && intro && seq == SEQ_QUOTE) {
       int p2 = ram[R_P2BLK];                           /* 인트로 첫 프레임엔 P1·P2 블록이 이미 섰다(실측 — 0x5D51 은 인트로가 되는 프레임에 만들어짐) */
@@ -483,6 +493,7 @@ static struct {
    int manual;                                    /* 이번 판은 직접 고르고 이야기부터 자동(tail·실패 뒤) — 카드는 안 씀 */
    int ph, why;                                   /* 진행 단계(AP_*) · 막힌 단계(0 없음) */
    int tries, navd, sseen, btn, cq;               /* 캐릭터 커서 다시 한 횟수 · nav 4 를 걸었나 · 검질 화면을 봤나 · 카드 화면에서 누르는 단추 · 카드 물음(06)을 봤나 */
+   int sq0;                                       /* 序章에서 0x57CB 0 을 봤나(story_skip_a) */
    int scene_at, round_at;                        /* go(−4 는 리셋) 뒤 장면·첫 라운드 프레임(−1 아직) */
    unsigned f0, fs, navf, csel_f;                 /* go(−4 는 리셋) · 이 단계 시작 · nav 건 때 · 고르기 화면 프레임 (허브 프레임) */
 } AP;
@@ -561,7 +572,7 @@ static int auto_tick(uint8_t *ram, int *orr_out)
          ram[R_CARD2] = AP.k2 >= 0 ? (uint8_t)auto_card(AP.k2) : 0xFF;
       }
       if (md == 240 && scr >= 8) { auto_next(AP_SCENE); AP.scene_at = (int)(H.f - AP.f0); break; }   /* 무대 인트로 — 첫 프레임에 P1·P2 블록(실측 e7·sweep) */
-      if (tap && md == 241 && scr == 0 && fi == 0 && ram[R_SEQ] == 0) orr = IN_A;   /* 넘김이 먹은 뒤(0x57CB ≠ 0)엔 안 누른다 — 인트로 첫 프레임에 새지 않게 */
+      if (md == 241 && scr == 0 && fi == 0) orr = story_skip_a(ram, &AP.sq0, d);   /* 넘김이 먹은 뒤엔 안 누른다 — 인트로 첫 프레임에 새지 않게 */
       if (d > 2400) auto_fail(ram, AP_STORY);
       break;
    case AP_SCENE:                                  /* 무대 인트로 — 첫 라운드는 L.fight_seen(밖에서) */
