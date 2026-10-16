@@ -193,3 +193,45 @@ jobs:
           gh release delete ci-core -y --cleanup-tag || true
           gh release create ci-core out/* --prerelease --target "${GITHUB_SHA}" \
             --title "CI — 사무쇼2 코어 ($CORE_COMMIT + 앱 방 패치)" --notes "$(cat out/SOURCE.txt)"
+
+  # SVC 코어(사무쇼2 말고 모든 게임) — ss2-sp-core 의 SP 4.06 소스(1c66151, src 덮어쓰기까지 코어 방 빌드와 같게) + 앱 방 패치
+  # (tools/core_svc_patches — 내부 150 코어 보간 ngpfg). 결과 .so 는 태그 ci-core-svc — 세션이 받아 jniLibs·코어 색인에 넣는다.
+  core-svc:
+    runs-on: ubuntu-latest
+    env:
+      CORE_COMMIT: 1c661513e0c55fd4a1d34c4a5efb5464ba6aa266
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch core source
+        run: |
+          git clone https://github.com/rmdkdkr-png/ss2-sp-core core
+          git -C core checkout "$CORE_COMMIT"
+          cp core/src/*.c core/src/*.h core/build/
+      - name: Apply app-room patches
+        run: |
+          cd core
+          for p in "$GITHUB_WORKSPACE"/tools/core_svc_patches/*.patch; do
+            echo "== $p"
+            git apply -v "$p"
+          done
+          git status --short | head -n 20
+      - name: ndk-build
+        run: |
+          cd core/build/jni
+          if ! "$ANDROID_NDK_ROOT/ndk-build" -j4 APP_ABI="arm64-v8a armeabi-v7a x86_64" APP_PLATFORM=android-21 > ndk.log 2>&1; then
+            tail -n 60 ndk.log
+            grep -E 'error|Error|undefined' ndk.log | head -n 30 | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          fi
+          tail -n 5 ndk.log
+          ls -la ../libs/*/
+      - name: Publish to release ci-core-svc
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir out
+          for a in arm64-v8a armeabi-v7a x86_64; do cp core/build/libs/$a/libretro.so out/libretro_svc_$a.so; done
+          (cd out && sha256sum *.so > SHA256SUMS && echo "svc core $CORE_COMMIT + $(ls "$GITHUB_WORKSPACE"/tools/core_svc_patches | tr '\n' ' ')" > SOURCE.txt)
+          gh release delete ci-core-svc -y --cleanup-tag || true
+          gh release create ci-core-svc out/* --prerelease --target "${GITHUB_SHA}" \
+            --title "CI — SVC 코어 (SP 4.06 + 앱 방 패치)" --notes "$(cat out/SOURCE.txt)"

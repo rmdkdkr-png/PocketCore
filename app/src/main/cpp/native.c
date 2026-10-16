@@ -300,7 +300,9 @@ static void cb_video(const void *data, unsigned w, unsigned h, size_t pitch)
       업스케일러는 «도트 한 칸 = 텍셀 한 칸»이어야 돈다. 사이 그림은 ¼픽셀 대신 정수 픽셀로 반올림된다.
       유저 2026-10-11 「업스케일러가 안 되네 — 업스케일러는 블렌더 레벨 필요 없어」 */
    unsigned ds = 1;
-   if (g_d_up > 0 && g_pixfmt == RETRO_PIXEL_FORMAT_RGB565 && w >= 320 && w % 160 == 0 && h == 152u * (w / 160))
+   /* 150: SVC 코어 보간도 4배 — 기술명 띠(최대 32줄)가 붙으면 세로가 (152+띠)·4 라 «152 의 배수»만 보면 못 알아봤다 */
+   if (g_d_up > 0 && g_pixfmt == RETRO_PIXEL_FORMAT_RGB565 && w >= 320 && w % 160 == 0 && h % (w / 160) == 0
+       && h / (w / 160) >= 152u && h / (w / 160) <= 184u)
       ds = w / 160;
    if (ds > 1) {
       unsigned ow = w / ds, oh = h / ds;
@@ -658,7 +660,8 @@ static void gl_draw(int show)
    /* 서기 그리기(코어 패치 95)를 켜면 코어가 4배(640×608)로 내보낸다 — 화면 상자·정수배·필터는 «게임 칸»(160×152) 기준 */
    /* «박자» 칸은 S배로 그린 것 — 기둥(288폭)도 288·S 라 160 의 배수 판정 대신 S 를 그대로 */
    int sub = show == 2 ? g_cad_S
-           : (g_fb_w >= 320 && g_fb_w % 160 == 0 && g_fb_h == 152u * (g_fb_w / 160)) ? (int)(g_fb_w / 160) : 1;
+           : (g_fb_w >= 320 && g_fb_w % 160 == 0 && g_fb_h % (g_fb_w / 160) == 0
+              && g_fb_h / (g_fb_w / 160) >= 152u && g_fb_h / (g_fb_w / 160) <= 184u) ? (int)(g_fb_w / 160) : 1;   /* 150: 띠가 붙은 4배(SVC 코어 보간)도 */
    int lw = (int)iw / sub, lh = (int)ih / sub;
    float ar = g_av.geometry.aspect_ratio > 0.f
             ? g_av.geometry.aspect_ratio : (float)lw / (float)lh;
@@ -1053,6 +1056,8 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
 }
 
 JNI(jfloat, nativePanelHz)(JNIEnv *env, jclass cls) { (void)env; (void)cls; return panel_hz(); }
+/* 150: 지금 코어에 코어 보간이 있나 — 사무쇼2 코어와 새 SVC 코어(ngpfg)는 retro_ngp_fg_state 를 내놓는다 */
+JNI(jint, nativeCoreHasFg)(JNIEnv *env, jclass cls) { (void)env; (void)cls; return (g_loaded && c_fg_state) ? 1 : 0; }
 JNI(jdouble, nativeCoreFps)(JNIEnv *env, jclass cls) { (void)env; (void)cls; return g_av.timing.fps; }
 
 JNI(void, nativeSetPaused)(JNIEnv *env, jclass cls, jboolean on)

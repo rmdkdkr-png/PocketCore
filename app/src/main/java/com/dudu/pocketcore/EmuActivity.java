@@ -412,6 +412,8 @@ public class EmuActivity extends Activity {
                 (ranked() ? League.saveDir() : MainActivity.saveDir()).getAbsolutePath(),
                 MainActivity.optsFile().getAbsolutePath());
         loaded = rc == 0;
+        /* 150: 코어 보간이 있는지는 로드 뒤에 안다(SVC 코어도 생김) — 120Hz 요청·게임 중 칸을 다시 맞춘다 */
+        if (loaded) h.post(new Runnable() { @Override public void run() { applyFrameGen(false); } });
         snapCoreOpts();
         romMtime = new File(romPath).lastModified();
         toast(loaded ? coreLabel : "코어/롬 로드 실패 (code " + rc + ")");
@@ -618,8 +620,9 @@ public class EmuActivity extends Activity {
     private int fgMode = 0;   /* 앱 보간 모드(native) 0 끔 · 1 섞기 · 2 움직임 · 3 박자 */
 
     private static int fgModeOf(String v) { return "cadence".equals(v) ? 3 : "motion".equals(v) ? 2 : "blend".equals(v) ? 1 : 0; }
-    /** 이 게임은 코어 프레임 생성이 있는가 — ss2 코어(ss2-sp-core framegen). */
-    private boolean coreFg() { return "ss2".equals(romType); }
+    /** 이 게임은 코어 프레임 생성이 있는가 — ss2 코어(ss2-sp-core framegen), 150 부터 SVC 코어(ngpfg — 모든 게임)도.
+     *  로드 뒤엔 코어가 retro_ngp_fg_state 를 내놓는지로(밖에 둔 옛 SVC 코어면 없다) */
+    private boolean coreFg() { return "ss2".equals(romType) || (loaded && Emu.nativeCoreHasFg() != 0); }
     private boolean coreFgOn() { return coreFg() && !"disabled".equals(readOpt("ngp_framegen", "auto")); }
 
     private void applyFrameGen(boolean announce) {
@@ -641,8 +644,9 @@ public class EmuActivity extends Activity {
         boolean coreOut = Emu.nativeCoreFps() > 90;          /* 코어가 120.5 를 선언했다 */
         StringBuilder sb = new StringBuilder("화면 " + hz + "Hz");
         if (coreFg()) {
-            boolean four = "4".equals(readOpt("ngp_framegen_mult", "4"));
-            boolean interp = "interp".equals(readOpt("ngp_framegen_mode", "predict"));
+            boolean ss2 = "ss2".equals(romType);
+            boolean four = !ss2 || "4".equals(readOpt("ngp_framegen_mult", "4"));
+            boolean interp = ss2 && "interp".equals(readOpt("ngp_framegen_mode", "predict"));
             sb.append(" · 코어: ").append(!coreFgOn() ? "끔" : coreOut
                     ? "120Hz 출력 중(" + (four ? "4배" : "2배") + "·" + (interp ? "보간" : "예측") + ")" : "60Hz 사이 그림(예측)");
         }
