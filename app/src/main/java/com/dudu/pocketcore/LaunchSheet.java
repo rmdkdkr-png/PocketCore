@@ -243,24 +243,70 @@ public final class LaunchSheet {
         paintFocus();
     }
 
-    /** 시트 갈아 끼우기 — 창은 그대로, 틀 안의 내용만(139) */
+    /** 시트 갈아 끼우기 — 창은 그대로, 틀 안의 내용만(139). 148: 시트는 겉 틀(SheetScroll) 안에 — 화면보다 길면 시트째 스크롤 */
     private void setSheet(View sheet) {
         sheet.setClickable(true);                                   /* 시트 위 탭이 틀(바깥 닫기)로 새지 않게 */
         frame.removeAllViews();
-        frame.addView(sheet, new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+        sheetScroll = new SheetScroll();
+        sheetScroll.addView(sheet, new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        frame.addView(sheetScroll, new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
     }
 
-    /** 높이 상한이 있는 스크롤 — 재기(onMeasure)에서 바로 자른다. 예전 OnGlobalLayoutListener 는 떼지 않아 창에 쌓였고 그릴 때마다 다시 쟀다(139) */
-    private ScrollView cappedScroll(final int maxH) {
-        return new ScrollView(a) {
-            @Override protected void onMeasure(int wSpec, int hSpec) {
-                int mode = View.MeasureSpec.getMode(hSpec), size = View.MeasureSpec.getSize(hSpec);
-                if (mode == View.MeasureSpec.UNSPECIFIED || size > maxH) hSpec = View.MeasureSpec.makeMeasureSpec(maxH, View.MeasureSpec.AT_MOST);
-                super.onMeasure(wSpec, hSpec);
-            }
-        };
+    /** 높이 상한이 있는 스크롤 — 재기(onMeasure)에서 바로 자른다. 예전 OnGlobalLayoutListener 는 떼지 않아 창에 쌓였고 그릴 때마다 다시 쟀다(139).
+     *  148: 상한(cap)은 시트가 화면보다 길 때 겉 틀이 줄인다 — 잴 때마다 max 로 되돌린 뒤 다시 정한다 */
+    private final class CapScroll extends ScrollView {
+        final int max; int cap;
+        CapScroll(int maxH) { super(a); max = cap = maxH; }
+        @Override protected void onMeasure(int wSpec, int hSpec) {
+            int mode = View.MeasureSpec.getMode(hSpec), size = View.MeasureSpec.getSize(hSpec);
+            if (mode == View.MeasureSpec.UNSPECIFIED || size > cap) hSpec = View.MeasureSpec.makeMeasureSpec(cap, View.MeasureSpec.AT_MOST);
+            super.onMeasure(wSpec, hSpec);
+        }
     }
+    private CapScroll capScroll(int maxH) { CapScroll c = new CapScroll(maxH); listScroll = c; return c; }
+
+    /** 148: 시트 겉 틀. 다 들어가면 147 그대로(스크롤 없음 · 줄 목록 상한 = 화면 반).
+     *  넘치면 ① 줄 목록을 한 줄 남짓(LIST_MIN)까지 줄여 맞추고, ② 그래도 넘치면(가로 폰 360dp — 아래 고리가 랭크 매치·순위표 둘로 늘었다)
+     *  시트째 스크롤한다. fix 라운드의 weight 는 목록만 깎아 가로 런처에서 줄이 0dp 로 사라졌다(147 은 거꾸로 아래 고리·안내가 눌려 사라졌다).
+     *  안드로이드 포커스는 안 받는다(135 — 첫 십자 입력을 «터치 모드 빠져나가기»가 먹지 않게) */
+    private final class SheetScroll extends ScrollView {
+        SheetScroll() {
+            super(a);
+            setFocusable(false);
+            setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+            setVerticalScrollBarEnabled(true);
+            setScrollbarFadingEnabled(false);                        /* 넘칠 때만 그려진다 — 아래에 더 있다는 표시 */
+        }
+        @Override protected void onMeasure(int wSpec, int hSpec) {
+            View c = getChildAt(0);
+            if (c == null) { super.onMeasure(wSpec, hSpec); return; }
+            int w = View.MeasureSpec.getSize(wSpec), avail = View.MeasureSpec.getSize(hSpec);
+            boolean bounded = View.MeasureSpec.getMode(hSpec) != View.MeasureSpec.UNSPECIFIED;
+            int cw = View.MeasureSpec.makeMeasureSpec(Math.max(0, w - getPaddingLeft() - getPaddingRight()), View.MeasureSpec.EXACTLY);
+            int ch = View.MeasureSpec.makeMeasureSpec(bounded ? Math.max(0, avail - getPaddingTop() - getPaddingBottom()) : 0,
+                    View.MeasureSpec.UNSPECIFIED);                     /* ScrollView 와 같다 — 시트는 제 키대로 */
+            CapScroll l = listScroll != null && listScroll.getParent() == c ? listScroll : null;
+            if (l != null && l.cap != l.max) { l.cap = l.max; l.forceLayout(); c.forceLayout(); }   /* 잰 값 캐시를 건너뛰지 않게 */
+            c.measure(cw, ch);
+            if (bounded && l != null && c.getMeasuredHeight() > avail) {
+                int lh = l.getMeasuredHeight();
+                int want = Math.max(Math.min(lh, dp(LIST_MIN)), lh - (c.getMeasuredHeight() - avail));
+                if (want < lh) { l.cap = want; l.forceLayout(); c.forceLayout(); c.measure(cw, ch); }
+            }
+            int h = c.getMeasuredHeight() + getPaddingTop() + getPaddingBottom();
+            boolean over = bounded && h > avail;
+            /* 시트째 스크롤할 때만 — 목록을 끝까지 끌면 남은 만큼 시트가 따라간다(안 그러면 겉 틀이 목록 끌기를 가로챈다).
+               들어갈 땐 끈다: 147 처럼 목록 끝 번짐(glow)이 그대로 */
+            if (l != null && l.isNestedScrollingEnabled() != over) l.setNestedScrollingEnabled(over);
+            setMeasuredDimension(w, over ? avail : h);
+        }
+        boolean scrolls() { return canScrollVertically(1) || canScrollVertically(-1); }
+    }
+    private static final int LIST_MIN = 112;                         /* 줄 목록 최소 높이(dp) — 켜고 끄는 줄 하나(약 77dp) + 다음 줄 머리 */
+    private SheetScroll sheetScroll;
+    private CapScroll listScroll;                                     /* 지금 시트의 줄 목록(겉 창·치트 창) */
 
     private View build(File rom, Bitmap thumb, String title) {
         LinearLayout col = new LinearLayout(a);
@@ -316,7 +362,7 @@ public final class LaunchSheet {
             list.addView(row(i));
         }
         /* 항목이 많아 반 화면을 넘으면 스크롤된다 — 아래에 더 있다는 걸 보이게 스크롤바를 켜 둔다 */
-        ScrollView sv = cappedScroll((int) (a.getResources().getDisplayMetrics().heightPixels * 0.50f));
+        ScrollView sv = capScroll((int) (a.getResources().getDisplayMetrics().heightPixels * 0.50f));   /* 148: 화면보다 길면 겉 틀이 줄인다(SheetScroll) */
         sv.addView(list);
         sv.setVerticalScrollBarEnabled(true);
         sv.setScrollbarFadingEnabled(false);
@@ -350,7 +396,9 @@ public final class LaunchSheet {
 
         if (onSettings == null && rom != null && g != null && "ss2".equals(g.id) && a instanceof MainActivity) {
             /* 연습 대전·리그 대전은 위 «리그·연습» 줄 하나로 켠다(타이틀 셋째 줄 ◀▶ — 예전의 «연습 대전으로»·«가상 리그로» 두 링크는 둘 중 하나만 됐다).
-               여기엔 순위표만 */
+               여기엔 랭크 매치 바로 가기(148 — 대기창으로 곧장)와 순위표 */
+            link(col, "랭크 매치 바로 가기  ›", GOLD, new Runnable() { @Override public void run() {
+                dlg.dismiss(); ((MainActivity) a).openRanked(rom); } });
             link(col, "리그 순위표  ›", GOLD, new Runnable() { @Override public void run() {
                 dlg.dismiss(); ((MainActivity) a).openLeague(rom); } });
         }
@@ -514,10 +562,15 @@ public final class LaunchSheet {
                 startBtn.setBackground(d);
             }
         }
-        /* 커서 줄이 스크롤 밖이면 보이게 — 안드로이드 포커스를 안 쓰니 스크롤이 저절로 안 따라온다(시작·고리는 스크롤 밖이라 늘 보인다) */
-        final View fv = focus < n && focus < rowViews.size() ? rowViews.get(focus) : null;
+        /* 커서 줄이 스크롤 밖이면 보이게 — 안드로이드 포커스를 안 쓰니 스크롤이 저절로 안 따라온다.
+           148: 시트째 스크롤할 때(SheetScroll)는 시작·고리도 — 이때 줄은 바로 옮긴다(목록이 부드럽게 도는 중엔 줄 자리가 옛 값이라 겉 틀이 엉뚱한 데로 간다) */
+        int lj = focus - n - 1;
+        final View fv = focus < n ? (focus < rowViews.size() ? rowViews.get(focus) : null)
+                      : focus == n ? startBtn : (lj < linkViews.size() ? linkViews.get(lj) : null);
+        final boolean row = focus < n;
         if (fv != null) fv.post(new Runnable() { @Override public void run() {
-            fv.requestRectangleOnScreen(new android.graphics.Rect(0, 0, fv.getWidth(), fv.getHeight()), false);
+            boolean whole = sheetScroll != null && sheetScroll.scrolls();
+            if (row || whole) fv.requestRectangleOnScreen(new android.graphics.Rect(0, 0, fv.getWidth(), fv.getHeight()), whole);
         } });
     }
     private int stops() { return opts.size() + 1 + linkViews.size(); }
@@ -648,7 +701,7 @@ public final class LaunchSheet {
         face(warn, false, false);
         warn.setPadding(dp(12), dp(10), dp(12), dp(4));
         list.addView(warn);
-        ScrollView sv = cappedScroll((int) (a.getResources().getDisplayMetrics().heightPixels * 0.58f));   /* 줄 11개 — 겉 창(50%)보다 조금 길게 */
+        ScrollView sv = capScroll((int) (a.getResources().getDisplayMetrics().heightPixels * 0.58f));   /* 줄 11개 — 겉 창(50%)보다 조금 길게 */
         sv.addView(list);
         sv.setVerticalScrollBarEnabled(true);
         sv.setScrollbarFadingEnabled(false);

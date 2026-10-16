@@ -53,6 +53,8 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         /* 볼륨 키 = 미디어(게임 소리) 음량 — 안 정하면 삼성은 «재생 중»을 못 알아챌 때 벨소리 음량을 바꾼다(유저 2026-10-10 「볼륨 조절이 앱에서 안 되던데」) */
         setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
+        /* 148: 앱 판 번호 — 리그 «앱이 바뀌어 이어할 수 없어요»·보관 파일 "app". BuildConfig 가 안 생기는 빌드라 패키지 정보에서 */
+        try { League.appVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode; } catch (Exception ignored) { }
         /* 내려받은 게임표를 먼저 읽는다 — 롬을 알아보기 «전»이어야 한다.
            파일이 없거나 깨져 있으면 아무 일도 안 일어난다(내장표로 돈다). */
         Games.loadExtras(new java.io.File(root(), "design"));
@@ -588,13 +590,37 @@ public class MainActivity extends Activity {
 
     /** 가상 리그 화면으로 — 게임 실행과 같은 정리(부팅송·테마곡 끊기, 썸네일 캡처 멈추기)를 하고 넘어간다. */
     void openLeague(File rom) {
+        Intent i = new Intent(this, LeagueActivity.class);
+        i.putExtra(LeagueActivity.EXTRA_ROM, rom.getAbsolutePath());
+        leaveTo(i);
+    }
+
+    /** 148 «랭크 매치 바로 가기» — 게임을 리그 판으로 켜서 로고·메뉴를 넘겨 바로 대기창까지. openLeague 와 같은 정리.
+     *  기록 파일을 못 읽거나 폴더에 못 쓰면 리그 화면으로(거기서 저장소 카드 — 다시 읽기·권한 설정) */
+    void openRanked(File rom) {
+        String why;
+        try { League.db(); why = League.dbProblem != null ? League.dbProblem : League.writeProblem(); }   /* 이 프로세스에서 처음이면 읽어 봐야 dbProblem 이 잡힌다 */
+        catch (Exception e) { why = String.valueOf(e); }
+        if (why != null) { openLeague(rom); return; }
+        Intent i = new Intent(this, EmuActivity.class);
+        i.putExtra("rom", rom.getAbsolutePath());
+        i.putExtra(EmuActivity.EXTRA_LEAGUE_HUB, true);
+        i.putExtra(EmuActivity.EXTRA_HUB_GO, true);
+        leaveTo(i);
+    }
+
+    /** 리그 쪽 화면으로 떠나기 — 148: 열린 «뒤에» 정리하고 닫는다. 못 열면(§4.3) 소리·썸네일 캡처를 그대로 두고 런처에 남는다(시트는 닫혔으니 다시 누르면 된다).
+     *  새 화면의 onCreate 는 이 함수가 끝난 뒤 같은 메인 스레드에서 도니, 정리를 뒤로 미뤄도 코어와 썸네일 캡처가 겹치지 않는다 */
+    private void leaveTo(Intent i) {
+        try { startActivity(i); }
+        catch (Exception e) {
+            Toast.makeText(this, "화면을 열지 못했어요 — 다시 눌러 주세요", Toast.LENGTH_SHORT).show();
+            return;
+        }
         stopBoot();
         stopTheme();
         Thumbs.stop = true;
         synchronized (Thumbs.LOCK) { }
-        Intent i = new Intent(this, LeagueActivity.class);
-        i.putExtra(LeagueActivity.EXTRA_ROM, rom.getAbsolutePath());
-        startActivity(i);
         finish();
     }
 

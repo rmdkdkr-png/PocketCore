@@ -268,6 +268,17 @@ final class RankCore {
     }
     static double expect(double my, double opp) { return 1 / (1 + Math.pow(10, (opp - my) / 400)); }
     static int round5(double v) { return (int) Math.round(v / 5) * 5; }
+    /** 오늘 첫 승·설욕(재대결 승) 보너스 LP — 정산과 팁(RankTips)이 같은 값을 쓴다 */
+    static final int BONUS_DAILY = 30, BONUS_REVENGE = 20;
+    static int round10(double v) { return (int) Math.round(v) / 10 * 10; }   // 배치 LP 와 같은 10 단위(끝자리는 버림)
+    /** 배치를 마친 자리(«이 실력이면 여기서 시작») — 기준선 LP - 300, 10 단위 */
+    static int placementLp(double mmr) { return Math.max(0, round10(lpOfMmr(mmr) - 300)); }
+    /** 새 시즌 LP(소프트 리셋) — 배치 자리(base) 아래면 그대로, 위면 base 쪽으로 반(10 단위, 끝자리는 base 쪽으로). 무쌍은 풀고 검성 ★5 끝(9000 - 10)까지 */
+    static int newSeasonLp(int lp, double mmr) {
+        int base = placementLp(mmr);
+        int v = lp <= base ? lp : round10(base + (lp - base) / 2.0);
+        return Math.max(0, Math.min(MASTER_LP - 10, v));
+    }
 
     /**
      * 경기 하나 정산 — me 를 바꾸고 결과를 돌려준다. out: 'W' 'L' 'D'(기권 = 'L'). revenge = 바로 앞 경기에서 이 상대에게 졌다(재대결로 이김 보너스).
@@ -288,7 +299,7 @@ final class RankCore {
         if (me.placementLeft > 0) {                               // 배치: LP 는 마지막 판에 한 번에
             me.placementLeft--;
             if (me.placementLeft == 0) {
-                me.lp = Math.max(0, (int) Math.round(lpOfMmr(me.mmr) - 300) / 10 * 10);
+                me.lp = placementLp(me.mmr);
                 if (me.lp >= MASTER_LP) { me.lp = MASTER_LP - 10; }    // 배치로 바로 무쌍은 안 준다
                 o.placementDone = true; o.event = "배치 완료: " + label(me.lp);
             }
@@ -302,8 +313,8 @@ final class RankCore {
             if (out == 'W') {
                 d = round5((50 + 100 * (1 - E)) * (1 + 0.5 * g));
                 if (me.streak >= 3) o.bonusStreak = 10 * Math.min(me.streak - 2, 4);
-                if (revenge) o.bonusRevenge = 20;
-                if (me.lastWinDay != day) { o.bonusDaily = 30; me.lastWinDay = day; }
+                if (revenge) o.bonusRevenge = BONUS_REVENGE;
+                if (me.lastWinDay != day) { o.bonusDaily = BONUS_DAILY; me.lastWinDay = day; }
                 d += o.bonusStreak + o.bonusRevenge + o.bonusDaily;
             } else if (out == 'L') {
                 d = -round5((30 + 100 * E) * (1 - 0.4 * g));
@@ -343,6 +354,9 @@ final class RankCore {
     /* ── 매칭 ─────────────────────────────────────────────────────────── */
     static final class Pick {
         Player p; double mmr; long searchMs; final List<String> tags = new ArrayList<>(); boolean pending;
+        int waitU = -1;                                   // 찾는 시간 난수(0~3999) — 잡힌 상대·라이벌은 -1(대기창 시간 = searchMs)
+        long waitMs;                                      // 대기창에 쓰는 시간(League.rankedPick 이 waitMs(...) 로 채운다)
+        final List<Player> reel = new ArrayList<>();     // 실제로 훑어본 후보(고른 상대·최근 상대 빼고 8명까지) — 대기창 릴
     }
     /** 내 쪽에서 본 상대 기록(League 가 players 칸에서 채운다) */
     interface Book {
@@ -363,12 +377,13 @@ final class RankCore {
         double sigma = me.games < 10 ? 90 : 60;
         double skew = me.streak >= 3 ? 25 * Math.min(me.streak - 2, 4) : me.lstreak >= 3 ? -25 * Math.min(me.lstreak - 2, 3) : 0;
         double target = me.mmr + skew;
-        long ms = 2000 + r.nextInt(4000) + (long) (Math.max(0, me.mmr - 1450) * 60);   // 상위권일수록 오래
+        int u = r.nextInt(4000); pk.waitU = u;                                     // 같은 한 번 뽑기 — searchMs·고른 상대·난수 순서는 147 그대로
+        long ms = 2000 + u + (long) (Math.max(0, me.mmr - 1450) * 60);             // 상위권일수록 오래
         pk.searchMs = Math.min(12000, ms);
         if (r.nextDouble() < RIVAL_P) {                                            // 라이벌·설욕전
             List<Player> c = new ArrayList<>();
             for (Player p : book.rivals()) if (!recent.contains(p.id) && Math.abs(p.mmr(day, book.adj(p.id)) - me.mmr) <= 200) c.add(p);
-            if (!c.isEmpty()) { pk.p = c.get(r.nextInt(c.size())); pk.mmr = pk.p.mmr(day, book.adj(pk.p.id)); tag(pk, book, me); return pk; }
+            if (!c.isEmpty()) { pk.p = c.get(r.nextInt(c.size())); pk.mmr = pk.p.mmr(day, book.adj(pk.p.id)); pk.waitU = -1; tag(pk, book, me); return pk; }
         }
         Player best = null; double bestCost = 1e18;
         int lastCh = -1;
@@ -380,15 +395,29 @@ final class RankCore {
             if (COUNT[b] == 0) continue;
             Player p = playerAt(seed, b, r.nextInt(COUNT[b]));
             if (recent.contains(p.id)) continue;
+            if (pk.reel.size() < 12) pk.reel.add(p);                              // 릴 — 난수를 더 뽑지 않는다
             double pm = p.mmr(day, book.adj(p.id));
             double cost = Math.abs(pm - target) + (p.ch == lastCh ? 40 : 0) + r.nextDouble() * 20;
             if (cost < bestCost) { bestCost = cost; best = p; }
         }
         if (best == null) best = playerAt(seed, bucketOf(target), r.nextInt(Math.max(1, COUNT[bucketOf(target)])));
+        Set<String> seen = new HashSet<>(); seen.add(best.id);
+        pk.reel.removeIf(x -> !seen.add(x.id));                                   // 고른 상대·겹친 사람 빼고
+        while (pk.reel.size() > 8) pk.reel.remove(pk.reel.size() - 1);
         pk.p = best; pk.mmr = best.mmr(day, book.adj(best.id));
         tag(pk, book, me);
         return pk;
     }
+    /** 대기창 시간 — «보통»: 4~9초 + 상위권 덤, 저녁(19~23시) ×0.85 · 새벽(2~6시) ×1.4, 15초 끝. 잡힌 상대·라이벌·«빠르게»는 searchMs(147 그대로) */
+    static long waitMs(Pick pk, double myMmr, boolean fast, int hour) {
+        if (pk.pending || fast || pk.waitU < 0) return pk.searchMs;
+        long base = 4000 + pk.waitU * 5L / 4;
+        double top = Math.max(0, myMmr - 1450) * 60;
+        double hourF = hour >= 19 && hour <= 23 ? 0.85 : hour >= 2 && hour <= 6 ? 1.4 : 1.0;
+        return Math.min(15000, Math.round((base + top) * hourF));
+    }
+    /** 예상 시간(초) — 처음에 정하고 안 늘린다. 1초 넉넉히라 카드는 제때나 조금 일찍 뜬다 */
+    static int estSec(long waitMs) { return (int) Math.ceil(waitMs / 1000.0) + 1; }
     static Player resolve(long seed, String id, Book book) {
         if (id == null) return null;
         if (id.startsWith("p")) return player(seed, id);
@@ -413,6 +442,7 @@ final class RankCore {
     /** 줄 세우는 값 — 무쌍은 MR 로, 아니면 LP */
     static long key(int lp, boolean master, int mr) { return master ? 1_000_000L + mr : lp; }
     static int today(long nowMs) { return (int) Math.floorDiv(nowMs + 9 * 3600_000L, 86_400_000L); }   // 한국 시각 자정에 바뀜
+    static int hourOf(long nowMs) { return (int) Math.floorMod(Math.floorDiv(nowMs + 9 * 3600_000L, 3600_000L), 24L); }   // 한국 시각 몇 시(today 와 같은 기준)
 
     /** 위 n명(+ 내가 그 안이면 나도). myKey = key(내 LP, 무쌍, MR) */
     static List<Row> top(long seed, int day, int n, Book book, long myKey, String myNick) {

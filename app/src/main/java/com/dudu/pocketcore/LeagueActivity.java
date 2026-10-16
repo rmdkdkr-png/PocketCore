@@ -37,8 +37,11 @@ public class LeagueActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        try { League.appVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode; } catch (Exception ignored) { }   /* voidKind «앱이 바뀜» · 보관 파일 "app" */
         rom = getIntent().getStringExtra(EXTRA_ROM);
-        League.markInterrupted();
+        if (rom == null) rom = lastRom();
+        tidy();
+        writeWhy = League.writeProblem();
         ScrollView sv = new ScrollView(this);
         sv.setBackgroundColor(BG);
         col = new LinearLayout(this);
@@ -56,11 +59,75 @@ public class LeagueActivity extends Activity {
         super.onNewIntent(i);
         setIntent(i);
         if (i.getStringExtra(EXTRA_ROM) != null) rom = i.getStringExtra(EXTRA_ROM);
+        if (rom == null) rom = lastRom();
+        launching = false;
+        hubAfter = null;
+        tidy();
+        writeWhy = League.writeProblem();
         render();
         checkRom();
         String res = i.getStringExtra(EXTRA_RESULT);
         if (res != null) { i.removeExtra(EXTRA_RESULT); showResultWhenChecked(res); }
     }
+
+    private boolean away = false;                    /* 한 번 내려갔다(권한 설정 등) — 처음 onResume 은 onCreate 가 막 본 값이라 다시 안 본다 */
+    private boolean resumed = false;                 /* 앞에 보이는 중 — 내려간 사이(홈 등) 롬 확인이 끝나도 허브는 돌아올 때 연다(뒤에서 띄우면 막히고 이 화면만 닫힌다) */
+    @Override protected void onPause() { super.onPause(); away = true; resumed = false; }
+
+    @Override protected void onResume() {
+        super.onResume();
+        resumed = true;
+        boolean again = !tidyDone && !League.liveHub;          /* 열 때 게임 속 리그가 아직 살아 있었다(창 바뀌는 사이) — 닫힌 뒤 한 번 정리 */
+        if (again) tidy();
+        boolean changed = false;
+        if (away && storeWhy() != null) {                      /* 저장소 카드를 보이던 중 돌아왔다(권한 설정 등) — 풀렸나 */
+            String w = League.writeProblem();
+            if (!League.liveHub && (League.dbProblem != null || w == null)) {
+                /* 풀렸으면(못 읽음은 늘) 파일에서 다시 — 메모리 판은 파일이 안 보일 때 만든 빈 기록일 수 있다(그대로 두면 다음 저장이 진짜 기록을 덮는다) */
+                reread();
+                changed = true;
+            } else {
+                changed = w == null ? writeWhy != null : !w.equals(writeWhy);
+                writeWhy = w;
+            }
+        }
+        away = false;
+        if (again || changed) render();
+        if (hubAfter != null) hubAfterCheck();                 /* 닫은 뒤 허브를 기다리다 내려갔었다 */
+    }
+
+    /** 파일에서 다시 읽기 — [다시 읽기] · 저장소 카드를 보이다 돌아왔을 때. 메모리 판을 버리고 새로 읽어 열 때처럼 정리한다.
+     *  남은 문제(못 읽음·못 씀 — 없으면 null). 게임 속 리그가 살아 있을 땐 부르지 않는다(그 판이 쓰는 기록을 버리게 된다) */
+    private String reread() {
+        String left = League.reload();
+        writeWhy = League.writeProblem();
+        board = null; boardBusy = null;
+        if (rom == null) { rom = lastRom(); checkRom(); }       /* 이제 읽히면 pref.last_rom 도 */
+        tidy();
+        return left;
+    }
+
+    /** 열 때 정리 — 게임 창이 없는 «진행 중» 경기는 복귀 대기로, 남은 «준비» 경기는 무효로(남은 판 — 잡힌 상대 miss).
+     *  게임 속 리그가 살아 있으면(League.liveHub — 그 판이 쓰는 중) 안 건드린다 */
+    private boolean tidyDone = false;
+    private void tidy() {
+        if (League.liveHub) { tidyDone = false; return; }
+        tidyDone = true;
+        League.markInterrupted();
+        int n = League.voidReady("순위표를 열며 정리(대진 전)");
+        if (n > 0) toast("첫 라운드 전에 멈춘 경기를 무효로 닫았어요 — 같은 상대가 기다려요");
+    }
+
+    /** 롬 경로 없이 들어왔을 때 — 마지막으로 리그를 연 원래 롬(pref.last_rom)이 아직 있으면 그것 */
+    private static String lastRom() {
+        String r = League.lastRom();
+        return r != null && new File(r).exists() ? r : null;
+    }
+
+    /** 기록 폴더에 쓸 수 없는 이유 — 열 때·다시 읽기·돌아올 때만 본다(그릴 때마다 시험 파일을 만들지 않게) */
+    private String writeWhy = null;
+    /** 기록 파일 문제(못 읽음 · 못 씀) — 있으면 저장소 카드 */
+    private String storeWhy() { return League.dbProblem != null ? League.dbProblem : writeWhy; }
 
     @Override public void onBackPressed() {
         Intent i = new Intent(this, Home.class);         /* MainActivity 는 앱 아이콘 별칭이라 아이콘을 바꾸면 꺼진다 — 늘 Home 으로 */
@@ -75,12 +142,14 @@ public class LeagueActivity extends Activity {
      *  (기획서 3장 «실제로 호출 가능한 상대만 도전 버튼»). 실제 경기 시작 때 EmuActivity 가 한 번 더 본다. 롬을 읽고 md5 를 내니 다른 스레드에서. */
     private volatile String romWhy = null;
     private volatile String romChecked = null;
+    private volatile String romMd5 = null;           /* 확인한 리그 롬(사본) md5 — 롬 때문에 막힌 경기가 원래 롬으로 돌아왔나(EmuActivity.leagueVersionProblem 과 같은 파일) */
+    private static final String ROM_CHECKING = "롬 확인 중입니다 — 잠시 뒤 다시 눌러 주세요";
 
     private void checkRom() {
         final String r = rom;
         if (r == null || r.equals(romChecked)) return;
         new Thread(() -> {
-            String why = null;
+            String why = null, sum = null;
             try {
                 Games.Game g = Games.identify(r);
                 java.util.Map<String, String> m = Settings.load();
@@ -92,16 +161,18 @@ public class LeagueActivity extends Activity {
                 if (!new File(r).exists()) why = "롬을 찾을 수 없습니다 — 원래 자리에 롬을 두세요";
                 else {
                     String md5 = League.md5(new File(Patcher.resolveLeague(this, r, g, lang)));
+                    sum = md5;
                     if (League.romLabel(md5) == null)
                         why = "판정 주소를 확인하지 않은 롬입니다(md5 " + md5 + ") — 순정 롬이나 한글패치 v1.01·앱 동봉 한패로 바꾸세요";
                 }
-            } catch (Exception e) { why = null; }   /* 확인 자체가 실패하면 막지 않는다 — 시작 때 다시 본다 */
-            final String w = why;
+            } catch (Exception e) { why = null; sum = null; }   /* 확인 자체가 실패하면 막지 않는다 — 시작 때 다시 본다 */
+            final String w = why, mv = sum;
             runOnUiThread(() -> {
-                romWhy = w; romChecked = r;
+                romWhy = w; romMd5 = mv; romChecked = r;
                 if (isFinishing()) return;
                 render();
                 if (pendingResult != null) { String p = pendingResult; pendingResult = null; showResult(p); }
+                if (hubAfter != null) hubAfterCheck();
             });
         }, "league-romcheck").start();
     }
@@ -110,7 +181,7 @@ public class LeagueActivity extends Activity {
     private String challengeWhy(JSONObject o) {
         String why = League.blockedWhy(o);
         if (why == null && rom == null) why = "롬 경로가 없습니다 — 런처에서 사무쇼2 카드를 눌러 「리그 순위표」로 들어오세요";
-        if (why == null && !rom.equals(romChecked)) why = "롬 확인 중입니다 — 잠시 뒤 다시 눌러 주세요";
+        if (why == null && !rom.equals(romChecked)) why = ROM_CHECKING;
         if (why == null && romWhy != null) why = romWhy;
         return why;
     }
@@ -156,25 +227,18 @@ public class LeagueActivity extends Activity {
         sub.setPadding(0, dp(4), 0, dp(14));
         col.addView(sub);
 
+        final String store = storeWhy();
+        if (store != null) col.addView(storeCard(store));
         final JSONObject open = League.openMatch();
-        if (open != null) col.addView(openCard(open));
+        if (open != null) col.addView(openCard(open, store == null));   /* 저장소 문제면 글만 — 닫아도 저장이 안 된다(위 저장소 카드부터) */
         RankCore.Me me = League.rankMe();
         col.addView(myCard(me));
-        if (open == null && rom != null) {                 /* 게임을 리그 판으로 켜서 로고·메뉴를 넘겨 바로 상대 찾기까지 */
-            TextView go = pill("랭크 매치 하러 가기  ›", GOLD, INK);
-            go.setOnClickListener(v -> {
-                String why = League.dbProblem != null ? League.dbProblem : romWhy != null ? romWhy
-                        : !rom.equals(romChecked) ? "롬 확인 중입니다 — 잠시 뒤 다시 눌러 주세요" : null;
-                if (why != null) { toast(why); return; }
-                if (launching) return;
-                launching = true;
-                Intent i = new Intent(this, EmuActivity.class);
-                i.putExtra("rom", rom);
-                i.putExtra(EmuActivity.EXTRA_LEAGUE_HUB, true);
-                i.putExtra(EmuActivity.EXTRA_HUB_GO, true);
-                startActivity(i);
-                finish();
-            });
+        /* 큰 버튼(148 — 늘 보인다): 열린 경기 없음 «하러 가기» · 이어 할 수 있는 경기 «멈춘 경기 이어서 하기» — 둘 다 게임 속 리그(허브)로.
+           허브가 열린 경기를 체크포인트로 이어 하고, 결판 뒤 결과 카드 [다음 상대]. 무효로 닫을 경기(voidKind)·원래 롬이 아닌 롬 막힘은 카드 버튼만 · 저장소 문제면 저장소 카드만 */
+        boolean started = open != null && !"ready".equals(open.optString("status"));
+        if (store == null && rom != null && hubOk(open)) {
+            TextView go = pill(started ? "멈춘 경기 이어서 하기  ›" : "랭크 매치 하러 가기  ›", GOLD, INK);
+            go.setOnClickListener(v -> goHub());
             LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             glp.topMargin = dp(10); glp.bottomMargin = dp(4);
             col.addView(go, glp);
@@ -207,7 +271,10 @@ public class LeagueActivity extends Activity {
             for (int i = 0; i < hs.size(); i++) {
                 final JSONObject m = hs.get(i);
                 if (i > 0) hc.addView(line());
-                TextView t = text(League.statusKo(m.optString("status")) + " · " + League.oppNick(m) + "\n" + m.optString("why"), 12, DIM, false);
+                String hl = m.optBoolean("void_after_start")         /* 시작한 뒤 무효(앱 탓) — «무효 · 칼끝노인 — 앱이 멈춰 이어할 자리가 없음» */
+                        ? League.statusKo(m.optString("status")) + " · " + League.oppNick(m) + " — " + m.optString("why")
+                        : League.statusKo(m.optString("status")) + " · " + League.oppNick(m) + "\n" + m.optString("why");
+                TextView t = text(hl, 12, DIM, false);
                 t.setPadding(0, dp(6), 0, dp(6));
                 t.setClickable(true);
                 t.setOnClickListener(v -> showResult(m.optString("id")));
@@ -215,11 +282,7 @@ public class LeagueActivity extends Activity {
             }
             col.addView(hc);
         }
-        if (League.dbProblem != null) {
-            TextView w = text(League.dbProblem, 12, LOSE, false);
-            w.setPadding(0, dp(10), 0, 0);
-            col.addView(w);
-        } else if (rom == null || romWhy != null) {
+        if (store == null && (rom == null || romWhy != null)) {   /* 기록 파일 문제는 위 저장소 카드가 보인다 */
             TextView w = text(rom == null ? "롬 경로가 없어 경기를 시작할 수 없습니다 — 런처에서 사무쇼2 카드를 눌러 「리그 순위표」로 들어오세요."
                                           : "경기를 시작할 수 없습니다: " + romWhy, 12, LOSE, false);
             w.setPadding(0, dp(10), 0, 0);
@@ -245,12 +308,40 @@ public class LeagueActivity extends Activity {
         if (bd == null && me.placementLeft == 0) boardLoad(me);
         String rk = me.placementLeft > 0 ? "배치를 마치면 순위가 나와요" : bd == null ? "전국 순위 계산 중…"
                   : String.format(java.util.Locale.KOREA, "전국 %,d위 / %,d명", bd.rank, RankCore.total());
-        TextView r = text(rk + " · 시즌 1", 13, GOLD, false); r.setPadding(0, dp(6), 0, 0);
+        TextView r = text(rk + " · 시즌 " + League.season(), 13, GOLD, false); r.setPadding(0, dp(6), 0, 0);
         c.addView(r);
-        String s = "통산 " + me.w + "승 " + me.l + "패" + (me.d > 0 ? " " + me.d + "무" : "") + " · 연승 " + me.streak + " (최장 " + me.best + ")"
+        List<JSONObject> past = League.seasons();              /* 지난 시즌이 있으면 승패는 이번 시즌 것 — 통산은 따로 */
+        String s = (past.isEmpty() ? "통산 " : "이번 시즌 ") + me.w + "승 " + me.l + "패" + (me.d > 0 ? " " + me.d + "무" : "") + " · 연승 " + me.streak + " (최장 " + me.best + ")"
                  + (me.peakLp > 0 && !me.master ? " · 최고 " + RankCore.label(me.peakLp) : "");
+        if (!past.isEmpty()) {
+            int[] cw = League.careerWLD();
+            s += " · 통산 " + cw[0] + "승 " + cw[1] + "패" + (cw[2] > 0 ? " " + cw[2] + "무" : "");
+        }
         c.addView(text(s, 12, DIM, false));
+        if (!past.isEmpty()) {
+            String pk = past.get(past.size() - 1).optString("peak_label");
+            if (!pk.isEmpty() && !"배치".equals(pk)) c.addView(text("지난 시즌 최고 · " + pk, 12, DIM, false));   /* 배치만 하다 처음부터 한 줄은 안 보인다 */
+        }
+        String held = heldLine(me);
+        if (held != null) { TextView hv = text(held, 12, TXT, false); hv.setPadding(0, dp(4), 0, 0); c.addView(hv); }
         return c;
+    }
+
+    /** 잡힌 상대 한 줄 — «기다리는 상대 · 칼끝노인 (검호 ★1) — 내일 21:04 까지»(잡은 때 + 24시간, 한국 시각 — League.today 와 같은 기준). 없으면 null */
+    private String heldLine(RankCore.Me me) {
+        if (me.pendingId == null) return null;
+        try {
+            JSONObject pd = League.ranked().optJSONObject("pending");
+            if (pd == null || !me.pendingId.equals(pd.optString("id"))) return null;
+            RankCore.Player p = League.rankPlayer(me.pendingId);
+            if (p == null) return null;
+            long until = pd.optLong("at") + League.PENDING_MS, now = System.currentTimeMillis();
+            if (until <= now) return null;
+            java.text.SimpleDateFormat hm = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.KOREA);
+            hm.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Seoul"));
+            String day = RankCore.today(until) == RankCore.today(now) ? "오늘 " : "내일 ";
+            return "기다리는 상대 · " + League.nickOf(this, p) + " (" + League.oppView(p).label + ") — " + day + hm.format(new java.util.Date(until)) + " 까지";
+        } catch (Exception e) { return null; }
     }
     private View bar(float f, int color) {
         android.widget.FrameLayout fl = new android.widget.FrameLayout(this);
@@ -450,79 +541,345 @@ public class LeagueActivity extends Activity {
                 + "실력(숨은 MMR)에 따라 CPU 단계·공격·방어 배율이 바뀌어요 — 같은 티어면 비슷하게 세요.\n\n"
                 + "티어 · 수련생 · 낭인 · 무사 · 검객 · 검호 · 달인 · 검성(각 ★1~5) · 무쌍(MR). 처음 5판은 배치 경기 — 끝나면 첫 티어가 정해져요. "
                 + "이기면 LP 가 오르고(센 상대일수록 더), 지면 내려가요. 수련생은 안 깎이고 낭인은 반만. "
-                + "3연승부터 연승 보너스, 진 상대를 재대결로 이기면 설욕 +20, 오늘 첫 승 +30. "
+                + "3연승부터 연승 보너스, 진 상대를 재대결로 이기면 설욕 +" + RankCore.BONUS_REVENGE + ", 오늘 첫 승 +" + RankCore.BONUS_DAILY + ". "
                 + "무사 이상은 바닥 아래로 떨어질 때 한 번 «강등 위기»로 버텨요. 무쌍은 강등이 없어요.\n\n"
-                + "매칭 · 상대 카드가 뜨면 그 상대와 붙을 때까지 다음 찾기에도 같은 상대가 나와요(카드에서 나가도). "
+                + "매칭 · 상대 카드가 뜬 뒤 나가면, 그 상대와 붙을 때까지 다음 찾기에 같은 상대가 나와요 (최대 24시간). 찾는 중에 그만두면 잡히지 않아요. "
                 + "재대결은 같은 상대와 연속 3판까지.";
         if (lg != null && lg.optInt("games") > 0)
             s += "\n\n옛 리그 기록 · " + lg.optInt("w") + "승 " + lg.optInt("l") + "패" + (lg.optInt("d") > 0 ? " " + lg.optInt("d") + "무" : "")
                + " · 최종 " + lg.optInt("score") + "점 — 이 기록으로 시작 실력을 정했어요.";
         TextView t = text(s, 12, DIM, false);
         col.addView(t);
+        seasonSection();
+    }
+
+    /* ── 시즌 · 기록(148) — 이번 시즌 · 지난 시즌 줄 · 매칭 대기(보통·빠르게) · [새 시즌 시작] · [처음부터 다시] ──
+       둘 다 League 가 지금 랭크 칸을 league/archive/ 에 먼저 보관하고 바꾼다(지우지 않는다). 시작한 경기가 열려 있거나 게임 속 리그가 살아 있으면 못 한다 */
+    private void seasonSection() {
+        col.addView(section("시즌 · 기록"));
+        RankCore.Me me = League.rankMe();
+        LinearLayout c = card();
+        java.text.SimpleDateFormat md = new java.text.SimpleDateFormat("M월 d일", java.util.Locale.KOREA);
+        md.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Seoul"));          /* 리그의 «오늘»은 한국 시각 */
+        long t0 = League.seasonStart();
+        c.addView(text("시즌 " + League.season() + (t0 > 0 ? " · " + md.format(new java.util.Date(t0)) + "부터" : "") + " · " + wld(me.w, me.l, me.d), 14, TXT, true));
+        List<JSONObject> past = League.seasons();
+        for (int i = past.size() - 1; i >= 0; i--) {                            /* 새것부터 */
+            JSONObject x = past.get(i);
+            String fin = x.optString("final_label") + (x.optBoolean("master") && x.optInt("mr") > 0 ? " MR " + x.optInt("mr") : "");
+            String row = "시즌 " + x.optInt("n", 1) + ("restart".equals(x.optString("kind")) ? " · 처음부터 다시" : "")
+                    + " · 최고 " + x.optString("peak_label") + " · 마지막 " + fin + " · " + wld(x.optInt("w"), x.optInt("l"), x.optInt("d"));
+            TextView rv = text(row, 12, DIM, false); rv.setPadding(0, dp(4), 0, 0);
+            c.addView(rv);
+        }
+        col.addView(c);
+
+        /* 매칭 대기 — Settings pocketcore_rank_wait = normal(기본) | fast. 다음 찾기부터(League.rankedPick 이 읽는다) */
+        TextView wt = text("매칭 대기", 13, TXT, true); wt.setPadding(0, dp(14), 0, dp(6));
+        col.addView(wt);
+        final boolean fast = League.waitFast();
+        LinearLayout seg = new LinearLayout(this);
+        seg.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < 2; i++) {
+            final boolean f = i == 1;
+            TextView p = pill(f ? "빠르게" : "보통", f == fast ? GOLD : BTN2, f == fast ? INK : TXT);
+            p.setTextSize(13);
+            p.setOnClickListener(v -> { if (f != League.waitFast()) { Settings.put("pocketcore_rank_wait", f ? "fast" : "normal"); render(); } });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lp.rightMargin = i == 0 ? dp(6) : 0;
+            seg.addView(p, lp);
+        }
+        col.addView(seg);
+        col.addView(caption("보통: 4~9초쯤 (새벽엔 조금 더) · 빠르게: 2~6초"));
+
+        /* 새 시즌 · 처음부터 — 막힘(기록 파일·게임 속 리그·끝나지 않은 경기)이면 둘 다 끄고 이유를 보인다 */
+        final String blk = League.resetBlockedWhy();
+        if (me.placementLeft > 0) {
+            TextView pl = text("배치 경기를 마치면 새 시즌을 열 수 있어요", 12, DIM, false); pl.setPadding(0, dp(14), 0, 0);
+            col.addView(pl);
+        } else {
+            TextView ns = pill("새 시즌 시작", BTN2, blk == null ? TXT : DIM);
+            toolBtn(ns, blk == null ? () -> askNewSeason() : null);
+            col.addView(ns, toolLp());
+            col.addView(caption("LP 를 반쯤 내리고 승패를 0부터 세요 · 실력 점수는 그대로"));
+        }
+        TextView rs = pill("처음부터 다시", BTN2, blk == null ? LOSE : DIM);
+        toolBtn(rs, blk == null ? () -> askRestart() : null);
+        col.addView(rs, toolLp());
+        col.addView(caption("지금 기록은 보관해요 · 배치 5판부터"));
+        if (blk != null) {
+            TextView bw = text(blk, 12, LOSE, false); bw.setPadding(0, dp(8), 0, 0);
+            col.addView(bw);
+        }
+    }
+    private static String wld(int w, int l, int d) { return w + "승 " + l + "패" + (d > 0 ? " " + d + "무" : ""); }
+    private TextView caption(String s) { TextView t = text(s, 11, DIM, false); t.setPadding(dp(2), dp(4), 0, 0); return t; }
+    private LinearLayout.LayoutParams toolLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(14);
+        return lp;
+    }
+    /** 시즌 도구 버튼 — 못 쓰면(go == null) 흐리게·눌러도 아무것도 안 함 */
+    private void toolBtn(TextView b, Runnable go) {
+        if (go == null) { b.setEnabled(false); b.setClickable(false); b.setAlpha(0.55f); return; }
+        b.setOnClickListener(v -> go.run());
+    }
+
+    /** 확인 창(시즌 도구·기권) — 빨리 두 번 눌러 창이 둘 뜨고 두 번 바뀌지 않게(시즌은 확인 때 번호도 다시 본다) */
+    private AlertDialog toolDlg;
+    private boolean toolDlgUp() { return toolDlg != null && toolDlg.isShowing(); }
+
+    private void askNewSeason() {
+        if (toolDlgUp()) return;
+        final League.SeasonPreview p = League.newSeasonPreview();
+        if (p == null) { render(); return; }                   /* 그사이 배치로 돌아갔다(처음부터 다시 등) */
+        String body = "시즌 " + p.season + " 기록은 ‘지난 시즌’에 남아요.\n"
+                + String.format(java.util.Locale.KOREA, "LP %,d → %,d", p.lp0, p.lp1) + " (" + p.label0 + " → " + p.label1 + ")\n"
+                + "승패·연승은 0부터, 실력 점수와 상대 전적은 그대로라 빨리 올라와요.";
+        toolDlg = new AlertDialog.Builder(this).setTitle("새 시즌을 시작할까요?").setMessage(body)
+            .setPositiveButton("시작", (x, y) -> {
+                if (League.season() != p.season) { render(); return; }   /* 그사이 이미 바뀌었다 — 미리보기도 옛것 */
+                String why = League.resetBlockedWhy();
+                if (why != null) { toast(why); render(); return; }
+                if (!League.newSeason()) toast("저장하지 못했어요 — 기록은 그대로예요");
+                else toast("시즌 " + League.season() + " 시작!");
+                afterReset();
+            })
+            .setNegativeButton("취소", null).show();
+    }
+
+    private void askRestart() {
+        if (toolDlgUp()) return;
+        final int s0 = League.season();
+        toolDlg = new AlertDialog.Builder(this).setTitle("처음부터 다시 할까요?")
+            .setMessage("티어·LP·전적·상대 전적을 처음으로 돌리고 배치 경기 5판부터 시작해요.\n"
+                    + "지금 기록은 지우지 않고 보관 파일과 ‘지난 시즌’에 남겨요.\n"
+                    + "앱 안에서 되돌릴 수는 없어요.")
+            .setPositiveButton("처음부터", (x, y) -> {
+                if (League.season() != s0) { render(); return; }         /* 그사이 이미 바뀌었다 */
+                String why = League.resetBlockedWhy();
+                if (why != null) { toast(why); render(); return; }
+                if (!League.restartRanked()) toast("저장하지 못했어요 — 기록은 그대로예요");
+                else toast("시즌 " + League.season() + " — 배치 경기부터 시작해요");
+                afterReset();
+            })
+            .setNegativeButton("취소", null).show();
+    }
+
+    /** 시즌을 바꾼 뒤 — 순위표 캐시(boardKey: 같은 날·같은 LP 면 다시 안 만든다)를 버리고 다시 그린다 */
+    private void afterReset() {
+        board = null; boardBusy = null;
+        render();
     }
 
     private boolean launching = false;          /* 두 번 눌러 게임 창이 둘 뜨지 않게 */
 
-    private void launch(String matchId, boolean resume) {
+    /** 롬·코어로 막힌 시작한 경기 — resume_fail «rom»(148 EmuActivity.leagueStart). 147 이 막은 경기는 표시 없이 복구 안내(fix)만 남겼다(복귀 대기에 fix 는 그때뿐) */
+    private static boolean romBlocked(JSONObject m) {
+        if (m == null || !"resume".equals(m.optString("status"))) return false;
+        String rf = m.optString("resume_fail", "");
+        return "rom".equals(rf) || (rf.isEmpty() && m.has("fix"));
+    }
+    /** 롬 확인이 끝났나 — 확인 중·확인 실패(md5 모름)면 false */
+    private boolean romKnown() { return rom != null && rom.equals(romChecked) && (romWhy != null || romMd5 != null); }
+    /** 롬 때문에 막힌 경기가 지금 롬으로 이어질 것 같나 — 확인한 리그 롬이 판정 목록에 있고 md5 가 경기를 시작한 롬과 같다. 코어 문제는 허브가 다시 본다 */
+    private boolean romBack(JSONObject m) {
+        String was = m.optString("rom_md5", "");
+        return romKnown() && romWhy == null && (was.isEmpty() || was.equals(romMd5));
+    }
+    /** 무효로 닫을 수 있나(League.voidKind). 147 이 막은 경기(표시 없음)는 지금 롬도 안 맞는 걸 확인했으면 허브가 «rom» 을 적은 뒤 볼 값과 같게 — 앱 판이 바뀌었으면 «app» */
+    private String voidKindNow(JSONObject m) {
+        String vk = League.voidKind(m, League.appVer);
+        if (vk != null || !romBlocked(m) || !m.optString("resume_fail", "").isEmpty()) return vk;
+        if (!romKnown() || romBack(m)) return null;
+        try { JSONObject c = new JSONObject(m.toString()); c.put("resume_fail", "rom"); return League.voidKind(c, League.appVer); }
+        catch (Exception e) { return null; }
+    }
+    /** 허브(큰 버튼·이어서 하기)로 갈 상태인가 — 열린 경기 없음 · «준비»(허브가 닫고 새로 찾는다) · 이어 할 수 있는 경기.
+     *  무효로 닫을 경기 · 원래 롬으로 안 돌아온 롬 막힘(허브에 가도 같은 카드 — 오가기만 한다)은 카드의 [무효로 닫고 찾기]·[기권하고 찾기]만 */
+    private boolean hubOk(JSONObject o) {
+        if (o == null || "ready".equals(o.optString("status"))) return true;
+        return voidKindNow(o) == null && (!romBlocked(o) || romBack(o));
+    }
+
+    /** 게임 속 리그(허브)를 못 여는 이유(없으면 null) — 허브가 시작할 때 한 번 더 본다 */
+    private String hubWhy() {
+        if (League.liveHub) return "게임 속 리그를 닫은 뒤에 할 수 있어요";      /* 그 판이 아직 살아 있다 — 게임 창이 둘 뜨지 않게 */
+        String sw = storeWhy();
+        if (sw != null) return sw;
+        if (rom == null) return "롬 경로가 없습니다 — 런처에서 사무쇼2 카드를 눌러 「리그 순위표」로 들어오세요";
+        if (!new File(rom).exists()) return "롬을 찾을 수 없습니다 — 원래 자리에 롬을 두세요";
+        if (romWhy != null) return romWhy;
+        if (!rom.equals(romChecked)) return ROM_CHECKING;
+        return null;
+    }
+
+    /** 게임을 리그 판으로 켜서 로고·메뉴를 넘겨 바로 상대 찾기까지(EXTRA_HUB_GO). 열린 경기가 있으면 허브가 체크포인트로 이어 하고 결판 뒤 결과 카드로.
+     *  148: «이어서 하기»도 이 길 — 예전 한 판 열기(EXTRA_LEAGUE)는 안 쓴다(끝나면 [다음 상대] 없이 이 화면으로 돌아왔다) */
+    private void goHub() {
         if (launching) return;
-        if (rom == null || !new File(rom).exists()) { toast("롬을 찾을 수 없습니다 — 원래 자리에 롬을 두면 재개할 수 있습니다"); return; }
-        if (!resume && (romWhy != null || !rom.equals(romChecked))) {   /* 준비 경기를 새로 여는 것은 도전과 같다 — 롬 확인을 따른다 */
-            toast(romWhy != null ? romWhy : "롬 확인 중입니다 — 잠시 뒤 다시 눌러 주세요"); return;
-        }
+        if (!tidyDone && !League.liveHub) { tidy(); render(); }   /* 열 때 살아 있던 게임 속 리그가 그사이 닫혔다 — 먼저 정리하고 다시 그린다 */
+        if (!hubOk(League.openMatch())) { render(); return; }  /* 그사이 무효로 닫을 경기·롬 막힘이 됐다 — 큰 버튼이 숨는 상태라 카드에서 고르게 */
+        String why = hubWhy();
+        if (why != null) { toast(why); return; }
         launching = true;
         Intent i = new Intent(this, EmuActivity.class);
         i.putExtra("rom", rom);
-        i.putExtra(EmuActivity.EXTRA_LEAGUE, matchId);
-        i.putExtra(EmuActivity.EXTRA_LEAGUE_RESUME, resume);
-        startActivity(i);
+        i.putExtra(EmuActivity.EXTRA_LEAGUE_HUB, true);
+        i.putExtra(EmuActivity.EXTRA_HUB_GO, true);
+        try { startActivity(i); }
+        catch (Exception e) { launching = false; toast("화면을 열지 못했어요 — 다시 눌러 주세요"); return; }
         finish();
     }
 
     /* ── 진행 중 경기 ──────────────────────────────────────────────────── */
 
-    private View openCard(final JSONObject m) {
+    /** 열린 경기 카드(148 표) — 준비(대진 전) [무효로 닫기] · 이어 할 수 있음 [기권하고 찾기] [이어서 하기] ·
+     *  앱 탓으로 못 이음(voidKind) [무효로 닫고 찾기] [기권하고 찾기] · 롬만 바뀜(같은 앱) [기권하고 찾기](원래 롬으로 돌아왔으면 [이어서 하기]도).
+     *  닫은 뒤엔 바로 허브로. acts == false(저장소 문제)면 글만 */
+    private View openCard(final JSONObject m, boolean acts) {
         LinearLayout c = card();
         JSONObject o = League.oppById(m.optString("opp"));
-        final String st = m.optString("status");
-        final boolean hasCk = League.ckpt(m.optString("id")).exists();
+        final String id = m.optString("id"), st = m.optString("status");
         final boolean ready = "ready".equals(st);
+        final String vk = ready ? null : voidKindNow(m);
+        final boolean romBlock = !ready && vk == null && romBlocked(m);
+        final boolean live = League.liveHub;                   /* 게임 속 리그가 살아 있다 — 그 판의 경기를 여기서 닫지 않는다 */
         c.addView(text("진행 중 경기 · " + League.statusKo(st), 13, GOLD, true));
-        String note = ready ? "첫 라운드 전에 멈춘 경기입니다 — 다시 시작하거나, 무효로 닫으면 점수는 그대로입니다."
-                : hasCk ? "앱이 내려간 그 자리에서 한 번 이어할 수 있습니다."
-                : "이어할 자리가 없습니다(체크포인트 없음) — 기권만 할 수 있습니다.";
-        if (!ready && m.has("why") && !m.optString("why").isEmpty()) note += "\n(" + m.optString("why") + ")";
-        if (!ready && m.has("fix")) note += "\n복구: " + m.optString("fix");
+        String why = m.optString("why", "");
+        String note;
+        if (live) note = "게임 속 리그를 닫은 뒤에 할 수 있어요";
+        else if (ready) note = "첫 라운드 전에 멈춘 경기입니다 — 무효로 닫으면 점수는 그대로입니다.";
+        else if ("app".equals(vk)) note = "앱을 업데이트해서 이 경기를 이어할 수 없어요.\n무효로 닫으면 LP·전적은 그대로예요.";
+        else if ("ckpt".equals(vk)) note = "이어할 자리를 불러오지 못했어요. 무효로 닫으면 LP·전적은 그대로예요.";
+        else if (vk != null) note = "앱이 멈춰서 이어할 자리가 없어요. 무효로 닫으면 LP·전적은 그대로예요.";
+        else if (romBlock) {                                   /* 어느 롬으로 되돌릴지 — 게임 속 카드 B 와 같게(사유가 이미 그 롬을 말하면 안 붙인다) */
+            String r0 = m.optString("rom");
+            note = "원래 롬으로 되돌리면 이어할 수 있어요." + (r0.isEmpty() || why.contains(r0) ? "" : "\n경기를 시작한 롬: " + r0) + (why.isEmpty() ? "" : "\n(" + why + ")");
+        }
+        else note = "앱이 내려간 그 자리에서 한 번 이어할 수 있습니다." + (why.isEmpty() ? "" : "\n(" + why + ")");
         c.addView(text((League.isRanked(m) ? "랭크 · " + League.oppLabel(m) : o != null ? o.optString("nick") + " · " + League.oppLine(o) : "?") + "\n" + note, 13, TXT, false));
+        if (live || !acts) { cardMargin(c); return c; }
         LinearLayout btns = new LinearLayout(this);
         btns.setOrientation(LinearLayout.HORIZONTAL);
-        TextView ff = pill(ready ? "무효로 닫기" : "기권", BTN2, LOSE);
-        ff.setOnClickListener(v -> {
-            if (ready) {
-                if (!League.cancel(m.optString("id"), "대진 전에 멈춤 — 사용자가 무효로 닫음")) toast("저장 실패 — 다시 시도하세요");
+        if (ready) {                                           /* 다시 시작은 큰 버튼(허브가 이 «준비»를 닫고 새로 찾는다) */
+            TextView cx = pill("무효로 닫기", BTN2, LOSE);
+            cx.setOnClickListener(v -> {
+                if (!League.cancel(id, "대진 전에 멈춤 — 사용자가 무효로 닫음")) toast("저장 실패 — 다시 시도하세요");
                 render();
-                return;
-            }
-            new AlertDialog.Builder(this).setTitle("기권")
-                .setMessage("이 경기를 기권패로 기록합니다.")
-                .setPositiveButton("기권", (x, y) -> {
-                    JSONObject r = League.forfeit(m.optString("id"));
-                    if (r == null) toast("저장 실패 — 다시 시도하세요"); else { render(); showResult(m.optString("id")); }
-                })
-                .setNegativeButton("취소", null).show();
-        });
-        btns.addView(ff, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        if ((ready || hasCk) && rom != null) {               /* 준비면 새 판으로 다시 시작, 진행 중이면 체크포인트로 재개 */
-            TextView go = pill(ready ? "다시 시작" : "재개", GOLD, INK);
-            go.setOnClickListener(v -> launch(m.optString("id"), !ready));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f);
+            });
+            btns.addView(cx, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        } else if (vk != null) {
+            TextView vd = pill("무효로 닫고 찾기", GOLD, INK);
+            vd.setOnClickListener(v -> {
+                if (launching) return;
+                if (!vk.equals(voidKindNow(League.matchById(id)))) { render(); return; }   /* 그린 뒤 상태가 바뀌었다(이어 할 수 있게 됨 등) — 다시 보고 고르게 */
+                if (!League.voidStarted(id, vk)) { toast("저장 실패 — 다시 시도하세요"); render(); return; }
+                afterClose(id, "무효로 닫았어요 — LP 그대로 · 바로 상대를 찾아요", false);
+            });
+            btns.addView(vd, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            TextView ff = pill("기권하고 찾기", BTN2, LOSE);
+            ff.setOnClickListener(v -> askForfeit(m));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
             lp.leftMargin = dp(10);
-            btns.addView(go, lp);
+            btns.addView(ff, lp);
+        } else {
+            TextView ff = pill("기권하고 찾기", BTN2, LOSE);
+            ff.setOnClickListener(v -> askForfeit(m));
+            btns.addView(ff, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            if ((!romBlock || romBack(m)) && rom != null) {    /* 체크포인트로 이어 하기 — 허브로(큰 버튼과 같다). 롬 막힘은 원래 롬으로 돌아왔을 때만 */
+                TextView go = pill("이어서 하기", GOLD, INK);
+                go.setOnClickListener(v -> goHub());
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                lp.leftMargin = dp(10);
+                btns.addView(go, lp);
+            }
         }
         btns.setPadding(0, dp(10), 0, 0);
         c.addView(btns);
+        cardMargin(c);
+        return c;
+    }
+    private void cardMargin(View c) {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.bottomMargin = dp(12);
         c.setLayoutParams(lp);
+    }
+
+    /** 기권 확인 — «기권하고 새로 찾을까요?» LP 는 지금 내 값과 시작 때 상대 MMR 로(RankCore.stakes — 정산과 같은 식). 기권 뒤 바로 허브로 */
+    private void askForfeit(final JSONObject m) {
+        if (launching || toolDlgUp()) return;
+        final String id = m.optString("id");
+        RankCore.Me me = League.rankMe();
+        JSONObject s0 = m.optJSONObject("start");
+        String body;
+        if (League.isRanked(m) && me.placementLeft > 0) body = "멈춘 경기는 배치 1패로 기록돼요. 그다음 바로 새 상대를 찾아요.";
+        else {
+            int[] sk = League.isRanked(m) && s0 != null ? RankCore.stakes(me, s0.optDouble("opp_mmr", me.mmr)) : null;
+            body = "멈춘 경기는 기권패로 기록돼요" + (sk != null && sk[1] != 0 ? " (LP " + RankUi.signed(sk[1]) + ")" : "") + ". 그다음 바로 새 상대를 찾아요.";   /* 수련생은 안 깎인다 — ±0 은 빼고 */
+        }
+        toolDlg = new AlertDialog.Builder(this).setTitle("기권하고 새로 찾을까요?").setMessage(body)
+            .setPositiveButton("기권하고 찾기", (x, y) -> {
+                if (League.forfeit(id) == null) { toast("저장 실패 — 다시 시도하세요"); render(); return; }
+                afterClose(id, null, true);
+            })
+            .setNegativeButton("취소", null).show();
+    }
+
+    /** 경기를 닫은 뒤(무효·기권) — 허브를 열 수 있으면 바로 새 상대 찾기. 롬 확인만 남았으면 끝나는 대로 허브로(hubAfter).
+     *  아니면 이 화면에 남아 닫은 것과 이유를 함께 보인다(기권이면 결과 창도) */
+    private String hubAfter = null;                  /* 롬 확인이 끝나면 허브로 갈 — 닫은 경기 id */
+    private boolean hubAfterRes = false;             /* 그때도 못 열면 결과 창(기권) */
+    private void afterClose(String id, String okToast, boolean showRes) {
+        String why = hubWhy();
+        if (why == null) { if (okToast != null) toast(okToast); goHub(); return; }
+        render();
+        if (ROM_CHECKING.equals(why)) {
+            if (okToast != null) toast(okToast);
+            hubAfter = id; hubAfterRes = showRes;
+            return;
+        }
+        toast(okToast != null ? "무효로 닫았어요 — LP 그대로\n" + why : why);   /* okToast 는 무효만 준다 — «바로 상대를 찾아요»는 빼고 */
+        if (showRes) showResult(id);
+    }
+    /** 롬 확인이 끝났다 — 닫은 뒤 기다리던 허브 열기 */
+    private void hubAfterCheck() {
+        if (!resumed || isFinishing()) return;                 /* 내려가 있다 — onResume 에서 다시 */
+        String why = hubWhy();
+        if (ROM_CHECKING.equals(why)) return;                  /* 다른 롬 확인이 아직 — 그것이 끝날 때 다시 */
+        String id = hubAfter; boolean res = hubAfterRes;
+        hubAfter = null;
+        if (why == null) { goHub(); return; }
+        toast(why);
+        if (res) showResult(id);
+    }
+
+    /** 기록 파일 카드 — 못 읽음 «리그 기록 파일을 못 읽어요» · 못 씀 «리그 기록 폴더에 쓸 수 없어요», 이유·폴더 + [다시 읽기] [권한 설정 열기] */
+    private View storeCard(String why) {
+        LinearLayout c = card();
+        c.addView(text(League.dbProblem != null ? "리그 기록 파일을 못 읽어요" : "리그 기록 폴더에 쓸 수 없어요", 15, LOSE, true));
+        String path = League.dir().getPath();
+        TextView w = text(why + (why.contains(path) ? "" : "\n(" + path + ")"), 12, TXT, false);
+        w.setPadding(0, dp(4), 0, 0);
+        c.addView(w);
+        LinearLayout btns = new LinearLayout(this);
+        btns.setOrientation(LinearLayout.HORIZONTAL);
+        TextView re = pill("다시 읽기", GOLD, INK);
+        re.setOnClickListener(v -> {
+            if (League.liveHub) { toast("게임 속 리그를 닫은 뒤에 할 수 있어요"); return; }   /* 그 판이 쓰는 메모리 기록을 버리지 않게 */
+            String left = reread();
+            render();
+            if (left != null) toast("아직 안 돼요 — " + left);
+        });
+        btns.addView(re, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView perm = pill("권한 설정 열기", BTN2, TXT);
+        perm.setOnClickListener(v -> StorageAccess.open(this));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp.leftMargin = dp(10);
+        btns.addView(perm, lp);
+        btns.setPadding(0, dp(10), 0, 0);
+        c.addView(btns);
+        cardMargin(c);
         return c;
     }
 

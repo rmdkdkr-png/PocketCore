@@ -105,12 +105,29 @@ final class League {
     private static JSONObject db;
     /** 기록 파일을 못 읽는데 옆으로 옮기지도 못했다 — 이때는 새 기록을 메모리에만 두고 절대 저장하지 않는다(진짜 기록을 덮지 않게). */
     static volatile String dbProblem = null;
+    /** 게임 속 리그(EmuActivity 허브)가 살아 있다 — 리그 화면이 그 판의 «준비» 경기를 닫거나 시즌을 바꾸지 않게. 프로세스가 죽으면 저절로 false */
+    static volatile boolean liveHub = false;
+    /** 앱 판 번호(versionCode) — 보관 파일의 "app". 이 클래스는 JVM 시험에서도 돌아서 안드로이드 쪽(화면)이 넣어 준다(모르면 0) */
+    static volatile int appVer = 0;
 
     /** 기록을 읽는다(없으면 새로). 깨졌으면 직전 판(.bak)으로. 명단이 옛 판(1단계: 상대 1명)이면 빠진 상대를 더해 바로 저장한다
      *  — 이미 있는 상대의 설정·점수·전적은 그대로(같은 상대는 다시 만나도 설정이 같다). 저장이 실패해도 메모리 판으로 쓰고,
      *  다음 저장 때 같이 들어간다(더하는 내용이 늘 같아서 다음 실행에서 다시 더해도 결과가 같다). */
+    /** 파일 없이 새로 만든 기록을 아직 한 번도 못 썼다 — 저장소 권한 없이 처음 읽은 경우. 그 뒤 권한이 생겨 진짜 파일이 보이면
+     *  빈 기록으로 덮어쓰지 않게 다시 읽는다(첫 저장이 진짜 league.json 을 새 기록으로 덮던 위험) */
+    private static boolean dbFresh;
     static synchronized JSONObject db() {
-        if (db != null) return db;
+        if (db != null && !(dbFresh && file().exists())) return db;
+        if (db != null) {                                   /* 진짜 파일이 나타났다 */
+            JSONObject seen = read(file());
+            if (seen == null) seen = read(bak());
+            if (seen == null) {                             /* 보이지만 못 읽는다 — 다시 만들지 않고(씨앗이 매번 바뀌던 고리) 덮지도 않게 막아 둔다: «다시 확인»(reload)이 옆으로 치운다 */
+                dbFresh = false;
+                dbProblem = "리그 기록 파일을 읽지 못했습니다 — 저장소를 확인한 뒤 다시 읽어 주세요(기록은 건드리지 않았습니다)";
+                return db;
+            }
+            db = null; dbProblem = null; PF_CACHE.clear();  /* 메모리의 빈 기록은 버린다 */
+        }
         JSONObject j = read(file());
         if (j == null) j = read(bak());
         if (j == null) {
@@ -120,7 +137,8 @@ final class League {
                           & (!bak().exists() || bak().renameTo(new File(dir(), "league.json.bak.unreadable-" + t)));
             if (!moved) dbProblem = "리그 기록 파일을 읽지도 옮기지도 못했습니다 — 저장소 권한을 확인하고 앱을 다시 여세요(기록은 건드리지 않았습니다)";
             j = fresh();
-        }
+            dbFresh = !file().exists() && !bak().exists();   /* 아무것도 못 보고 새로 만듦(권한 전 등) — 못 치운 파일이 남았으면(dbProblem) 다시 읽기를 노리지 않는다 */
+        } else dbFresh = false;
         db = j;
         if (upgrade(j) | upgradeRanked(j)) save();       /* 랭크 칸은 처음 한 번 예전 기록에서 이어받는다(아래 «랭크 매치») */
         return db;
@@ -131,6 +149,14 @@ final class League {
         File t = new File(dir(), ".write_test");
         try { new FileOutputStream(t).close(); t.delete(); return null; }
         catch (Exception e) { return "리그 기록 폴더(" + dir() + ")에 쓸 수 없습니다 — 저장소 권한을 확인하세요"; }
+    }
+
+    /** 다시 읽기 — 저장소 권한을 고친 뒤 «다시 확인». 메모리 판을 버리고 파일에서 새로. 남은 문제(못 읽음·못 씀)를 돌려준다(없으면 null) */
+    static synchronized String reload() {
+        db = null; dbProblem = null; dbFresh = false;
+        PF_CACHE.clear();
+        db();
+        return dbProblem != null ? dbProblem : writeProblem();
     }
 
     private static JSONObject read(File f) {
@@ -152,6 +178,7 @@ final class League {
             byte[] b = db.toString(1).getBytes("UTF-8");
             if (!atomicWrite(file(), b)) return false;
             atomicWrite(bak(), b);
+            dbFresh = false;                          /* 이제 디스크의 파일이 이 기록이다 */
             return true;
         } catch (Exception e) {
             android.util.Log.e("PocketCore", "league save failed", e);
@@ -291,6 +318,22 @@ final class League {
             save();                                     /* 실패해도 메모리 값으로 쓰고 다음 저장 때 같이 들어간다 */
         } catch (Exception ignored) { }
     }
+    /** 마지막으로 리그를 연 원래 롬 경로(pref.last_rom) — 롬 경로 없이 리그 화면에 들어왔을 때 쓴다. 없으면 null(pref 칸을 만들지 않는다) */
+    static synchronized String lastRom() {
+        JSONObject p = db().optJSONObject("pref");
+        String s = p != null ? p.optString("last_rom", "") : "";
+        return s.isEmpty() ? null : s;
+    }
+    /** 리그를 연 원래 롬 경로를 남긴다 — 바뀌었을 때만 저장(같으면 파일을 안 건드린다) */
+    static synchronized boolean setLastRom(String path) {
+        if (path == null || path.isEmpty()) return false;
+        try {
+            JSONObject p = pref();
+            if (path.equals(p.optString("last_rom", null))) return true;
+            p.put("last_rom", path);
+            return save();                              /* 실패해도 메모리 값으로 쓰고 다음 저장 때 같이 들어간다 */
+        } catch (Exception e) { return false; }
+    }
     static synchronized void setPrefLook(int stageSel, int color) {
         try {
             JSONObject p = pref();
@@ -414,6 +457,7 @@ final class League {
         if (m == null || terminal(m.optString("status"))) return false;
         try {
             m.put("status", status);
+            if ("playing".equals(status)) m.remove("resume_fail");     /* 다시 이어 하게 됐다 — 지난 이어 하기 실패 표시(voidKind 가 보는)는 지운다 */
             if (why != null) {
                 if (why.isEmpty()) { m.remove("why"); m.remove("fix"); }   /* 빈 사유 = 지난 사유를 지운다 */
                 else m.put("why", why);
@@ -446,6 +490,7 @@ final class League {
         try {
             m.put("status", "hold"); m.put("why", why); m.put("fix", fix);
             m.put("updated", System.currentTimeMillis());
+            if (isRanked(m)) releasePending(m.optString("opp"));   /* 보류는 잡힌 상대를 푼다 — 같은 원인(손잡이 불일치 등)으로 같은 상대에게 되풀이해 막히지 않게 */
             if (!save()) { db = new JSONObject(backup); return false; }
             ckpt(id).delete();
             return true;
@@ -455,13 +500,17 @@ final class League {
         }
     }
 
-    /** 무효 — 아직 대진 전(준비)에 멈춘 경기. 대진 준비 실패는 점수에 넣지 않는다. */
-    static synchronized boolean cancel(String id, String why) {
+    /** 무효 — 아직 대진 전(준비)에 멈춘 경기. 대진 준비 실패는 점수에 넣지 않는다. 사용자가 스스로 뒤로 간 것 — 잡힌 상대 miss 아님 */
+    static synchronized boolean cancel(String id, String why) { return cancelReady(id, why, false); }
+    /** 무효(남은 판) — 대진 전에 앱이 죽어 남은 «준비» 경기. cancel 과 같고 잡힌 상대 miss 하나(두 번째면 풂 — 같은 상대가 끝없이 막지 않게) */
+    static synchronized boolean cancelStale(String id, String why) { return cancelReady(id, why, true); }
+    private static boolean cancelReady(String id, String why, boolean stale) {
         JSONObject m = matchById(id);
         if (m == null || !"ready".equals(m.optString("status"))) return false;
         String backup = db.toString();                     /* 저장 실패면 «준비» 그대로 — 다시 시도하거나 그대로 경기를 이어 할 수 있게 */
         try {
             m.put("status", "cancelled"); m.put("why", why); m.put("updated", System.currentTimeMillis());
+            if (stale && isRanked(m)) pendingMiss(m.optString("opp"));
             if (!save()) { db = new JSONObject(backup); return false; }
             ckpt(id).delete();
             return true;
@@ -469,6 +518,75 @@ final class League {
             try { db = new JSONObject(backup); } catch (Exception ignored) { }
             return false;
         }
+    }
+
+    /** 이어 하기 실패 종류 — "nockpt"(체크포인트 없음) · "badckpt"(불러오지 못함) · "rom"(롬·코어가 안 맞아 막힘 — leagueVersionProblem·로드 실패).
+     *  voidKind 가 한글 사유(why) 대신 이걸 본다. null = 지움. 이어 하기가 되면(setStatus playing) 저절로 지워진다 */
+    static synchronized boolean setResumeFail(String id, String kind) {
+        JSONObject m = matchById(id);
+        if (m == null || terminal(m.optString("status"))) return false;
+        try {
+            if (kind == null ? !m.has("resume_fail") : kind.equals(m.optString("resume_fail", null))) return true;
+            if (kind == null) m.remove("resume_fail"); else m.put("resume_fail", kind);
+            return save();                                  /* 실패해도 메모리 값으로 쓰고 다음 저장 때 같이 들어간다(note 와 같게) */
+        } catch (Exception e) { return false; }
+    }
+
+    /** 시작한 경기를 «무효로 닫고 계속» 할 수 있나 — 앱 탓일 때만: 이어 할 자리가 없음(앱이 죽음) "crash" · 자리를 못 불러옴 "ckpt"
+     *  · 롬·코어로 막혔는데(resume_fail rom) 경기를 시작한 앱 판이 다름 "app". 준비(대진 전)·끝난 경기·이어 할 수 있는 경기·롬만 바뀐 경기(같은 앱)·
+     *  앱만 바뀐 경기(체크포인트·롬 멀쩡 — 이어 하면 된다)는 null(롬 바꾸기·앱 업데이트만으로는 무효가 안 열린다).
+     *  이어 하기 실패 표시는 복귀 대기일 때만 본다(진행 중이면 그 뒤 다시 이어 한 판 — 옛 판이 남긴 표시). 게임 속 리그가 지금 하는 판(진행 중 · liveHub)은 null.
+     *  appVer ≤ 0(모름)이면 판은 안 본다 */
+    static String voidKind(JSONObject m, int appVer) {
+        if (m == null) return null;
+        String s = m.optString("status");
+        if (!"playing".equals(s) && !"resume".equals(s)) return null;
+        if ("playing".equals(s) && liveHub) return null;      /* 체크포인트는 onPause 에서야 생긴다 — 지금 하는 판을 «앱이 멈춤»으로 보지 않게 */
+        String rf = "resume".equals(s) ? m.optString("resume_fail", "") : "";
+        if ("badckpt".equals(rf)) return "ckpt";
+        if ("nockpt".equals(rf) || !ckpt(m.optString("id")).exists()) return "crash";
+        if ("rom".equals(rf) && appVer > 0 && m.has("app") && m.optInt("app") != appVer) return "app";
+        return null;
+    }
+    /** 무효(시작한 뒤) 사유 — 리그 화면 «보류·무효 경기» 줄에 그대로 */
+    static String voidWhy(String kind) {
+        return "app".equals(kind) ? "앱이 바뀌어 닫음" : "ckpt".equals(kind) ? "이어할 자리를 불러오지 못해 닫음" : "앱이 멈춰 이어할 자리가 없음";
+    }
+    /** 무효(시작한 뒤) — 앱 탓으로 이어 할 수 없는 경기를 닫는다. LP·MMR·전적·배치·상대 전적은 그대로(정산하지 않는다).
+     *  끝난 상태 cancelled + void_after_start·void_kind(147 은 랭크 무효로 보고 숨긴다). 체크포인트는 지우고, 잡힌 상대 miss 하나(두 번째면 풂).
+     *  저장이 실패하면 메모리를 되돌리고 false(체크포인트도 그대로) */
+    static synchronized boolean voidStarted(String id, String kind) {
+        JSONObject m = matchById(id);
+        if (m == null) return false;
+        String s = m.optString("status");
+        if (!"playing".equals(s) && !"resume".equals(s)) return false;
+        if ("playing".equals(s) && liveHub) return false;      /* 게임 속 리그가 지금 하는 판(voidKind 와 같게) */
+        String k = "app".equals(kind) || "ckpt".equals(kind) ? kind : "crash";
+        String backup = db.toString();
+        try {
+            m.put("status", "cancelled"); m.put("void_after_start", true); m.put("void_kind", k);
+            m.put("why", voidWhy(k)); m.remove("fix");      /* «원래 판으로 되돌리면 …» 같은 지난 안내는 더 안 맞는다 */
+            m.put("updated", System.currentTimeMillis());
+            if (isRanked(m)) pendingMiss(m.optString("opp"));
+            if (!save()) { db = new JSONObject(backup); return false; }
+            ckpt(id).delete(); new File(ckpt(id).getPath() + ".tmp").delete();
+            return true;
+        } catch (Exception e) {
+            try { db = new JSONObject(backup); } catch (Exception ignored) { }
+            return false;
+        }
+    }
+    /** 리그 화면을 열 때 남은 «준비»(대진 전에 앱이 죽은) 경기를 무효로 — 남은 판이라 잡힌 상대 miss 하나씩. 닫은 수.
+     *  게임 속 리그가 살아 있으면(liveHub — 그 «준비»는 지금 쓰는 중) 안 건드리고 0 */
+    static synchronized int voidReady(String why) {
+        if (liveHub) return 0;
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        for (JSONArray a : new JSONArray[]{ matches(), rmatchesIfAny() })
+            for (int i = 0; i < a.length(); i++)
+                if ("ready".equals(a.optJSONObject(i).optString("status"))) ids.add(a.optJSONObject(i).optString("id"));
+        int n = 0;
+        for (String id : ids) if (cancelStale(id, why)) n++;
+        return n;
     }
 
     /** 점수 구간 — 경기 시작 시점 두 점수로 고정(기획서 3장 표). 내 변화량의 반대를 상대에게. */
@@ -562,6 +680,7 @@ final class League {
             if (why != null) {
                 m.put("status", "hold"); m.put("why", why);
                 m.put("fix", "점수는 그대로입니다. 새로 도전하면 1인 대전 캐릭터 고르기로 자동으로 들어갑니다.");
+                if (rk) releasePending(m.optString("opp"));   /* 보류는 잡힌 상대를 푼다(hold 와 같게) */
                 if (!save()) throw new IOException("save");
                 ckpt(matchId).delete();
                 return m;
@@ -581,6 +700,7 @@ final class League {
             if (why2 != null) {
                 m.put("status", "hold"); m.put("why", why2);
                 m.put("fix", "점수는 그대로입니다. 같은 상대에게 다시 도전하면 새 경기로 기록됩니다.");
+                if (rk) releasePending(m.optString("opp"));   /* 손잡이 불일치가 그 상대 탓이면 되풀이된다 — 풀어서 다음엔 새 상대 */
                 if (!save()) throw new IOException("save");
                 ckpt(matchId).delete();
                 return m;
@@ -727,7 +847,7 @@ final class League {
             for (int i = a.length() - 1; i >= 0; i--) {
                 JSONObject m = a.optJSONObject(i);
                 String s = m.optString("status");
-                if ("cancelled".equals(s) && isRanked(m)) continue;   /* 랭크 무효 = 첫 라운드 전에 나감뿐(상대는 잡힌 채) — 오류가 아니라 목록에 안 쌓는다 */
+                if ("cancelled".equals(s) && isRanked(m) && !m.optBoolean("void_after_start")) continue;   /* 랭크 무효(대진 전) = 첫 라운드 전에 나감뿐 — 목록에 안 쌓는다. 시작한 뒤 무효(앱 탓)는 보인다 */
                 if ("hold".equals(s) || "cancelled".equals(s)) out.add(m);
             }
         out.sort((x, y) -> Long.compare(y.optLong("created"), x.optLong("created")));   /* 두 목록을 합쳐 새것부터 */
@@ -770,14 +890,25 @@ final class League {
     static final int RANK_RV = 1;
     static final long PENDING_MS = 24L * 3600_000L;        /* 잡힌 상대는 하루 지나면 푼다 */
 
+    /** 랭크 칸 새로 — 예전 리그 경기가 없는 사람과 같게: MMR 1000(점수 1000) · 배치 5판 · LP 0 · 무쌍·강등 위기·연승 없음 · 상대 전적·최근 상대 없음.
+     *  upgradeRanked(처음 이어받기)와 restartRanked(처음부터 다시)가 같이 쓴다 */
+    private static JSONObject freshRanked(String seed, int season) throws Exception {
+        JSONObject r = new JSONObject();
+        r.put("rv", RANK_RV); r.put("gen", RankCore.GEN);
+        r.put("seed", seed);
+        r.put("season", season); r.put("season_start", System.currentTimeMillis());
+        r.put("players", new JSONObject());
+        RankCore.Me me = new RankCore.Me();
+        me.mmr = 1000; me.placementLeft = 5;
+        putMe(r, me);
+        return r;
+    }
+
     /** 처음 한 번 — 예전 리그 기록에서 이어받아 "ranked" 칸을 만든다. 예전 칸(me·opps·order)은 지우지 않는다. 바뀌었으면 true */
     private static boolean upgradeRanked(JSONObject j) {
         if (j.optJSONObject("ranked") != null) return false;
         try {
-            JSONObject r = new JSONObject();
-            r.put("rv", RANK_RV); r.put("gen", RankCore.GEN);
-            r.put("seed", String.format("%016x", new java.security.SecureRandom().nextLong()));
-            r.put("season", 1); r.put("season_start", System.currentTimeMillis());
+            JSONObject r = freshRanked(String.format("%016x", new java.security.SecureRandom().nextLong()), 1);
             JSONArray ms = j.optJSONArray("matches"), os = j.optJSONArray("opps");
             JSONObject me0 = j.optJSONObject("me");
             int old = 0;
@@ -803,7 +934,7 @@ final class League {
                 me.mmr = Math.max(600, Math.min(1400, score)); me.placementLeft = 5;
             }
             me.recent.addAll(recent);
-            JSONObject ps = new JSONObject();
+            JSONObject ps = r.optJSONObject("players");
             for (int i = 0; os != null && i < os.length(); i++) {
                 JSONObject o = os.optJSONObject(i);
                 if (o.optInt("w") + o.optInt("l") + o.optInt("d") == 0) continue;
@@ -812,7 +943,6 @@ final class League {
                         .put("last", last.containsKey(id) ? last.get(id) : 0).put("broke", o.optInt("broke_streak"))
                         .put("mmr_adj", 0).put("lp_adj", 0));
             }
-            r.put("players", ps);
             if (me0 != null) r.put("legacy", new JSONObject().put("score", score).put("w", me0.optInt("w")).put("l", me0.optInt("l"))
                     .put("d", me0.optInt("d")).put("games", old).put("migrated_at", System.currentTimeMillis()));
             putMe(r, me);
@@ -957,23 +1087,45 @@ final class League {
     static String nickOf(android.content.Context c, RankCore.Player p) { return pfOf(c, p).optString("nick", p.nick); }
 
     /* ── 매칭 ── */
-    /** 상대 찾기 — 잡힌 상대가 있으면 그 상대, 아니면 RankCore.pick. 고른 상대는 카드를 띄우기 전에 «잡힘»으로 바로 저장한다
-     *  (카드에서 나가거나 캐릭터 고르기에서 뒤로 가도 다음 찾기에 같은 상대 — 쉬운 상대만 골라 받기를 막는다) */
+    /** 상대 찾기 — 잡힌 상대가 있으면 그 상대, 아니면 RankCore.pick. 148: 여기선 아무것도 저장하지 않는다 — «잡힘»은 카드를 띄울 때
+     *  holdPending(찾는 중에 그만두면 아무도 안 잡힌다). 대기창 시간 waitMs = 설정 «매칭 대기»(보통·빠르게) + 한국 시각 */
     static synchronized RankCore.Pick rankedPick(android.content.Context c) {
         RankCore.Me me = rankMe();
         long seed = rankSeed();
         RankCore.Pick pk = RankCore.pick(seed, me, today(), book(), new RankCore.Rng(System.nanoTime() ^ seed));
-        try {
-            JSONObject pd = ranked().optJSONObject("pending");
-            if (!pk.pending || pd == null || !pk.p.id.equals(pd.optString("id"))) {
-                RankCore.Knobs k = RankCore.knobs(pk.mmr, pk.p.personaIdx);
-                ranked().put("pending", new JSONObject().put("id", pk.p.id).put("at", System.currentTimeMillis())
-                        .put("mmr", Math.round(pk.mmr * 10) / 10.0).put("stage", pk.p.stage)
-                        .put("knobs", new JSONObject().put("diff", k.diff).put("lv", k.lv).put("cap", k.cap).put("floor", k.floor).put("atk", k.atk).put("dfn", k.dfn)));
-                save();
-            }
-        } catch (Exception ignored) { }
+        pk.waitMs = RankCore.waitMs(pk, me.mmr, waitFast(), hourOfDay());
         return pk;
+    }
+    /** 설정 «매칭 대기» — pocketcore_rank_wait = normal(기본) | fast */
+    static boolean waitFast() {
+        try { return "fast".equals(Settings.load().get("pocketcore_rank_wait")); } catch (Exception e) { return false; }
+    }
+    static int hourOfDay() { return RankCore.hourOf(System.currentTimeMillis()); }
+    /** 카드를 띄울 때 고른 상대를 «잡힘»으로 저장 — 카드에서 나가거나 캐릭터 고르기에서 뒤로 가도 다음 찾기에 같은 상대(쉬운 상대만 골라 받기 막기).
+     *  같은 상대를 다시 잡으면 처음 at·miss 그대로(하루 기한은 처음 잡은 때부터). 저장이 실패해도 메모리 값으로 쓰고 다음 저장 때 같이 들어간다 */
+    static synchronized boolean holdPending(RankCore.Pick pk) {
+        if (pk == null || pk.p == null) return false;
+        try {
+            JSONObject r = ranked(), pd = r.optJSONObject("pending");
+            if (pd != null && pk.p.id.equals(pd.optString("id")) && System.currentTimeMillis() - pd.optLong("at") < PENDING_MS) return true;
+            RankCore.Knobs k = RankCore.knobs(pk.mmr, pk.p.personaIdx);
+            r.put("pending", new JSONObject().put("id", pk.p.id).put("at", System.currentTimeMillis())
+                    .put("mmr", Math.round(pk.mmr * 10) / 10.0).put("stage", pk.p.stage).put("miss", 0)
+                    .put("knobs", new JSONObject().put("diff", k.diff).put("lv", k.lv).put("cap", k.cap).put("floor", k.floor).put("atk", k.atk).put("dfn", k.dfn)));
+            return save();
+        } catch (Exception e) { return false; }
+    }
+    /** 잡힌 상대 풀기 — 그 상대일 때만(메모리만, 저장은 호출자) */
+    private static void releasePending(String opp) {
+        JSONObject r = db().optJSONObject("ranked"), pd = r != null ? r.optJSONObject("pending") : null;
+        if (pd != null && opp != null && opp.equals(pd.optString("id"))) r.remove("pending");
+    }
+    /** 잡힌 상대와 못 붙은 판 하나(앱이 죽어 남은 «준비»·시작한 뒤 무효) — 두 번째면 푼다(메모리만, 저장은 호출자) */
+    private static void pendingMiss(String opp) throws Exception {
+        JSONObject r = db().optJSONObject("ranked"), pd = r != null ? r.optJSONObject("pending") : null;
+        if (pd == null || opp == null || !opp.equals(pd.optString("id"))) return;
+        int miss = pd.optInt("miss") + 1;
+        if (miss >= 2) r.remove("pending"); else pd.put("miss", miss);
     }
 
     /** 랭크 경기 시작 전 영속 저장 — 상대 모습 사본·손잡이·시작 값. v·k 는 카드에서 대진을 정한 그 값(허브에 넣은 손잡이와 같아야
@@ -1136,5 +1288,224 @@ final class League {
         if (isRanked(m)) { JSONObject s = m.optJSONObject("opp_snap"); return s != null ? s.optString("nick", "?") : "?"; }
         JSONObject o = oppById(m.optString("opp"));
         return o != null ? o.optString("nick") : "?";
+    }
+
+    /* ── 대기창 자료(148) ── */
+
+    /** 오늘(한국 시각) 랭크 전적 — 대기창 «오늘 2승 1패 · +35 LP ●●○». 정산·기권(= 패)만, 무효·보류는 뺀다. last5 = 새것부터 'W' 'L' 'D' 5개까지.
+     *  lpSum 은 배치 경기를 빼고 더한다(배치를 마친 판은 LP 가 0 에서 한 번에 뛰어 «오늘 ±» 가 엉뚱해진다) */
+    static final class Today { int w, l, d, lpSum; char[] last5 = new char[0]; int games() { return w + l + d; } }
+    static Today rankedToday() { return rankedToday(System.currentTimeMillis()); }
+    static synchronized Today rankedToday(long nowMs) {
+        Today t = new Today();
+        int day = RankCore.today(nowMs);
+        StringBuilder sb = new StringBuilder();
+        JSONArray a = rmatchesIfAny();
+        for (int i = a.length() - 1; i >= 0; i--) {
+            JSONObject m = a.optJSONObject(i); String s = m.optString("status");
+            if (!isRanked(m) || !("settled".equals(s) || "forfeit".equals(s))) continue;
+            if (RankCore.today(m.optLong("settled", m.optLong("updated", m.optLong("created")))) != day) continue;
+            String o = "forfeit".equals(s) || m.optBoolean("forfeit") ? "L" : m.optString("outcome");
+            char c = "W".equals(o) ? 'W' : "L".equals(o) ? 'L' : 'D';
+            if (c == 'W') t.w++; else if (c == 'L') t.l++; else t.d++;
+            if (!"배치".equals(m.optString("tier_before"))) t.lpSum += m.optInt("lp_delta");
+            if (sb.length() < 5) sb.append(c);
+        }
+        t.last5 = sb.toString().toCharArray();
+        return t;
+    }
+    /** 오늘 첫 승 보너스가 남았나(대기창 «첫 승 보너스 +30 남았어요») — 배치·무쌍 판엔 보너스가 없어 false */
+    static synchronized boolean bonusLeft() {
+        RankCore.Me me = rankMe();
+        return me.placementLeft == 0 && !me.master && me.lastWinDay != today();
+    }
+
+    /* ── 시즌·처음부터(148) ───────────────────────────────────────────────
+       «새 시즌 시작» = LP 반쯤 내림(실력 점수·상대 전적 그대로) · «처음부터 다시» = 배치 5판부터(같은 씨앗 = 같은 세상).
+       둘 다 지금 ranked 칸 전체를 league/archive/ 에 먼저 써서 다시 읽어 본 뒤에야 league.json 을 바꾸고, 지난 시즌 줄(ranked.seasons)을 더한다.
+       아무것도 지우지 않는다(보관 파일은 저장 실패로 되돌릴 때만 지운다). 예전 칸(me·opps·matches·pref)은 안 건드린다. */
+
+    static synchronized int season() { JSONObject r = db().optJSONObject("ranked"); return r != null ? Math.max(1, r.optInt("season", 1)) : 1; }
+    static synchronized long seasonStart() { JSONObject r = db().optJSONObject("ranked"); return r != null ? r.optLong("season_start") : 0; }
+    /** 지난 시즌 줄(오래된 것부터) — {n, start, end, kind season|restart, games, w, l, d, peak_lp, peak_label, final_lp, final_label, master, mr, best, file} */
+    static synchronized java.util.List<JSONObject> seasons() {
+        java.util.List<JSONObject> out = new java.util.ArrayList<>();
+        JSONObject r = db().optJSONObject("ranked");
+        JSONArray a = r != null ? r.optJSONArray("seasons") : null;
+        for (int i = 0; a != null && i < a.length(); i++) if (a.optJSONObject(i) != null) out.add(a.optJSONObject(i));
+        return out;
+    }
+    /** 통산 승·패·무 = 지난 시즌 줄 합 + 이번 시즌 */
+    static synchronized int[] careerWLD() {
+        JSONObject r = db().optJSONObject("ranked");
+        int[] t = r != null ? new int[]{ r.optInt("w"), r.optInt("l"), r.optInt("d") } : new int[3];
+        for (JSONObject x : seasons()) { t[0] += x.optInt("w"); t[1] += x.optInt("l"); t[2] += x.optInt("d"); }
+        return t;
+    }
+    private static boolean startedOpen() {
+        for (JSONArray a : new JSONArray[]{ matches(), rmatchesIfAny() })
+            for (int i = 0; i < a.length(); i++) {
+                String s = a.optJSONObject(i).optString("status");
+                if ("playing".equals(s) || "resume".equals(s)) return true;
+            }
+        return false;
+    }
+    /** 새 시즌·처음부터를 지금 못 하는 이유(없으면 null) — 기록 파일 문제 · 게임 속 리그가 살아 있음 · 시작한 경기가 열려 있음.
+     *  «준비» 경기는 막지 않는다(랭크 «준비»는 먼저 무효로 닫고, 예전 칸 «준비»는 그대로 둔다). 배치 중 새 시즌은 newSeasonPreview()==null 로 따로 본다 */
+    static synchronized String resetBlockedWhy() {
+        if (dbProblem != null) return dbProblem;
+        if (liveHub) return "게임 속 리그를 닫은 뒤에 할 수 있어요";
+        if (startedOpen()) return "끝나지 않은 경기를 먼저 정리해 주세요";
+        return null;
+    }
+
+    /** 새 시즌 미리보기 — 시즌 N · LP lp0 → lp1 (label0 → label1). 배치 중이면 null(새 시즌을 못 연다) */
+    static final class SeasonPreview { int season, lp0, lp1; String label0, label1; }
+    static synchronized SeasonPreview newSeasonPreview() {
+        RankCore.Me me = rankMe();
+        if (me.placementLeft > 0) return null;
+        SeasonPreview p = new SeasonPreview();
+        p.season = season(); p.lp0 = me.lp; p.lp1 = RankCore.newSeasonLp(me.lp, me.mmr);
+        p.label0 = me.master ? RankCore.TIER[7] : RankCore.label(me.lp);
+        p.label1 = RankCore.label(p.lp1);
+        return p;
+    }
+
+    /** 새 시즌 — LP 를 배치 자리 쪽으로 반(RankCore.newSeasonLp), 무쌍 풂(MR 0 — 다시 오르면 새로), 승패·연승·최장·최고 LP·강등 위기 0부터.
+     *  MMR·판수·최근 상대·상대 전적·오늘 첫 승·씨앗·경기 기록은 그대로. 잡힌 상대는 푼다. 막히면(resetBlockedWhy·배치 중)·저장 실패면 false(기록 그대로) */
+    static synchronized boolean newSeason() {
+        if (resetBlockedWhy() != null) return false;
+        if (rankMe().placementLeft > 0) return false;
+        String backup = db.toString();
+        File arc = null;
+        try {
+            int n = season();
+            arc = writeArchive("season");                   /* 바꾸기 직전 그대로(준비 경기를 닫기 전) */
+            if (arc == null) { db = new JSONObject(backup); return false; }
+            java.util.List<String> ready = cancelReadyMem("새 시즌을 열며 정리(대진 전)");
+            JSONObject r = ranked();
+            RankCore.Me me = meOf(r);
+            JSONArray rows = r.optJSONArray("seasons");
+            if (rows == null) { rows = new JSONArray(); r.put("seasons", rows); }
+            rows.put(seasonRow(r, "season", arc.getName()));
+            me.lp = RankCore.newSeasonLp(me.lp, me.mmr); me.peakLp = me.lp;
+            me.master = false; me.mr = 0; me.shield = false;
+            me.w = 0; me.l = 0; me.d = 0; me.streak = 0; me.lstreak = 0; me.best = 0;
+            putMe(r, me);
+            r.remove("pending");
+            r.put("season", n + 1); r.put("season_start", System.currentTimeMillis());
+            if (!save()) { db = new JSONObject(backup); arc.delete(); return false; }
+            for (String id : ready) ckpt(id).delete();
+            return true;
+        } catch (Exception e) {
+            try { db = new JSONObject(backup); } catch (Exception ignored) { }
+            if (arc != null) arc.delete();
+            return false;
+        }
+    }
+
+    /** 처음부터 다시 — 같은 rv·gen·씨앗으로 랭크 칸을 새로(freshRanked: 배치 5판·LP 0·판수 0·상대 전적·최근 상대·경기 기록 없음),
+     *  시즌 번호는 이어서(+1), 지난 시즌 줄은 이어받고 이번 줄(restart)을 더한다. 잡힌 상대·옛 리그 이어받기(legacy)·오늘 첫 승은 없다.
+     *  저장되면 체크포인트(ckpt_*)를 지운다. 예전 칸(me·opps·matches·pref)은 그대로. 막히면·저장 실패면 false(기록 그대로) */
+    static synchronized boolean restartRanked() {
+        if (resetBlockedWhy() != null) return false;
+        String backup = db.toString();
+        File arc = null;
+        try {
+            arc = writeArchive("restart");                  /* 바꾸기 직전 그대로(준비 경기를 닫기 전) */
+            if (arc == null) { db = new JSONObject(backup); return false; }
+            cancelReadyMem("처음부터 다시 하며 정리(대진 전)");
+            JSONObject r = ranked();
+            JSONArray rows = new JSONArray();
+            JSONArray old = r.optJSONArray("seasons");
+            for (int i = 0; old != null && i < old.length(); i++) rows.put(old.get(i));
+            rows.put(seasonRow(r, "restart", arc.getName()));
+            JSONObject n = freshRanked(r.optString("seed"), season() + 1);
+            n.put("rv", r.optInt("rv", RANK_RV)); n.put("gen", r.optInt("gen", RankCore.GEN));
+            n.put("matches", new JSONArray());
+            n.put("seasons", rows);
+            db.put("ranked", n);
+            if (!save()) { db = new JSONObject(backup); arc.delete(); return false; }
+            File[] fs = dir().listFiles();
+            for (int i = 0; fs != null && i < fs.length; i++) if (fs[i].getName().startsWith("ckpt_")) fs[i].delete();   /* .state·.state.tmp */
+            return true;
+        } catch (Exception e) {
+            try { db = new JSONObject(backup); } catch (Exception ignored) { }
+            if (arc != null) arc.delete();
+            return false;
+        }
+    }
+
+    /** 시즌을 바꾸기 전 랭크 «준비» 경기를 무효로(사용자가 스스로 그만둔 것 — miss 아님). 메모리만 — 저장은 호출자. 닫은 id.
+     *  예전 칸(위쪽 matches)의 «준비»는 안 건드린다(점수 없음 — 리그 화면 voidReady 가 닫는다) */
+    private static java.util.List<String> cancelReadyMem(String why) throws Exception {
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        JSONArray a = rmatchesIfAny();
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject m = a.optJSONObject(i);
+            if (!"ready".equals(m.optString("status"))) continue;
+            m.put("status", "cancelled"); m.put("why", why); m.put("updated", System.currentTimeMillis());
+            ids.add(m.optString("id"));
+        }
+        return ids;
+    }
+
+    /** 지난 시즌 한 줄(바꾸기 직전 값) */
+    private static JSONObject seasonRow(JSONObject r, String kind, String file) throws Exception {
+        RankCore.Me me = meOf(r);
+        boolean pl = me.placementLeft > 0;
+        JSONObject row = new JSONObject();
+        row.put("n", Math.max(1, r.optInt("season", 1))); row.put("start", r.optLong("season_start")); row.put("end", System.currentTimeMillis());
+        row.put("kind", kind);
+        row.put("games", me.w + me.l + me.d); row.put("w", me.w); row.put("l", me.l); row.put("d", me.d);
+        row.put("peak_lp", me.peakLp);
+        row.put("peak_label", pl && me.peakLp == 0 ? "배치" : me.peakLp >= RankCore.MASTER_LP ? RankCore.TIER[7] : RankCore.label(me.peakLp));
+        row.put("final_lp", me.lp);
+        row.put("final_label", pl ? "배치" : me.master ? RankCore.TIER[7] : RankCore.label(me.lp));
+        row.put("master", me.master); row.put("mr", me.mr); row.put("best", me.best);
+        row.put("file", file);
+        return row;
+    }
+
+    static File archiveDir() { File d = new File(dir(), "archive"); d.mkdirs(); return d; }
+    /** 보관 파일 — league/archive/ranked-s<N>-<season|restart>-<yyyyMMdd-HHmmss>.json 에 {"v":1, kind, archived_at, app, ranked: 지금 칸 전체}.
+     *  원자 저장 뒤 다시 읽어 풀어 보고 내용이 같을 때만 돌려준다(league.json 을 바꾸기 전에). 실패면 null — 쓰다 만 파일은 지운다 */
+    private static File writeArchive(String kind) {
+        File f = null;
+        try {
+            JSONObject r = ranked();
+            String base = "ranked-s" + season() + "-" + kind + "-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(new java.util.Date());
+            File d = archiveDir();
+            f = new File(d, base + ".json");
+            for (int i = 2; f.exists(); i++) f = new File(d, base + "-" + i + ".json");   /* 같은 초에 두 번이어도 덮지 않게 */
+            JSONObject a = new JSONObject().put("v", 1).put("kind", "ranked_" + kind).put("archived_at", System.currentTimeMillis())
+                    .put("app", appVer).put("ranked", r);
+            if (!atomicWrite(f, a.toString(1).getBytes("UTF-8"))) return null;
+            JSONObject back = new JSONObject(new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8"));
+            if (back.optInt("v") != 1 || !("ranked_" + kind).equals(back.optString("kind")) || !sameJson(back.optJSONObject("ranked"), r)) { f.delete(); return null; }
+            return f;
+        } catch (Exception e) {
+            if (f != null) f.delete();
+            return null;
+        }
+    }
+    /** JSON 두 값이 같은 내용인가(키 순서·숫자 꼴은 안 본다) — 보관 파일을 다시 읽어 맞춰 볼 때 */
+    static boolean sameJson(Object a, Object b) {
+        if (a == null || b == null || a == JSONObject.NULL || b == JSONObject.NULL) return (a == null || a == JSONObject.NULL) && (b == null || b == JSONObject.NULL);
+        if (a instanceof JSONObject && b instanceof JSONObject) {
+            JSONObject x = (JSONObject) a, y = (JSONObject) b;
+            if (x.length() != y.length()) return false;
+            java.util.Iterator<String> it = x.keys();
+            while (it.hasNext()) { String k = it.next(); if (!y.has(k) || !sameJson(x.opt(k), y.opt(k))) return false; }
+            return true;
+        }
+        if (a instanceof JSONArray && b instanceof JSONArray) {
+            JSONArray x = (JSONArray) a, y = (JSONArray) b;
+            if (x.length() != y.length()) return false;
+            for (int i = 0; i < x.length(); i++) if (!sameJson(x.opt(i), y.opt(i))) return false;
+            return true;
+        }
+        if (a instanceof Number && b instanceof Number) return ((Number) a).doubleValue() == ((Number) b).doubleValue();
+        return a.equals(b);
     }
 }

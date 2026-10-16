@@ -12,7 +12,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 랭크 매치 덮개 뷰(게임 화면 위) — «상대 찾는 중…» · «상대 발견!» 카드 · 결과 카드의 아바타 줄 · 순위표 한 줄.
+ * 랭크 매치 덮개 뷰(게임 화면 위) — 대기창(«상대 찾는 중…» · 148) · «상대 발견!» 카드 · 결과 카드의 아바타 줄 · 순위표 한 줄.
  * 색·글꼴은 리그 띠·결과 카드와 같다(짙은 바탕 · 금 테 · 픽셀 글꼴). 숫자(티어·LP·전적)는 진짜, 닉네임·칭호·지역·한마디·아바타는 지어낸 것 —
  * 그래서 카드엔 늘 «CPU» 칩을 붙이고, 핑·접속 막대 같은 온라인 흉내는 넣지 않는다(LeagueActivity 원칙 «온라인 사람처럼 보이게 하지 않는다»).
  */
@@ -74,43 +74,214 @@ final class RankUi {
         lp.leftMargin = dp(c, 4); lp.rightMargin = dp(c, 4); return lp;
     }
 
-    /* ── 찾는 중 ── */
+    /* ── 찾는 중(대기창) ──
+       게임 그림 위쪽에 — 릴(실제로 훑어본 후보가 돌다 내 상대에게 멈춤) · 시간 «0:03 · 예상 0:07» · 내 티어·LP 막대 · 오늘 전적 · 한 줄 알림 ·
+       팁(▲▼) · 스테이지(◀▶) · 취소 · 번갈아 문구. 게임 그림이 300dp 보다 낮으면(가로·작은 폰) 팁·오늘 줄을 뺀다(compact).
+       높이는 게임 그림 안으로 — 그래도 길면 한 줄 알림·번갈아 문구까지 뺀다(fit). 148 설계 3.2 */
+
+    /** 대기창에 넣는 값 — EmuActivity 가 League(rankMe·rankedToday·bonusLeft)·RankTips 로 채운다. 글자는 다 만들어 넣는다(여기선 그리기만) */
+    static final class Wait {
+        String rankLine;                 // «검객 ★2 · 1,240 LP» · «배치 경기 2/5» · «무쌍 · MR 1,712»
+        int rankColor = BODY;
+        float barFrac = -1;              // LP 막대 0~1(없으면 −1 — 배치·무쌍)
+        String barLine;                  // «다음 ★까지 60 LP» · «승급까지 …» · «강등 위기!» · 배치 «5판을 마치면 첫 티어가 정해져요»
+        boolean danger;                  // 강등 위기 — barLine 을 LOSE 색으로
+        String todayLine, dots = "";     // «오늘 2승 1패 · +35 LP» · «●●○»(새것이 왼쪽)
+        String noteLine;                 // «3연승 중!» 등 한 줄(없으면 null)
+        int estSec;                      // 예상(초) — 처음에 정하고 안 늘린다
+        boolean held;                    // 잡힌 상대에게 가는 중(«기다리던 상대에게 가는 중…»)
+        android.graphics.Bitmap heldAv;  // 그 상대 아바타(흐리게) — 늦게 오면 setHeld
+        String stageLabel = "상대 기본", tip;
+        long active;                     // «오늘 N명 접속»
+        boolean compact;
+    }
+    /** 릴 한 칸 — 아바타 + «닉 · 티어» */
+    static final class ReelItem {
+        final android.graphics.Bitmap av; final String line; final int color;
+        ReelItem(android.graphics.Bitmap av, String line, int color) { this.av = av; this.line = line; this.color = color; }
+    }
+
     static final class Search {
-        LinearLayout root; TextView time, sub; PixelView spin;
-        private int n = 0;
-        private final String[] lines;
-        Search(String[] lines) { this.lines = lines; }
-        /** 150ms 마다 — 시간·번갈아 문구·굴러가는 아바타 */
-        void tick(long ms, long seed) {
-            long s = ms / 1000;
-            time.setText(String.format(java.util.Locale.ROOT, "%d:%02d", s / 60, s % 60));
-            int k = (int) (ms / 2500) % lines.length;
-            String t = ms > 6000 && k == lines.length - 1 ? "범위 넓히는 중…" : lines[k];
-            if (!t.contentEquals(sub.getText())) sub.setText(t);
-            if ((n++ & 1) == 0) spin.set(Avatar.bitmap(RankCore.Rng.mix(seed, ms / 300)), STROKE2);
+        LinearLayout root; TextView title, time, reelLine, rank, barLine, today, dots, note, tip, stage, sub, cancel; PixelView spin;
+        private View sep2, todayRow, tipRow;
+        private final String[] lines, linesWide;
+        private final boolean held; private final int estSec; private final long seed;
+        private java.util.List<ReelItem> reel = java.util.Collections.emptyList();
+        private boolean landed, hasNote;
+        private int fitW = -1, fitMax = -1; private boolean fitLow;
+        private long lastE, lastAt, waitMs = 1;
+        private int shown = Integer.MIN_VALUE;
+        private Search(Wait w) {
+            String a = "오늘 " + String.format(java.util.Locale.KOREA, "%,d", w.active) + "명 접속";
+            lines = new String[]{ a, "비슷한 실력 찾는 중", "상대는 모두 게임 CPU 예요" };
+            linesWide = new String[]{ a, "비슷한 실력 찾는 중", "상대는 모두 게임 CPU 예요", "범위 넓히는 중…" };
+            held = w.held; estSec = w.estSec; seed = System.nanoTime();
+        }
+        private static void set(TextView t, String s) { if (!s.contentEquals(t.getText())) t.setText(s); }
+        private static String mss(long sec) { return String.format(java.util.Locale.ROOT, "%d:%02d", sec / 60, sec % 60); }
+
+        /** 폴(150ms)마다 — 시간·번갈아 문구·릴. 멈춤(확인 카드·멈춤 바) 동안은 안 불린다 — 릴도 곧 선다(step 이 마지막 tick 뒤 160ms 까지만 앞으로 간다) */
+        void tick(long elapsedMs, long waitMs) {
+            this.waitMs = Math.max(1, waitMs);
+            lastE = elapsedMs; lastAt = android.os.SystemClock.uptimeMillis();
+            set(time, held ? mss(elapsedMs / 1000) + " · 곧 만나요" : mss(elapsedMs / 1000) + " · 예상 " + mss(estSec));
+            String[] ls = waitMs >= 6000 && elapsedMs >= waitMs / 2 ? linesWide : lines;   /* 반을 넘기면(긴 대기만) «범위 넓히는 중…» */
+            set(sub, ls[(int) (elapsedMs / 2500) % ls.length]);
+            render();
+            root.removeCallbacks(step); root.postDelayed(step, 50);
+        }
+        private final Runnable step = new Runnable() { @Override public void run() {
+            if (landed || !root.isAttachedToWindow()) return;
+            render();
+            if (android.os.SystemClock.uptimeMillis() - lastAt < 400) root.postDelayed(this, 50);   /* 멈춤이 길면 쉬고 다음 tick 이 다시 깨운다 */
+        } };
+        /** 지금 칸 — 250ms 마다, 마지막 두 칸은 350 · 450ms(대기 2.5초 미만은 늦추지 않음). 내릴 때(waitMs − 500)엔 마지막 칸에 선 채 land 를 기다린다 */
+        private int slot(long e) {
+            long L = Math.max(0, waitMs - 500);
+            if (e > L) e = L;
+            if (waitMs < 2500) return (int) (e / 250);
+            long t1 = L - 800, t2 = L - 450;
+            int n = (int) Math.max(0, (t1 + 249) / 250);
+            if (e >= t2) return n + 1;
+            if (e >= t1) return n;
+            return (int) Math.max(0, n - 1 - (t1 - 1 - e) / 250);
+        }
+        private void render() {
+            if (landed || held) return;
+            long e = lastE + Math.min(160, android.os.SystemClock.uptimeMillis() - lastAt);
+            int s = slot(e);
+            if (s == shown) return;
+            shown = s;
+            if (reel.isEmpty()) { spin.set(Avatar.bitmap(RankCore.Rng.mix(seed, s)), STROKE2); return; }   /* 라이벌·잡힌 상대·프로필 아직 — 이름 없이 도는 아바타 */
+            ReelItem it = reel.get(s % reel.size());
+            spin.set(it.av, STROKE2);
+            reelLine.setTextColor(DIM); set(reelLine, it.line);
+        }
+        /** 훑어본 후보(백그라운드에서 만든 아바타·줄) — 비면 도는 아바타 그대로 */
+        void setReel(java.util.List<ReelItem> r) {
+            if (r == null || held || landed) return;
+            reel = new java.util.ArrayList<>(r);
+            shown = Integer.MIN_VALUE; render();
+        }
+        /** 잡힌 상대 아바타(흐리게) */
+        void setHeld(android.graphics.Bitmap av) { if (held && !landed && av != null) spin.set(av, STROKE2); }
+        /** 내 상대에게 멈춤 — 밝게 */
+        void land(ReelItem it) {
+            if (landed || it == null) return;
+            landed = true; root.removeCallbacks(step);
+            spin.set(it.av, it.color); spin.setDim(0);
+            reelLine.setTextColor(it.color); set(reelLine, it.line);
+            if (cancel != null) set(cancel, "나가기 (B)");     /* 상대가 보였다 — 이제 B 는 «나가기»(상대는 잡힌 채) */
+        }
+        void setStage(String s) { set(stage, "스테이지 · " + s); }
+        void setTip(String s) { set(tip, "팁 · " + s); }
+        /** 낮은 화면 단계 — 0 다 보임 · 1 팁·오늘 줄을 뺀다(compact) · 2 한 줄 알림·번갈아 문구까지 */
+        private void setLevel(int lv) {
+            int v1 = lv >= 1 ? View.GONE : View.VISIBLE, v2 = lv >= 2 ? View.GONE : View.VISIBLE;
+            if (todayRow.getVisibility() != v1) { todayRow.setVisibility(v1); tipRow.setVisibility(v1); sep2.setVisibility(v1); }
+            int vn = hasNote ? v2 : View.GONE;
+            if (note.getVisibility() != vn) note.setVisibility(vn);
+            if (sub.getVisibility() != v2) sub.setVisibility(v2);
+        }
+        /** 높이 상한(설계 3.2) — 폭 w 로 단계마다 높이를 재어 maxH 안에 드는 첫 단계로. low = 게임 그림이 300dp 보다 낮음(늘 compact부터).
+         *  폭·상한이 그대로면 다시 재지 않는다 — 회전·화면 크기를 바꿀 때만 다시 재고, 넓어지면 되돌린다. 마지막 단계도 넘치면 그대로 둔다 */
+        void fit(int w, int maxH, boolean low) {
+            if (w <= 0 || maxH <= 0 || (w == fitW && maxH == fitMax && low == fitLow)) return;
+            fitW = w; fitMax = maxH; fitLow = low;
+            int ws = View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY), hs = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+            int lv = low ? 1 : 0;
+            for (; lv < 2; lv++) { setLevel(lv); root.measure(ws, hs); if (root.getMeasuredHeight() <= maxH) break; }
+            setLevel(lv);
         }
     }
-    static Search search(Context c, Typeface f, String myLabel, String extra, long active, final Runnable onCancel) {
-        Search s = new Search(new String[]{ "오늘 " + String.format(java.util.Locale.KOREA, "%,d", active) + "명 접속",
-                "비슷한 실력 찾는 중", "상대는 모두 게임 CPU 예요", "범위 넓히는 중…" });
+    private static View sep(Context c) {
+        View v = new View(c); v.setBackgroundColor(0x66b8862b);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, Math.max(1, dp(c, 1)));
+        lp.topMargin = dp(c, 6); lp.bottomMargin = dp(c, 6); v.setLayoutParams(lp);
+        return v;
+    }
+    /** LP 막대 — 바탕 위에 f(0~1)만큼 색 */
+    static View lpBar(Context c, float f, int color) {
+        android.widget.FrameLayout fl = new android.widget.FrameLayout(c);
+        fl.setBackground(box(c, 0xff3a3226, 0, 0, 3));
+        final View in = new View(c);
+        in.setBackground(box(c, color, 0, 0, 3));
+        fl.addView(in, new android.widget.FrameLayout.LayoutParams(0, android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+        final float ff = Math.max(0f, Math.min(1f, f));
+        fl.addOnLayoutChangeListener((v, l, tp, rr, b, ol, ot, or, ob) -> {
+            int w = Math.round((rr - l) * ff);
+            if (in.getLayoutParams().width != w) { in.getLayoutParams().width = w; in.post(in::requestLayout); }
+        });
+        return fl;
+    }
+    static Search search(Context c, Typeface f, Wait w, final Runnable onCancel, final Runnable onStageL, final Runnable onStageR, final Runnable onTip) {
+        Search s = new Search(w);
         LinearLayout k = card(c);
-        k.setGravity(Gravity.CENTER_HORIZONTAL);
+        k.setPadding(dp(c, 12), dp(c, 10), dp(c, 12), dp(c, 10));
         LinearLayout top = new LinearLayout(c); top.setOrientation(LinearLayout.HORIZONTAL); top.setGravity(Gravity.CENTER_VERTICAL);
         s.spin = new PixelView(c); s.spin.setDim(0x70);
-        top.addView(s.spin, new LinearLayout.LayoutParams(dp(c, 44), dp(c, 44)));
+        if (w.held && w.heldAv != null) s.spin.set(w.heldAv, STROKE2);
+        top.addView(s.spin, new LinearLayout.LayoutParams(dp(c, 56), dp(c, 56)));
         LinearLayout col = new LinearLayout(c); col.setOrientation(LinearLayout.VERTICAL); col.setPadding(dp(c, 10), 0, 0, 0);
-        col.addView(tv(c, f, "상대 찾는 중…", 18, GOLD));
-        s.time = tv(c, f, "0:00", 13, BODY); s.time.setPadding(0, dp(c, 4), 0, 0);
+        s.title = line(c, f, w.held ? "기다리던 상대에게 가는 중…" : "상대 찾는 중…", 17, GOLD);
+        col.addView(s.title);
+        s.time = line(c, f, w.held ? "0:00 · 곧 만나요" : "0:00 · 예상 " + Search.mss(w.estSec), 13, BODY); s.time.setPadding(0, dp(c, 4), 0, 0);
         col.addView(s.time);
-        top.addView(col);
+        top.addView(col, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         k.addView(top);
-        TextView me = line(c, f, myLabel, 12, BODY); me.setPadding(0, dp(c, 8), 0, 0); me.setGravity(Gravity.CENTER);
-        k.addView(me);
-        if (extra != null) { TextView x = line(c, f, extra, 12, GOLD); x.setGravity(Gravity.CENTER); k.addView(x); }
-        s.sub = line(c, f, "", 11, DIM); s.sub.setGravity(Gravity.CENTER); s.sub.setPadding(0, dp(c, 4), 0, dp(c, 8));
+        s.reelLine = line(c, f, w.held ? "지난번 카드에서 본 상대예요" : "", 12, DIM); s.reelLine.setPadding(0, dp(c, 6), 0, 0);
+        s.reelLine.setMinHeight(dp(c, 18));
+        k.addView(s.reelLine);
+        k.addView(sep(c));
+
+        s.rank = line(c, f, w.rankLine, 14, w.rankColor);
+        k.addView(s.rank);
+        LinearLayout br = new LinearLayout(c); br.setOrientation(LinearLayout.HORIZONTAL); br.setGravity(Gravity.CENTER_VERTICAL);
+        br.setPadding(0, dp(c, 4), 0, 0);
+        if (w.barFrac >= 0) {
+            LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(0, dp(c, 6), 1f); bl.rightMargin = dp(c, 8);
+            br.addView(lpBar(c, w.barFrac, w.rankColor), bl);
+        }
+        s.barLine = line(c, f, w.barLine != null ? w.barLine : "", 11, w.danger ? LOSE : w.barFrac >= 0 ? BODY : DIM);
+        br.addView(s.barLine, w.barFrac >= 0 ? new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                                             : new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        if (w.barLine == null && w.barFrac < 0) br.setVisibility(View.GONE);
+        k.addView(br);
+        LinearLayout tr = new LinearLayout(c); tr.setOrientation(LinearLayout.HORIZONTAL); tr.setGravity(Gravity.CENTER_VERTICAL);
+        tr.setPadding(0, dp(c, 4), 0, 0);
+        s.today = line(c, f, w.todayLine != null ? w.todayLine : "", 12, BODY);
+        tr.addView(s.today, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        s.dots = line(c, f, w.dots, 12, GOLD); s.dots.setPadding(dp(c, 6), 0, 0, 0);
+        tr.addView(s.dots);
+        s.todayRow = tr; k.addView(tr);
+        s.note = line(c, f, w.noteLine != null ? w.noteLine : "", 12, GOLD); s.note.setPadding(0, dp(c, 4), 0, 0);
+        s.hasNote = w.noteLine != null;
+        if (!s.hasNote) s.note.setVisibility(View.GONE);
+        k.addView(s.note);
+        s.sep2 = sep(c); k.addView(s.sep2);
+
+        LinearLayout tp = new LinearLayout(c); tp.setOrientation(LinearLayout.HORIZONTAL); tp.setGravity(Gravity.CENTER_VERTICAL);
+        s.tip = tv(c, f, "팁 · " + (w.tip != null ? w.tip : ""), 11, BODY); s.tip.setMaxLines(2); s.tip.setLineSpacing(0, 1.1f);
+        s.tip.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        tp.addView(s.tip, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        TextView ud = tv(c, f, " ▲▼", 12, GOLD); tp.addView(ud);
+        tp.setClickable(true); tp.setOnClickListener(x -> onTip.run());
+        tp.setMinimumHeight(dp(c, 32));
+        s.tipRow = tp; k.addView(tp);
+
+        LinearLayout sr = new LinearLayout(c); sr.setOrientation(LinearLayout.HORIZONTAL); sr.setGravity(Gravity.CENTER_VERTICAL);
+        sr.setPadding(0, dp(c, 2), 0, dp(c, 6));
+        TextView l = tv(c, f, " ◀ ", 15, GOLD); l.setMinHeight(dp(c, 36)); l.setGravity(Gravity.CENTER); l.setOnClickListener(x -> onStageL.run());
+        TextView r = tv(c, f, " ▶ ", 15, GOLD); r.setMinHeight(dp(c, 36)); r.setGravity(Gravity.CENTER); r.setOnClickListener(x -> onStageR.run());
+        s.stage = line(c, f, "스테이지 · " + w.stageLabel, 12, BODY); s.stage.setGravity(Gravity.CENTER);
+        sr.addView(l); sr.addView(s.stage, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)); sr.addView(r);
+        k.addView(sr);
+
+        s.cancel = pill(c, f, "취소 (B)", false, onCancel); k.addView(s.cancel);
+        s.sub = line(c, f, s.lines[0], 11, DIM); s.sub.setGravity(Gravity.CENTER); s.sub.setPadding(0, dp(c, 6), 0, 0);
         k.addView(s.sub);
-        k.addView(pill(c, f, "취소 (B)", false, onCancel));
         s.root = k;
+        if (w.compact) s.setLevel(1);
         return s;
     }
 
@@ -118,9 +289,10 @@ final class RankUi {
     static final class Found { LinearLayout root; TextView stage, go; }
     /**
      * pf = 꾸밈 프로필 · v = 지금 모습(티어·LP) · h2h = {내 승, 내 패, 무, 마지막, 끊은 연승} · stakes = {이기면, 지면}(배치·무쌍이면 null)
+     * · waitedLine = «기다린 시간 0:07»(흐리게, 없으면 null)
      */
     static Found found(Context c, Typeface f, JSONObject pf, League.OppView v, java.util.List<String> tags, int[] h2h, int[] stakes,
-                       String placement, String stageText, Runnable onGo, Runnable onLeave, Runnable onStageL, Runnable onStageR) {
+                       String placement, String stageText, Runnable onGo, Runnable onLeave, Runnable onStageL, Runnable onStageR, String waitedLine) {
         Found o = new Found();
         RankCore.Player p = v.p;
         LinearLayout k = card(c);
@@ -160,6 +332,7 @@ final class RankUi {
         TextView st = line(c, f, placement != null ? placement : stakes != null ? "이기면 +" + stakes[0] + " · 지면 " + signed(stakes[1]) + " LP" : "무쌍 — MR 승부", 12,
                 placement != null ? GOLD : BODY);
         st.setPadding(0, dp(c, 3), 0, 0); k.addView(st);
+        if (waitedLine != null) { TextView wl = line(c, f, waitedLine, 11, DIM); wl.setPadding(0, dp(c, 3), 0, 0); k.addView(wl); }
 
         LinearLayout sr = new LinearLayout(c); sr.setOrientation(LinearLayout.HORIZONTAL); sr.setGravity(Gravity.CENTER_VERTICAL);
         sr.setPadding(0, dp(c, 6), 0, dp(c, 8));
