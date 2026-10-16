@@ -134,6 +134,11 @@ final class RankUi {
         }
         void setHint(String s) { if (hint != null) set(hint, s); }
     }
+    private static LinearLayout.LayoutParams chipLp(Context c) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(c, 4);
+        return lp;
+    }
     private static LinearLayout sideCol(Context c, Typeface f, Side s, int avDp, boolean compact, TextView[] out, PixelView[] avOut) {
         LinearLayout k = new LinearLayout(c); k.setOrientation(LinearLayout.VERTICAL); k.setGravity(Gravity.CENTER_HORIZONTAL);
         PixelView av = new PixelView(c);
@@ -169,13 +174,17 @@ final class RankUi {
         LinearLayout row = new LinearLayout(c); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER_VERTICAL);
         int av = compact ? 40 : 60;
         TextView[] mt = new TextView[3]; PixelView[] ma = new PixelView[1];
-        row.addView(sideCol(c, f, me, av, compact, mt, ma), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout mc = sideCol(c, f, me, av, compact, mt, ma);
+        mc.addView(chip(c, f, "나", INK, GOLD), 0, chipLp(c));            /* 칩 줄 — 상대는 늘 «CPU»(148 카드와 같게 · 온라인 사람처럼 보이지 않게) */
+        row.addView(mc, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         q.vs = tv(c, f, "VS", compact ? 22 : 28, GOLD); q.vs.setGravity(Gravity.CENTER);
         q.vs.setShadowLayer(1f, dp(c, 1), dp(c, 1), INK); q.vs.setPadding(dp(c, 6), 0, dp(c, 6), 0);
         row.addView(q.vs);
         Side unknown = new Side(); unknown.nick = "· · ·";
         TextView[] ot = new TextView[3]; PixelView[] oa = new PixelView[1];
-        row.addView(sideCol(c, f, unknown, av, compact, ot, oa), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout oc = sideCol(c, f, unknown, av, compact, ot, oa);
+        oc.addView(chip(c, f, "CPU", BODY, 0xff3a3226), 0, chipLp(c));
+        row.addView(oc, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         q.oppNick = ot[0]; q.oppTier = ot[1]; q.oppCh = ot[2]; q.oppAv = oa[0];
         q.oppNick.setTextColor(DIM); q.oppAv.setDim(0x70);
         col.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));   /* 남는 높이 가운데 */

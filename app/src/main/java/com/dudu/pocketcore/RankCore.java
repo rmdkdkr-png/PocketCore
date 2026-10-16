@@ -424,7 +424,7 @@ final class RankCore {
     static long quickMs(Pick pk) {
         if (pk == null) return 1000;
         if (pk.pending) return 800 + Math.max(0, Math.min(1199, pk.searchMs - 1200)) / 4;
-        if (pk.waitU < 0) return 1000 + Math.floorMod(pk.searchMs, 400);
+        if (pk.waitU < 0) return 1000 + Math.floorMod(pk.searchMs, 400L);   /* (long, long) — (long, int) 판은 Android 12(API 31)부터라 minSdk 26 에서 없다 */
         return 1000 + Math.max(0, Math.min(3999, pk.waitU)) / 10;
     }
     static Player resolve(long seed, String id, Book book) {

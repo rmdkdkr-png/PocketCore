@@ -117,8 +117,12 @@ public class EmuActivity extends Activity {
             @Override public void onSurfaceChanged(GL10 g, int w, int hgt) {
                 Emu.nativeResize(w, hgt);
             }
+            private int qHeld;                    /* 153 겹창이 내려갈 때 쥐고 있던 키 — 뗄 때까지 게임에 안 준다(겹창 동안 누른 A·B 가 고르기 화면·타이틀에 새지 않게) */
             @Override public void onDrawFrame(GL10 g) {
-                Emu.nativeSetInput(rankQBlock ? 0 : (padMask | keyMask | axisMask));   /* 153 찾기 겹창 동안 게임엔 아무것도 안 간다 */
+                int in = padMask | keyMask | axisMask;
+                if (rankQBlock) { qHeld = in; in = 0; }   /* 153 찾기 겹창 동안 게임엔 아무것도 안 간다 */
+                else if (qHeld != 0) { qHeld &= in; in &= ~qHeld; }
+                Emu.nativeSetInput(in);
                 Emu.nativeFrame();
                 /* 프레임 크기가 바뀌면(기둥·띠 토글) 화면 상자를 다시 잡는다 */
                 int fw = Emu.nativeFrameWidth(), fh = Emu.nativeFrameHeight();
@@ -2309,6 +2313,7 @@ public class EmuActivity extends Activity {
 
     /** 허브 상태마다 — 찾기(6)에 닿았는데 겹창이 없으면(타이틀에서 «리그 대전» A) 상대를 정하고 겹창 */
     private void rankTick(int st) {
+        if (st == 1) rankNoSearch = false;                               /* 타이틀에 섰다(로고 뒤 찾기에 못 닿음) — 남은 «그만»이 사용자의 다음 A 를 막지 않게 */
         if (st != 6 || rankQ != null || hubCard != null || leaving) return;
         if (rankNoSearch) { rankNoSearch = false; Emu.nativeHubSearch(false); return; }   /* 로고가 도는 동안 그만뒀다 — 찾기에 닿자마자 타이틀로 */
         if (!resumedNow || ask != null || (pad != null && pad.isBarOpen())) return;     /* 내려가 있거나 창·멈춤 바 — 닫힌 뒤에 */
@@ -2559,12 +2564,12 @@ public class EmuActivity extends Activity {
     /** 겹창에서 B·뒤로 — 그만(LP 그대로 · 준비 기록은 사용자가 그만둔 것으로 닫음). 상대를 보였으면 잡힌 채(다음 찾기에 같은 상대) */
     private void rankQBack() {
         if (rankQ == null) return;
-        boolean seen = rankQRevealed, search = rankQMode == Q_SEARCH;
+        boolean seen = rankQRevealed && !rankQRematch, search = rankQMode == Q_SEARCH;   /* 재대결은 잡지 않는다(rankQReveal) — «상대가 기다려요» 아님 */
         rankQClose(false);
         rankCap = false;
         if (search) {                                                        /* go 전 — 타이틀 메뉴 그대로(로고가 도는 중이면 찾기에 닿자마자) */
             int[] hs = Emu.nativeLeagueHubStatus();
-            if (hs != null && hs.length > 0 && hs[0] == 6) Emu.nativeHubSearch(false); else rankNoSearch = true;
+            if (hs != null && hs.length > 0 && hs[0] == 6) Emu.nativeHubSearch(false); else if (hs == null || hs.length == 0 || hs[0] != 1) rankNoSearch = true;   /* 타이틀(1)이면 할 일 없음 */
         } else hubReturn(-1);                                                /* go 뒤(고르기·−4) — 리셋해 타이틀로(띠·자동도 native 가 지운다) */
         toast(seen ? "그만뒀어요 — 상대가 기다려요" : "그만뒀어요");
     }
