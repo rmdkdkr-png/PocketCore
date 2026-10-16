@@ -233,6 +233,7 @@ public class LeagueActivity extends Activity {
         if (open != null) col.addView(openCard(open, store == null));   /* 저장소 문제면 글만 — 닫아도 저장이 안 된다(위 저장소 카드부터) */
         RankCore.Me me = League.rankMe();
         col.addView(myCard(me));
+        col.addView(mainRow());                                   /* 153 내 캐릭터 — 랭크는 이걸로 바로 붙는다 */
         /* 큰 버튼(148 — 늘 보인다): 열린 경기 없음 «하러 가기» · 이어 할 수 있는 경기 «멈춘 경기 이어서 하기» — 둘 다 게임 속 리그(허브)로.
            허브가 열린 경기를 체크포인트로 이어 하고, 결판 뒤 결과 카드 [다음 상대]. 무효로 닫을 경기(voidKind)·원래 롬이 아닌 롬 막힘은 카드 버튼만 · 저장소 문제면 저장소 카드만 */
         boolean started = open != null && !"ready".equals(open.optString("status"));
@@ -325,6 +326,40 @@ public class LeagueActivity extends Activity {
         String held = heldLine(me);
         if (held != null) { TextView hv = text(held, 12, TXT, false); hv.setPadding(0, dp(4), 0, 0); c.addView(hv); }
         return c;
+    }
+
+    /** 153 내 캐릭터 줄 — «내 캐릭터 · 샬럿 나찰 · 다홍 [바꾸기]». 랭크에 처음 들어와 게임 고르기 화면에서 한 번 고른 것(League.main) —
+     *  다음 판부터 앱이 대신 고른다. [바꾸기] = 지우기(다음 판에 다시 직접 고르고 그걸 남긴다). 컬러는 지금 보일 것(2P색 · 캐릭터별 컬러 기억) */
+    private View mainRow() {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(dp(4), dp(10), 0, 0);
+        League.Main mn = League.main();
+        TextView t = text(mn == null ? "내 캐릭터 · 첫 판에서 한 번 골라요" : "내 캐릭터 · " + League.mainLabel(mn, mainColour(mn)), 13, mn == null ? DIM : TXT, mn != null);
+        r.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if (mn != null) {
+            TextView b = pill("바꾸기", BTN2, TXT);
+            b.setTextSize(13);
+            b.setPadding(dp(14), dp(6), dp(14), dp(6));
+            b.setOnClickListener(v -> {
+                if (!League.clearMain()) toast("저장하지 못했어요 — 다음 판에 다시 골라요");
+                else toast("다음 판에 새로 골라요");
+                render();
+            });
+            r.addView(b);
+        }
+        return r;
+    }
+    /** 지금 보일 컬러 번호 — 2P색이면 1, 아니면 컬러 기억(캐릭터 칸 · 무작위 칸 15). 컬러 고르기 끔이면 기본 */
+    private static int mainColour(League.Main mn) {
+        if (mn.b2p) return 1;
+        try {
+            if (!Look.on()) return 0;
+            byte[] m = Look.loadMem();
+            int i = mn.cell == 15 ? 15 : mn.cell;
+            return m != null && i < m.length ? m[i] : mn.colour;
+        } catch (Exception e) { return mn.colour; }
     }
 
     /** 잡힌 상대 한 줄 — «기다리는 상대 · 칼끝노인 (검호 ★1) — 내일 21:04 까지»(잡은 때 + 24시간, 한국 시각 — League.today 와 같은 기준). 없으면 null */
@@ -535,7 +570,7 @@ public class LeagueActivity extends Activity {
     private void rulesTab() {
         JSONObject lg = League.ranked().optJSONObject("legacy");
         String s = "경기 · " + League.POINTS + "선승(3판 2승) · 라운드 " + League.TIME + "초 · 카드 전원 올카드 해금(CPU 는 카드 없음). "
-                + "타이틀 셋째 줄 «리그 대전»에서 A 를 누르면 비슷한 실력의 상대를 찾고, 상대가 정해지면 내 캐릭터·검질·카드를 골라 바로 싸워요. "
+                + "랭크에 처음 들어오면 내 캐릭터·검질·카드를 한 번만 골라요 — 그다음부터는 상대를 찾자마자 그 캐릭터로 바로 붙어요(결과 카드 «캐릭터 바꾸기»로 다시 골라요). "
                 + "랭크 경기 중에는 불러오기·되돌리기·리셋을 쓸 수 없고, 리그 세이브는 원작 세이브와 따로예요.\n\n"
                 + "상대 · 씨앗 하나로 만든 가상 플레이어 약 4만 명(모두 게임 CPU)과 예전 리그 12명(라이벌). "
                 + "실력(숨은 MMR)에 따라 CPU 단계·공격·방어 배율이 바뀌어요 — 같은 티어면 비슷하게 세요.\n\n"
@@ -543,7 +578,7 @@ public class LeagueActivity extends Activity {
                 + "이기면 LP 가 오르고(센 상대일수록 더), 지면 내려가요. 수련생은 안 깎이고 낭인은 반만. "
                 + "3연승부터 연승 보너스, 진 상대를 재대결로 이기면 설욕 +" + RankCore.BONUS_REVENGE + ", 오늘 첫 승 +" + RankCore.BONUS_DAILY + ". "
                 + "무사 이상은 바닥 아래로 떨어질 때 한 번 «강등 위기»로 버텨요. 무쌍은 강등이 없어요.\n\n"
-                + "매칭 · 상대 카드가 뜬 뒤 나가면, 그 상대와 붙을 때까지 다음 찾기에 같은 상대가 나와요 (최대 24시간). 찾는 중에 그만두면 잡히지 않아요. "
+                + "매칭 · «상대 발견!»이 뜬 뒤 나가면, 그 상대와 붙을 때까지 다음 찾기에 같은 상대가 나와요 (최대 24시간). 찾는 중에 그만두면 잡히지 않아요. "
                 + "재대결은 같은 상대와 연속 3판까지.";
         if (lg != null && lg.optInt("games") > 0)
             s += "\n\n옛 리그 기록 · " + lg.optInt("w") + "승 " + lg.optInt("l") + "패" + (lg.optInt("d") > 0 ? " " + lg.optInt("d") + "무" : "")
@@ -553,7 +588,7 @@ public class LeagueActivity extends Activity {
         seasonSection();
     }
 
-    /* ── 시즌 · 기록(148) — 이번 시즌 · 지난 시즌 줄 · 매칭 대기(보통·빠르게) · [새 시즌 시작] · [처음부터 다시] ──
+    /* ── 시즌 · 기록(148) — 이번 시즌 · 지난 시즌 줄 · [새 시즌 시작] · [처음부터 다시] ──
        둘 다 League 가 지금 랭크 칸을 league/archive/ 에 먼저 보관하고 바꾼다(지우지 않는다). 시작한 경기가 열려 있거나 게임 속 리그가 살아 있으면 못 한다 */
     private void seasonSection() {
         col.addView(section("시즌 · 기록"));
@@ -574,23 +609,7 @@ public class LeagueActivity extends Activity {
         }
         col.addView(c);
 
-        /* 매칭 대기 — Settings pocketcore_rank_wait = normal(기본) | fast. 다음 찾기부터(League.rankedPick 이 읽는다) */
-        TextView wt = text("매칭 대기", 13, TXT, true); wt.setPadding(0, dp(14), 0, dp(6));
-        col.addView(wt);
-        final boolean fast = League.waitFast();
-        LinearLayout seg = new LinearLayout(this);
-        seg.setOrientation(LinearLayout.HORIZONTAL);
-        for (int i = 0; i < 2; i++) {
-            final boolean f = i == 1;
-            TextView p = pill(f ? "빠르게" : "보통", f == fast ? GOLD : BTN2, f == fast ? INK : TXT);
-            p.setTextSize(13);
-            p.setOnClickListener(v -> { if (f != League.waitFast()) { Settings.put("pocketcore_rank_wait", f ? "fast" : "normal"); render(); } });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            lp.rightMargin = i == 0 ? dp(6) : 0;
-            seg.addView(p, lp);
-        }
-        col.addView(seg);
-        col.addView(caption("보통: 4~9초쯤 (새벽엔 조금 더) · 빠르게: 2~6초"));
+        /* 153: «매칭 대기»(보통·빠르게)는 뺐다 — 찾기는 늘 ~1초(RankCore.quickMs). Settings pocketcore_rank_wait 는 남아도 안 읽는다 */
 
         /* 새 시즌 · 처음부터 — 막힘(기록 파일·게임 속 리그·끝나지 않은 경기)이면 둘 다 끄고 이유를 보인다 */
         final String blk = League.resetBlockedWhy();

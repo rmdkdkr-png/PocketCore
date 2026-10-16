@@ -74,6 +74,22 @@ public final class Emu {
     public static native void nativeLeagueCpu(int lv, int cap, int atk, int dfn, int floor);
     /** 결판 뒤: 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
     public static native void  nativeLeagueHubReturn(int rematch);
+    /* 153 랭크 «내 캐릭터 한 번만»·VS 띠(league.c · vsband.c) — 옛 native 엔 없다: 부르는 쪽이 UnsatisfiedLinkError 를 받아 152 흐름(매 판 직접 고르기·띠 없음)으로.
+       league_hub_status(15칸)는 늘리지 않는다 — 고정 크기로 받는 곳이 있어 상태는 따로 */
+    public static final int AUTO_TAIL = 2, AUTO_FF = 4;
+    /** 내 캐릭터 대신 고르기 — cell 0~13 · 15 가운데 무작위 칸, sty 0 수라 · 1 나찰, b2p 2P색, k −1..3 카드 칸.
+     *  flags AUTO_TAIL = 직접 고르는 판(이야기부터 자동 · 고른 것은 nativeHubMyPick) · AUTO_FF = 자동 단계 1~5 동안 4배속·소리 끔.
+     *  다음 go(hub_go_fixed)부터. on false 이고 TAIL 아니면 예전처럼 손으로 */
+    public static native boolean nativeHubAutoPick(boolean on, int cell, int sty, boolean b2p, int k1, int k2, int flags);
+    /** [있음, 칸, 캐릭터, 검질, 2P색, 카드 1, 2, 컬러 0~17] — 직접 고른 판의 이야기가 시작되면 있음(무작위 칸은 1라운드에 뽑힌 캐릭터로 다시) */
+    public static native int[] nativeHubMyPick();
+    /** [단계 0 꺼짐·1 부팅·2 캐릭터·3 검질·4 카드·5 이야기·6 무대 인트로(겹창을 내릴 때)·7 라운드·8 막힘, go 뒤 프레임, go→인트로, go→라운드, 막힌 단계].
+     *  돌려보내기(nativeLeagueHubReturn)가 코어에 닿기 전(허브 상태 v[8] 가 늘기 전)엔 지난 판 값 */
+    public static native int[] nativeHubAutoStatus();
+    /** 경기 앞 무대 인트로 위 검은 띠에 얹을 VS 띠(RankVs) — tiles ≤ 80 × 16바이트 NGPC 2bpp, map 80칸, hold 프레임, flags. tiles null = 끄기 */
+    public static native boolean nativeHubVs(byte[] tiles, short[] map, int hold, int flags);
+    /** [단계 0 없음·1 걸어 둠·2 序章 넘김·3 띠 보임·4 배너·5 끝·6 실패 (|0x10 얹힘 · |0x20 타일 겹침 포기), 대사 단계 프레임, hold] */
+    public static native int[] nativeHubVsStatus();
 
     /* 연습 대전(practice.c) — 일반 세션에서 타이틀 «2 인 대전» 자리 = «연습 대전». 판정 주소를 확인한 롬 판(League.romLabel)에서만 켤 것.
        autostart = 로고·메뉴를 넘겨 «캐릭터 선택»(내 캐릭터 먼저 → 상대)까지 대신 누름(실행 창 «연습 대전으로» 링크). 상태·허브 상태는 nativeLeagueHubStatus 와 같이 본다 */
