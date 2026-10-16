@@ -2256,7 +2256,7 @@ public class EmuActivity extends Activity {
 
     /* 겹창 — Q_SEARCH = 허브 찾기(6)에서 go 를 기다림(로고·메뉴가 도는 동안 포함) · Q_RUN = go 보냄(−4 포함): 인트로(대신 고름)·고르기 화면(직접)을 기다림 */
     private static final int Q_SEARCH = 1, Q_RUN = 2;
-    private static final long Q_FLASH = 700, Q_GO_LOST = 2500, Q_TAIL_MAX = 6000, Q_AUTO_MAX = 20000;
+    private static final long Q_FLASH = 500, Q_GO_LOST = 2500, Q_TAIL_MAX = 6000, Q_AUTO_MAX = 20000;
     private RankUi.Quick rankQ;
     private int rankQMode;
     private boolean rankQTail, rankQRevealed, rankQRematch, rankNoSearch;
