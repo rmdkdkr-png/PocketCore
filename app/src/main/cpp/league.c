@@ -394,7 +394,8 @@ static void nav_to(int ch, int press_a) { H.nav = 4; H.nav_f = H.f; H.nav_ch = c
    Java 가 띠(league_hub_vs)를 넘겨 두면: (1) 은 A 로 넘기고, (2) 의 위 검은 띠에 닉네임·티어·LP·VS 를 얹은 채 hold 프레임 보여 준 뒤
    A 를 대신 눌러 (3) 으로 — 띠는 배너 동안에도 남기거나(VS_THRU_BANNER) 배너 시작에 거둔다. 경기(MODE 241)가 되면 꼭 거둔다(HUD 자리).
    그동안 사용자 A·B·OPTION 은 게임에 안 준다(한 번 누름에 대사가 끊기지 않게). 한 번 쓰면 끝(다음 경기에 Java 가 다시 넘긴다).
-   자동 진행(아래 AP)이 이야기를 밟는 판이면 (1) 은 그쪽이 누르고(같은 story_skip_a), 인트로는 늘 여기 몫 — 자동 진행은 대사를 안 넘긴다. */
+   자동 진행(아래 AP)이 이야기를 밟는 판이면 (1) 은 그쪽이 누르고(같은 story_skip_a), 띠가 걸려 있는 동안(vs_owns_intro) 인트로는 여기 몫 —
+   자동 진행은 대사를 안 넘긴다(띠가 없거나 실패(6)면 자동 진행이 넘긴다). */
 enum { VS_OFF = 0, VS_WAIT, VS_STORY, VS_SHOW, VS_BANNER, VS_DONE, VS_FAIL };
 #define VS_THRU_BANNER 1
 static struct {
@@ -1229,8 +1230,9 @@ int league_hub_match(int ch, int sty, int diff, int stage, int lv, int cap, int 
 /* 153 VS 띠가 스프라이트와 겹치는지 보려고 — 스프라이트 램(native.c 가 league_vram 옆에서, 자리는 안 바뀐다) */
 void league_spr(void *spr) { vsband_spr(spr); }
 /* 153 VS 띠 — Java(RankVs)가 그린 위 띠 타일(n × 16바이트 NGPC 2bpp, n ≤ 80)·칸표(80칸 줄 먼저: 0xFFFF 게임 칸 그대로 · (팔레트<<9)|번호 —
-   팔레트는 인트로 내내 그대로인 3·4·5·13·14 만)·hold(대사 단계 몇 프레임째에 A 를 대신 눌러 배너로, −1 = 게임 그대로 약 300)·flags(VS_THRU_BANNER).
-   랭크 매치(허브 종류 0)에서 league_hub_match 와 같이(또는 재대결 −4 뒤) 부른다 — 다음 경기 인트로에 한 번. tiles NULL = 끄기. 1 = 받음.
+   팔레트는 인트로·배너 내내 그대로인 2·3·4·5·9·13·14 만 — vsgame 실측)·hold(대사 단계 몇 프레임째에 A 를 대신 눌러 배너로, −1 = 게임 그대로 약 300)·flags(VS_THRU_BANNER).
+   랭크 매치(허브 종류 0)에서 league_hub_match «뒤에» 부른다(부를 때의 상대를 적어 둔다 — 앞에 부르면 다른 상대 띠로 보고 안 얹는다, 상태 6) ·
+   −4 돌려보내기 앞뒤 어느 쪽이든(띠는 −4 리셋을 넘어 남는다) — 다음 경기 인트로에 한 번. tiles NULL = 끄기. 1 = 받음.
    띠가 화면에 얹혀 있는 동안엔 바꾸지 않는다(0) — 끄기는 다음 진짜 프레임에 거둔다 */
 int league_hub_vs(const uint8_t *tiles, int n, const uint16_t *map, int hold, int flags)
 {
