@@ -1044,7 +1044,8 @@ public class EmuActivity extends Activity {
         releasePhysical();
         try { ((android.hardware.input.InputManager) getSystemService(INPUT_SERVICE))
                 .unregisterInputDeviceListener(devListener); } catch (Exception ignored) { }
-        if (loaded && lookOn) lookSaveMem();     /* 컬러 기억 — 폴(200ms)이 아직 못 남긴 마지막 바뀜도(다시 굽기·갈아타기로 창이 닫히기 전에) */
+        if (lookOn) lookSaveMem();               /* 컬러 기억 — 폴(200ms)이 아직 못 남긴 마지막 바뀜도(다시 굽기·갈아타기로 창이 닫히기 전에).
+                                                    loaded 는 안 본다: 갈아타기·다시 굽기는 GL 스레드에서 먼저 내려 이미 거짓이고, native 기억은 코어 없이도 남는다 */
         if (loaded) {
             Emu.nativeSaveSram();
             /* 오토세이브 — SRAM 저장과 같은 자리·같은 방식(UI 스레드 직접 호출 전례).

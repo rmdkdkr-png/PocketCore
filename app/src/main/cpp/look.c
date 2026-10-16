@@ -13,9 +13,10 @@
      세로 칸    컬러 이름(LOOK_VLAB).
    경기 컬러(sel)는 고르기 화면에서 보이는 색을 따라가다 고르기를 떠나면 그대로 남는다 → 1인 대전 내내(이야기·라운드 사이·이어하기 화면 포함).
    타이틀 메뉴가 뜨면 잊는다(데모·인트로가 팔레트 0 에 캐릭터를 그려서 — 새지 않게).
-   경기 표: P1 캐릭터 = 고를 때 커서 캐릭터(무작위 칸이면 0x57D5 — 검질 확정 뒤 ~160프레임에 게임이 씀). 두 검질 모두 «기본 색 → 고른 색»
-     (검질은 몰라도 된다 · P1 블록 0x5B51 은 안 본다 — 이야기 화면 동안은 옛 값). 고른 색이 2P색이면 팔레트 5(P2 몸)의 «2P색 → 기본 색»도
-     (미러전에서 게임이 P2 를 2P색으로 칠한 것을 바꿈 — 같은 캐릭터·같은 검질일 때만 그 색이 나온다).
+   경기 표: P1 캐릭터 = 고를 때 커서 캐릭터(무작위 칸이면 0x57D5 — 검질 확정 뒤 ~160프레임에 게임이 씀). 두 검질 모두 «기본 색 → 고른 색»,
+     그 판 검질(전투 중 P1 블록 0x5B51 이 그 캐릭터면 블록, 아니면 0x574C — 블록은 이야기 화면 동안 옛 값)을 자리 0 에. 고른 색이 2P색이고
+     진짜 미러전(P2 블록 0x5D51 이 같은 캐릭터·미러)이면 팔레트 5(P2 몸)의 «2P색 → 기본 색»도(게임이 P2 를 2P색으로 칠한 것을 바꿈 —
+     같은 캐릭터·같은 검질일 때만 그 색이 나온다).
    팔레트 0 은 P1 몸만 쓴다(필살기·잔상·짐승 짝꿍·이펙트는 다른 팔레트, 실측 4명 × 기술 6개). 짝꿍 짐승(3·4)은 원래 색 — 게임 2P색과 같은 규칙.
 
    잠금: 자기 잠금 K_mu 만. league_hub_status(L_mu) 가 look_cur(K_mu) 를 부르므로 순서는 L_mu → K_mu 하나뿐 — 여기서는 L_mu 를 안 잡는다.
@@ -49,7 +50,9 @@
 volatile int look_in_block = 0, look_in_or = 0;
 static pthread_mutex_t K_mu = PTHREAD_MUTEX_INITIALIZER;
 static uint8_t *g_pal;                /* 코어 팔레트 램(0x8200~, 스프라이트 팔레트 16 × 4색 × 2바이트) */
-/* 코어의 팔레트 바꿔 쓰기(retro_ngp_palremap — 게임이 한 팔레트의 색 1~3 을 모두 from 으로 써 놓는 순간 셋 다 to 로). 게임은 몸 팔레트를 롬에서
+/* 코어의 팔레트 바꿔 쓰기(retro_ngp_palremap). 코어 판이 둘 — 0966bed 판(149 부터 동봉)은 한 팔레트의 색 1~3 이 모두 한 자리의 from 이 되는
+   순간 셋 다 to 로, 옛 판(1249a9e — 148 까지 동봉·바깥 코어)은 칸마다 따로(자리 0 부터, 맞는 자리에서 멈춤). 어느 판이든 맞게: 보일 검질을
+   자리 0 에(같은 색이어도 적는다), 미리보기는 옛 표로 섞인 세 색도 알아본다(preview_fix). 게임은 몸 팔레트를 롬에서
    자주 다시 쓴다(대전 중 1초에 한 번꼴, 실측) — 프레임 뒤에 고쳐 쓰기만 하면 그때마다 원래 색이 1~3 프레임 보인다. 표는 상태 저장에 안 들어가서
    매 프레임 정하고 바뀐 칸만 넣는다. 칸: 스프라이트 팔레트 0(P1 몸·미리보기)·5(P2 몸)의 색 1~3 × 자리 2(검질 둘을 한 번에) */
 static void (*g_remap)(int idx, int slot, int from, int to);
@@ -68,7 +71,7 @@ static struct {
    int prev_in, last_scr, owned, hold_b, inj, inj_f;
    int opt_f, opt_own;                /* OPTION 누른 프레임 · 그 누름이 고르기 화면을 쥔 채 시작했나(밖에서 누른 채 들어온 것은 안 센다) */
    int edit; uint16_t edit_c[3];      /* 컬러 만들기 창이 열려 있음 · 그 색 */
-   uint16_t pv_last[3]; int pv_has;   /* 미리보기에 마지막으로 쓴(보인) 세 색 — 만드는 색을 바꾸거나 창을 닫으면 그 색은 표에 없어서, 이것으로 «우리 색»을 알아본다 */
+   uint16_t pv_last[3]; int pv_has, pv_sty;   /* 미리보기에 마지막으로 쓴(보인) 세 색·그 검질 — 만드는 색을 바꾸거나 창을 닫으면 그 색은 표에 없어서, 이것으로 «우리 색»을 알아본다 */
    int prow, psty, pslot, sty_seen;   /* 미리보기 캐릭터 줄·검질·기억 칸(상태 저장 직전 되돌리기·만들기 창) · 검질 고르기에서 본 검질(−1) */
    int rand_pick;                     /* 가운데 무작위 칸에서 결정했다 — 검질 고르기 동안 게임이 커서를 뽑기처럼 돌려 실제 캐릭터에서 멈춘다(실측) */
    const uint8_t *ram;
@@ -99,7 +102,7 @@ static int idx_ok(int row, int idx, int sty)
 }
 static uint16_t pal_rd(int p, int j) { const uint8_t *e = g_pal + p * 8 + (j + 1) * 2; return (uint16_t)((e[0] | (e[1] << 8)) & 0xFFF); }
 static void pal_wr(int p, const uint16_t c[3]) { for (int j = 0; j < 3; j++) { uint8_t *e = g_pal + p * 8 + (j + 1) * 2; e[0] = (uint8_t)c[j]; e[1] = (uint8_t)(c[j] >> 8); } }
-/* 세 색이 모두 같을 때만 «그 색» — 맞을 때 번쩍임·분노처럼 게임이 잠깐 쓴 다른 세 색은 그대로 둔다(코어 바꿔 쓰기도 세 칸을 함께 본다) */
+/* 세 색이 모두 같을 때만 «그 색» — 맞을 때 번쩍임·분노처럼 게임이 잠깐 쓴 다른 세 색은 그대로 둔다(0966bed 코어도 세 칸을 함께 본다) */
 static int pal_is(int p, const uint16_t c[3]) { return pal_rd(p, 0) == c[0] && pal_rd(p, 1) == c[1] && pal_rd(p, 2) == c[2]; }
 
 static void rm_push(int want[6][2][2])
@@ -117,7 +120,7 @@ static void rm_push(int want[6][2][2])
             rm_have[i][k][0] = want[i][k][0]; rm_have[i][k][1] = want[i][k][1];
          }
 }
-/* 표 한 줄(세 칸)을 «from → to» 로 — 코어는 한 팔레트의 세 칸이 모두 같은 자리에 있어야 바꾼다(같은 색 칸도 적는다) */
+/* 표 한 줄(세 칸)을 «from → to» 로 — 0966bed 코어는 한 팔레트의 세 칸이 모두 같은 자리에 있어야 바꾼다(같은 색 칸도 적는다 · 옛 코어는 칸마다) */
 static void rm_want(int want[6][2][2], int base, int slot, const uint16_t from[3], const uint16_t to[3])
 {
    for (int j = 0; j < 3; j++) { want[base + j][slot][0] = from[j]; want[base + j][slot][1] = to[j]; }
@@ -127,17 +130,43 @@ static int next_idx(int row, int cur, int sty)
    for (int s = 1; s <= LOOK_NIDX; s++) { int i = (cur + s) % LOOK_NIDX; if (idx_ok(row, i, sty)) return i; }
    return 0;
 }
-/* 고르기 화면 미리보기 — 캐릭터 고르기 그림은 늘 수라(실측, 14명 모두), 검질 고르기는 커서(0x574C) 검질. 지금 팔레트 0 이 그 캐릭터·검질의
-   어느 컬러든(또는 만드는 색) 보일 색으로 고쳐 쓴다(OPTION 으로 바꿀 땐 게임이 팔레트를 다시 안 쓴다). 다른 색이면 그대로 — 게임이 곧 다시 쓰고 코어가 바꾼다 */
-static void preview_fix(int row, int sty, int idx)
+/* 경기 P1 검질 — 전투 중이고 P1 블록이 그 캐릭터면 블록의 검질, 아니면 검질 고르기 커서(0x574C — 확정 뒤에도 남음) */
+static int p1_sty(const uint8_t *ram, int row) { return (ram[R_MODE] == 241 && (ram[R_P1BLK] >> 4) == row) ? (ram[R_P1BLK] >> 3) & 1 : ram[R_STYC] & 1; }
+/* 팔레트 0 이 이 프레임 동안 코어 표(rm_have — rm_push 는 프레임 뒤라 아직 지난 프레임에 넣은 표)로 바뀌기 전엔 c 였을 수 있나 — 칸마다
+   c 그대로이거나, 그 칸 자리의 from 이 c 이고 to 가 지금 색. 커서를 옮긴 프레임에 게임이 새 캐릭터 기본 색을 쓸 때 표는 아직 옛 캐릭터 것이라
+   옛 코어(칸마다)는 옛 기본 색과 같은 칸만 옛 캐릭터의 고른 색으로 바꿔 섞인 세 색을 만든다(게임은 가만히 있는 고르기 화면에서 다시 안 쓴다, 실측) */
+static int pal_was(const uint16_t c[3])
 {
-   uint16_t t[3], want[3];
-   int hit = (K.edit && pal_is(0, K.edit_c)) || (K.pv_has && pal_is(0, K.pv_last));
-   for (int i = 0; i < LOOK_NIDX && !hit; i++) { if (i >= LOOK_NPRE && !idx_ok(row, i, sty)) continue; tri(row, sty, i, t); hit = pal_is(0, t); }
-   if (!hit) return;
+   for (int j = 0; j < 3; j++) {
+      uint16_t v = pal_rd(0, j); int ok = v == c[j];
+      for (int k = 0; k < 2 && !ok; k++) ok = rm_have[j][k][0] == c[j] && rm_have[j][k][1] == v;
+      if (!ok) return 0;
+   }
+   return 1;
+}
+/* 지금 팔레트 0 이 그 캐릭터·검질의 어느 컬러인가 — 그대로, 맞는 게 없으면 코어 표를 되돌려 한 번 더(rm_init — 표가 이 코어에 넣은 것일 때만) */
+static int pv_known(int row, int sty)
+{
+   uint16_t t[3];
+   for (int i = 0; i < LOOK_NIDX; i++) { if (i >= LOOK_NPRE && !idx_ok(row, i, sty)) continue; tri(row, sty, i, t); if (pal_is(0, t)) return 1; }
+   for (int i = 0; i < LOOK_NIDX && rm_init; i++) { if (i >= LOOK_NPRE && !idx_ok(row, i, sty)) continue; tri(row, sty, i, t); if (pal_was(t)) return 1; }
+   return 0;
+}
+/* 고르기 화면 미리보기 — 캐릭터 고르기 그림은 늘 수라(실측, 14명 모두), 검질 고르기는 커서(0x574C) 검질. 지금 팔레트 0 이 그 캐릭터·검질의
+   어느 컬러든(또는 만드는 색) 보일 색으로 고쳐 쓴다(OPTION 으로 바꿀 땐 게임이 팔레트를 다시 안 쓴다). 다른 색이면 그대로(맞을 때 번쩍임 같은 게임 색).
+   any: 검질을 모른다 — 무작위 칸으로 결정하면 뽑기가 멈춘 캐릭터를 게임이 0x574C 와 상관없이 아무 검질로나 그린다(실측) → 다른 검질도 보고
+   알아본 검질을 pv_sty 에 둔다. 돌려줌 = 그림의 검질 */
+static int preview_fix(int row, int sty, int idx, int any)
+{
+   uint16_t want[3];
+   if ((K.edit && pal_is(0, K.edit_c)) || (K.pv_has && pal_is(0, K.pv_last))) { if (any) sty = K.pv_sty; }
+   else if (pv_known(row, sty)) ;
+   else if (any && pv_known(row, !sty)) sty = !sty;
+   else return sty;
    if (K.edit) memcpy(want, K.edit_c, 6); else tri(row, sty, idx, want);
    if (!pal_is(0, want)) pal_wr(0, want);
-   memcpy(K.pv_last, want, 6); K.pv_has = 1;
+   memcpy(K.pv_last, want, 6); K.pv_has = 1; K.pv_sty = sty;
+   return sty;
 }
 
 void look_tick(uint8_t *ram, size_t n, int input, int ctx)
@@ -200,34 +229,40 @@ void look_tick(uint8_t *ram, size_t n, int input, int ctx)
          K.sel = K.cur; K.sel_ch = sch;
          K.sty_seen = sty_now;
          K.prow = row; K.psty = scr == 4 ? (ram[R_STYC] & 1) : 0; K.pslot = slot;
-         if (g_pal) preview_fix(row, K.psty, K.cur);
+         if (g_pal) K.psty = preview_fix(row, K.psty, K.cur, scr == 4 && K.rand_pick);
          vpanel_put(LOOK_VLAB + (K.edit ? LOOK_NPRE : K.cur) * 18 * 16);   /* 만드는 중이면 «내 색 1» */
          if (K.cur > 0 || K.edit)
-            for (int sty = 0; sty < 2; sty++) {                       /* 두 자리 — 검질 고르기에서 ←→ 로 검질을 바꿔도 바로 그 검질의 그 컬러 */
+            for (int k = 0; k < 2; k++) {                             /* 두 자리 — 검질 고르기에서 ←→ 로 검질을 바꿔도 바로 그 검질의 그 컬러 · 보이는 검질이 자리 0 */
+               int sty = k ^ K.psty;
                tri(row, sty, 0, b);
                if (K.edit) memcpy(t, K.edit_c, 6); else tri(row, sty, K.cur, t);
-               if (memcmp(b, t, 6)) rm_want(want, 0, sty, b, t);
+               if (!k || memcmp(b, t, 6)) rm_want(want, 0, k, b, t);
             }
       }
    } else {
       if (K.owned && vpanel_on()) vpanel_restore();                   /* 방금까지 쥐었다 — 세로 칸을 원래대로 */
       if (K.sel > 0 && !sel_scr && g_pal) {                           /* 경기 쪽(고르기 화면 밖) */
          int ch = K.sel_ch >= 0 ? K.sel_ch : ram[R_P1CH] < 14 ? ram[R_P1CH] : -1;
-         if (ch >= 0)
-            for (int sty = 0; sty < 2; sty++) {
+         if (ch >= 0) {
+            int s0 = p1_sty(ram, ch), b2 = ram[R_P2BLK];
+            for (int k = 0; k < 2; k++) {                             /* 그 판 검질이 자리 0 — 옛 코어가 두 검질 기본 색이 같은 칸에서 다른 검질 색을 넣지 않게 */
+               int sty = k ^ s0;
                tri(ch, sty, 0, b); tri(ch, sty, K.sel, t);
-               if (memcmp(b, t, 6)) {
-                  rm_want(want, 0, sty, b, t);
+               if (!k || memcmp(b, t, 6)) {
+                  rm_want(want, 0, k, b, t);
                   if (pal_is(0, b)) pal_wr(0, t);                     /* 불러온 상태·켠 순간 — 게임이 다시 쓰기 전에도 */
                }
-               if (K.sel == 1) {                                      /* 미러전 P2(게임이 2P색으로 칠함) → 기본 색 */
-                  const uint16_t *alt = LOOK_TAB[ch][sty][1];
-                  if (memcmp(alt, b, 6)) {
-                     rm_want(want, 3, sty, alt, b);
-                     if (pal_is(5, alt)) pal_wr(5, b);
-                  }
+            }
+            if (K.sel == 1 && (b2 >> 4) == ch && (b2 & 0x04)) {      /* 미러전 P2(게임이 2P색으로 칠함) → 기본 색 — 진짜 미러전만(아니면 옛 코어가 다른 상대 칸을 바꾼다) */
+               int s2 = (b2 >> 3) & 1;
+               const uint16_t *alt = LOOK_TAB[ch][s2][1];
+               tri(ch, s2, 0, b);
+               if (memcmp(alt, b, 6)) {
+                  rm_want(want, 3, 0, alt, b);
+                  if (pal_is(5, alt)) pal_wr(5, b);
                }
             }
+         }
       }
    }
    K.owned = owned;
@@ -317,7 +352,7 @@ void look_before_save(void)
       if (K.owned) { row = K.prow; s0 = K.psty; idx = K.edit ? -1 : K.cur; }
       else if (K.sel > 0) {
          row = K.sel_ch >= 0 ? K.sel_ch : ram[R_P1CH] < 14 ? ram[R_P1CH] : -1;
-         s0 = (ram[R_MODE] == 241 && (ram[R_P1BLK] >> 4) == row) ? (ram[R_P1BLK] >> 3) & 1 : ram[R_STYC] & 1;
+         s0 = p1_sty(ram, row);
          idx = K.sel;
       }
       if (row >= 0 && idx != 0)
