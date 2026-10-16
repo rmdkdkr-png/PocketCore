@@ -2754,7 +2754,7 @@ public class EmuActivity extends Activity {
         if (hubCard != null) { root.removeView(hubCard); hubCard = null; }
         org.json.JSONObject m = lm();                       /* 상대만 고르고 대진 전에 타이틀로 — 준비 기록은 무효로(열린 채 남지 않게) */
         if (m != null && "ready".equals(m.optString("status"))) League.cancel(leagueId, "게임 속 리그 — 대진 전에 타이틀로");
-        hubWaitGen = hubGen + 1;
+        hubWaitGen = Math.max(hubWaitGen, hubGen) + 1;     /* 153: 앞의 돌려보내기가 아직 GL 스레드에 안 닿았으면 그다음 것까지(−4 바로 뒤 그만 −1) */
         leagueId = null; leagueArmed = false; leagueDone = false; leagueStarted = false; leagueRetry = 0;
         if (rematch != -4) { rankQClose(false); rankCap = false; rankCapRefine = false; }   /* 153: −4(다음 상대·재대결)는 부른 쪽이 겹창을 먼저 띄웠다 */
         h.removeCallbacks(leaguePoll);
