@@ -988,7 +988,14 @@ void league_tick_hub(uint8_t *ram, size_t n, int input)
 
    ram[R_OPP] = (uint8_t)L.opp;
    ram[R_STY] = (uint8_t)L.sty;
-   ram[R_CCARD1] = 0xFF; ram[R_CCARD2] = 0xFF;          /* CPU 카드 없음 — 리그 공통 규칙(1장 상대는 원래도 없다) */
+   if (L.allcards) {                                  /* 리그 상대는 자기 캐릭터·검질 카드 두 장을 끼고 나온다(유저 «리그 상대들은 카드 두 개 다 끼고») —
+                                                         센 상대(단계 8↑ ≈ MR 1300, 손잡이가 없으면 «어려움»)는 k2·k3(★★★ 포함), 아니면 k0·k1.
+                                                         원작 무한 대전과 같은 나눔(13~25 연승 k0/k1 · 26~ k2/k3). 게임이 전투 준비 때 0x5D56/57 을 만든다.
+                                                         L 에 칸을 늘리지 않는다(.prac 덩어리 크기) — 무장 값에서 셈 */
+      int strong = L.k_lv >= 8 || (L.k_lv < 0 && L.diff >= 2);
+      int id = (L.opp << 4) | (L.sty << 3) | (strong ? 2 : 0);
+      ram[R_CCARD1] = (uint8_t)id; ram[R_CCARD2] = (uint8_t)(id + 1);
+   } else { ram[R_CCARD1] = 0xFF; ram[R_CCARD2] = 0xFF; }   /* 연습 더미·옛 한 판 경기는 카드 없음 */
    if (L.cards_off) { ram[R_CARD1] = 0xFF; ram[R_CARD2] = 0xFF; }
    if (L.diff   >= 0) ram[R_OPT + 0] = (uint8_t)L.diff;
    if (L.points >  0) ram[R_OPT + 1] = (uint8_t)L.points;
