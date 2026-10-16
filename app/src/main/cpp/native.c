@@ -949,11 +949,16 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
    int hi = g_vsync_ema > 0.0 && g_vsync_ema < dt * 0.70;
    int cad = g_fg_mode == FG_CADENCE && !g_turbo && g_loaded && g_fb && g_fb_w && g_fb_w <= 320 && dt > 0.012;
    if (g_paused) { g_next_t = t; maxsteps = 0; fg_on = 0; cad = 0; }   /* 멈춤 — 풀리면 시계를 지금부터 다시 */
+   /* 149: 리그 결판 뒤 승리 대사가 끝난 프레임(0x5825)에 league.c 가 세운 걸쇠 — Java 의 멈춤 풀기(바 닫기·창 닫기)와 상관없이
+      리셋(nativeLeagueHubReturn)·새 무장·코어 내림 전까지 게임을 한 프레임도 더 돌리지 않는다(다음 장·이어하기 화면으로 안 감).
+      보간(앱 사이 그림·박자)도 끄고 마지막 진짜 프레임(g_fb)만 그린다 — 멈춤과 같게 */
+   if (league_post_hold()) { g_next_t = t; maxsteps = 0; fg_on = 0; cad = 0; }
    { static int last_mode = -1, last_gen = -1;              /* 모드가 바뀌었거나 게임·상태가 바뀌면 고리를 비운다(GL 스레드에서만) */
      if (g_fg_mode != last_mode || g_cad_gen != last_gen) { last_mode = g_fg_mode; last_gen = g_cad_gen; fg_cad_reset(); g_cad_have = 0; g_cad_pend = 0; } }
    if (!cad && (g_cad_have || fg_cad_ready())) { fg_cad_reset(); g_cad_have = 0; g_cad_pend = 0; }
    int cad_new = 0;
    while (g_next_t <= t && steps < maxsteps) {
+      int stop = 0;
       CORE_LOCK();                       /* retro_run 한 번 단위 — 그 사이에 UI 스레드의 저장이 끼어들 수 있게 */
       if (g_loaded) {
          if (fg_on && g_fb && g_fb_w) {      /* 코어가 덮어쓰기 전에 지금 그림을 «직전»으로 */
@@ -989,9 +994,11 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             cheat_tick(ram, ramsz, in);
             int ex = practice_take_exit();
             if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); cheat_forget(); }
+            stop = league_post_hold();       /* 149: 걸쇠가 이 진짜 프레임에 섰다(합성 호출에선 안 선다) */
          }
       }
       CORE_UNLOCK();
+      if (stop) { fg_on = 0; cad = 0; break; }   /* 149: 이번 vsync 의 남은 스텝(따라잡기·배속·코어 합성)도 사이 그림도 없이 — 이 프레임 그대로 */
       /* «박자» — 진짜 프레임마다 고리에 넣는다(한 vsync 에 둘 돌면 둘 다) */
       if (cad && g_loaded && g_fb && g_fb_w) { if (fg_cad_push(g_fb, (int)g_fb_w, (int)g_fb_h)) cad_new = 1; }
       g_next_t += dt; steps++;
@@ -1083,6 +1090,7 @@ JNI(void, nativeReset)(JNIEnv *env, jclass cls)
    CORE_LOCK();
    if (g_loaded) c_reset();
    practice_forget(); league_practice_title();   /* 연습 대전: 램이 새로 시작 — 고르던 것·경기를 잊고 타이틀 상태로(리그 허브는 그대로) */
+   league_post_clear();                          /* 149: 승리 대사 걸쇠도 푼다(리그 판은 리셋이 막혀 있어 방어용) */
    look_forget();                                /* 컬러: 경기 컬러·세로 칸을 잊는다(기억·내 색은 그대로) */
    cheat_forget();                               /* 치트: 보관한 카드는 되돌리지 않고 버린다(램이 새로 시작) */
    CORE_UNLOCK();

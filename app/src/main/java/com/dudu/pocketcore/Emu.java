@@ -54,8 +54,12 @@ public final class Emu {
     public static native void  nativeLeagueDisarm();
     /** [무장, 프레임, bit7 0 봄, 경기 시작 봄, 결과 잡음, 결과 비트, 승수1, 승수2, KO, 실효 포인트,
      *   P1 블록, P2 블록(결판), P2 블록(경기 시작), 경기 시작 프레임, 결판 프레임, 사용자 카드 1, 2, 실효 시간,
-     *   CPU 단계(0x5814), CPU 공격 배율, CPU 받는 피해 배율] */
+     *   CPU 단계(0x5814), CPU 공격 배율, CPU 받는 피해 배율, 결판 때 CPU 단계 상한,
+     *   (149) 결판 뒤 0 없음·1 승리 대사 도는 중·2 멈춤 걸쇠, 걸쇠 사유(1 대사 끝·2 B·3 장면·4 시간·5 뒤로), 결판 뒤 프레임, 대사가 뜬 프레임(−1)]
+     *  옛 native 는 22칸 — 길이를 보고 쓴다 */
     public static native int[] nativeLeagueStatus();
+    /** 149: 승리 대사 건너뛰기(뒤로 가기) — 다음 진짜 프레임에 멈춤 걸쇠(결과 카드 차례). 게임이 멈춰 있으면 풀린 뒤에 선다 */
+    public static native void nativeLeaguePostSkip();
     /* 게임 속 리그(허브): 타이틀 «2인 대전» 자리 = «리그 대전». sty/dif = 캐릭터 id(0~14)별 리그 상대의 검질(없으면 −1)·난도 */
     public static native void  nativeLeagueHub(boolean on, byte[] sty, byte[] dif);
     public static native void  nativeLeagueHubCancel();
