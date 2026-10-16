@@ -118,7 +118,7 @@ public class EmuActivity extends Activity {
                 Emu.nativeResize(w, hgt);
             }
             @Override public void onDrawFrame(GL10 g) {
-                Emu.nativeSetInput(padMask | keyMask | axisMask);
+                Emu.nativeSetInput(rankQBlock ? 0 : (padMask | keyMask | axisMask));   /* 153 찾기 겹창 동안 게임엔 아무것도 안 간다 */
                 Emu.nativeFrame();
                 /* 프레임 크기가 바뀌면(기둥·띠 토글) 화면 상자를 다시 잡는다 */
                 int fw = Emu.nativeFrameWidth(), fh = Emu.nativeFrameHeight();
@@ -155,7 +155,7 @@ public class EmuActivity extends Activity {
         applyFrameGen();
         applyDisplay();
         pad.setListener(new PadView.Listener() {
-            @Override public void onMask(int mask) { padMask = mask; }
+            @Override public void onMask(int mask) { padMask = mask; if (rankQ != null) rankQKey(mask | keyMask | axisMask); }   /* 153 겹창 B = 그만 */
             @Override public void onAction(int action) { handleAction(action); }
             @Override public void onTurbo(boolean on) { Emu.nativeSetTurbo(on); }
             @Override public void onScreenDrag(float dxFrac, float dyFrac) {
@@ -175,7 +175,6 @@ public class EmuActivity extends Activity {
             /* 메뉴가 열려 있는 동안 게임을 멈춘다 — 고르는 사이 맞지 않게(Delta 의 멈춤 메뉴). 옵션 창이 떠 있으면 그 창이 멈춤을 쥔다 */
             @Override public void onMenu(boolean open) {
                 if (open) { releasePhysical(); refreshSlotInfo(); }
-                if (rankView != null) rankView.setVisibility(open ? View.INVISIBLE : View.VISIBLE);   /* 148: 찾기는 그만두지 않고 멈춤(rankTick) — 대기창은 바 윗줄을 덮으니 바가 열린 동안 숨긴다 */
                 if (fdView != null && fdWanted) fdView.setVisibility(open ? View.GONE : View.VISIBLE);   /* 프레임 미터가 버튼 아래 줄에 서면 메뉴 칸(저장·로드) 위를 덮는다 — 메뉴 동안 숨김 */
                 if (!loaded) return;
                 Emu.nativeSetPaused(open || (sheet != null && sheet.isShowing()) || (leagueDlg != null && leagueDlg.isShowing())
@@ -334,7 +333,7 @@ public class EmuActivity extends Activity {
         gameBox[0] = mx; gameBox[1] = my; gameBox[2] = mx + gw; gameBox[3] = my + gh;
         placeFrameMeter();                                  /* 프레임 미터가 먼저 자리를 잡고 안내 띠는 그 아래로 */
         placeHubBanner();
-        if (rankView != null) { h.removeCallbacks(rankPlace); h.post(rankPlace); }   /* 148 대기창·상대 카드 — 레이아웃이 끝난 뒤에 */
+        rankQPlace();                                       /* 153 찾기 겹창 — 게임 그림 자리 그대로 */
     }
 
     private void persistScreen() {
@@ -781,7 +780,7 @@ public class EmuActivity extends Activity {
         if (ask != null) { ask.cancel(); return; }            /* 확인 카드 — 뒤로 = 취소(취소 못 하는 카드면 그대로) */
         if (lookEditor != null) { lookEditorClose(); return; }   /* 컬러 만들기 창에서 뒤로 = 취소 */
         if (hubCard != null) { hubReturn(-1); return; }      /* 결과 카드에서 뒤로 = 계속 */
-        if (rankView != null && !(pad != null && pad.isBarOpen())) { rankBack(); return; }   /* 찾는 중·상대 카드 — 찾기만 그만(카드였으면 상대는 잡힌 채). 바가 열려 있으면 멈춘 채 아래(hubLeave)로 */
+        if (rankQ != null && !(pad != null && pad.isBarOpen())) { rankQBack(); return; }   /* 153 찾기 겹창 — 그만(상대를 보였으면 잡힌 채). 바가 열려 있으면 멈춘 채 아래(hubLeave)로 */
         if (hubPickBack()) { hubReturn(-1); return; }         /* 리그 판 고르기 화면 — 확인 창 없이 바로 타이틀로(유저 「타이틀로 가는 거 메시지 없이」) */
         if (leagueId != null) { leagueLeave(); return; }
         if (leagueHub) { hubLeave(); return; }
@@ -1002,10 +1001,7 @@ public class EmuActivity extends Activity {
     @Override protected void onPause() {
         super.onPause();
         resumedNow = false;
-        if (rankView != null) {                          /* 앱이 내려가면 찾기 그만 — 카드였으면 상대는 잡힌 채(카드에서 holdPending). 알림은 돌아왔을 때 */
-            if (rankFound != null || rankLanded) { rankGoAt = 0; Emu.nativeHubSearch(false); rankClose(); rankStopNote = 2; }   /* 상대가 보였으면 잡힌 채 */
-            else { rankCancel(null); rankStopNote = 1; }
-        }
+        /* 153 찾기 겹창은 그대로 — 코어가 멈춰(gl.onPause) native 자동 진행도 멈추고 겹창 시계도 선다(rankQStep · resumedNow). 돌아오면 이어서 */
         releasePhysical();
         try { ((android.hardware.input.InputManager) getSystemService(INPUT_SERVICE))
                 .unregisterInputDeviceListener(devListener); } catch (Exception ignored) { }
@@ -1041,10 +1037,6 @@ public class EmuActivity extends Activity {
         if (leagueId != null && leagueArmed && leagueDone && !leaving) {                    /* 백그라운드에서 정산됐다 — 이제 결과 창으로 */
             if (postState() == 1) { h.removeCallbacks(leaguePoll); h.post(leaguePoll); }      /* 152: 승리 대사 도중 내려갔다 — 대사를 마저 보고 */
             else leagueExit(leagueId);
-        }
-        if (rankStopNote != 0) {
-            toast(rankStopNote == 1 ? "앱이 내려가서 찾기를 멈췄어요 — A로 다시 찾기" : "상대가 기다려요 — 다음에 또 만나요");
-            rankStopNote = 0;
         }
         if (loaded) Emu.nativeAudioResume();
         keymap = KeyMap.load();   /* 매핑 화면에서 돌아온 경우 */
@@ -1897,6 +1889,7 @@ public class EmuActivity extends Activity {
         hubDual = hubOn() && !"0".equals(Settings.load().get(practiceOkKey()));   /* 셋째 줄 ◀▶ — «연습 대전»을 고르면 일반 판으로(그 판에서 연습이 안 켜진다고 알면 리그만) */
         Emu.nativeHubDual(hubDual);
         hubRanked = true; Emu.nativeHubRanked(true);                     /* 랭크 매치: 셋째 줄 A = 상대 찾기(예전 «상대 선택»은 끔 — 12명은 라이벌로 나온다) */
+        pushMain();                                                      /* 153: 내 캐릭터(pref.main) — 있으면 go 마다 native 가 대신 고른다 · 없으면 첫 판만 직접(tail) */
         org.json.JSONObject open;
         boolean resumeOpen = false;
         while ((open = League.openMatch()) != null && "ready".equals(open.optString("status")))   /* 대진 전 경기는 모두 무효로(같은 폴더의 다른 판이 만든 것까지) — 남은 판: 잡힌 상대 miss 하나(두 번째면 풂) */
@@ -1904,7 +1897,10 @@ public class EmuActivity extends Activity {
         if (open != null && !"ready".equals(open.optString("status"))) {
             leagueId = open.optString("id"); leagueStart(); resumeOpen = true;    /* 내려간 경기 — 체크포인트로 이어 하고, 결판 뒤 허브로 */
         }
-        if (!resumeOpen && !hubGoUsed && getIntent().getBooleanExtra(EXTRA_HUB_GO, false)) { hubGoUsed = true; Emu.nativeHubGo(); }   /* 바로 상대 선택까지 */
+        if (!resumeOpen && !hubGoUsed && getIntent().getBooleanExtra(EXTRA_HUB_GO, false)) {
+            hubGoUsed = true; Emu.nativeHubGo();                         /* 로고·메뉴를 넘겨 바로 상대 찾기까지 */
+            rankSearchStart();                                           /* 153: 로고가 도는 동안부터 찾기 겹창 — 허브가 찾기(6)에 닿으면 바로 go */
+        }
         if (hubOn() && !hubDual && !dualHintShown) { dualHintShown = true; toast("이 롬 사본에선 연습이 안 켜져서 셋째 줄은 리그 대전만 돼요 — 조작 패치를 끄면 둘 다"); }
         h.postDelayed(hubPoll, 200);
     }
@@ -1939,7 +1935,7 @@ public class EmuActivity extends Activity {
         }
         /* 상대를 골랐다 → 경기 기록(준비). 뒤로 가기 창이 떠 있으면 창이 정한 뒤에(계속하기 → 다음 확인에서 만듦, 나가기·타이틀로 → 안 만듦) */
         if (hubRanked && st == 3 && leagueId == null && hubCard == null && !(leagueDlg != null && leagueDlg.isShowing())) {
-            if (!rankNewMatch()) return;
+            if (!(rankQ != null && !rankQRevealed) && !rankNewMatch()) return;   /* 153: 겹창이 상대를 보인 뒤에(잡힘과 같은 때 — 보기 전에 그만두면 기록 없음) */
         } else if (st == 3 && leagueId == null && hubCard == null && !(leagueDlg != null && leagueDlg.isShowing())) {
             String oid = (picked >= 0 && picked < 15) ? hubOpp[picked] : null;
             org.json.JSONObject m = oid != null ? League.newMatch(oid) : null;
@@ -1955,12 +1951,12 @@ public class EmuActivity extends Activity {
             h.removeCallbacks(leaguePoll); h.postDelayed(leaguePoll, 250);
         }
         hubLastState = st;
-        if (hubRanked) rankTick(st);
+        if (hubRanked) { rankTick(st); rankCapTick(st, hs); }
         /* 결과 카드가 떠 있는 동안은 카드 안내를 그대로 두고, 카드를 닫은 직후(리셋이 GL 스레드에 닿기 전 — 허브는 아직 «경기»)는 «돌아가는 중» */
         /* 이어 하는 경기(체크포인트)는 허브가 타이틀 상태인 채로 싸운다 — 띠는 경기 안내로 */
         int shown = leagueId != null && st <= 2 ? 4 : st == 4 && leagueId == null ? 5 : st;
         if (hubBanner != null && hubCard == null) {
-            hubBanner.setText(hubText(shown, hover, picked, hs[4]));
+            hubBanner.setText(rankQ != null ? rankQBanner() : hubText(shown, hover, picked, hs[4]));   /* 153 겹창 동안은 상대를 미리 안 보인다 */
             /* 경기 중 띠가 게임 그림 위로 올라가 있으면(가로 화면 — 아래 자리가 없음) 숨긴다: 체력 막대를 경기 내내 가리지 않게(연습과 같은 규칙) */
             boolean over = shown == 4 && !bannerUserPos && ((FrameLayout.LayoutParams) hubBanner.getLayoutParams()).topMargin < gameBox[3];
             hubBanner.setVisibility(over || shown == 5 ? View.GONE : View.VISIBLE);   /* 5 = 타이틀·상대 선택으로 돌아가는 중 — 안내 없이 */
@@ -2006,8 +2002,7 @@ public class EmuActivity extends Activity {
             if (hubRanked) return "리그 대전 · A 상대 찾기\n" + ml;
             return "리그 대전 — 메뉴 셋째 줄" + (label == 2 ? " «LEAGUE»" : "") + "\n" + ml;
         }
-        case 6: return rankGoAt != 0 ? "대전 준비 중…" : rankFound != null ? "A 대전  ·  B 나가기  ·  ◀▶ 스테이지"
-                     : rankLanded ? "B 나가기  ·  ◀▶ 스테이지" : "B 취소  ·  ◀▶ 스테이지  ·  ▲▼ 팁";   /* 대전을 받아 고르기로 넘어가는 사이엔 찾기 안내를 다시 띄우지 않는다 */
+        case 6: return "상대 찾는 중  ·  B 그만두기";                  /* 153: 찾기는 겹창(rankQ) — 겹창이 뜨기 전 한순간(멈춤 바 등) */
         case 2: {
             if (hover < 0) return "고를 수 없는 칸\n리그 상대가 있는\n캐릭터 칸을 고르세요\n ";
             String oid = hover < 15 ? hubOpp[hover] : null;
@@ -2021,6 +2016,8 @@ public class EmuActivity extends Activity {
                 org.json.JSONObject rm = lm();
                 String who = rm != null ? League.oppLabel(rm) : rankOppV != null ? League.nickOf(this, rankOppV.p) : "?";
                 String lab = rm != null && rm.optJSONObject("opp_snap") != null ? rm.optJSONObject("opp_snap").optString("label") : rankOppV != null ? rankOppV.label : "";
+                if (rankCap && (scr == 2 || scr == 4)) return "랭크에서 쓸 내 캐릭터 — 한 번만 골라요\nvs " + who + " · " + lab + "\n" + myPickKeys(scr, true);   /* 153 첫 판(·바꾸기) */
+                if (rankCap && scr == 6) return "고른 카드는 다음 판부터 그대로\nvs " + who + " · " + lab + "\n" + myPickKeys(scr, true);
                 return "vs " + who + " · " + lab + "\n스테이지 " + League.stageName(hubStage) + " · 카드 전부 열림\n" + myPickKeys(scr, true);
             }
             org.json.JSONObject o = (picked >= 0 && picked < 15 && hubOpp[picked] != null) ? League.oppById(hubOpp[picked]) : null;
@@ -2237,152 +2234,232 @@ public class EmuActivity extends Activity {
         return t;
     }
 
-    /* ── 랭크 매치(끝없는 매칭) — 허브 6(H_SEARCH): 타이틀 «리그 대전» A → «상대 찾는 중…»(2~12초) → «상대 발견!» 카드(A 대전 · B 나가기 ·
-       ◀▶·OPTION 스테이지 · 3초 뒤 자동) → 허브가 «상대 선택» 없이 바로 내 캐릭터 고르기(대진·CPU 손잡이 무장, 허브 3) → 경기 → 결과 카드
-       (다음 상대 −3 · 재대결 −4 · 그만 −1). 찾는 동안 게임 입력은 허브가 막고 누름만 모은다(nativeHubTakeEv). 설계 ranked.md 3-5 ── */
+    /* ── 랭크 매치(끝없는 매칭) — 153: 유저 «리그 들어갈 때 캐릭터 하나 정하고 끝 · 다음 대전 정하면 뚜뚜뚜뚜 짧게 하고 바로 다음 대전 ·
+       유저 정보·캐릭터 픽 보이는 VS 창»(u153 flow_ui·nav·vsgame).
+       찾기 = 게임 그림을 통째로 덮는 짧은 VS 겹창(rankQ ~1초: 나 | VS | 훑어본 후보 몇 번 → «상대 발견!»). 상대는 바로 정하고(rankedPick —
+       보인 순간 holdPending, 148 규칙) 허브에 넣는다: 찾기(허브 6)면 go, 결과 카드 «다음 상대»·«재대결»은 go 0 + 돌려보내기 −4.
+       native 는 저장한 내 캐릭터(pref.main)로 고르기 화면을 4배속·무음으로 대신 밟고(nativeHubAutoPick) 序章을 넘긴다 → 무대 인트로에 닿으면
+       (자동 단계 6) 겹창을 내리고, 인트로 위 검은 띠에 게임 속 VS 띠(RankVs — 두 사람 닉네임·티어·LP, ~3초) → «자아 당당히 · 1회전» → 경기 → 결과 카드
+       (다음 상대 · 재대결 · 그만 · 캐릭터 바꾸기 · 스테이지 ◀▶).
+       내 캐릭터가 없으면(첫 판·바꾸기) 그 판만 겹창이 «상대 발견!» 뒤 내려가 게임 고르기 화면에서 직접(tail — 이야기부터 자동) 고르고, 이야기가
+       시작되면 그걸 남긴다(nativeHubMyPick). 옛 native(153 함수 없음)면 매 판 직접 고르기(152 처럼) · 띠 없음.
+       148 대기창(4~15초)·«상대 발견!» 카드·3초 자동 대전은 안 쓴다 ── */
     private boolean hubRanked = false;
-    private long rankGoAt;                       /* 0 = 없음 · 대전(go)을 native 가 받은 시각 — 허브가 6 을 떠날 때까지 찾기를 다시 안 연다 */
-    private long rankFrozenAt;                   /* 확인 카드·멈춤 바 때문에 찾기 시계를 멈춘 시각(0 = 안 멈춤) */
-    private View rankView;                          /* 대기창 / 카드 — 게임 위 */
-    private RankUi.Search rankSearch;
-    private RankUi.Found rankFound;
     private RankCore.Pick rankPick;
-    private League.OppView rankOppV;                /* 대진할 상대(카드 A·재대결) — 허브 3 에서 경기 기록을 만들 때 그 값 그대로 */
+    private League.OppView rankOppV;                /* 대진할 상대 — 허브 3 에서 경기 기록을 만들 때 그 값 그대로 */
     private RankCore.Knobs rankKnobs;
-    private int rankStageSel = -1, rankStageRes = -1, rankRematchN = 0;
-    private long rankT0, rankEnd, rankCardAt;
-    private boolean rankAuto = true, rankLanded = false;
-    private RankUi.ReelItem rankLand;               /* 내 상대 릴 칸(백그라운드에서 미리) — 대기창이 멈출 칸 */
-    private int rankTipIdx = 0;
-    private int rankStopNote = 0;                   /* 앱이 내려가서 멈춘 것 — 1 찾는 중 · 2 상대 카드(돌아오면 알림) */
-    private byte[] hubHome;                         /* 캐릭터 → 그 상대의 기본 배경(hubStart) — 대기창에서 고른 배경을 허브에도 넣을 때 */
+    private int rankStageRes = -1, rankRematchN = 0;
+    private byte[] hubHome;                         /* 캐릭터 → 그 상대의 기본 배경(hubStart) — 결과 카드에서 고른 배경을 허브에도 넣을 때 */
     private static final int[] RANK_STAGE_ORDER = { -1, -2, 0, 1, 2, 3, 4, 5, 6, 7 };   /* 상대 기본 → 무작위 → 8개 */
 
+    /* 겹창 — Q_SEARCH = 허브 찾기(6)에서 go 를 기다림(로고·메뉴가 도는 동안 포함) · Q_RUN = go 보냄(−4 포함): 인트로(대신 고름)·고르기 화면(직접)을 기다림 */
+    private static final int Q_SEARCH = 1, Q_RUN = 2;
+    private static final long Q_FLASH = 700, Q_GO_LOST = 2500, Q_TAIL_MAX = 6000, Q_AUTO_MAX = 20000;
+    private RankUi.Quick rankQ;
+    private int rankQMode;
+    private boolean rankQTail, rankQRevealed, rankQRematch, rankNoSearch;
+    private long rankQT0, rankQEnd, rankQRevealAt, rankQGoAt, rankQFrozenAt;
+    private int rankQKeys;                          /* 지난 키(B 누름 시작만 본다) */
+    private volatile boolean rankQBlock;            /* 겹창 동안 게임 입력 0 — 직접 고르는 판의 고르기 화면이 겹창 아래에서 먼저 떠도 안 눌리게 */
+    /* 내 캐릭터 — native 에 넣은 것: −1 아직 · 0 옛 native(매 판 직접) · 1 tail(이번 판 직접 고르고 남김) · 2 저장한 캐릭터로 대신 */
+    private int rankAuto = -1;
+    private boolean rankCap, rankCapRefine;         /* 직접 고른 판 — 이야기가 시작되면 pref.main 으로 · 무작위 칸이면 경기 시작 때 뽑힌 캐릭터로 한 번 더 */
+    private static boolean natAuto = true, natVs = true;   /* 153 native 가 있나 — UnsatisfiedLinkError 면 끄고 152 흐름 */
+    private RankVs.Ink rankInk;
+
+    /* ── 153 native(옛 native 엔 없음 — 못 부르면 152 흐름) ── */
+    private boolean autoPick(boolean on, int cell, int sty, boolean b2p, int k1, int k2, int flags) {
+        if (!natAuto || !loaded) return false;
+        try { return Emu.nativeHubAutoPick(on, cell, sty, b2p, k1, k2, flags); }
+        catch (UnsatisfiedLinkError e) { natAuto = false; return false; }
+    }
+    private int[] autoStatus() {
+        if (!natAuto || !loaded) return null;
+        try { int[] v = Emu.nativeHubAutoStatus(); return v != null && v.length >= 5 ? v : null; }
+        catch (UnsatisfiedLinkError e) { natAuto = false; return null; }
+    }
+    private int[] myPick() {
+        if (!natAuto || !loaded) return null;
+        try { int[] v = Emu.nativeHubMyPick(); return v != null && v.length >= 8 ? v : null; }
+        catch (UnsatisfiedLinkError e) { natAuto = false; return null; }
+    }
+    private boolean hubVs(byte[] t, short[] m, int hold, int flags) {
+        if (!natVs || !loaded) return false;
+        try { return Emu.nativeHubVs(t, m, hold, flags); }
+        catch (UnsatisfiedLinkError e) { natVs = false; return false; }
+    }
+    private int[] vsStatus() {
+        if (!natVs || !loaded) return null;
+        try { int[] v = Emu.nativeHubVsStatus(); return v != null && v.length >= 3 ? v : null; }
+        catch (UnsatisfiedLinkError e) { natVs = false; return null; }
+    }
+
+    /** 내 캐릭터를 native 에 — 있으면 다음 go 부터 대신 고르기(4배속·무음), 없으면 그 판만 직접(tail). hubStart · 남긴 뒤 · 매 go 전(리그 화면에서 바꿨을 수도) */
+    private void pushMain() {
+        if (natAuto && loaded) {
+            try { Emu.nativeHubAutoStatus(); Emu.nativeHubMyPick(); } catch (UnsatisfiedLinkError e) { natAuto = false; }   /* 셋 다 있어야 쓴다 */
+        }
+        if (!natAuto || !loaded) { rankAuto = 0; return; }
+        League.Main mn = League.main();
+        if (mn != null && autoPick(true, mn.cell, mn.sty, mn.b2p, mn.k1, mn.k2, Emu.AUTO_FF)) { rankAuto = 2; return; }
+        rankAuto = autoPick(false, 0, 0, false, -1, -1, Emu.AUTO_TAIL) ? 1 : 0;
+    }
+
+    /** 허브 상태마다 — 찾기(6)에 닿았는데 겹창이 없으면(타이틀에서 «리그 대전» A) 상대를 정하고 겹창 */
     private void rankTick(int st) {
-        if (st != 6) {
-            boolean vanished = rankView != null && rankGoAt == 0;   /* 찾는 중·카드인데 타이틀 메뉴가 사라졌다(카드였으면 상대는 잡힌 채) */
-            rankGoAt = 0; rankFrozenAt = 0;
-            if (rankView != null) rankClose();
-            if (vanished && !leaving) toast("찾기를 멈췄어요 — A로 다시 찾기");
-            return;
-        }
-        if (hubCard != null || leaving) return;
-        if (!resumedNow && rankGoAt == 0) {      /* 앱이 내려가 있다 — 찾기를 새로 열거나 이어 가지 않는다(A 직후 홈: 못 본 상대가 잡히지 않게) */
-            if (rankView == null) { Emu.nativeHubSearch(false); rankStopNote = 1; }
-            return;
-        }
-        boolean barOpen = pad != null && pad.isBarOpen();
-        if (ask != null || barOpen) {   /* 확인 카드·멈춤 바가 떠 있는 동안은 찾기·자동 대전 시계를 멈춘다 — 닫자마자 자동 대전이 나가지 않게. 바가 열린 동안은 대기창을 숨긴다(바 윗줄을 덮는다) */
-            if (rankFrozenAt == 0) rankFrozenAt = android.os.SystemClock.uptimeMillis();
-            if (rankView != null) rankView.setVisibility(barOpen ? View.INVISIBLE : View.VISIBLE);
-            return;
-        }
-        if (rankView != null && rankView.getVisibility() != View.VISIBLE) rankView.setVisibility(View.VISIBLE);
-        if (rankFrozenAt != 0) {
-            long d = android.os.SystemClock.uptimeMillis() - rankFrozenAt;
-            rankT0 += d; rankEnd += d; rankCardAt += d; if (rankGoAt != 0) rankGoAt += d; rankFrozenAt = 0;
-        }
-        if (rankGoAt != 0) {                     /* 대전을 눌렀다 — native 는 다음 게임 프레임에 고르기로 넘어간다: 그 사이 폴링이 찾기를 다시 열지 않게 */
-            if (android.os.SystemClock.uptimeMillis() - rankGoAt < 2000) return;
-            rankGoAt = 0; Emu.nativeHubSearch(false); toast("상대를 잡지 못했어요 — 다시 찾아 주세요");   /* 2초 넘게 안 넘어감(멈춤 등) — 메뉴로 */
-            return;
-        }
-        if (rankView == null) { if (!rankSearchShow()) return; }
-        int ev = Emu.nativeHubTakeEv();
-        long now = android.os.SystemClock.uptimeMillis();
-        if (rankFound == null) {                 /* 찾는 중 — B 취소 · ←→/OPTION 스테이지 · ▲▼ 팁 · A 는 안 받는다 */
-            if ((ev & 2) != 0) { rankBack(); return; }   /* 릴이 상대에게 멈춘 뒤면 «나가기»(상대는 잡힌 채) */
-            if ((ev & (4 | 8 | 16)) != 0) rankStageStepSearch((ev & 8) != 0 ? -1 : 1);
-            if ((ev & (32 | 64)) != 0) rankTipStep((ev & 32) != 0 ? -1 : 1);
-            rankSearch.tick(now - rankT0, rankPick.waitMs);
-            if (!rankLanded && now >= rankEnd - 500) {   /* 릴이 내 상대에게 멈춤 → 0.5초 뒤 카드. 보인 그 순간 잡는다 — 보고 B 로 빼서 다시 뽑기를 막는다 */
-                rankLanded = true;
-                RankUi.ReelItem li = rankLandItem();
-                rankSearch.land(li);
-                if (li != null) League.holdPending(rankPick);
-            }
-            if (now >= rankEnd) rankCardShow();
-            return;
-        }
-        if ((ev & 1) != 0 && now - rankCardAt >= 400) { rankGo(); return; }   /* 카드가 뜬 뒤 0.4초는 A 를 안 받는다 — 찾기 끝에 누른 A 가 못 본 상대를 받지 않게 */
-        if ((ev & 2) != 0) { rankLeave(); return; }
-        if ((ev & (4 | 8 | 16)) != 0) rankStageStep((ev & 8) != 0 ? -1 : 1);
-        long left = 3000 - (now - rankCardAt);
-        if (rankAuto && left <= 0) { rankGo(); return; }
-        String g = rankAuto ? "대전 (A) " + (left / 1000 + 1) : "대전 (A)";
-        if (!g.contentEquals(rankFound.go.getText())) rankFound.go.setText(g);
+        if (st != 6 || rankQ != null || hubCard != null || leaving) return;
+        if (rankNoSearch) { rankNoSearch = false; Emu.nativeHubSearch(false); return; }   /* 로고가 도는 동안 그만뒀다 — 찾기에 닿자마자 타이틀로 */
+        if (!resumedNow || ask != null || (pad != null && pad.isBarOpen())) return;     /* 내려가 있거나 창·멈춤 바 — 닫힌 뒤에 */
+        rankSearchStart();
     }
-
-    /** 대기창 — 상대는 여기서 정해 두고(rankedPick — 아무것도 저장 안 함) 카드를 띄울 때 잡는다(holdPending). 시간 = 설정 «매칭 대기»의 waitMs, 예상은 처음에 정한다 */
-    private boolean rankSearchShow() {
+    /** 찾기 길(허브 6 · hubStart 의 로고부터) — 상대를 정하고 겹창. go 는 rankQStep 이 허브가 6 에 닿으면 */
+    private void rankSearchStart() {
+        pushMain();
         try { rankPick = League.rankedPick(this); } catch (Exception e) { rankPick = null; }
-        if (rankPick == null || rankPick.p == null) { Emu.nativeHubSearch(false); toast("상대를 찾지 못했어요"); return false; }
-        if (rankPick.waitMs <= 0) rankPick.waitMs = rankPick.searchMs;
+        if (rankPick == null || rankPick.p == null) { Emu.nativeHubSearch(false); toast("상대를 찾지 못했어요"); return; }
+        rankOppV = null;
+        rankQOpen(Q_SEARCH, false);
+    }
+    /** 결과 카드 «다음 상대»(change = «캐릭터 바꾸기» — 내 캐릭터를 지우고 이번 판은 직접) — 상대를 바로 정해 넣고 −4 */
+    private void rankNext(boolean change) {
+        if (change) League.clearMain();
+        pushMain();
+        RankCore.Pick pk;
+        try { pk = League.rankedPick(this); } catch (Exception e) { pk = null; }
+        if (pk == null || pk.p == null) { toast("상대를 찾지 못했어요"); rankOppV = null; hubReturn(-1); return; }
+        rankPick = pk;
+        rankPrepare(pk.p, rankStageFor(pk.p));
+        rankQOpen(Q_RUN, false);                                         /* 리셋 «전에» 덮는다 — 로고·고르기 화면이 안 보이게 */
+        rankArmNext(pk.p);
+    }
+    /** 재대결 — 그 상대의 지금 MMR 로 손잡이를 다시 정해(진 상대는 그만큼 세지거나 약해진다) 같은 배경으로 −4 */
+    private void rankRematch(org.json.JSONObject m, RankCore.Player p) {
+        pushMain();
+        rankPick = null;
+        org.json.JSONObject lk = m.optJSONObject("look");
+        rankPrepare(p, lk != null ? lk.optInt("stage", -1) : -1);
+        rankQOpen(Q_RUN, true);
+        rankArmNext(p);
+    }
+    private void rankPrepare(RankCore.Player p, int stageRes) {
+        rankOppV = League.oppView(p);
+        rankKnobs = RankCore.knobs(rankOppV.mmr, p.personaIdx);
+        rankStageRes = stageRes;
+        rankRematchN = League.rematchCount(p.id);
+    }
+    private int rankStageFor(RankCore.Player p) {
+        int sel = League.prefStage();
+        return sel >= 0 ? sel : sel == -2 ? (int) (android.os.SystemClock.uptimeMillis() % 8) : rankHomeStage(p);
+    }
+    /** −4 길 — 상대를 허브에(go 0) · VS 띠 · 돌려보내기(GL 스레드) */
+    private void rankArmNext(RankCore.Player p) {
+        RankCore.Knobs k = rankKnobs;
+        Emu.nativeHubMatch(p.ch, p.sty, k.diff, rankStageRes, k.lv, k.cap, k.atk, k.dfn, k.floor, false);
+        rankVsArm(p);                                                    /* 띠는 돌려보내기(−4) 뒤에도 남는다 */
+        rankCap = rankAuto == 1; rankCapRefine = false;
+        hubReturn(-4);
+        rankQGoAt = android.os.SystemClock.uptimeMillis();
+    }
+    /** 찾기 길의 go — 허브가 6 에 닿았다(대신 고르는 판은 바로 · 직접 고르는 판은 상대를 보인 뒤) */
+    private void rankQGo() {
+        RankCore.Player p = rankPick != null ? rankPick.p : null;
+        if (p == null) { rankQClose(false); Emu.nativeHubSearch(false); return; }
+        rankPrepare(p, rankStageFor(p));
+        RankCore.Knobs k = rankKnobs;
+        if (!Emu.nativeHubMatch(p.ch, p.sty, k.diff, rankStageRes, k.lv, k.cap, k.atk, k.dfn, k.floor, true)) {
+            rankQClose(false); Emu.nativeHubSearch(false); toast("상대를 잡지 못했어요 — 다시 찾아 주세요");
+            return;
+        }
+        rankVsArm(p);
+        rankCap = rankAuto == 1; rankCapRefine = false;
+        rankQMode = Q_RUN; rankQGoAt = android.os.SystemClock.uptimeMillis();
+    }
+
+    /** 153 VS 띠 — 경기 직전 무대 인트로(두 캐릭터가 고른 무대에 마주 선 장면)의 맨 위 검은 띠에 나·상대(닉네임·티어·LP·VS)를 게임 타일로(RankVs).
+     *  허브가 序章을 A 로 넘기고, 대사 단계를 RankVs.HOLD 프레임 보여 준 뒤 A 를 대신 눌러 «자아 당당히 → 1회전 → 승부» 배너 → 첫 라운드.
+     *  못 그리면(타일 겹침·다른 상대·옛 native) 띠 없이 게임 그대로 */
+    private void rankVsArm(RankCore.Player p) {
+        if (!natVs) return;
+        try {
+            RankCore.Me me = League.rankMe();
+            League.OppView v = rankOppV != null && rankOppV.p == p ? rankOppV : League.oppView(p);
+            org.json.JSONObject pf = League.pfOf(this, p);
+            League.Main mn = rankAuto == 2 ? League.main() : null;
+            RankVs.Side a = RankVs.side(League.myNick(), mn != null && mn.cell != 15 ? League.STYLE[mn.sty] : null, me.lp, me.master, me.mr);
+            if (me.placementLeft > 0) RankVs.placement(a, 6 - me.placementLeft);
+            RankVs.Side b = RankVs.side(pf.optString("nick", p.nick), null, v.lp, v.master, v.mr);
+            if (rankInk == null) rankInk = RankVs.androidInk(hubFont());
+            RankVs.Out o = RankVs.render(rankInk, a, b);
+            if (o == null || !hubVs(o.tiles, o.map, RankVs.HOLD, RankVs.FLAGS)) hubVs(null, null, 0, 0);
+        } catch (Exception e) { hubVs(null, null, 0, 0); }
+    }
+
+    /** 겹창을 띄운다 — 게임 그림을 바로(동기) 덮는다. gl 바로 위 · 패드 아래(멈춤 바가 위에 그려진다) */
+    private void rankQOpen(int mode, boolean rematch) {
+        rankQClose(false);
+        long now = android.os.SystemClock.uptimeMillis();
         RankCore.Me me = League.rankMe();
-        rankT0 = android.os.SystemClock.uptimeMillis(); rankEnd = rankT0 + rankPick.waitMs; rankFound = null; rankAuto = true; rankOppV = null; rankFrozenAt = 0;
-        rankLanded = false; rankLand = null;
-        rankStageSel = League.prefStage();
-        rankTipIdx = RankTips.next();                                    /* 찾기 한 번에 새 팁 하나 */
-        rankSearch = RankUi.search(this, hubFont(), rankWait(me), this::rankBack,
-                () -> rankStageStepSearch(-1), () -> rankStageStepSearch(1), () -> rankTipStep(1));
-        rankShow(rankSearch.root);                                       /* 높이는 rankPlace 가 게임 그림 안으로(팁·오늘 줄부터 뺀다) */
-        rankReelLoad(rankPick, rankSearch);
-        return true;
+        rankQMode = mode; rankQTail = rankAuto != 2; rankQRematch = rematch;
+        rankQRevealed = false; rankQRevealAt = 0; rankQGoAt = 0; rankQFrozenAt = 0; rankNoSearch = false;
+        boolean held = rankPick != null && rankPick.pending;
+        rankQT0 = now; rankQEnd = now + (rematch ? 300 : RankCore.quickMs(rankPick));
+        rankQ = RankUi.quick(this, hubFont(), rankMeSide(me), rematch ? "랭크 매치 · 재대결" : "랭크 매치", "2선승 · 라운드 60초",
+                rematch ? "재대결" : held ? "기다리던 상대" : "상대 찾는 중", rankQEnd - rankQT0, rankQLow());
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT,
+                android.view.Gravity.TOP | android.view.Gravity.LEFT);
+        rankQPlaceLp(lp);
+        root.addView(rankQ.root, Math.min(1, root.getChildCount()), lp);
+        rankQBlock = true;
+        rankQKeys = padMask | keyMask | axisMask;                       /* 쥐고 있던 B 는 안 센다 */
+        if (rankPick != null && !rematch) rankQReelLoad(rankPick, rankQ);
+        h.removeCallbacks(rankQPoll); h.postDelayed(rankQPoll, 50);
     }
-
-    /** 대기창 글자 — 내 티어·LP 막대·오늘 전적·한 줄 알림·팁·스테이지 */
-    private RankUi.Wait rankWait(RankCore.Me me) {
-        RankUi.Wait w = new RankUi.Wait();
+    private boolean rankQLow() { return gameBox[3] - gameBox[1] > 0 && gameBox[3] - gameBox[1] < Math.round(250 * getResources().getDisplayMetrics().density); }
+    /** 게임 그림 자리 그대로(기둥 그림까지) — 레이아웃 전(첫 판 onCreate)이면 화면 전체 */
+    private void rankQPlaceLp(FrameLayout.LayoutParams lp) {
+        if (gameBox[2] > gameBox[0] && gameBox[3] > gameBox[1]) {
+            lp.width = gameBox[2] - gameBox[0]; lp.height = gameBox[3] - gameBox[1]; lp.leftMargin = gameBox[0]; lp.topMargin = gameBox[1];
+        } else { lp.width = FrameLayout.LayoutParams.MATCH_PARENT; lp.height = FrameLayout.LayoutParams.MATCH_PARENT; lp.leftMargin = 0; lp.topMargin = 0; }
+    }
+    private void rankQPlace() {
+        if (rankQ == null || !(rankQ.root.getLayoutParams() instanceof FrameLayout.LayoutParams)) return;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) rankQ.root.getLayoutParams();
+        rankQPlaceLp(lp);
+        rankQ.root.setLayoutParams(lp);
+    }
+    /** 겹창을 닫는다 — fade = 무대 인트로가 보이게 살짝(인트로 첫 ~19프레임은 검은 화면) */
+    private void rankQClose(boolean fade) {
+        h.removeCallbacks(rankQPoll);
+        final RankUi.Quick q = rankQ;
+        rankQ = null; rankQMode = 0; rankQBlock = false;
+        if (q == null) return;
+        if (!fade) { root.removeView(q.root); return; }
+        q.root.animate().alpha(0f).setDuration(160).withEndAction(new Runnable() { @Override public void run() { root.removeView(q.root); } }).start();
+    }
+    /** 나 — 아바타(씨앗 고정) · 이름 · 티어 · 내 캐릭터 */
+    private RankUi.Side rankMeSide(RankCore.Me me) {
+        RankUi.Side s = new RankUi.Side();
         Locale ko = Locale.KOREA;
-        if (me.placementLeft > 0) {
-            w.rankLine = "배치 경기 " + (6 - me.placementLeft) + "/5"; w.rankColor = RankUi.GOLD;   /* 찾는 그 판 — 이어 뜨는 상대 카드(«배치 경기 n/5 — …»)와 같은 수 */
-            w.barLine = "5판을 마치면 첫 티어가 정해져요";
-        } else if (me.master) {
-            w.rankLine = "무쌍 · MR " + String.format(ko, "%,d", me.mr); w.rankColor = RankUi.tierColor(me.lp, true);
-        } else {
-            int tier = RankCore.tierOf(me.lp), star = RankCore.starOf(me.lp);
-            int lo = RankCore.FLOOR[tier] + (star - 1) * RankCore.STEP[tier], hi = star >= 5 ? RankCore.FLOOR[tier + 1] : lo + RankCore.STEP[tier];
-            w.rankLine = RankCore.label(me.lp) + " · " + String.format(ko, "%,d", me.lp) + " LP"; w.rankColor = RankUi.tierColor(me.lp, false);
-            w.barFrac = Math.max(0f, Math.min(1f, (me.lp - lo) / (float) Math.max(1, hi - lo)));
-            w.danger = me.shield;
-            w.barLine = me.shield ? "강등 위기!" : (star >= 5 ? "승급까지 " : "다음 ★까지 ") + Math.max(0, hi - me.lp) + " LP";
-        }
-        League.Today td = League.rankedToday();
-        if (td.games() == 0) w.todayLine = "오늘 첫 판이에요";
-        else {
-            w.todayLine = "오늘 " + td.w + "승 " + td.l + "패 · " + RankUi.signed(td.lpSum) + " LP";   /* 무승부는 점(·)으로만 */
-            StringBuilder sb = new StringBuilder();
-            for (char c : td.last5) sb.append(c == 'W' ? '●' : c == 'L' ? '○' : '·');   /* 새것이 왼쪽 */
-            w.dots = sb.toString();
-        }
-        w.noteLine = me.streak >= 2 ? me.streak + "연승 중!" : me.lstreak >= 3 ? "다음엔 이겨요"
-                   : League.bonusLeft() ? "첫 승 보너스 +" + RankCore.BONUS_DAILY + " 남았어요" : null;
-        w.estSec = RankCore.estSec(rankPick.waitMs);
-        w.held = rankPick.pending;
-        w.stageLabel = rankStageLabelSearch();
-        w.tip = RankTips.TIPS[rankTipIdx];
-        w.active = RankCore.activeToday(League.rankSeed(), League.today());
-        w.compact = rankLow();
-        return w;
+        s.av = Avatar.bitmap(AvatarGen.fnv1a64("av:me:" + League.rankSeed()));
+        s.nick = League.myNick();
+        if (me.placementLeft > 0) { s.tier = "배치 " + (6 - me.placementLeft) + "/5"; s.tierColor = RankUi.GOLD; }
+        else if (me.master) { s.tier = "무쌍 · MR " + String.format(ko, "%,d", me.mr); s.tierColor = RankUi.tierColor(me.lp, true); }
+        else { s.tier = RankCore.label(me.lp) + " · " + String.format(ko, "%,d", me.lp) + " LP"; s.tierColor = RankUi.tierColor(me.lp, false); }
+        s.frame = s.tierColor;
+        League.Main mn = rankAuto == 2 ? League.main() : null;
+        s.ch = mn != null ? League.mainLabel(mn, -1) : rankAuto == 1 ? "이번에 골라요" : "직접 골라요";
+        return s;
     }
-
-    /** 릴 — 실제로 훑어본 후보(Pick.reel)·내 상대의 아바타·«닉 · 티어»를 백그라운드에서(프로필 풀을 처음 읽을 때 느리다) */
-    private void rankReelLoad(final RankCore.Pick pk, final RankUi.Search s) {
+    /** 릴 — 실제로 훑어본 후보(Pick.reel)의 아바타·«닉 · 티어»를 백그라운드에서(프로필 풀을 처음 읽을 때 느리다). 상대 프로필도 미리 */
+    private void rankQReelLoad(final RankCore.Pick pk, final RankUi.Quick q) {
         final java.util.List<RankCore.Player> ps = new java.util.ArrayList<>(pk.reel);
         new Thread(new Runnable() { @Override public void run() {
             final java.util.List<RankUi.ReelItem> out = new java.util.ArrayList<>();
-            RankUi.ReelItem tg = null;
             try {
-                tg = rankReelItem(pk.p);
+                League.pfOf(EmuActivity.this, pk.p);
                 for (RankCore.Player p : ps) out.add(rankReelItem(p));
             } catch (Exception e) { android.util.Log.w("PocketCore", "rank reel: " + e); out.clear(); }
-            final RankUi.ReelItem target = tg;
-            h.post(new Runnable() { @Override public void run() {
-                if (rankSearch != s || rankPick != pk) return;               /* 그 사이 그만뒀다·새로 찾는다 */
-                if (target != null && rankLand == null) rankLand = target;
-                if (pk.pending && target != null) s.setHeld(target.av);
-                s.setReel(out);
-            }});
+            h.post(new Runnable() { @Override public void run() { if (rankQ == q) q.setReel(out); } });
         }}, "rank-reel").start();
     }
     private RankUi.ReelItem rankReelItem(RankCore.Player p) {
@@ -2390,110 +2467,143 @@ public class EmuActivity extends Activity {
         League.OppView v = League.oppView(p);
         return new RankUi.ReelItem(Avatar.of(pf, p.id), pf.optString("nick", p.nick) + " · " + v.label, RankUi.tierColor(v.lp, v.master));
     }
-    private RankUi.ReelItem rankLandItem() {
-        if (rankLand == null && rankPick != null) {
-            try { rankLand = rankReelItem(rankPick.p); } catch (Exception e) { rankLand = null; }
-        }
-        return rankLand;
+
+    /** «상대 발견!» — 보인 그 순간 잡는다(holdPending — 보고 B 로 빼서 다시 뽑기를 막는다, 148). 재대결은 잡지 않는다 */
+    private void rankQReveal() {
+        rankQRevealed = true; rankQRevealAt = android.os.SystemClock.uptimeMillis();
+        RankCore.Player p = rankPick != null ? rankPick.p : rankOppV != null ? rankOppV.p : null;
+        if (rankPick != null && !rankQRematch) League.holdPending(rankPick);
+        if (p == null || rankQ == null) return;
+        League.OppView v = rankOppV != null && rankOppV.p == p ? rankOppV : League.oppView(p);
+        org.json.JSONObject pf = League.pfOf(this, p);
+        RankUi.Side o = new RankUi.Side();
+        o.av = Avatar.of(pf, p.id); o.frame = RankUi.tierColor(v.lp, v.master); o.tierColor = o.frame;
+        o.nick = pf.optString("nick", p.nick);
+        o.tier = v.master ? v.label : v.label + " · " + String.format(Locale.KOREA, "%,d", v.lp) + " LP";
+        o.ch = League.CHAR[p.ch] + " " + League.STYLE[p.sty];
+        RankCore.Me me = League.rankMe();
+        int[] stakes = RankCore.stakes(me, v.mmr);
+        String sub = me.placementLeft > 0 ? "배치 경기 " + (6 - me.placementLeft) + "/5" : stakes != null ? "이기면 +" + stakes[0] + " · 지면 " + RankUi.signed(stakes[1]) + " LP" : "무쌍 — MR 승부";
+        java.util.List<String> tags = rankPick != null ? rankPick.tags : java.util.Collections.<String>emptyList();
+        if (!rankQRematch && !tags.isEmpty()) sub = tags.get(0) + " · " + sub;
+        rankQ.reveal(o, rankQRematch ? "재대결!" : "상대 발견!", sub, me.placementLeft > 0 ? RankUi.GOLD : RankUi.BODY,
+                rankQTail ? "내 캐릭터를 골라요 · B 그만두기" : "곧 시작해요 · B 그만두기", true);
     }
 
-    private void rankShow(View v) {
-        if (rankView != null) root.removeView(rankView);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(0, FrameLayout.LayoutParams.WRAP_CONTENT,
-                android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
-        rankView = v;
-        rankPlaceLp(lp);
-        root.addView(v, lp);
-        if (pad != null && pad.isBarOpen()) v.setVisibility(View.INVISIBLE);
-    }
-    /** 게임 그림이 300dp 보다 낮다(가로·작은 폰) — 대기창은 늘 compact */
-    private boolean rankLow() { return gameBox[3] - gameBox[1] < Math.round(300 * getResources().getDisplayMetrics().density); }
-    /** 덮개(대기창·상대 카드) 자리 — 게임 그림 위쪽, 폭 min(화면−24dp, 340dp). 메뉴 알약 아래부터(알약을 덮지 않게).
-     *  대기창은 높이를 게임 그림 안으로(rankSearch.fit — 폭·상한이 바뀔 때만 다시 잰다) */
-    private void rankPlaceLp(FrameLayout.LayoutParams lp) {
-        float dp = getResources().getDisplayMetrics().density;
-        int W = root.getWidth(), H = root.getHeight();
-        lp.width = Math.max(Math.round(240 * dp), Math.min(W - Math.round(24 * dp), Math.round(340 * dp)));
-        int pill = W > 0 && H > 0 ? Math.round(PadView.handleH(W, H, dp) + 4 * dp) : 0;
-        lp.topMargin = Math.max(gameBox[1], pill) + Math.round(6 * dp);
-        if (rankSearch != null && rankView == rankSearch.root) rankSearch.fit(lp.width, gameBox[3] - lp.topMargin, rankLow());
-    }
-    /** 회전·화면 크기 바꿈(placeScreen) 뒤 — 덮개를 새 게임 그림에 맞춰 다시 */
-    private final Runnable rankPlace = new Runnable() { @Override public void run() {
-        if (rankView == null || !(rankView.getLayoutParams() instanceof FrameLayout.LayoutParams)) return;
-        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) rankView.getLayoutParams();
-        int w0 = lp.width, t0 = lp.topMargin;
-        rankPlaceLp(lp);
-        if (lp.width != w0 || lp.topMargin != t0) rankView.setLayoutParams(lp);
+    private final Runnable rankQPoll = new Runnable() { @Override public void run() {
+        if (rankQ == null) return;
+        if (!leaving) rankQStep();
+        if (rankQ != null) h.postDelayed(this, 50);
     }};
-    private void rankClose() {
-        if (rankView != null) root.removeView(rankView);
-        rankView = null; rankSearch = null; rankFound = null;
+    /** 50ms 마다 — 멈춤(창·멈춤 바·내려감) 동안은 시계를 세우고(native 도 멈춰 있다), B 면 그만, 상대를 보일 때·go·내릴 때를 본다 */
+    private void rankQStep() {
+        long now = android.os.SystemClock.uptimeMillis();
+        boolean frozen = !resumedNow || !loaded || ask != null || (pad != null && pad.isBarOpen()) || (leagueDlg != null && leagueDlg.isShowing());
+        if (frozen) { if (rankQFrozenAt == 0) rankQFrozenAt = now; return; }
+        if (rankQFrozenAt != 0) {
+            long d = now - rankQFrozenAt; rankQFrozenAt = 0;
+            rankQT0 += d; rankQEnd += d; if (rankQRevealAt != 0) rankQRevealAt += d; if (rankQGoAt != 0) rankQGoAt += d;
+        }
+        if (rankQKey(padMask | keyMask | axisMask)) return;
+        rankQ.tick(now - rankQT0);
+        if (!rankQRevealed && now >= rankQEnd) rankQReveal();
+        if (rankQ == null) return;
+        int[] hs = Emu.nativeLeagueHubStatus();
+        if (hs == null || hs.length < 9 || hs[8] < hubWaitGen) return;     /* 돌려보내기(−4)가 아직 GL 스레드에 안 닿음 — 지난 판 값 */
+        int st = hs[0];
+        if (rankQMode == Q_SEARCH) {
+            if (st == 1) { Emu.nativeHubSearch(true); return; }              /* 타이틀에 섰다(찾기 전) — 찾기로 */
+            if (st == 6 && (!rankQTail || rankQRevealed)) rankQGo();         /* 대신 고르는 판은 바로(겹창 동안 4배속) · 직접 고르는 판은 상대를 보인 뒤 */
+            return;
+        }
+        if (st == 6 || st == 1) {                                            /* go 를 보냈는데 찾기·타이틀에 그대로 — 못 넘어감(메뉴 커서 등) */
+            if (now - rankQGoAt > Q_GO_LOST) {
+                rankQClose(false); rankCap = false; hubVs(null, null, 0, 0);
+                if (st == 6) Emu.nativeHubSearch(false);
+                toast("상대를 잡지 못했어요 — 다시 찾아 주세요");
+            }
+            return;
+        }
+        if (st == 4) { rankQDrop(0); return; }                               /* 벌써 경기(라운드) — 바로 */
+        if (st != 3 || !rankQRevealed || now - rankQRevealAt < Q_FLASH) return;   /* «상대 발견!» 은 잠깐이라도 보인다 */
+        if (!rankQTail) {
+            int[] as = autoStatus(), vs = vsStatus();
+            if (as != null && as[0] == 8) rankQDrop(2);                       /* 자동이 막힘 — 직접 고르기로 */
+            else if (as != null && as[0] >= 6) rankQDrop(0);                  /* 무대 인트로 — VS 띠 */
+            else if (vs != null && ((vs[0] & 15) == 3 || (vs[0] & 15) == 4)) rankQDrop(0);
+            else if (as == null || now - rankQGoAt > Q_AUTO_MAX) rankQDrop(2);
+            return;
+        }
+        int[] dv = Emu.nativeHubDualStatus();
+        int scr = dv != null && dv.length >= 6 ? dv[5] : -1;
+        int[] as = autoStatus();
+        if (scr == 2 || scr == 4 || scr == 6 || (as != null && as[0] >= 5 && as[0] <= 7) || now - rankQGoAt > Q_TAIL_MAX) rankQDrop(1);
     }
+    /** 겹창을 내린다 — 0 무대 인트로(VS 띠) · 1 직접 고르기 화면 · 2 자동이 막혀 직접 */
+    private void rankQDrop(int why) {
+        rankQClose(true);
+        if (why == 2) toast("자동으로 못 골랐어요 — 직접 골라 주세요");
+        else if (why == 1 && rankCap) toast("랭크에서 쓸 내 캐릭터를 골라요 — 한 번만");
+    }
+    /** B 누름(터치 패드 · 물리 패드) — 그만. 창·멈춤 바가 떠 있으면 그쪽 몫 */
+    private boolean rankQKey(int m) {
+        int rise = m & ~rankQKeys; rankQKeys = m;
+        if (rankQ == null || (rise & (1 << Emu.B)) == 0 || ask != null || (pad != null && pad.isBarOpen())) return false;
+        rankQBack();
+        return true;
+    }
+    /** 겹창에서 B·뒤로 — 그만(LP 그대로 · 준비 기록은 사용자가 그만둔 것으로 닫음). 상대를 보였으면 잡힌 채(다음 찾기에 같은 상대) */
+    private void rankQBack() {
+        if (rankQ == null) return;
+        boolean seen = rankQRevealed, search = rankQMode == Q_SEARCH;
+        rankQClose(false);
+        rankCap = false;
+        if (search) {                                                        /* go 전 — 타이틀 메뉴 그대로(로고가 도는 중이면 찾기에 닿자마자) */
+            int[] hs = Emu.nativeLeagueHubStatus();
+            if (hs != null && hs.length > 0 && hs[0] == 6) Emu.nativeHubSearch(false); else rankNoSearch = true;
+        } else hubReturn(-1);                                                /* go 뒤(고르기·−4) — 리셋해 타이틀로(띠·자동도 native 가 지운다) */
+        toast(seen ? "그만뒀어요 — 상대가 기다려요" : "그만뒀어요");
+    }
+    /** 겹창 동안 허브 안내 띠 — 상대가 미리 보이지 않게(case 3 의 «vs …» 대신) */
+    private String rankQBanner() {
+        if (!rankQRevealed) return "상대 찾는 중  ·  B 그만두기";
+        return rankQTail ? "상대 발견!  ·  곧 내 캐릭터 고르기" : "상대 발견!  ·  곧 시작해요";
+    }
+
+    /** 직접 고른 판 — 이야기가 시작되면(자동 단계 5 · native 가 내 고르기를 남김) pref.main 으로 · 다음 go 부터 대신 고르기. 무작위 칸은 경기 시작 때 뽑힌 캐릭터로 */
+    private void rankCapTick(int st, int[] hs) {
+        if (!rankCap && !rankCapRefine) return;
+        if (hs.length > 8 && hs[8] < hubWaitGen) return;
+        int[] mp = myPick();
+        if (mp == null) { rankCap = false; rankCapRefine = false; return; }
+        if (rankCap) {
+            int[] as = autoStatus();
+            if (as == null) { rankCap = false; return; }
+            if (!(st == 3 || st == 4) || as[0] < 5 || as[0] > 7 || mp[0] != 1) return;
+            rankCap = false;
+            if (!League.setMain(mp) && League.main() == null) return;       /* 값이 이상하다 — 다음 판도 직접 */
+            pushMain();
+            rankCapRefine = mp[1] == 15;
+            toast("내 캐릭터로 정했어요 — 다음 판부터 바로 붙어요");
+        } else if (st == 4) {
+            rankCapRefine = false;
+            if (mp[0] == 1 && mp[1] == 15) League.setMain(mp);
+        }
+    }
+
     private int rankHomeStage(RankCore.Player p) { int s = p.legacy ? League.homeStage(p.id) : p.stage; return s >= 0 && s < 8 ? s : 0; }
-    private String rankStageText() {
-        RankCore.Player p = rankPick.p;
-        return "스테이지 " + (rankStageSel == -1 ? League.stageName(rankHomeStage(p)) + " (상대 기본)" : rankStageSel == -2 ? "무작위" : League.stageName(rankStageSel));
-    }
-    /** 대기창의 스테이지 이름 — 상대 기본은 이름을 안 보인다(누가 나올지 미리 알려 주지 않게) */
-    private String rankStageLabelSearch() { return rankStageSel == -1 ? "상대 기본" : rankStageSel == -2 ? "무작위" : League.stageName(rankStageSel); }
-    private int rankStageNext(int d) {
-        int i = 0; while (i < RANK_STAGE_ORDER.length && RANK_STAGE_ORDER[i] != rankStageSel) i++;
+    /** 결과 카드의 스테이지 이름 — 상대 기본은 이름을 안 보인다(누가 나올지 미리 알려 주지 않게) */
+    private static String rankStageLabel(int sel) { return "스테이지 · " + (sel == -1 ? "상대 기본" : sel == -2 ? "무작위" : League.stageName(sel)); }
+    /** 결과 카드 ◀▶ — 다음 판부터 그대로(pref · 허브 값도 맞춘다 — 허브 값이 옛 값이면 hubTick 이 pref 를 되돌린다) */
+    private int rankStageStep(int d) {
+        int sel = League.prefStage(), i = 0;
+        while (i < RANK_STAGE_ORDER.length && RANK_STAGE_ORDER[i] != sel) i++;
         if (i >= RANK_STAGE_ORDER.length) i = 0;
-        return RANK_STAGE_ORDER[(i + d + RANK_STAGE_ORDER.length) % RANK_STAGE_ORDER.length];
+        sel = RANK_STAGE_ORDER[(i + d + RANK_STAGE_ORDER.length) % RANK_STAGE_ORDER.length];
+        League.setPrefStage(sel);
+        if (hubHome != null) { Emu.nativeLeagueHubLook(hubHome, sel, 0); hubStageSel = sel; }
+        return sel;
     }
-    private void rankStageStep(int d) {
-        rankAuto = false;
-        rankStageSel = rankStageNext(d);
-        League.setPrefStage(rankStageSel);
-        if (rankFound != null) rankFound.stage.setText(rankStageText());
-    }
-    /** 찾는 중에 스테이지 — 같은 차례로 바꾸고 다음에도 그대로(pref · 허브 값도 맞춘다). 자동 대전은 그대로 켜 둔다(카드에서 바꿀 때만 끈다) */
-    private void rankStageStepSearch(int d) {
-        rankStageSel = rankStageNext(d);
-        League.setPrefStage(rankStageSel);
-        if (hubHome != null) { Emu.nativeLeagueHubLook(hubHome, rankStageSel, 0); hubStageSel = rankStageSel; }   /* 허브 값이 옛 값이면 hubTick 이 pref 를 되돌린다 */
-        if (rankSearch != null) rankSearch.setStage(rankStageLabelSearch());
-    }
-    private void rankTipStep(int d) {
-        rankTipIdx = Math.floorMod(rankTipIdx + d, RankTips.TIPS.length);
-        if (rankSearch != null) rankSearch.setTip(RankTips.TIPS[rankTipIdx]);
-    }
-    private void rankCardShow() {
-        RankCore.Player p = rankPick.p;
-        League.holdPending(rankPick);                                    /* 카드를 본 다음에만 잡힌다 — 찾는 중에 그만두면 아무도 안 잡힘 */
-        rankOppV = League.oppView(p);
-        org.json.JSONObject pf = League.pfOf(this, p);
-        RankCore.Me me = League.rankMe();
-        int[] stakes = RankCore.stakes(me, rankOppV.mmr);
-        String plc = me.placementLeft > 0 ? "배치 경기 " + (6 - me.placementLeft) + "/5 — 결과로 첫 티어가 정해져요" : null;
-        rankStageSel = League.prefStage();
-        long waited = Math.max(0, android.os.SystemClock.uptimeMillis() - rankT0) / 1000;
-        rankFound = RankUi.found(this, hubFont(), pf, rankOppV, rankPick.tags, League.h2h(p.id), stakes, plc, rankStageText(),
-                () -> { if (android.os.SystemClock.uptimeMillis() - rankCardAt >= 400) rankGo(); },   /* 손가락도 0.4초 — 취소 자리를 누르다 받지 않게 */
-                this::rankLeave, () -> rankStageStep(-1), () -> rankStageStep(1),
-                String.format(Locale.ROOT, "기다린 시간 %d:%02d", waited / 60, waited % 60));
-        rankCardAt = android.os.SystemClock.uptimeMillis(); rankAuto = true;
-        rankShow(rankFound.root);
-        rankFound.root.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);   /* «상대 발견!» — 권한 없이 되는 짧은 진동 */
-    }
-    private void rankGo() {
-        if (rankPick == null || rankView == null) return;
-        RankCore.Player p = rankPick.p;
-        if (rankOppV == null) rankOppV = League.oppView(p);
-        rankKnobs = RankCore.knobs(rankOppV.mmr, p.personaIdx);
-        rankStageRes = rankStageSel >= 0 ? rankStageSel : rankStageSel == -2 ? (int) (android.os.SystemClock.uptimeMillis() % 8) : rankHomeStage(p);
-        rankRematchN = League.rematchCount(p.id);
-        RankCore.Knobs k = rankKnobs;
-        boolean ok = Emu.nativeHubMatch(p.ch, p.sty, k.diff, rankStageRes, k.lv, k.cap, k.atk, k.dfn, k.floor, true);
-        rankClose();
-        if (!ok) { Emu.nativeHubSearch(false); toast("상대를 잡지 못했어요 — 다시 찾아 주세요"); }
-        else rankGoAt = android.os.SystemClock.uptimeMillis();
-    }
-    private void rankLeave() { rankGoAt = 0; Emu.nativeHubSearch(false); rankClose(); toast("상대가 기다려요 — 다음에 또 만나요"); }
-    private void rankCancel(String msg) { rankGoAt = 0; Emu.nativeHubSearch(false); rankClose(); if (msg != null) toast(msg); }
-    /** 뒤로 — 찾기는 그만(아무도 안 잡힘) · 카드였으면 상대는 잡힌 채 */
-    private void rankBack() { if (rankFound != null || rankLanded) rankLeave(); else rankCancel("그만뒀어요"); }   /* 상대가 보인 뒤(릴 멈춤·카드)엔 나가기 — 잡힌 채 */
 
     /** 허브 3(내 캐릭터 고르기)에 닿았다 — 카드에서 정한 상대로 경기 기록(준비) */
     private boolean rankNewMatch() {
@@ -2520,7 +2630,7 @@ public class EmuActivity extends Activity {
         return true;
     }
 
-    /** 랭크 결과 카드 — LP·티어 변화, 보너스, 사건, 상대 한마디. 다음 상대 / 재대결(같은 상대 3판째까지) / 그만 */
+    /** 랭크 결과 카드 — LP·티어 변화, 보너스, 사건, 상대 한마디. 다음 상대 / 재대결(같은 상대 3판째까지) / 그만 · 스테이지 ◀▶ · 캐릭터 바꾸기 */
     private void rankResult(final org.json.JSONObject m) {
         Emu.nativeSetPaused(true);
         float dp = getResources().getDisplayMetrics().density;
@@ -2603,11 +2713,31 @@ public class EmuActivity extends Activity {
         row.setPadding(0, Math.round(10 * dp), 0, 0);
         final String oid = m.optString("opp");
         final RankCore.Player rp = League.rankPlayer(oid);
-        row.addView(hubPill("다음 상대", () -> { rankOppV = null; hubReturn(-3); }));       /* 리셋 뒤 바로 다시 찾기 */
+        row.addView(hubPill("다음 상대", () -> rankNext(false)));        /* 153: 상대를 바로 정해 −4 — 짧은 겹창 뒤 바로 다음 대전 */
         if (rp != null && League.rematchCount(oid) < 3 && League.oppSupported(rp.ch, rp.sty))
             row.addView(hubPill("재대결", () -> rankRematch(m, rp)));
         row.addView(hubPill("그만", () -> { rankOppV = null; hubReturn(-1); }));
         card.addView(row);
+        /* 153: 둘째 줄 — 스테이지 ◀▶(148 대기창에서 옮김 · 다음 판부터) · «캐릭터 바꾸기»(내 캐릭터를 지우고 바로 다음 상대 — 그 판은 직접 고르고 새로 남긴다) */
+        android.widget.LinearLayout row2 = new android.widget.LinearLayout(this);
+        row2.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        row2.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row2.setPadding(0, Math.round(6 * dp), 0, 0);
+        final TextView sv = RankUi.line(this, f, rankStageLabel(League.prefStage()), 12, RankUi.BODY);
+        sv.setGravity(android.view.Gravity.CENTER);
+        TextView sl = RankUi.tv(this, f, " ◀ ", 15, RankUi.GOLD), sr = RankUi.tv(this, f, " ▶ ", 15, RankUi.GOLD);
+        for (TextView a : new TextView[]{ sl, sr }) { a.setGravity(android.view.Gravity.CENTER); a.setMinHeight(Math.round(40 * dp)); a.setMinWidth(Math.round(36 * dp)); }
+        sl.setOnClickListener(v -> sv.setText(rankStageLabel(rankStageStep(-1))));
+        sr.setOnClickListener(v -> sv.setText(rankStageLabel(rankStageStep(1))));
+        row2.addView(sl); row2.addView(sv, new android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)); row2.addView(sr);
+        if (rankAuto == 2) {
+            TextView ch = RankUi.pill(this, f, "캐릭터 바꾸기", false, () -> rankNext(true));
+            ch.setTextSize(13); ch.setMinHeight(Math.round(40 * dp)); ch.setPadding(Math.round(10 * dp), Math.round(4 * dp), Math.round(10 * dp), Math.round(4 * dp));
+            android.widget.LinearLayout.LayoutParams cl = new android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+            cl.leftMargin = Math.round(8 * dp);
+            row2.addView(ch, cl);
+        }
+        card.addView(row2, new android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT));
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
         lp.topMargin = gameBox[1] + Math.round(8 * dp);
@@ -2615,26 +2745,14 @@ public class EmuActivity extends Activity {
         hubCard = card;
         if (hubBanner != null) hubBanner.setText("결과를 기록했어요");
     }
-    /** 재대결 — 그 상대의 지금 MMR 로 손잡이를 다시 정해(진 상대는 그만큼 세지거나 약해진다) 허브에 넣고 리셋 → 바로 내 캐릭터 고르기 */
-    private void rankRematch(org.json.JSONObject m, RankCore.Player p) {
-        rankPick = null;
-        rankOppV = League.oppView(p);
-        rankKnobs = RankCore.knobs(rankOppV.mmr, p.personaIdx);
-        org.json.JSONObject lk = m.optJSONObject("look");
-        rankStageRes = lk != null ? lk.optInt("stage", -1) : -1;
-        rankRematchN = League.rematchCount(p.id);
-        RankCore.Knobs k = rankKnobs;
-        Emu.nativeHubMatch(p.ch, p.sty, k.diff, rankStageRes, k.lv, k.cap, k.atk, k.dfn, k.floor, false);
-        hubReturn(-4);
-    }
-
     /** 결과 카드 닫기 → 리셋 뒤 타이틀 «리그 대전» 칸(rematch ≥ 0 이면 같은 상대로 바로 내 캐릭터 고르기까지 · −2 «다른 상대» = 바로 상대 선택). */
     private void hubReturn(final int rematch) {
         if (hubCard != null) { root.removeView(hubCard); hubCard = null; }
         org.json.JSONObject m = lm();                       /* 상대만 고르고 대진 전에 타이틀로 — 준비 기록은 무효로(열린 채 남지 않게) */
         if (m != null && "ready".equals(m.optString("status"))) League.cancel(leagueId, "게임 속 리그 — 대진 전에 타이틀로");
         hubWaitGen = hubGen + 1;
-        leagueId = null; leagueArmed = false; leagueDone = false; leagueStarted = false; leagueRetry = 0; rankGoAt = 0;
+        leagueId = null; leagueArmed = false; leagueDone = false; leagueStarted = false; leagueRetry = 0;
+        if (rematch != -4) { rankQClose(false); rankCap = false; rankCapRefine = false; }   /* 153: −4(다음 상대·재대결)는 부른 쪽이 겹창을 먼저 띄웠다 */
         h.removeCallbacks(leaguePoll);
         Emu.nativeSetPaused(pad != null && pad.isBarOpen());
         gl.queueEvent(new Runnable() { @Override public void run() { Emu.nativeLeagueHubReturn(rematch); } });

@@ -418,6 +418,15 @@ final class RankCore {
     }
     /** 예상 시간(초) — 처음에 정하고 안 늘린다. 1초 넉넉히라 카드는 제때나 조금 일찍 뜬다 */
     static int estSec(long waitMs) { return (int) Math.ceil(waitMs / 1000.0) + 1; }
+    /** 153 짧은 찾기 겹창 — 이름 몇 번 넘기고 «상대 발견!» 까지(유저 «뚜뚜뚜뚜 짧게 하고 바로 다음 대전»). 새 난수를 뽑지 않고 pick 이 이미 뽑은
+     *  값으로만(147~152 매칭 순서 그대로): 잡힌 상대 0.8~1.1초 · 라이벌 1.0~1.4초 · 보통 1.0~1.4초(waitU 0~3999). native 는 그동안 4배속으로 고르기를 밟는다 */
+    static final long QUICK_MIN = 800, QUICK_MAX = 1400;
+    static long quickMs(Pick pk) {
+        if (pk == null) return 1000;
+        if (pk.pending) return 800 + Math.max(0, Math.min(1199, pk.searchMs - 1200)) / 4;
+        if (pk.waitU < 0) return 1000 + Math.floorMod(pk.searchMs, 400);
+        return 1000 + Math.max(0, Math.min(3999, pk.waitU)) / 10;
+    }
     static Player resolve(long seed, String id, Book book) {
         if (id == null) return null;
         if (id.startsWith("p")) return player(seed, id);
