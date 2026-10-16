@@ -175,6 +175,7 @@ void look_tick(uint8_t *ram, size_t n, int input, int ctx)
    int want[6][2][2], block = 0, orr = 0;
    uint16_t t[3], b[3];
    if (!ram || n < 0x4000) return;
+   if (ctx == LOOK_CTX_AUTO) { input = 0; ctx = LOOK_CTX_FREE; }   /* 153: 자동 진행 — 쥐되 사용자 입력은 없는 것으로 */
    pthread_mutex_lock(&K_mu);
    K.ram = ram;
    for (int i = 0; i < 6; i++) for (int k = 0; k < 2; k++) { want[i][k][0] = -1; want[i][k][1] = 0; }

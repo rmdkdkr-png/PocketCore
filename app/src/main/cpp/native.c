@@ -366,9 +366,12 @@ static void ring_push(const int16_t *data, size_t frames)
    g_wr = wr;
 }
 
+static int g_mute_drop = 0;                 /* 153: 소리를 버리던 중 — 풀리면 늘림(drc)을 새로(버린 앞 샘플과 잇지 않게) */
 static size_t cb_audio_batch(const int16_t *data, size_t frames)
 {
    size_t done = 0;
+   if (league_mute) { g_mute_drop = 1; return frames; }   /* 153: 랭크 자동 진행(4배속) 동안 — 고리에 안 넣는다(배속 소리가 남아 뒤에 나오지 않게) */
+   if (g_mute_drop) { g_mute_drop = 0; drc_reset(&g_drc); }
    while (done < frames) {                       /* 큰 묶음은 나눠서(출력 칸 8192) */
       size_t n = frames - done > 4096 ? 4096 : frames - done;
       uint32_t fill = (g_wr - g_rd + ARING_FRAMES) % ARING_FRAMES;
@@ -414,12 +417,13 @@ static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
    int16_t *out = (int16_t *)audioData;
    uint32_t rd = g_rd;
    if (numFrames > g_cb_frames && numFrames < 8192) g_cb_frames = numFrames;
+   int mute = league_mute;             /* 153: 랭크 자동 진행이 찾기 겹창 뒤에서 고르기·이야기를 밟는 동안 — 고리에 남은 것도 무음으로 비운다(새 소리는 cb_audio_batch 가 버림) */
    for (int32_t i = 0; i < numFrames; i++) {
       if (rd == g_wr) {                /* underrun: hold silence */
          out[i * 2] = 0; out[i * 2 + 1] = 0;
       } else {
-         out[i * 2]     = g_ring[rd * 2];
-         out[i * 2 + 1] = g_ring[rd * 2 + 1];
+         out[i * 2]     = mute ? 0 : g_ring[rd * 2];
+         out[i * 2 + 1] = mute ? 0 : g_ring[rd * 2 + 1];
          rd = (rd + 1) % ARING_FRAMES;
       }
    }
@@ -923,7 +927,8 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
    /* 153: 리그 결판 뒤 승리 대사가 끝난 프레임(0x5825)에 league.c 가 세운 걸쇠 — Java 의 멈춤 풀기(바 닫기·창 닫기)와 상관없이
       리셋(nativeLeagueHubReturn)·새 무장·코어 내림 전까지 게임을 한 프레임도 더 돌리지 않는다(다음 장·이어하기 화면으로 안 감).
       멈춤과 같게 마지막 진짜 프레임(g_fb)만 그린다 */
-   nsteps = pace_steps(&g_pace, t, fps, g_panel_hz_hint, g_turbo, g_paused || !g_loaded || league_post_hold());
+   /* 153: 랭크 자동 진행(찾기 겹창 뒤 고르기·이야기, autopick flags 4)은 배속(▶▶)과 같은 4배 — 소리는 league_mute 로 버린다 */
+   nsteps = pace_steps(&g_pace, t, fps, g_panel_hz_hint, g_turbo || league_ff, g_paused || !g_loaded || league_post_hold());
    while (steps < nsteps) {
       int stop = 0;
       CORE_LOCK();                       /* retro_run 한 번 단위 — 그 사이에 UI 스레드의 저장이 끼어들 수 있게 */
@@ -940,6 +945,7 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             size_t ramsz = c_get_memory_size(RETRO_MEMORY_SYSTEM_RAM);
             int in = g_input;                    /* 이번 프레임 사용자 입력 — 허브·연습이 같은 값을 본다 */
             league_vram(chr, scr, pal);
+            league_spr(c_spriteram ? c_spriteram() : NULL);   /* 153: VS 띠가 스프라이트 타일과 겹치는지 보려고 */
             league_palremap_fn(c_palremap);
             league_tick_hub(ram, ramsz, in);
             /* 컬러(모든 모드) — 허브가 고르기 화면 입력을 쓰는 동안(상대 선택·대신 누르기)엔 «바쁨»: 컬러는 손대지 않는다. 연습 «내 캐릭터 먼저»는
