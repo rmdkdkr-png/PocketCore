@@ -54,7 +54,7 @@ public final class Emu {
      *   (149) 결판 뒤 0 없음·1 승리 대사 도는 중·2 멈춤 걸쇠, 걸쇠 사유(1 대사 끝·2 B·3 장면·4 시간·5 뒤로), 결판 뒤 프레임, 대사가 뜬 프레임(−1)]
      *  옛 native 는 22칸 — 길이를 보고 쓴다 */
     public static native int[] nativeLeagueStatus();
-    /** 152: 승리 대사 건너뛰기(뒤로 가기) — 다음 진짜 프레임에 멈춤 걸쇠(결과 카드 차례). 게임이 멈춰 있으면 풀린 뒤에 선다 */
+    /** 153: 승리 대사 건너뛰기(뒤로 가기) — 다음 진짜 프레임에 멈춤 걸쇠(결과 카드 차례). 게임이 멈춰 있으면 풀린 뒤에 선다 */
     public static native void nativeLeaguePostSkip();
     /* 게임 속 리그(허브): 타이틀 «2인 대전» 자리 = «리그 대전». sty/dif = 캐릭터 id(0~14)별 리그 상대의 검질(없으면 −1)·난도 */
     public static native void  nativeLeagueHub(boolean on, byte[] sty, byte[] dif);

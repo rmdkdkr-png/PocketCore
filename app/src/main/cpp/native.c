@@ -920,7 +920,7 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
    }
    g_last_vsync = t;
    g_turbo_audio = g_turbo;
-   /* 152: 리그 결판 뒤 승리 대사가 끝난 프레임(0x5825)에 league.c 가 세운 걸쇠 — Java 의 멈춤 풀기(바 닫기·창 닫기)와 상관없이
+   /* 153: 리그 결판 뒤 승리 대사가 끝난 프레임(0x5825)에 league.c 가 세운 걸쇠 — Java 의 멈춤 풀기(바 닫기·창 닫기)와 상관없이
       리셋(nativeLeagueHubReturn)·새 무장·코어 내림 전까지 게임을 한 프레임도 더 돌리지 않는다(다음 장·이어하기 화면으로 안 감).
       멈춤과 같게 마지막 진짜 프레임(g_fb)만 그린다 */
    nsteps = pace_steps(&g_pace, t, fps, g_panel_hz_hint, g_turbo, g_paused || !g_loaded || league_post_hold());
@@ -952,12 +952,12 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             cheat_tick(ram, ramsz, in);
             int ex = practice_take_exit();
             if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); cheat_forget(); }
-            stop = league_post_hold();       /* 152: 걸쇠가 이 진짜 프레임에 섰다(합성 호출에선 안 선다) */
+            stop = league_post_hold();       /* 153: 걸쇠가 이 진짜 프레임에 섰다(합성 호출에선 안 선다) */
          }
       }
       CORE_UNLOCK();
       steps++;
-      if (stop) break;                   /* 152: 이번 vsync 의 남은 스텝(따라잡기·배속·코어 합성)도 없이 — 이 프레임 그대로 */
+      if (stop) break;                   /* 153: 이번 vsync 의 남은 스텝(따라잡기·배속·코어 합성)도 없이 — 이 프레임 그대로 */
    }
    glClear(GL_COLOR_BUFFER_BIT);
    gl_draw();
@@ -1003,7 +1003,7 @@ JNI(void, nativeReset)(JNIEnv *env, jclass cls)
    CORE_LOCK();
    if (g_loaded) c_reset();
    practice_forget(); league_practice_title();   /* 연습 대전: 램이 새로 시작 — 고르던 것·경기를 잊고 타이틀 상태로(리그 허브는 그대로) */
-   league_post_clear();                          /* 152: 승리 대사 걸쇠도 푼다(리그 판은 리셋이 막혀 있어 방어용) */
+   league_post_clear();                          /* 153: 승리 대사 걸쇠도 푼다(리그 판은 리셋이 막혀 있어 방어용) */
    look_forget();                                /* 컬러: 경기 컬러·세로 칸을 잊는다(기억·내 색은 그대로) */
    cheat_forget();                               /* 치트: 보관한 카드는 되돌리지 않고 버린다(램이 새로 시작) */
    CORE_UNLOCK();

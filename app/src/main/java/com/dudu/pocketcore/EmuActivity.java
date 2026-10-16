@@ -179,7 +179,7 @@ public class EmuActivity extends Activity {
                 if (fdView != null && fdWanted) fdView.setVisibility(open ? View.GONE : View.VISIBLE);   /* 프레임 미터가 버튼 아래 줄에 서면 메뉴 칸(저장·로드) 위를 덮는다 — 메뉴 동안 숨김 */
                 if (!loaded) return;
                 Emu.nativeSetPaused(open || (sheet != null && sheet.isShowing()) || (leagueDlg != null && leagueDlg.isShowing())
-                        || (leagueId != null && leagueArmed && nativeDone() && postState() != 1)   /* 결판이 잡혀 정산을 기다리는 동안은 멈춘 채로(152: 승리 대사 중엔 닫으면 대사가 이어 돈다 — 끝은 native 걸쇠가 멈춘다) */
+                        || (leagueId != null && leagueArmed && nativeDone() && postState() != 1)   /* 결판이 잡혀 정산을 기다리는 동안은 멈춘 채로(153: 승리 대사 중엔 닫으면 대사가 이어 돈다 — 끝은 native 걸쇠가 멈춘다) */
                         || hubCard != null);                                     /* 게임 속 리그 결과 카드가 떠 있는 동안도 */
             }
         });
@@ -1052,7 +1052,7 @@ public class EmuActivity extends Activity {
         resumedNow = true;
         if (leagueId != null && leagueArmed && !leagueDone) League.ckpt(leagueId).delete();   /* 다시 올라왔다 — 경기는 이어서 돈다 */
         if (leagueId != null && leagueArmed && leagueDone && !leaving) {                    /* 백그라운드에서 정산됐다 — 이제 결과 창으로 */
-            if (postState() == 1) { h.removeCallbacks(leaguePoll); h.post(leaguePoll); }      /* 152: 승리 대사 도중 내려갔다 — 대사를 마저 보고 */
+            if (postState() == 1) { h.removeCallbacks(leaguePoll); h.post(leaguePoll); }      /* 153: 승리 대사 도중 내려갔다 — 대사를 마저 보고 */
             else leagueExit(leagueId);
         }
         if (rankStopNote != 0) {
@@ -1209,13 +1209,13 @@ public class EmuActivity extends Activity {
         return st != null && st.length >= 21 && st[4] == 1;
     }
 
-    /** 152: 결판 뒤 승리 대사 — 0 없음 · 1 게임이 대사까지 도는 중(결과는 이미 정산) · 2 대사 끝 걸쇠(native 가 게임을 멈춰 둠 — 결과 카드 차례).
+    /** 153: 결판 뒤 승리 대사 — 0 없음 · 1 게임이 대사까지 도는 중(결과는 이미 정산) · 2 대사 끝 걸쇠(native 가 게임을 멈춰 둠 — 결과 카드 차례).
      *  옛 native(칸 22개)면 −1 — 예전처럼 결판 자리에서 멈추고 바로 결과 */
     private int postState() {
         int[] st = Emu.nativeLeagueStatus();
         return st != null && st.length > 22 ? st[22] : -1;
     }
-    /** 152: 승리 대사 동안 게임을 멈춰 둘 이유 — 메뉴 바·옵션 창·확인 카드. 없으면 대사는 돈다(정산 전에 걸린 멈춤이 남지 않게 poll 이 다시 맞춘다) */
+    /** 153: 승리 대사 동안 게임을 멈춰 둘 이유 — 메뉴 바·옵션 창·확인 카드. 없으면 대사는 돈다(정산 전에 걸린 멈춤이 남지 않게 poll 이 다시 맞춘다) */
     private boolean postPaused() { return (pad != null && pad.isBarOpen()) || (sheet != null && sheet.isShowing()) || ask != null || hubCard != null; }
     /** 승리 대사가 도는 중이면 true — 멈춤을 맞추고 100ms 뒤 다시 본다(화면에 떠 있을 때만 — 내려가 있으면 onResume 이 다시 건다).
      *  결판 순간엔 아무 글도 안 띄운다 — 결과는 대사가 끝난 뒤 카드로만(유저 «승부 정해지고 끝나고 메시지»). B·뒤로 건너뛰기는 말없이 된다 */
@@ -1241,7 +1241,7 @@ public class EmuActivity extends Activity {
         if (!leagueArmed) return false;
         int[] st = Emu.nativeLeagueStatus();
         if (st == null || st.length < 21 || st[4] != 1) return false;
-        /* 152: 정산은 결판 프레임 값으로 바로(대사 중에 나가도·꺼져도 결과는 같다) — 게임은 멈추지 않고 승리 대사까지 돈다(입력은 native 가 막음).
+        /* 153: 정산은 결판 프레임 값으로 바로(대사 중에 나가도·꺼져도 결과는 같다) — 게임은 멈추지 않고 승리 대사까지 돈다(입력은 native 가 막음).
            대사가 끝난 프레임에 native 걸쇠가 멈춘다 — 다음 장·이어하기 화면으로는 안 간다. 옛 native 면 예전처럼 그 자리에서 */
         if (st.length <= 22) Emu.nativeSetPaused(true);
         if (League.settle(leagueId, st) == null) return true;
@@ -1263,7 +1263,7 @@ public class EmuActivity extends Activity {
     private final Runnable leaguePoll = new Runnable() { @Override public void run() {
         if (leagueId == null) return;
         if (leagueDone) {
-            if (postWait()) return;                            /* 152: 승리 대사 도는 중 — 끝(걸쇠)·B·뒤로를 기다린다 */
+            if (postWait()) return;                            /* 153: 승리 대사 도는 중 — 끝(걸쇠)·B·뒤로를 기다린다 */
             leagueSaveAskClose(); if (resumedNow && !leaving) leagueExit(leagueId); return;
         }
         if (!loaded || leaving) return;
@@ -1279,7 +1279,7 @@ public class EmuActivity extends Activity {
                 return;
             }
             leagueSaveAskClose();                              /* 다시 시도가 됐다 — 카드는 저절로 닫고 이어서 */
-            if (postWait()) return;                            /* 152: 결과는 적었다 — 승리 대사 뒤 카드 */
+            if (postWait()) return;                            /* 153: 결과는 적었다 — 승리 대사 뒤 카드 */
             if (resumedNow) leagueExit(leagueId);
             return;
         }
@@ -1477,9 +1477,9 @@ public class EmuActivity extends Activity {
     /** 뒤로 가기 — 계속 / 나중에 이어하기(체크포인트) / 기권. 결판이 이미 잡혀 있으면 창 없이 정산으로. */
     private void leagueLeave() {
         int ps = leagueDone && leagueArmed && !leaving && hubCard == null ? postState() : -1;
-        if (ps >= 1) { if (ps == 1) postSkip(); else leagueExit(leagueId); return; }   /* 152: 승리 대사 중(·걸쇠 뒤 카드 전) 뒤로 = 바로 결과 카드(카드가 떠 있으면 예전대로) */
+        if (ps >= 1) { if (ps == 1) postSkip(); else leagueExit(leagueId); return; }   /* 153: 승리 대사 중(·걸쇠 뒤 카드 전) 뒤로 = 바로 결과 카드(카드가 떠 있으면 예전대로) */
         if (leagueDone || !leagueArmed) { leagueExit(null); return; }
-        if (leagueSettleNow()) {                              /* 결판이 막 잡혔다(poll 전) — 152: 대사 중이면 위와 같이 건너뛰기(카드를 먼저 띄우면 poll 이 대사를 다시 돌린다) */
+        if (leagueSettleNow()) {                              /* 결판이 막 잡혔다(poll 전) — 153: 대사 중이면 위와 같이 건너뛰기(카드를 먼저 띄우면 poll 이 대사를 다시 돌린다) */
             if (leagueDone && resumedNow) { if (postState() == 1) postSkip(); else leagueExit(leagueId); }
             return;
         }
@@ -2948,7 +2948,7 @@ public class EmuActivity extends Activity {
             if (dv != null && dv.length >= 5 && dv[0] == 1 && dv[3] == 1)
                 return "◀▶ 연습 대전 / 리그 대전  ·  A 시작" + (dv[1] == 0 ? "\n리그는 따로 세이브 판에서 해요" : "");
             return null;
-        case 2: return "A 수라 · B 나찰 · OPTION 스테이지";   /* 고르는 캐릭터 = 더미(검질은 A·B) — 머리말이 이미 «상대 선택». «상대 ·» 를 붙이면 세로 화면에서 두 줄로 꺾인다(152 에뮬 확인) */
+        case 2: return "A 수라 · B 나찰 · OPTION 스테이지";   /* 고르는 캐릭터 = 더미(검질은 A·B) — 머리말이 이미 «상대 선택». «상대 ·» 를 붙이면 세로 화면에서 두 줄로 꺾인다(153 에뮬 확인) */
         case 7:   /* 내 캐릭터 먼저(캐릭터 선택 — A 결정 · B 2P색 · OPTION 컬러), 그다음 상대(2) */
         case 3: return myPickKeys(dv != null && dv.length >= 6 ? dv[5] : 2, false);
         case 4:   /* 좁은 띠(버튼 사이)에서도 줄이 접히지 않게 두 줄로 */

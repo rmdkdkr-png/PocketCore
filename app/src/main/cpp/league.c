@@ -1105,7 +1105,7 @@ JNI(void, nativeLeagueArm)(JNIEnv *env, jclass cls, jint opp, jint sty, jint dif
 JNI(void, nativeLeagueDisarm)(JNIEnv *env, jclass cls)
 { (void)env; (void)cls; league_disarm(); }
 
-/* 152: 승리 대사 건너뛰기(뒤로 가기) — 다음 진짜 프레임에 걸쇠(B 는 post_tick 이 입력에서 직접 본다) */
+/* 153: 승리 대사 건너뛰기(뒤로 가기) — 다음 진짜 프레임에 걸쇠(B 는 post_tick 이 입력에서 직접 본다) */
 JNI(void, nativeLeaguePostSkip)(JNIEnv *env, jclass cls)
 { (void)env; (void)cls; league_post_skip(); }
 
