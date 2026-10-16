@@ -70,6 +70,7 @@
                                 그 2프레임 뒤 0x57C8 = 27(이김 → 다음 장 이야기)/24(짐·무승부 → 이어하기 화면) — 여기서 멈추면 게임은 다음 장으로 안 간다 */
 #define R_SEQ    A(0x57CB)   /* 결판 뒤 연출 단계(149 실측) — 63 = 이긴 쪽 이름판·대사가 뜬 동안 · 66 = 대사 끝(0x5825 2프레임 전). 표시용으로만 */
 #define POST_MAX 1800        /* 0x5825 가 끝내 안 서면 결판 + 30초에 멈춘다(안전판) */
+#define POST_BGRACE 60       /* 결판 + 1초 안에 새로 누른 B 는 싸우던 손(KO 뒤로 이어진 연타) — 건너뛰기로 안 센다 */
 #define R_BOUT   A(0x5827)   /* 1인 대전 몇 번째 판(0~) — 배경(스테이지)은 상대가 아니라 이 값을 따른다. 0~7 = 서로 다른 배경 8개
                                 (0 후지산 마을 · 1 숲속 호숫가 · 2 산 위 신사 · 3 화염 사원(불타는 절, 밤) · 4 폐허 사원(불타는 절, 낮) ·
                                 5 불꽃 동굴 · 6 마계 제단 · 7 수정 신전). 판이 뜨기 전부터 매 프레임 쓰면 그 배경으로 뜬다 — CPU 단계·배율은 그대로(실측) */
@@ -845,7 +846,7 @@ static void post_tick(const uint8_t *ram, int input)
 {
    PQ.f++;
    league_in_block |= IN_GAME_ALL;                   /* 대사 동안 게임 입력은 모두 막는다 — A 는 대사를 건너뛰고, 진 판에선 이어하기 화면의 A 가 «이어하기»가 된다(실측) */
-   int b_edge = (input & IN_B) && !(PQ.prev_in & IN_B);
+   int b_edge = (input & IN_B) && !(PQ.prev_in & IN_B) && PQ.f > POST_BGRACE;   /* 쥔 채 넘어온 B·KO 직후 연타는 빼고 */
    PQ.prev_in = input;
    if (ram[R_SEQ] == 63 && !PQ.seen_quote) { PQ.seen_quote = 1; PQ.quote_f = PQ.f; }
    int why = ram[R_RSCR] ? PQ_QUOTE
