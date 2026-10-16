@@ -359,6 +359,26 @@ public class EmuActivity extends Activity {
 
     private String coreLabel = "";
 
+    /** 받아 둔 코어(files/cores/<id>.ver) 판 표식 — 없으면 null */
+    static String readVer(File f) {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            byte[] b = new byte[64];
+            int n = in.read(b);
+            return n > 0 ? new String(b, 0, n, "UTF-8").trim() : null;
+        } catch (Exception e) { return null; }
+    }
+
+    /** 150: 동봉 코어가 받아 둔 코어보다 새것인가. 받은 코어가 늘 동봉보다 새것이라는 가정이 처음 깨진 판 —
+     *  동봉 SVC 코어 = SP 4.06 + 코어 보간(ngpfg)인데 색인의 svc 는 아직 4.06(보간 없음)이라, 받아 둔 기기는 새 앱을 깔아도
+     *  옛 코어로 돌아 «모든 게임 코어 보간»이 안 보였을 것. 숫자만인 판(예 "4.06", 시험 레벨 "-test" 붙음)이 4.06 이하면 동봉을 쓴다.
+     *  색인에 더 새 판(4.07…, 또는 "-fg" 처럼 표식 붙은 판)이 올라오면 그건 다시 받은 코어가 이긴다. */
+    static boolean bundledIsNewer(String id, String ver) {
+        if (!"svc".equals(id) || ver == null) return false;
+        String v = ver.endsWith("-test") ? ver.substring(0, ver.length() - 5) : ver;
+        if (!v.matches("\\d+(\\.\\d+)?")) return false;
+        try { return Double.parseDouble(v) <= 4.06 + 1e-9; } catch (NumberFormatException e) { return false; }
+    }
+
     /** 코어 선택 — 밖에 둔 코어는 **게임별 이름 규칙일 때만** 받는다.
      *  cores/ss2*.so → SS2 롬에만, cores/svc*.so → 그 밖의 롬에. 나머지 .so 는 무시한다.
      *  (아무 파일이나 두면 모든 게임이 그 코어로 돌아 「롤백된 느낌」 사고가 났다.) */
@@ -385,16 +405,12 @@ public class EmuActivity extends Activity {
         File dir = new File(getFilesDir(), "cores");
         File auto = new File(dir, want + ".so");
         if (auto.exists()) {
-            String v = null;
-            try (java.io.FileInputStream in =
-                         new java.io.FileInputStream(new File(dir, want + ".ver"))) {
-                byte[] b = new byte[64];
-                int n2 = in.read(b);
-                if (n2 > 0) v = new String(b, 0, n2, "UTF-8").trim();
-            } catch (Exception ignored) { }
-            coreLabel = ((game != null) ? game.ko : "순정 NGPC")
-                      + ((v != null) ? " · 코어 " + v : "") + suffix;
-            return auto.getAbsolutePath();
+            String v = readVer(new File(dir, want + ".ver"));
+            if (!bundledIsNewer(want, v)) {
+                coreLabel = ((game != null) ? game.ko : "순정 NGPC")
+                          + ((v != null) ? " · 코어 " + v : "") + suffix;
+                return auto.getAbsolutePath();
+            }
         }
         String lib = (game != null) ? game.core : Games.fallbackCore();
         coreLabel = ((game != null) ? game.ko : "순정 NGPC") + suffix;

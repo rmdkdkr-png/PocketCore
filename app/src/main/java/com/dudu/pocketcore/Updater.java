@@ -175,6 +175,7 @@ public final class Updater {
                     boolean useTest = testLevel() && e.optJSONObject("test") != null;
                     JSONObject use = useTest ? e.getJSONObject("test") : e;   /* 시험 레벨이면 시험 판 — 없으면 정식 */
                     String ver = use.getString("ver") + (useTest ? "-test" : "");   /* .ver 표식 — 레벨을 바꾸면 다시 받게 */
+                    if (EmuActivity.bundledIsNewer(id, ver)) continue;              /* 150: 동봉이 더 새것(SVC 4.06 + 코어 보간) — 받아도 안 쓴다 */
                     JSONObject abis = use.getJSONObject("abis");
                     if (!abis.has(abi)) continue;
                     File so = new File(dir, id + ".so");
