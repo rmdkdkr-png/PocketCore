@@ -2500,7 +2500,8 @@ public class EmuActivity extends Activity {
     /** 50ms 마다 — 멈춤(창·멈춤 바·내려감) 동안은 시계를 세우고(native 도 멈춰 있다), B 면 그만, 상대를 보일 때·go·내릴 때를 본다 */
     private void rankQStep() {
         long now = android.os.SystemClock.uptimeMillis();
-        boolean frozen = !resumedNow || !loaded || ask != null || (pad != null && pad.isBarOpen()) || (leagueDlg != null && leagueDlg.isShowing());
+        boolean frozen = !resumedNow || !loaded || ask != null || (pad != null && pad.isBarOpen()) || (leagueDlg != null && leagueDlg.isShowing())
+                || (sheet != null && sheet.isShowing()) || lookEditor != null;   /* 코어가 멈춘 동안 — native 도 안 간다 */
         if (frozen) { if (rankQFrozenAt == 0) rankQFrozenAt = now; return; }
         if (rankQFrozenAt != 0) {
             long d = now - rankQFrozenAt; rankQFrozenAt = 0;
@@ -2547,10 +2548,11 @@ public class EmuActivity extends Activity {
         if (why == 2) toast("자동으로 못 골랐어요 — 직접 골라 주세요");
         else if (why == 1 && rankCap) toast("랭크에서 쓸 내 캐릭터를 골라요 — 한 번만");
     }
+    private static final int NGP_B = 1 << Emu.A;   /* 게임(NGPC)의 B = libretro A(8) — league.c IN_B */
     /** B 누름(터치 패드 · 물리 패드) — 그만. 창·멈춤 바가 떠 있으면 그쪽 몫 */
     private boolean rankQKey(int m) {
         int rise = m & ~rankQKeys; rankQKeys = m;
-        if (rankQ == null || (rise & (1 << Emu.B)) == 0 || ask != null || (pad != null && pad.isBarOpen())) return false;
+        if (rankQ == null || (rise & NGP_B) == 0 || ask != null || (pad != null && pad.isBarOpen())) return false;
         rankQBack();
         return true;
     }

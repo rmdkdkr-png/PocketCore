@@ -356,8 +356,9 @@ final class League {
         Main m = new Main();
         m.cell = j.optInt("cell", -1); m.ch = j.optInt("ch", -1); m.sty = j.optInt("sty", -1); m.b2p = j.optBoolean("b2p");
         m.k1 = j.optInt("k1", -1); m.k2 = j.optInt("k2", -1); m.colour = j.optInt("colour", 0); m.at = j.optLong("at");
-        if (!(m.cell >= 0 && m.cell <= 13 || m.cell == 15) || m.ch < 0 || m.ch > 14 || (m.sty != 0 && m.sty != 1)) return null;
-        if (m.cell != 15 && m.ch != m.cell) return null;
+        if (!(m.cell >= 0 && m.cell <= 13 || m.cell == 15) || (m.sty != 0 && m.sty != 1)) return null;
+        if (m.cell == 15) { if (m.ch < 0 || m.ch > 14) m.ch = -1; }        /* 무작위 칸 — 뽑힌 캐릭터는 아직 모를 수 있다(1라운드에 다시) */
+        else if (m.ch != m.cell) return null;
         if (m.k1 < -1 || m.k1 > 3 || m.k2 < -1 || m.k2 > 3) { m.k1 = -1; m.k2 = -1; }
         if (m.colour < 0 || m.colour >= Look.NIDX) m.colour = 0;
         return m;
@@ -372,8 +373,8 @@ final class League {
             if (m == null) return false;
             Main old = main();
             if (old != null && old.cell == m.cell && old.ch == m.ch && old.sty == m.sty && old.b2p == m.b2p && old.k1 == m.k1 && old.k2 == m.k2 && old.colour == m.colour) return true;
-            j.put("at", System.currentTimeMillis());
-            pref().put("main", j);
+            pref().put("main", new JSONObject().put("v", 1).put("cell", m.cell).put("ch", m.ch).put("sty", m.sty).put("b2p", m.b2p)
+                    .put("k1", m.k1).put("k2", m.k2).put("colour", m.colour).put("at", System.currentTimeMillis()));   /* 고른 값(범위 밖은 없음·기본으로) */
             return save();
         } catch (Exception e) { return false; }
     }
