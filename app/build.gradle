@@ -8,7 +8,7 @@ android {
         applicationId "com.dudu.legacito"   // Legacito — 옛 PocketCore(com.dudu.pocketcore, 서명 키 분실)의 뒤를 잇는 새 앱. 나란히 깔린다
         minSdk 26            // AAudio
         targetSdk 34
-        versionCode(project.hasProperty('pcCode') ? project.property('pcCode').toInteger() : 158)   // CI 새 판 설치 시험만 -PpcCode 로 올려 굽는다. 보이는 판(versionName)은 0.9 그대로, 시험 갈래 내부 번호만 올림(유저 「0.9로」) — 95, 96 … 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158
+        versionCode(project.hasProperty('pcCode') ? project.property('pcCode').toInteger() : 159)   // CI 새 판 설치 시험만 -PpcCode 로 올려 굽는다. 보이는 판(versionName)은 0.9 그대로, 시험 갈래 내부 번호만 올림(유저 「0.9로」) — 95, 96 … 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159
         versionName "0.9"
         // 시험판은 정식판과 «나란히» 깔리게 패키지 이름·표시 이름을 바꿔 굽는다
         // (CI: -PpcSuffix=.fgtest -PpcLabel="PocketCore 시험"). 안 주면 정식 그대로.
