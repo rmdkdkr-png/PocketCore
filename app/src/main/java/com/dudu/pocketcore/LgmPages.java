@@ -727,6 +727,7 @@ final class LgmPages {
         cv.cellPal(0, 17, 19, 18, P_INK);
         if (confirm) {
             String line = m.forfeit != null ? m.forfeit.line : "패배로 기록돼요";
+            if (m.forfeit != null && cv.textW(line, ink.g7) > 155) line = m.forfeit.shorter;   /* 강등·강등 위기가 붙으면 «연승 끊김»은 뺌(잘리지 않게) */
             cv.text(fit(line, 156, ink.g7), 2, 137, 1, ink.g7);
             cv.text(fit("◀▶ 고르기  A 확정  B 취소", 156, ink.g7), 157, 145, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
         } else {

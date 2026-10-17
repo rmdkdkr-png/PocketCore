@@ -54,7 +54,9 @@ final class MenuModel {
         static final int FP_LP = 0, FP_PLACEMENT = 1, FP_NOVICE = 2, FP_VOID = 3;   // VOID = 첫 라운드 전(무효 · LP 없음)
         final int kind, lpDelta, brokeStreak;    // lpDelta ≤ 0 · brokeStreak = 끊길 내 연승(2 이상일 때만, 아니면 0)
         final String line;                       // «패배로 기록 · −18 LP · 연승 끊김» / «배치 1패로 기록» / «LP 그대로 · 수련생 보호» / «무효 · LP 없음»
-        Forfeit(int kind, int lpDelta, int brokeStreak, String line) { this.kind = kind; this.lpDelta = lpDelta; this.brokeStreak = brokeStreak; this.line = line; }
+        final String shorter;                    // 줄이 넘칠 때(156px) — 덜 중요한 «연승 끊김»을 뺀 것(강등·강등 위기는 남김)
+        Forfeit(int kind, int lpDelta, int brokeStreak, String line) { this(kind, lpDelta, brokeStreak, line, line); }
+        Forfeit(int kind, int lpDelta, int brokeStreak, String line, String shorter) { this.kind = kind; this.lpDelta = lpDelta; this.brokeStreak = brokeStreak; this.line = line; this.shorter = shorter; }
     }
     /** 메뉴 설정(League pref.lgm) — 서랍 «설정» 탭 */
     static final class Prefs {
@@ -322,7 +324,8 @@ final class MenuModel {
                         /* 실제 정산(settle) 그대로 — 바닥에 걸리면 덜 잃고, 방패가 이미 쓰였으면 강등까지 */
                         String ev = fp.demoted && fp.tierAfter >= 0 && fp.tierAfter < RankCore.TIER.length ? " · " + ro(RankCore.TIER[fp.tierAfter]) + " 강등"
                                 : fp.shieldUsed ? " · 강등 위기" : "";
-                        b.forfeit = new Forfeit(Forfeit.FP_LP, Math.min(0, fp.lpDelta), fp.brokeStreak, "패배로 기록 · " + signed(fp.lpDelta) + " LP" + ev + broke);
+                        String base = "패배로 기록 · " + signed(fp.lpDelta) + " LP" + ev;
+                        b.forfeit = new Forfeit(Forfeit.FP_LP, Math.min(0, fp.lpDelta), fp.brokeStreak, base + broke, base);
                         break;
                     }
                 }
