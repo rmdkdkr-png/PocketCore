@@ -31,8 +31,9 @@ final class BoardCache {
     private static int gen = 0;
     /** 메인 스레드로 보내기 — 앱은 Looper.getMainLooper() · JVM 시험은 바꿔 넣는다 */
     static volatile java.util.function.Consumer<Runnable> main = null;
-    /** 시험용 — 계산을 바로 이 스레드에서(true) */
+    /** 시험용 — 계산을 바로 이 스레드에서(true) · 계산한 횟수 */
     static volatile boolean inline = false;
+    static volatile int computes = 0;
 
     /** 열쇠 — 씨앗:한국 날짜:내 열쇠(LP·무쌍 MR):around:k:판 수(LeagueActivity 옛 boardKey 와 같은 요소 + k) */
     static String key(RankCore.Me me, boolean around, int k) {
@@ -85,6 +86,7 @@ final class BoardCache {
 
     /** 실제 계산 — LeagueActivity 옛 boardLoad 와 같은 함수(rankOf · around/top · 아바타) + 위 3명 */
     static Board compute(android.content.Context c, RankCore.Me me, boolean around, int k, boolean avatars, String key) {
+        computes++;
         Board b = new Board();
         b.key = key; b.around = around; b.k = k; b.total = RankCore.total();
         try {
