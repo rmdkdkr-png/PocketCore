@@ -1385,9 +1385,12 @@ final class League {
 
     /** 이번 대전 세션(게임 속 리그를 한 번 켠 동안) — 그만할까요?·쉼 «오늘 4승 1패 +152» · 순위 ▲▼ 기준(rank0) */
     static final class Session { long start; int w, l, d, lp; long rank0 = -1; }
-    /** 새 세션 — hubStart 에서. 저장 실패해도 메모리 값으로 쓰고 다음 저장 때 같이 들어간다 */
+    /** 새 세션 — hubStart 에서. 같은 한국 날짜의 세션이 이미 있으면 그대로 이어 간다(리그 화면을 다녀와도 «오늘» 이 끊기지 않고,
+     *  rank0 = 오늘 첫 판 전 순위 — 기획서 «오늘 첫 판 전»). 날이 바뀌었으면 새로. 저장 실패해도 메모리 값으로 쓰고 다음 저장 때 같이 들어간다 */
     static synchronized void sessionStart() {
         try {
+            JSONObject old = ranked().optJSONObject("session");
+            if (old != null && old.optLong("start") > 0 && RankCore.today(old.optLong("start")) == today()) return;
             ranked().put("session", new JSONObject().put("start", System.currentTimeMillis()).put("w", 0).put("l", 0).put("d", 0)
                     .put("lp", 0).put("rank0", -1));
             save();
@@ -1432,27 +1435,41 @@ final class League {
         } catch (Exception ignored) { }
     }
 
-    /** G10 기권 미리보기 — kind LP(lpDelta < 0) · PLACEMENT(배치 1패) · NOVICE(수련생 — LP 그대로) · MASTER(무쌍 — MR) */
+    /** G10 기권 미리보기 — kind LP(lpDelta ≤ 0) · PLACEMENT(배치 1패) · NOVICE(수련생 — LP 그대로) · MASTER(무쌍 — MR).
+     *  demoted/shieldUsed = 이 기권으로 강등 / 강등 위기(방패) · tierAfter = 판 뒤 티어(강등이면 아래 티어) */
     static final class ForfeitPreview {
         static final int LP = 0, PLACEMENT = 1, NOVICE = 2, MASTER = 3;
         int kind, lpDelta, mrDelta, brokeStreak;     /* brokeStreak = 끊길 내 연승(2 이상일 때만, 아니면 0) */
+        boolean demoted, shieldUsed; int tierAfter = -1;
     }
+    /** 기권이 실제로 정산될 셈 그대로(applyRanked → RankCore.settle(me,'L',…)) — 지금 나의 사본에서 settle 을 돌리고 버린다(기록은 안 바뀜).
+     *  157 전엔 RankCore.stakes(보너스·바닥·방패·강등 없는 날값)를 보여 «−80 LP» 라 해 놓고 실제는 −310 LP 강등이 될 수 있었다 */
     static synchronized ForfeitPreview forfeitPreview(JSONObject m) {
         ForfeitPreview f = new ForfeitPreview();
         RankCore.Me me = rankMe();
         JSONObject s0 = m != null ? m.optJSONObject("start") : null;
         f.brokeStreak = me.streak >= 2 ? me.streak : 0;
         if ((s0 != null ? s0.optInt("placement_left", me.placementLeft) : me.placementLeft) > 0) { f.kind = ForfeitPreview.PLACEMENT; return f; }
-        if (me.master) {
-            int omr = s0 != null ? s0.optInt("opp_mr") : 0;
-            if (omr <= 0) omr = (int) Math.round(1500 + ((s0 != null ? s0.optDouble("opp_mmr", me.mmr) : me.mmr) - 1600) * 1.5);   /* applyRanked 와 같은 식 */
-            f.kind = ForfeitPreview.MASTER; f.mrDelta = (int) Math.round(32 * (0 - RankCore.expect(me.mr, omr)));
-            return f;
-        }
-        int[] st = RankCore.stakes(me, s0 != null ? s0.optDouble("opp_mmr", me.mmr) : me.mmr);
-        if (st == null || st[1] == 0) f.kind = ForfeitPreview.NOVICE;
-        else { f.kind = ForfeitPreview.LP; f.lpDelta = st[1]; }
+        double omm = s0 != null ? s0.optDouble("opp_mmr", me.mmr) : me.mmr;
+        int omr = s0 != null ? s0.optInt("opp_mr") : 0;
+        if (omr <= 0) omr = (int) Math.round(1500 + (omm - 1600) * 1.5);   /* applyRanked 와 같은 식 */
+        RankCore.Me cp = rankMe();                                         /* 새 사본(meOf) — settle 이 바꿔도 기록은 그대로 */
+        RankCore.Outcome o = RankCore.settle(cp, 'L', omm, omr, false, today());
+        if (me.master) { f.kind = ForfeitPreview.MASTER; f.mrDelta = o.mrAfter - o.mrBefore; return f; }
+        f.lpDelta = o.lpDelta; f.demoted = o.demoted; f.shieldUsed = o.shieldUsed; f.tierAfter = o.tierAfter;
+        f.kind = RankCore.tierOf(me.lp) == 0 && o.lpDelta == 0 ? ForfeitPreview.NOVICE : ForfeitPreview.LP;
         return f;
+    }
+    /** 진 판 «설 이기면 +N» — 이 상대와 재대결(설욕전)을 이기면 실제로 받을 LP(설욕 +20 · 오늘 첫 승 +30 · 연승 보너스까지 정산 그대로).
+     *  배치·무쌍·모름이면 Integer.MIN_VALUE */
+    static synchronized int rematchWinLp(RankCore.Player p) {
+        if (p == null) return Integer.MIN_VALUE;
+        RankCore.Me cp = rankMe();
+        if (cp.placementLeft > 0 || cp.master) return Integer.MIN_VALUE;
+        OppView v = oppView(p);
+        double omm = Math.round(v.mmr * 10) / 10.0;                         /* newRankedMatch 가 start.opp_mmr 에 적는 값 */
+        int omr = v.mr > 0 ? v.mr : (int) Math.round(1500 + (omm - 1600) * 1.5);
+        return RankCore.settle(cp, 'W', omm, omr, true, today()).lpDelta;
     }
 
     /** 메뉴 설정 — 기본 fx 0(보통) · loss 0(설욕전) · auto 0(끔) · remember true · tab 0. 범위 밖 값은 기본으로 */

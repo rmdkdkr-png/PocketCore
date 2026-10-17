@@ -24,6 +24,12 @@ final class LeagueMenu {
     static final int TOUCH_DOWN = 0, TOUCH_UP = 1, TOUCH_MOVE = 2, TOUCH_CANCEL = 3;
     /* 박자(60Hz 시계 프레임) */
     static final int REPEAT_DELAY = 18, REPEAT_EVERY = 5, OPT_TAP_MAX = 30, AUTO_NEXT_FRAMES = 600;
+    /** 무장 — 결판·쉼이 닫힌 데서 열리면 ARM_FRAMES(기획서 «16f») 동안, 그리고 모든 키를 QUIET_FRAMES 동안 뗄 때까지 누름은 연출 건너뛰기만(고르지 않음).
+     *  대사를 넘기던 A·B 연타(153 POST_BGRACE 와 같은 뜻)가 열린 결판에서 «다음 상대»·«설욕전»을 고르거나 «그만할까요?»를 오가지 않게 —
+     *  대본 시각(readyT)만으로는 한 번 건너뛰면 바로 다음 누름이 골랐다 */
+    static final int ARM_FRAMES = 16, QUIET_FRAMES = 10;
+    /** 서랍 순위 목록 접기(닫을 때 족자 말림 앞) */
+    static final int LIST_UP = 4;
     /** UI 가 답하지 않을 때 풀어 주는 끝(쉼 기다림 · 동작 뒤 기다림) */
     static final int PENDING_MAX = 300, BUSY_MAX = 300;
     /** 서랍 목록 넘기기 — 한 칸 8px · 2px/f(쥐고 있으면 4px/f) */
@@ -81,8 +87,8 @@ final class LeagueMenu {
     }
     static final int FB_NO_NATIVE = 1, FB_RECT = 2, FB_RENDER = 3, FB_NOT_SHOWN = 4;
 
-    /* 장면 갈아 끼우기 방식 */
-    private static final int SHOW_FULL = 0, SHOW_SWAP = 1, SHOW_END = 2;
+    /* 장면 갈아 끼우기 방식 — REVEAL = 끝 상태 + 목록 드러냄(서랍 순위: 족자를 다 편 뒤 L 목록을 칼 휘두름으로) */
+    private static final int SHOW_FULL = 0, SHOW_SWAP = 1, SHOW_END = 2, SHOW_REVEAL = 3;
 
     private final OvPort ov;
     private final Actions act;
@@ -120,6 +126,12 @@ final class LeagueMenu {
     private long closeAt; private Runnable afterClose;
     /* 연속 대전 */
     private boolean autoOn, autoOff;
+    /* 무장(결판·쉼을 연 뒤 연타 막기) */
+    private boolean armed = true, armFresh; private long openedAt, lastKeyAt;
+    /* 서랍 펼침(부른 화면 위로 족자가 내려오는 동안 — 끝나면 서랍 쪽을 W 로) */
+    private boolean opening; private long openingAt; private int openingCursor;
+    /* 칼 휘두름 동안 단도 숨김(새 줄은 휘두름이 지나간 뒤에 보인다) */
+    private boolean quadHidden; private int quadShowT;
     /* 서랍 목록 넘기기 */
     private int listY, listTarget, listMin, listMax;
     /* 터치 */
@@ -159,7 +171,7 @@ final class LeagueMenu {
         resultCursor = clampRow(result, result.defaultRow);
         ov.hold(true);
         if (!show(result, SHOW_FULL, Emu.OV_START_NOW, resultCursor)) return;
-        st = ST_RESULT; capture = true;
+        st = ST_RESULT; capture = true; disarm();
         updateHit();
     }
     /** 쉼 — lgmWantPause 뒤 UI 가 준 사본·장면(뒤로·패드 바는 바로 이것만) */
@@ -171,7 +183,7 @@ final class LeagueMenu {
         ov.hold(true);
         pauseCursor = clampRow(pause, pause.defaultRow);
         if (!show(pause, SHOW_FULL, Emu.OV_START_NOW, pauseCursor)) return;
-        st = ST_PAUSE; capture = true;
+        st = ST_PAUSE; capture = true; disarm();
         updateHit();
     }
     /** 뒤로·패드 바 «목록/종료»(랭크 경기 중) — OPTION 탭과 같은 길: 이 vsync 부터 코어를 멈추고 UI 에 쉼 사본을 청함 */
@@ -200,13 +212,15 @@ final class LeagueMenu {
         if (page == null || st != ST_DRAWER) return;
         if (tab != drawerTab && !drawerWaiting) return;                /* 그 사이 다른 탭으로 갔다 */
         boolean first = sDrawer == null;
+        if (opening) { opening = false; first = false; }                 /* 펼치는 중에 같은 탭이 다시 옴(먹 가는 중… → 순위) — 바로 바꿔 끼움 */
         boolean sameTab = sDrawer != null && sDrawer.tab == page.tab;
-        int c = sameTab && cursor >= 0 ? cursor : page.defaultRow;
+        int c = sameTab && cursor >= 0 && cur == sDrawer ? cursor : page.defaultRow;
         sDrawer = page; drawerWaiting = false; busy = false;
         drawerTab = page.tab;
-        show(page, first ? SHOW_FULL : sameTab ? SHOW_END : SHOW_SWAP, Emu.OV_START_NOW, clampRow(page, c));
         listMin = page.lScrollMin; listMax = page.lScrollMax;
         listY = listTarget = page.lScrollY;
+        if (first && cur != null && cur.w != null && unrollOver(page, clampRow(page, c))) { updateHit(); return; }
+        show(page, first ? SHOW_FULL : sameTab ? SHOW_END : SHOW_SWAP, Emu.OV_START_NOW, clampRow(page, c));
         updateHit();
     }
     /** ◀▶ 뒤 새 무대 값 */
@@ -246,7 +260,7 @@ final class LeagueMenu {
         int fl = v != null && v.length > Emu.OVS_FLAGS ? v[Emu.OVS_FLAGS] : 0;
         if (s == ST_ARMED) {
             if ((fl & Emu.OVF_VISIBLE) != 0) {                       /* 걸쇠 vsync 에 native 가 열었다 */
-                st = ST_RESULT; capture = true; updateHit();
+                st = ST_RESULT; capture = true; disarm(); updateHit();
             } else if ((fl & Emu.OVF_ARMED) == 0) {                   /* native 가 저절로 지웠다(리셋·불러오기·허브 돌아가기) */
                 resetClosed(in);
                 return in & ~qHeld;
@@ -272,10 +286,16 @@ final class LeagueMenu {
             else if (afterClose == null && busy && now - busyT0 > BUSY_MAX) recover();   /* 동작을 보냈는데 UI 가 닫지 않았다 */
             return 0;
         }
+        int t = v != null && v.length > Emu.OVS_T ? v[Emu.OVS_T] : -1;
+        if (quadHidden && (t >= quadShowT || (fl & Emu.OVF_RUNNING) == 0)) showCursorQuad();
+        if (st == ST_DRAWER && opening) {                                /* 족자 펼침 중 — 누르면 끝으로(서랍 쪽을 W 로) */
+            if ((rise & IN_KEYS) != 0 || now >= openingAt) finishOpening();
+            return 0;
+        }
         if (st == ST_DRAWER) stepList(held);
         if (busy) { if (now - busyT0 > BUSY_MAX) busy = false; return 0; }
-        int t = v != null && v.length > Emu.OVS_T ? v[Emu.OVS_T] : -1;
         boolean running = (fl & Emu.OVF_RUNNING) != 0 && t >= 0 && t < curReadyT;
+        boolean guard = guarded(in);
         if ((rise & IN_KEYS) != 0) {
             cancelAuto();
             if (running) { ov.cue(null, Emu.OV_SKIP_TO_END); return 0; }
@@ -286,6 +306,7 @@ final class LeagueMenu {
             select(rowById(cur, MenuModel.ROW_NEXT));
             return 0;
         }
+        if (guard) return 0;                                             /* 무장 전 — 연타가 고르지 않게(건너뛸 연출도 없으면 그냥 삼킴) */
         handle(rise, held);
         return 0;
     }
@@ -308,10 +329,12 @@ final class LeagueMenu {
         if (action != TOUCH_UP || touchKind == 0) return;
         int kind = touchKind, idx = touchIdx;
         touchKind = 0;
+        if (s == ST_DRAWER && opening) { finishOpening(); return; }
         cancelAuto();
         int[] v = ov.status();
         int fl = v != null && v.length > Emu.OVS_FLAGS ? v[Emu.OVS_FLAGS] : 0, t = v != null && v.length > Emu.OVS_T ? v[Emu.OVS_T] : -1;
         if ((fl & Emu.OVF_RUNNING) != 0 && t >= 0 && t < curReadyT) { ov.cue(null, Emu.OV_SKIP_TO_END); return; }
+        if (!armed && (s == ST_RESULT || s == ST_PAUSE) && (armFresh || now - openedAt < ARM_FRAMES)) return;   /* 연 뒤 16f — 터치도 고르지 않음 */
         if (busy) return;
         switch (kind) {
             case 1: {
@@ -346,10 +369,14 @@ final class LeagueMenu {
     void back() {
         int s = st;
         if (s == ST_CLOSED || s == ST_ARMED || s == ST_PAUSE_PENDING || s == ST_CLOSING || busy) return;
+        if (s == ST_DRAWER && opening) { finishOpening(); return; }
         cancelAuto();
         int[] v = ov.status();
         int fl = v != null && v.length > Emu.OVS_FLAGS ? v[Emu.OVS_FLAGS] : 0, t = v != null && v.length > Emu.OVS_T ? v[Emu.OVS_T] : -1;
+        boolean guard = !armed && (s == ST_RESULT || s == ST_PAUSE);
+        if (guard) { if (armFresh) { armFresh = false; openedAt = now; } lastKeyAt = now; }   /* 뒤로(= 대사 건너뛰기 키) 연타도 무장을 미룬다 */
         if ((fl & Emu.OVF_RUNNING) != 0 && t >= 0 && t < curReadyT) { ov.cue(null, Emu.OV_SKIP_TO_END); return; }
+        if (guard) return;
         handle(IN_B, 0);
     }
     boolean isOpen() { int s = st; return s != ST_CLOSED && s != ST_ARMED; }
@@ -368,8 +395,19 @@ final class LeagueMenu {
         st = ST_CLOSED; qHeld = in & IN_GAME_ALL; cur = null; model = null;
         sResult = sQuit = sPause = sConfirm = sDrawer = null; drawerTab = -1; drawerWaiting = false;
         busy = false; afterClose = null; capture = false; ignore = 0; repDir = 0; autoOn = false;
-        optDown = false; lastPatch = null; cursor = -1;
+        optDown = false; lastPatch = null; cursor = -1; armed = true; opening = false; quadHidden = false;
         updateHit();
+    }
+    /** 결판·쉼을 닫힌 데서(또는 기권 뒤 결판을) 열었다 — 무장 전으로 */
+    private void disarm() { armed = false; armFresh = true; }        /* 연 시각은 다음 feed 의 60Hz 시계로(queueEvent 로 온 열기는 그 vsync 의 시계보다 먼저 온다) */
+    /** 무장 전인가 — 결판·쉼만. 연 뒤 ARM_FRAMES 가 지나고 모든 키(A·B·OPTION·방향)를 QUIET_FRAMES 동안 떼고 있었으면 무장(그 뒤로는 막지 않음) */
+    private boolean guarded(int in) {
+        if (armed) return false;
+        if (st != ST_RESULT && st != ST_PAUSE) { armed = true; return false; }
+        if (armFresh) { armFresh = false; openedAt = now; lastKeyAt = now; }
+        if ((in & IN_KEYS) != 0) lastKeyAt = now;                       /* 쥔 키(연 순간 쥐던 것 포함)는 무장을 미룬다 */
+        if (now - openedAt >= ARM_FRAMES && now - lastKeyAt >= QUIET_FRAMES) { armed = true; return false; }
+        return true;
     }
 
     /** 닫힌 동안 OPTION — 늘 지우고, 탭이면 쉼 */
@@ -398,14 +436,15 @@ final class LeagueMenu {
     /** 장면을 올린다 — 층·창유리·쿼드·바탕 → 커서 → 대본. 실패하면 닫고 옛 길로 */
     private boolean show(LgmPages.Scene sc, int how, int startFlag, int cursorIdx) {
         ov.clear(Emu.OV_CLR_W | Emu.OV_CLR_L | Emu.OV_CLR_BASE | Emu.OV_CLR_CUE);
+        opening = false; quadHidden = false;
         boolean ok = upload(sc);
         cur = sc;
         cursor = -1;
         if (ok && sc.rows != null && sc.rows.length > 0) setCursor(cursorIdx, true);
         if (ok && sc == sResult) applyStage(sc);
         if (ok && (sc == sResult || sc == sQuit) && lastPatch != null) applyPatch(lastPatch);
-        int[] ops = how == SHOW_FULL ? sc.cue : sc.swapCue;
-        int flags = startFlag | (++cueId << Emu.OV_CUE_ID_SHIFT) | (how == SHOW_END ? Emu.OV_SKIP_TO_END : 0);
+        int[] ops = how == SHOW_FULL ? sc.cue : how == SHOW_REVEAL && sc.revealCue != null ? sc.revealCue : sc.swapCue;
+        int flags = startFlag | (++cueId << Emu.OV_CUE_ID_SHIFT) | (how == SHOW_END || (how == SHOW_REVEAL && sc.revealCue == null) ? Emu.OV_SKIP_TO_END : 0);
         if (ok) ok = ov.cue(ops != null ? ops : new int[0], flags);
         curReadyT = how == SHOW_FULL ? sc.readyT : 0;
         if (how != SHOW_FULL && sc.fusePane >= 0) fuseOff(sc);           /* 돌아온 결판 — 연속 대전은 이미 꺼짐 */
@@ -562,6 +601,7 @@ final class LeagueMenu {
         LgmPages.Scene old = cur; int oc = cursor;
         if (!show(sQuit, SHOW_SWAP, Emu.OV_START_NOW, clampRow(sQuit, c))) return;
         underlay(old, oc);
+        hideCursorQuad(LgmPages.SWING);
         st = ST_QUIT;
         updateHit();
     }
@@ -571,6 +611,7 @@ final class LeagueMenu {
         LgmPages.Scene old = cur; int oc = cursor;
         if (!show(sResult, SHOW_SWAP, Emu.OV_START_NOW, q >= 0 ? q : clampRow(sResult, resultCursor))) return;
         underlay(old, oc);
+        hideCursorQuad(LgmPages.SWING);
         st = ST_RESULT;
         updateHit();
     }
@@ -590,7 +631,28 @@ final class LeagueMenu {
                 v = (short) ((v & ~0x1E00) | ((cr.palOn & 15) << 9));
             m[r * cols + c] = v;
         }
-        if (ov.layer(Emu.OV_L, e.tiles, e.tileBase, m, cols, rows, c0, r0, e.pals, 0)) ov.scroll(Emu.OV_L, 0, 0, 0, 151);
+        if (ov.layer(Emu.OV_L, e.tiles, e.tileBase, m, cols, rows, c0, r0, e.pals, 0)) {
+            ov.scroll(Emu.OV_L, 0, 0, 0, 151);
+            int[] q = quadDef(old, LgmPages.Q_CURSOR);                    /* 옛 단도도 옛 줄에 — 휘두름이 지나가면 새 칼집 몸통(불투명)이 덮는다 */
+            if (q != null && cr != null) ov.quad(Emu.OV_L, LgmPages.Q_CURSOR, cr.quadX, cr.quadY, q[4], cr.palOn, (q[6] & ~Emu.OV_Q_SHOW) | Emu.OV_Q_SHOW);
+        }
+    }
+    /** 칼 휘두름(WIPE) 동안 새 단도를 숨긴다 — 쿼드는 WIPE 에 안 가려져, 아직 안 드러난 옛 목록 옆에 새 단도가 먼저 서 있었다. 대본 t ≥ showT(또는 끝)에 다시 */
+    private void hideCursorQuad(int showT) {
+        LgmPages.Scene sc = cur;
+        int[] q = sc != null ? quadDef(sc, LgmPages.Q_CURSOR) : null;
+        if (q == null || cursor < 0 || sc.rows == null || cursor >= sc.rows.length) return;
+        LgmPages.Row r = sc.rows[cursor];
+        ov.quad(q[0], q[1], r.quadX, r.quadY, q[4], r.palOn, q[6] & ~Emu.OV_Q_SHOW);
+        quadHidden = true; quadShowT = showT;
+    }
+    private void showCursorQuad() {
+        quadHidden = false;
+        LgmPages.Scene sc = cur;
+        int[] q = sc != null ? quadDef(sc, LgmPages.Q_CURSOR) : null;
+        if (q == null || cursor < 0 || sc.rows == null || cursor >= sc.rows.length) return;
+        LgmPages.Row r = sc.rows[cursor];
+        ov.quad(q[0], q[1], r.quadX, r.quadY, q[4], r.palOn, q[6] | Emu.OV_Q_SHOW);
     }
     private void openConfirm() {
         if (sConfirm == null) { setBusy(); post(act::lgmForfeit); return; }    /* 확인 장면이 없으면(그림 실패) — 그래도 두 번째로 묻지 않고 넘기지 않게 */
@@ -655,14 +717,143 @@ final class LeagueMenu {
         LgmPages.Scene back = drawerFrom == ST_PAUSE ? sPause : drawerFrom == ST_QUIT ? sQuit : sResult;
         int to = drawerFrom;
         if (back == null) { close(); return; }
+        int c = to == ST_PAUSE ? pauseCursor : to == ST_QUIT ? 0 : resultCursor;
         Runnable done = () -> {
-            int c = to == ST_PAUSE ? pauseCursor : to == ST_QUIT ? 0 : resultCursor;
             sDrawer = null; drawerTab = -1; drawerWaiting = false;
             if (show(back, SHOW_END, Emu.OV_START_NOW, clampRow(back, c))) { st = to; capture = true; updateHit(); }
         };
-        LgmPages.Scene sc = sDrawer;
-        if (sc != null && sc.closeCue != null && sc.closeDur > 0) closing(sc, done);
-        else done.run();
+        LgmPages.Scene page = sDrawer;
+        if (page == null || opening || cur != page) { opening = false; done.run(); return; }   /* 아직 서랍 쪽이 다 안 섰다 — 부른 화면이 그대로 보인다 */
+        final int dc = cursor;
+        Runnable roll = () -> { if (!rollUpTo(page, dc, back, c, done)) done.run(); };
+        if (page.l != null && page.lClipY1 > page.lClipY0) {           /* 순위 목록(L)은 먼저 접는다 — 족자 말림 동안 L 은 서랍 쪽 사본이 쓴다 */
+            int[] ops = LgmPages.concat(new int[]{ Cue.OP_CLIP, 0, LIST_UP, Emu.OV_L | (Cue.EDGE_BOTTOM << 4) | (Cue.EASE_IN << 8), page.lClipY1, page.lClipY0 - 1, 0 },
+                    ambient(page.cue, -1));
+            phase(ops, LIST_UP, roll);
+        } else roll.run();
+    }
+    /** 닫는 연출 한 토막 — 끝나면(60Hz 시계) then */
+    private void phase(int[] ops, int dur, Runnable then) {
+        ov.cue(ops, Emu.OV_START_NOW | (++cueId << Emu.OV_CUE_ID_SHIFT));
+        curReadyT = 0;
+        st = ST_CLOSING; closeAt = now + dur; afterClose = then;
+        updateHit();
+    }
+
+    /* ── 족자 펼침·말림 — 부른 화면(결판·그만할까요?·쉼)이 사라지지 않고 족자 줄 아래로 그대로 보이게 ──
+       펼침: W(부른 화면)는 그대로 두고 위에서부터 잘라 내림(clip y0 0→152) · L 에 서랍 쪽 사본(화면 20×19)을 위에서부터 드러냄(clip y1 −1→151) ·
+             먹 채움(바탕 칸 1) 0→152 줄 — 셋이 같은 줄. 부른 화면의 DIM(바탕 칸 0)·띠·칼집은 줄 아래로 그대로. 끝나면 서랍 쪽을 W 로(같은 그림) + 순위 목록 드러냄.
+       말림: W ← 부른 화면(끝 상태) · L ← 서랍 쪽 사본 — 거꾸로(EASE_IN). 끝나면 부른 화면을 그대로 다시(같은 그림).
+       예전엔 펼침 첫 vsync 에 부른 화면·DIM 이 통째로 사라져 줄 아래가 날 무대(어둡게 안 한 멈춘 그림)였고, 말림도 그 반대였다(≈130ms 번쩍) */
+    private static int[] op(int op, int t0, int dur, int a, int b, int c, int d) { return new int[]{ op, t0, dur, a, b, c, d }; }
+    private static int clipA(int layer, int edge, int ease) { return (layer & 15) | ((edge & 15) << 4) | ((ease & 3) << 8); }
+    private boolean unrollOver(LgmPages.Scene page, int ci) {
+        LgmPages.Scene caller = cur;
+        ov.clear(Emu.OV_CLR_L);
+        if (!uploadCrop(page, ci)) { ov.clear(Emu.OV_CLR_L); return false; }
+        int u = LgmPages.UNROLL;
+        int[] ops = LgmPages.concat(LgmPages.concat(new Cue().base(0, u, LgmPages.B_FILL, Emu.OV_BASE_FILL, 0, 151, 0, 152, 0x012, Cue.EASE_LINEAR).build(),
+                LgmPages.concat(op(Cue.OP_CLIP, 0, u, clipA(Emu.OV_L, Cue.EDGE_BOTTOM, Cue.EASE_LINEAR), -1, 151, 0),
+                                op(Cue.OP_CLIP, 0, u, clipA(Emu.OV_W, Cue.EDGE_TOP, Cue.EASE_LINEAR), 0, 152, 0))),
+                LgmPages.concat(ambient(caller.cue, -1), ambient(page.cue, Emu.OV_L)));
+        if (ops.length / Cue.INTS > Cue.MAX_OPS || !ov.cue(ops, Emu.OV_START_NOW | (++cueId << Emu.OV_CUE_ID_SHIFT))) { ov.clear(Emu.OV_CLR_L); return false; }
+        curReadyT = 0;
+        opening = true; openingAt = now + u; openingCursor = ci;
+        return true;
+    }
+    /** 펼침 끝 — 서랍 쪽을 W 로(L 사본과 같은 그림) · 순위면 목록을 칼 휘두름으로 드러냄 */
+    private void finishOpening() {
+        if (!opening) return;
+        opening = false;
+        LgmPages.Scene page = sDrawer;
+        if (page == null) return;
+        show(page, SHOW_REVEAL, Emu.OV_START_NOW, openingCursor);
+        updateHit();
+    }
+    private boolean rollUpTo(LgmPages.Scene page, int pageCursor, LgmPages.Scene back, int c, Runnable done) {
+        ov.clear(Emu.OV_CLR_W | Emu.OV_CLR_L | Emu.OV_CLR_BASE | Emu.OV_CLR_CUE);
+        opening = false; quadHidden = false;
+        boolean ok = upload(back);
+        cur = back; cursor = -1;
+        if (ok && back.rows != null && back.rows.length > 0) setCursor(clampRow(back, c), true);
+        if (ok && back == sResult) applyStage(back);
+        if (ok && (back == sResult || back == sQuit) && lastPatch != null) applyPatch(lastPatch);
+        if (ok && back.fusePane >= 0) fuseOff(back);
+        if (ok) ok = uploadCrop(page, pageCursor);
+        if (!ok) return false;
+        int r = LgmPages.ROLLUP;
+        int[] ops = LgmPages.concat(LgmPages.concat(endState(back), new Cue().base(0, r, LgmPages.B_FILL, Emu.OV_BASE_FILL, 0, 151, 152, 0, 0x012, Cue.EASE_IN).build()),
+                LgmPages.concat(LgmPages.concat(op(Cue.OP_CLIP, 0, r, clipA(Emu.OV_W, Cue.EDGE_TOP, Cue.EASE_IN), 152, 0, 0),
+                                                op(Cue.OP_CLIP, 0, r, clipA(Emu.OV_L, Cue.EDGE_BOTTOM, Cue.EASE_IN), 151, -1, 0)),
+                                ambient(page.cue, Emu.OV_L)));
+        if (ops.length / Cue.INTS > Cue.MAX_OPS || !ov.cue(ops, Emu.OV_START_NOW | (++cueId << Emu.OV_CUE_ID_SHIFT))) return false;
+        curReadyT = 0;
+        st = ST_CLOSING; closeAt = now + r; afterClose = done;
+        updateHit();
+        return true;
+    }
+    /** 서랍 쪽을 L 층에 — 화면 칸(20×19)만, 커서 줄 색·줄 설명·단도까지 W 에서와 같게(펼침·말림 동안 부른 화면 위에 덮는 사본) */
+    private boolean uploadCrop(LgmPages.Scene page, int ci) {
+        TileCanvas.Encoded e = page.w;
+        if (e == null || e.map == null || e.tiles == null || e.tiles.length / 16 > TileCanvas.MAX_CHUNK) return false;
+        final int cols = 20, rows = 19;
+        short[] m = new short[cols * rows];
+        for (int r = 0; r < rows; r++) for (int c = 0; c < cols; c++) m[r * cols + c] = cellOf(e, c, r);
+        LgmPages.Row cr = page.rows != null && ci >= 0 && ci < page.rows.length ? page.rows[ci] : null;
+        if (page.rows != null) for (int k = 0; k < page.rows.length; k++) {
+            LgmPages.Row o = page.rows[k];
+            int pal = k == ci ? o.palOn : o.palOff;
+            for (int r = o.r0; r <= o.r1 && r < rows; r++) for (int c = o.c0; c <= o.c1 && c < cols; c++) {
+                short v = m[r * cols + c];
+                if (v != (short) 0xFFFF) m[r * cols + c] = (short) ((v & ~0x1E00) | ((pal & 15) << 9));
+            }
+        }
+        if (cr != null && cr.descC >= 0)
+            for (int c = 0; c < cr.descW; c++) if (cr.descDstC + c < cols && cr.descDstR < rows) m[cr.descDstR * cols + cr.descDstC + c] = cellOf(e, cr.descC + c, cr.descR);
+        boolean ok = ov.layer(Emu.OV_L, e.tiles, e.tileBase, m, cols, rows, 0, 0, e.pals, 0);
+        ok = ok && ov.scroll(Emu.OV_L, 0, 0, 0, -1);
+        if (ok && page.quads != null)
+            for (int i = 0; i + 6 < page.quads.length; i += 7) {
+                int idx = page.quads[i + 1], x = page.quads[i + 2], y = page.quads[i + 3], pal = page.quads[i + 5];
+                if (idx == LgmPages.Q_CURSOR && cr != null) { x = cr.quadX; y = cr.quadY; pal = cr.palOn; }
+                ok &= ov.quad(Emu.OV_L, idx, x, y, page.quads[i + 4], pal, page.quads[i + 6]);
+            }
+        return ok;
+    }
+    private static short cellOf(TileCanvas.Encoded e, int c, int r) {
+        int mc = c - e.col0, mr = r - e.row0;
+        return mc >= 0 && mr >= 0 && mc < e.cols && mr < e.rows ? e.map[mr * e.cols + mc] : (short) 0xFFFF;
+    }
+    /** 장면의 늘 도는 op(일렁임·까딱·반짝임)만 t0 0 으로 — toLayer ≥ 0 이면 W 층 op 를 그 층으로 */
+    private static int[] ambient(int[] ops, int toLayer) {
+        if (ops == null) return new int[0];
+        java.util.ArrayList<int[]> out = new java.util.ArrayList<>();
+        for (int i = 0; i + Cue.INTS <= ops.length; i += Cue.INTS) {
+            if (ops[i + 2] >= 0) continue;
+            int[] o = java.util.Arrays.copyOfRange(ops, i, i + Cue.INTS);
+            o[1] = 0;
+            int opn = o[0];
+            boolean layered = opn == Cue.OP_PALCYCLE || opn == Cue.OP_BOB || opn == Cue.OP_STAMP;
+            if (toLayer >= 0 && layered && (o[3] & 15) == Emu.OV_W) o[3] = (o[3] & ~15) | toLayer;
+            out.add(o);
+        }
+        int[] r = new int[out.size() * Cue.INTS];
+        for (int k = 0; k < out.size(); k++) System.arraycopy(out.get(k), 0, r, k * Cue.INTS, Cue.INTS);
+        return r;
+    }
+    /** 부른 화면의 끝 상태 대본(돌아올 때와 같은 것 — 칼 휘두름은 뺌) */
+    private static int[] endState(LgmPages.Scene sc) {
+        int[] src = sc.swapCue != null ? sc.swapCue : LgmPages.snap(sc.cue);
+        java.util.ArrayList<int[]> out = new java.util.ArrayList<>();
+        for (int i = 0; i + Cue.INTS <= src.length; i += Cue.INTS) {
+            if (src[i] == Cue.OP_WIPE) continue;
+            int[] o = java.util.Arrays.copyOfRange(src, i, i + Cue.INTS);
+            if (o[1] != 0) { o[1] = 0; if (o[2] > 0) o[2] = 0; }
+            out.add(o);
+        }
+        int[] r = new int[out.size() * Cue.INTS];
+        for (int k = 0; k < out.size(); k++) System.arraycopy(out.get(k), 0, r, k * Cue.INTS, Cue.INTS);
+        return r;
     }
 
     /* 서랍 목록 넘기기 — 목표를 8px 씩, 화면은 vsync 마다 2px(쥐면 4px) */
@@ -701,7 +892,7 @@ final class LeagueMenu {
         if (fresh) for (int k = 0; k < sc.rows.length; k++) if (k != i) { LgmPages.Row o = sc.rows[k]; ov.recolor(Emu.OV_W, o.c0, o.r0, o.c1 - o.c0 + 1, o.r1 - o.r0 + 1, o.palOff); }
         ov.recolor(Emu.OV_W, r.c0, r.r0, r.c1 - r.c0 + 1, r.r1 - r.r0 + 1, r.palOn);
         int[] q = quadDef(sc, LgmPages.Q_CURSOR);
-        if (q != null) ov.quad(q[0], q[1], r.quadX, r.quadY, q[4], r.palOn, q[6] | Emu.OV_Q_SHOW);
+        if (q != null) ov.quad(q[0], q[1], r.quadX, r.quadY, q[4], r.palOn, quadHidden ? q[6] & ~Emu.OV_Q_SHOW : q[6] | Emu.OV_Q_SHOW);
         if (r.descC >= 0) copyCells(sc, r.descC, r.descR, r.descDstC, r.descDstR, r.descW, 1);
         cursor = i;
         updateHit();

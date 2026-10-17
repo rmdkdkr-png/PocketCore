@@ -238,9 +238,8 @@ final class MenuModel {
             if (loss && b.brokeStreak >= 2) tags.add(new Tag('연', b.brokeStreak + "연승 끊김", E_BROKE));
             if (win && b.bonusRevenge > 0 && !rib.contains(E_REVENGE)) tags.add(new Tag('설', "+" + b.bonusRevenge, E_REVENGE));
             if (loss && canRe) {
-                League.OppView v = League.oppView(rp);
-                int[] sk = RankCore.stakes(now, v.mmr);
-                if (sk != null) tags.add(new Tag('설', "이기면 +" + (sk[0] + RankCore.BONUS_REVENGE), E_REVENGE));
+                int reWin = League.rematchWinLp(rp);                        /* 재대결 승 정산 그대로(설욕 +20 · 오늘 첫 승 +30 포함) */
+                if (reWin != Integer.MIN_VALUE) tags.add(new Tag('설', "이기면 " + signed(reWin), E_REVENGE));
             }
             if (win && b.bonusDaily > 0 && !rib.contains(E_FIRST_WIN)) tags.add(new Tag('첫', "+" + b.bonusDaily, E_FIRST_WIN));
             if (rival && !rib.contains(E_RIVAL)) tags.add(new Tag('라', b.h2hW + "-" + b.h2hL, E_RIVAL));
@@ -319,7 +318,13 @@ final class MenuModel {
                     case League.ForfeitPreview.PLACEMENT: b.forfeit = new Forfeit(Forfeit.FP_PLACEMENT, 0, fp.brokeStreak, "배치 1패로 기록" + broke); break;
                     case League.ForfeitPreview.NOVICE: b.forfeit = new Forfeit(Forfeit.FP_NOVICE, 0, fp.brokeStreak, "패배로 기록 · LP 그대로 · 수련생 보호"); break;
                     case League.ForfeitPreview.MASTER: b.forfeit = new Forfeit(Forfeit.FP_LP, 0, fp.brokeStreak, "패배로 기록 · MR " + signed(fp.mrDelta) + broke); break;
-                    default: b.forfeit = new Forfeit(Forfeit.FP_LP, Math.min(0, fp.lpDelta), fp.brokeStreak, "패배로 기록 · " + signed(fp.lpDelta) + " LP" + broke); break;
+                    default: {
+                        /* 실제 정산(settle) 그대로 — 바닥에 걸리면 덜 잃고, 방패가 이미 쓰였으면 강등까지 */
+                        String ev = fp.demoted && fp.tierAfter >= 0 && fp.tierAfter < RankCore.TIER.length ? " · " + ro(RankCore.TIER[fp.tierAfter]) + " 강등"
+                                : fp.shieldUsed ? " · 강등 위기" : "";
+                        b.forfeit = new Forfeit(Forfeit.FP_LP, Math.min(0, fp.lpDelta), fp.brokeStreak, "패배로 기록 · " + signed(fp.lpDelta) + " LP" + ev + broke);
+                        break;
+                    }
                 }
             }
             int[] rows = b.started ? new int[]{ ROW_RESUME, ROW_DRAWER, ROW_LATER, ROW_FORFEIT } : new int[]{ ROW_RESUME, ROW_DRAWER, ROW_VOIDQUIT };
@@ -453,6 +458,15 @@ final class MenuModel {
         return new int[]{ lo, hi };
     }
     static String signed(int v) { return v > 0 ? "+" + v : v < 0 ? "-" + (-v) : "±0"; }
+    /** «낭인으로» · «무사로» — 받침 없음·ㄹ 받침이면 «로» */
+    static String ro(String w) {
+        if (w == null || w.isEmpty()) return "";
+        char c = w.charAt(w.length() - 1);
+        boolean bat = c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 != 0 && (c - 0xAC00) % 28 != 8;
+        return w + (bat ? "으로" : "로");
+    }
+    /** «오늘 3승 1패 2무» — 결판(그만할까요? r16)·쉼 아래 띠·서랍 전적이 같은 숫자(rankedToday)·같은 글을 쓴다 */
+    String todayLine() { return "오늘 " + todayW + "승 " + todayL + "패" + (todayD > 0 ? " " + todayD + "무" : ""); }
     static int indexOf(int[] a, int v) { for (int i = 0; i < a.length; i++) if (a[i] == v) return i; return -1; }
     /** 이 줄 번호의 칸(없으면 −1) */
     int rowIndex(int rowId) { return rows == null ? -1 : indexOf(rows, rowId); }

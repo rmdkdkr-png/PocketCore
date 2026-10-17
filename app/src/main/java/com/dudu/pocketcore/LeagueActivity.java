@@ -201,7 +201,8 @@ public class LeagueActivity extends Activity {
     private void boardLoad(final RankCore.Me me) {
         BoardCache.warm(this, me, boardAround, boardK(), true, () -> { if (!isFinishing()) render(); });
     }
-    private BoardCache.Board boardFor(RankCore.Me me) { return BoardCache.get(me, boardAround, boardK()); }
+    /** 순위표 줄은 프로필·아바타까지 데운 판만(게임 안 서랍이 아바타 없이 데운 판이면 아바타만 마저 데운 뒤 — UI 스레드에서 100줄을 만들지 않게) */
+    private BoardCache.Board boardFor(RankCore.Me me) { return BoardCache.get(me, boardAround, boardK(), true); }
     private boolean boardAround = false;         /* 순위표: 위 100 / 내 주변 */
     private static final String[] TABS = { "순위표", "최근 경기", "라이벌", "규칙" };
 

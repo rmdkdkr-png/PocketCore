@@ -1406,7 +1406,11 @@ public class EmuActivity extends Activity {
         if (League.isRanked(m)) {                              /* 157 G10 — 셈은 League.forfeitPreview(쉼의 두 번 묻기와 같은 값), 글은 그대로 */
             League.ForfeitPreview fp = League.forfeitPreview(m);
             if (fp.kind == League.ForfeitPreview.PLACEMENT) body = "배치 1패로 기록돼요.";
-            else if (fp.kind == League.ForfeitPreview.LP && fp.lpDelta != 0) body = "이 경기는 기권패로 기록돼요 (LP " + RankUi.signed(fp.lpDelta) + ").";   /* 수련생은 안 깎인다 — ±0 은 빼고(리그 화면과 같게) */
+            else if (fp.kind == League.ForfeitPreview.LP && (fp.lpDelta != 0 || fp.demoted || fp.shieldUsed)) {   /* 수련생은 안 깎인다 — ±0 은 빼고(리그 화면과 같게) */
+                body = "이 경기는 기권패로 기록돼요 (LP " + RankUi.signed(fp.lpDelta) + ").";
+                if (fp.demoted && fp.tierAfter >= 0 && fp.tierAfter < RankCore.TIER.length) body += " " + MenuModel.ro(RankCore.TIER[fp.tierAfter]) + " 강등돼요.";   /* 157: 실제 정산 그대로 — 강등·강등 위기도 */
+                else if (fp.shieldUsed) body += " 강등 위기가 돼요.";
+            }
         }
         final boolean[] went = { false };
         ask("기권할까요?", body)

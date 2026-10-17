@@ -57,6 +57,7 @@ final class LgmPages {
         int stageDstC, stageDstR;        // 무대 이름을 놓을 칸(stageCells 의 w 칸)
         int stageSel = -1;               // 그린 무대 값
         int[] swapCue;                   // 다른 장면에서 돌아올 때 — 끝 상태 + 칼 휘두름(WIPE) · 늘 도는 것
+        int[] revealCue;                 // (서랍 순위) 족자를 다 편 뒤 — 끝 상태 + L 목록(보이는 줄)을 칼 휘두름으로 드러냄. 없으면 끝 상태 그대로
         int[] closeCue; int closeDur;    // 닫기 연출(칼집 닫힘·쉼 닫기·족자 말림) — 끝나면 LeagueMenu 가 동작/닫기
         int defaultRow;                  // 처음 커서
         int fusePane = -1, hintPane = -1;// 연속 대전 도화선(보이는 동안 r18 오른쪽 안내 대신) — 입력이 오면 안내로 되돌림
@@ -196,11 +197,10 @@ final class LgmPages {
         boolean[] on = { true, true, true, true, true };
         String[] lab = { "타이틀로", "리그 화면", "내 게임", "게임 목록", "취소" };
         cmdRows(b, null, 6, R_INK, R_WARN, R_SEL, rows, on, new String[5], lab, 4);
-        /* r16 — 이번 세션(G2) «오늘 4승 1패 +152», 세션이 없으면 오늘 */
+        /* r16 «오늘 4승 1패 +152» — 쉼 아래 띠·서랍 전적과 같은 «오늘»(rankedToday). 세션(G2)은 허브를 다시 켤 때마다 끊겨 같은 «오늘» 글자에 다른 숫자가 나왔다 */
         cv.cellPal(11, 16, 19, 16, R_INK);
-        int w = m.sessW >= 0 ? m.sessW : m.todayW, l = m.sessW >= 0 ? m.sessL : m.todayL, d = m.sessW >= 0 ? m.sessD : m.todayD, lp = m.sessW >= 0 ? m.sessLp : m.todayLp;
-        String day = "오늘 " + w + "승 " + l + "패" + (d > 0 ? " " + d + "무" : "");
-        String lps = w + l + d > 0 ? MenuModel.signed(lp) : null;
+        String day = m.todayLine();
+        String lps = m.todayW + m.todayL + m.todayD > 0 ? MenuModel.signed(m.todayLp) : null;
         int lim = (lps != null ? 155 - TileCanvas.mini3W(lps) - 4 : 156) - 90;
         cv.text(fit(day, lim, ink.g7), 90, 128, 2, ink.g7);
         if (lps != null) cv.mini3(lps, 155, 129, 1, TileCanvas.RIGHT);
@@ -248,9 +248,9 @@ final class LgmPages {
         int t = Math.max(0, Math.min(7, m.tierAfter));
         cv.setPal(R_CREST, 0xFFF, TIER_C[t][0], 0x135);
     }
-    /** 띠 LP 줄 팔레트 — 1 LP 노랑 · 2 티어 빛(배치는 금) · 3 검정 */
+    /** 띠 LP 줄 팔레트 — 1 LP 노랑 · 2 티어 빛(배치는 수련생 빛 — 경기 전 VS 띠 RankVs.placement 가 tier 0 으로 그리는 것과 짝) · 3 검정 */
     private static int[] lpPal(MenuModel.Side s) {
-        if (s.placement) return new int[]{ LP_YELLOW, 0x7DF, 0x000 };
+        if (s.placement) return new int[]{ LP_YELLOW, TIER_C[0][0], 0x000 };
         return new int[]{ LP_YELLOW, TIER_C[Math.max(0, Math.min(7, s.tier))][0], 0x000 };
     }
 
@@ -280,10 +280,12 @@ final class LgmPages {
         sideStats(cv, m.opp, -1, false);
         /* 낙관 + 점수 */
         cv.cellPal(8, 0, 11, 2, R_SEAL);
-        int seal = m.outcome == MenuModel.O_WIN ? OvArt.SEAL24_SEUNG : m.outcome == MenuModel.O_DRAW || m.outcome == MenuModel.O_VOID ? OvArt.SEAL24_MU : OvArt.SEAL24_PAE;
-        cv.art(seal, 68, 0, 1, 2, 3, false);
+        if (m.outcome == MenuModel.O_FORFEIT || m.outcome == MenuModel.O_VOID)          /* 기획서 §4.2·§8 — 먹 «기권» · «무효» 두 글자 낙관(무승부 «무» 와 헷갈리지 않게) */
+            cv.art(m.outcome == MenuModel.O_FORFEIT ? OvArt.SEAL32_GIGWON : OvArt.SEAL32_MUHYO, 64, 0, 1, 2, 3, false);
+        else
+            cv.art(m.outcome == MenuModel.O_WIN ? OvArt.SEAL24_SEUNG : m.outcome == MenuModel.O_DRAW ? OvArt.SEAL24_MU : OvArt.SEAL24_PAE, 68, 0, 1, 2, 3, false);
         cv.cellPal(8, 3, 11, 3, R_SEL);
-        String score = m.outcome == MenuModel.O_FORFEIT ? "기권" : m.outcome == MenuModel.O_VOID ? "무효" : m.w1 >= 0 ? m.w1 + " : " + m.w2 : "";
+        String score = m.outcome == MenuModel.O_FORFEIT || m.outcome == MenuModel.O_VOID ? "" : m.w1 >= 0 ? m.w1 + " : " + m.w2 : "";
         if (!score.isEmpty()) cv.text(score, 80, 25, 1, ink.g7, -1, TileCanvas.CENTER, 0);
     }
     /** 한쪽 «티어 ★n LP» — 왼쪽(나)은 왼쪽 맞춤, 오른쪽(상대)은 오른쪽 맞춤. placementN ≥ 0 = 배치 n/5 */
@@ -384,21 +386,27 @@ final class LgmPages {
         } else if (m.mode == MenuModel.M_PLACEMENT && !m.placementDone) {
             int played = Math.max(0, Math.min(5, 5 - m.placementLeft));
             for (int k = 0; k < 5; k++) cv.art(k < played ? OvArt.PIP_WIN : OvArt.PIP_LOSS, 89 + k * 7, 35, 1, 2, 0, false);
-            cv.text("배치 " + played + "/5", 89, 42, 2, ink.g7);
+            cv.text("배치 " + played + "/5", 89, 41, 2, ink.g7);                 /* 갈무리7 7줄 — 41..47(r5 안, 아래 명령 줄 r6 으로 안 샘) */
         } else if (m.mode == MenuModel.M_PLACEMENT) {
             cv.text("배치 완료", 89, 34, 1, ink.g7);
             String lb = RankCore.TIER[Math.max(0, Math.min(7, m.tierAfter))] + (m.tierAfter < 7 ? "★" + m.starAfter : "");
-            cv.text(lb + " · " + m.lpAfter, 89, 42, 2, ink.g7);
+            cv.text(lb + " · " + m.lpAfter, 89, 41, 2, ink.g7);
         } else if (m.mode == MenuModel.M_MASTER || m.enteredMaster) {
             cv.text(m.enteredMaster ? "무쌍 달성" : "무쌍", 89, 34, m.enteredMaster ? 1 : 2, ink.g7);
-            int x = cv.text("MR", 89, 42, 2, ink.g7);
-            cv.mini3(String.valueOf(m.mrAfter), x + 3, 43, 1, TileCanvas.LEFT);
+            int x = cv.text("MR", 89, 41, 2, ink.g7);
+            cv.mini3(String.valueOf(m.mrAfter), x + 3, 42, 1, TileCanvas.LEFT);
             if (m.mode == MenuModel.M_MASTER) delta = MenuModel.signed(m.mrAfter - m.mrBefore);
         } else if (m.demoted) {
             String a = RankCore.TIER[Math.max(0, Math.min(7, m.tierBefore))], z = RankCore.TIER[Math.max(0, Math.min(7, m.tierAfter))];
             cv.text(fit(a + " → " + z, 67, ink.g7), 89, 34, 2, ink.g7);                 /* 잿빛 «검객 → 무사» — 막대 없이 */
             cv.mini3(m.lpAfter + "/" + m.starNextAfter, 89, 43, 2, TileCanvas.LEFT);
             cv.mini3(MenuModel.signed(m.lpDelta), 156, 43, 1, TileCanvas.RIGHT);
+        } else if (m.noviceProtect) {
+            /* 수련생이 짐 — 막대 없이 «LP 그대로 · 수련생 보호»(기획서 §4.2). 막대(36..41) 밑엔 7줄 글자 자리가 없다 */
+            cv.text("LP 그대로", 89, 34, 1, ink.g7);
+            delta = MenuModel.signed(m.lpDelta);
+            int dw = cv.textW(delta, ink.g11b);
+            cv.text(fit("수련생 보호", 156 - dw - 4 - 89, ink.g7), 89, 41, 2, ink.g7);
         } else {
             /* LP 막대(목업 gauge 89..127 · 36..41) — 안쪽 채움은 대본(GAUGE) */
             for (int x = 89; x <= 127; x++) { cv.px(x, 36, 2); cv.px(x, 41, 2); }
@@ -417,10 +425,7 @@ final class LgmPages {
             }
             h.risk = m.shieldUsed;
             delta = MenuModel.signed(m.lpDelta);
-            if (m.noviceProtect) {
-                int dw = cv.textW(delta, ink.g11b);
-                cv.text(fit("수련생 보호", 156 - dw - 4 - 89, ink.g7), 89, 42, 2, ink.g7);
-            } else {
+            {
                 /* 숫자 «지금/다음★» — 프레임(COUNT)은 창고 c20–24 r5..: 머리 r5 c11–15 칸을 그대로 베끼고 숫자만 다르게 */
                 h.count = m.lpBefore != m.lpAfter;
                 if (h.count) {
@@ -567,8 +572,8 @@ final class LgmPages {
             int dw = TileCanvas.mini3W(ds);
             cv.mini3(ds, x1, 138, 1, TileCanvas.RIGHT);
             cv.art(d > 0 ? OvArt.TRI_UP : OvArt.TRI_DN, x1 - dw - 7, 138, d > 0 ? 1 : 2, 0, 0, false);
-            cv.text(rk, x1 - dw - 10, 137, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
-        } else cv.text(rk, x1, 137, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
+            cv.text(rk, x1 - dw - 10, 136, 2, ink.g7, -1, TileCanvas.RIGHT, 0);        /* 136 — «12,483위» 쉼표 꼬리(8째 줄)까지 r17 안 */
+        } else cv.text(rk, x1, 136, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
         return true;
     }
     /** 꼬리표 도장 8×8 — 인주 틀(OvArt) + 갈무리7 한 글자(7×7 안) */
@@ -725,7 +730,7 @@ final class LgmPages {
             cv.text(fit(line, 156, ink.g7), 2, 137, 1, ink.g7);
             cv.text(fit("◀▶ 고르기  A 확정  B 취소", 156, ink.g7), 157, 145, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
         } else {
-            String today = "오늘 " + m.todayW + "승 " + m.todayL + "패" + (m.todayD > 0 ? " " + m.todayD + "무" : "");
+            String today = m.todayLine();
             int tw = cv.textW(today, ink.g7);
             cv.text(today, 157, 137, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
             int dw = Math.max(40, 157 - tw - 6 - 2);
@@ -880,16 +885,17 @@ final class LgmPages {
         long rank = b != null ? b.rank : -1;
         if (m.me.placement) cv.text("배치 경기 " + m.me.placementPlayed + "/5 · 순위는 배치 뒤에", 2, 137, 2, ink.g7);
         else if (rank > 0) {
-            int x = cv.text(String.format(java.util.Locale.KOREA, "전국 %,d위", rank), 2, 137, 1, ink.g7);
+            int x = cv.text(String.format(java.util.Locale.KOREA, "전국 %,d위", rank), 2, 136, 1, ink.g7);
             int pct = (int) Math.max(1, Math.min(100, Math.ceil(100.0 * rank / Math.max(1, m.total))));
             boolean dl = m.rankBefore > 0 && m.rankBefore != rank;
             String ds = dl ? String.format(java.util.Locale.US, "%,d", Math.abs(m.rankBefore - rank)) : "";
-            int lim = (dl ? 155 - TileCanvas.mini3W(ds) - 10 : 157) - x - 3;
-            if (dl) cv.cellPal(16, 17, 19, 17, D_GOLD);
-            cv.text(fit(String.format(java.util.Locale.KOREA, "/ %,d · 상위 %d%%", m.total, pct), lim, ink.g7), x + 3, 137, 2, ink.g7);
+            int triX = 155 - TileCanvas.mini3W(ds) - 7, gc = triX / 8;               /* ▲▼·숫자는 금 칸(gc..19) — 앞 글은 그 칸 앞에서 끊는다(칸당 팔레트 하나) */
+            int lim = (dl ? gc * 8 - 1 : 157) - x - 3;
+            if (dl) cv.cellPal(gc, 17, 19, 17, D_GOLD);
+            cv.text(fit(String.format(java.util.Locale.KOREA, "/ %,d · 상위 %d%%", m.total, pct), lim, ink.g7), x + 3, 136, 2, ink.g7);
             if (dl) {
                 long d = m.rankBefore - rank;
-                cv.art(d > 0 ? OvArt.TRI_UP : OvArt.TRI_DN, 155 - TileCanvas.mini3W(ds) - 7, 139, d > 0 ? 1 : 2, 0, 0, false);
+                cv.art(d > 0 ? OvArt.TRI_UP : OvArt.TRI_DN, triX, 139, d > 0 ? 1 : 2, 0, 0, false);
                 cv.mini3(ds, 155, 138, 1, TileCanvas.RIGHT);
             }
         }
@@ -905,7 +911,13 @@ final class LgmPages {
             sc.lScrollMin = min; sc.lScrollMax = max;
             sc.lScrollY = Math.max(min, Math.min(max, want));
         }
-        drawerCues(sc, rows.isEmpty() ? null : new int[]{ 0, 0, 19, Math.max(0, rows.size() - 1) }, b == null && !m.me.placement);
+        int[] vis = null;
+        if (!rows.isEmpty()) {                       /* 처음 보이는 목록 줄(L 칸) — 드러냄·탭 휘두름은 이 줄만(100줄 전체를 쓸면 보이는 곳은 한순간에 뜬다) */
+            int v0 = Math.max(0, Math.floorDiv(sc.lScrollY + sc.lClipY0, 8)), v1 = Math.min(rows.size() - 1, Math.floorDiv(sc.lScrollY + sc.lClipY1, 8));
+            vis = new int[]{ 0, Math.min(v0, 127), 19, Math.min(Math.max(v0, v1), 127) };
+        }
+        drawerCues(sc, vis, b == null && !m.me.placement);
+        if (vis != null) sc.revealCue = concat(snap(sc.cue), new Cue().wipe(0, SWING, Cue.L, vis[0], vis[1], vis[2], vis[3], 2, false, 0, 0, Cue.EASE_LINEAR).build());
         sc.tab = MenuModel.Prefs.TAB_BOARD;
         return sc;
     }
@@ -962,7 +974,7 @@ final class LgmPages {
                         cv.fill(0, y, 159, y + 7, 3);
                         cv.mini3(rk, 29, y + 1, 1, TileCanvas.RIGHT);
                         cv.art(OvArt.KATANA, 32, y, 1, 2, 0, false);
-                        cv.text(fit(cover7(nick), 56, ink.g7), 42, y, 1, ink.g7);
+                        cv.text(fit(cover7(nick), 54, ink.g7), 42, y, 1, ink.g7);
                         int x = cv.text(tier, 100, y, 1, ink.g7);
                         if (!master) { cv.art(OvArt.STAR5, x + 1, y + 1, 2, 0, 0, false); cv.text(String.valueOf(RankCore.starOf(r.lp)), x + 7, y, 1, ink.g7); }
                         cv.mini3(lp, 155, y + 1, 1, TileCanvas.RIGHT);
@@ -978,7 +990,7 @@ final class LgmPages {
                         cv.cellPal(4, k, 4, k, ch);
                         cv.art(OvArt.CHAIN, 32, y + 1, 1, 0, 0, false);
                     }
-                    cv.text(fit(cover7(nick), 56, ink.g7), 42, y, 1, ink.g7);
+                    cv.text(fit(cover7(nick), 54, ink.g7), 42, y, 1, ink.g7);       /* 54px — 42..95(c5–11). c12 부터는 티어 팔레트 */
                     int tp = cv.pal(TIER_C[t][0], TIER_C[t][1], z ? 0x123 : 0x012);
                     cv.cellPal(12, k, 15, k, tp);
                     int x = cv.text(tier, 100, y, 1, ink.g7);
@@ -1002,9 +1014,9 @@ final class LgmPages {
         int games = r.w + r.l + r.d;
         String me = r.placement ? "배치 " + r.placementPlayed + "/5" : r.master ? "무쌍 · MR " + r.mr
                 : RankCore.TIER[RankCore.tierOf(r.lp)] + "★" + RankCore.starOf(r.lp) + " · " + r.lp;
-        int t = r.master ? 7 : RankCore.tierOf(r.lp);
+        int t = r.master ? 7 : r.placement ? 0 : RankCore.tierOf(r.lp);
         cv.setPal(D_TIER, TIER_C[t][0], TIER_C[t][1], 0x012);
-        drawerHead(cv, "전", "전적", "시즌 " + r.season + " · " + games + "전", me, r.placement ? D_GOLD : D_TIER, false);
+        drawerHead(cv, "전", "전적", "시즌 " + r.season + " · " + games + "전", me, D_TIER, false);   /* 배치 = 수련생 빛(결판 띠·VS 띠와 같은 빛) */
         tabRow(s, MenuModel.Prefs.TAB_RECORD);
         banner(cv, 1, D_CLOTH, "승", String.valueOf(r.w), r.winPct >= 0 ? r.winPct + "%" : "-");
         banner(cv, 7, D_CLOTHK, "패", String.valueOf(r.l), r.d > 0 ? r.d + "무" : "");
@@ -1035,7 +1047,7 @@ final class LgmPages {
         } else cv.text(m.bonusLeft ? "오늘 첫 판 · 첫 승 +30 남았어요" : "오늘 아직 안 했어요", 2, 73, 2, ink.g7);
         /* LP 흐름(r10–15) */
         cv.cellPal(0, 10, 19, 10, D_INK);
-        cv.text("LP 흐름 · 최근 " + (r.lpTrail != null ? r.lpTrail.length : 0) + "판", 2, 82, 2, ink.g7);
+        cv.text("LP 흐름 · 최근 " + (r.lpTrail != null ? r.lpTrail.length : 0) + "판", 2, 81, 2, ink.g7);   /* 81..87 — r11 은 차트 팔레트 */
         cv.cellPal(0, 11, 19, 15, D_CHART);
         chart(cv, r.lpTrail);
         /* 통산(r16) · 라이벌(r17) · 안내(r18) */

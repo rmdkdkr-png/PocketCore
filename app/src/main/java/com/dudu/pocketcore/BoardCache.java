@@ -19,6 +19,8 @@ final class BoardCache {
         java.util.List<RankCore.Row> rows;    // around: 위 k · 나 · 아래 k(순위순) / top: 1..k
         java.util.List<RankCore.Row> top3;    // 늘 1~3위(단상)
         long at;                              // 만든 시각(ms)
+        /** 줄마다 프로필·아바타를 미리 데웠나 — 게임 안(서랍)은 안 데우고, 리그 화면은 데운 판만 «준비됨»으로 본다(아니면 UI 스레드가 100줄을 만든다) */
+        volatile boolean avatars;
     }
 
     static final int KEEP = 4;
@@ -26,8 +28,9 @@ final class BoardCache {
         private static final long serialVersionUID = 1L;
         @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, Board> e) { return size() > KEEP; }
     };
-    /** 도는 계산(열쇠 → 끝나면 부를 것들) */
-    private static final java.util.HashMap<String, java.util.List<Runnable>> BUSY = new java.util.HashMap<>();
+    /** 도는 계산 하나(열쇠마다 하나) — 끝나면 부를 것들 · 아바타까지 데울지(늦게 온 warm 이 켤 수 있음) */
+    private static final class Job { final java.util.List<Runnable> waiters = new java.util.ArrayList<>(); boolean avatars; }
+    private static final java.util.HashMap<String, Job> BUSY = new java.util.HashMap<>();
     private static int gen = 0;
     /** 메인 스레드로 보내기 — 앱은 Looper.getMainLooper() · JVM 시험은 바꿔 넣는다 */
     static volatile java.util.function.Consumer<Runnable> main = null;
@@ -40,38 +43,65 @@ final class BoardCache {
         return League.rankSeed() + ":" + League.today() + ":" + League.myKey(me) + ":" + around + ":" + k + ":" + me.games;
     }
     /** 캐시에 있으면 그것(없으면 null) — 아무 스레드. 최근 4개 판을 기억(이 판 전·후 순위 비교용) */
-    static Board get(RankCore.Me me, boolean around, int k) {
+    static Board get(RankCore.Me me, boolean around, int k) { return get(me, around, k, false); }
+    /** needAvatars = 줄마다 프로필·아바타까지 데운 판만(리그 화면 순위표 — UI 스레드에서 100줄을 만들지 않게). 아니면 null */
+    static Board get(RankCore.Me me, boolean around, int k, boolean needAvatars) {
         if (me == null) return null;
         String key = key(me, around, k);
-        synchronized (CACHE) { return CACHE.get(key); }
+        Board b;
+        synchronized (CACHE) { b = CACHE.get(key); }
+        return b != null && (!needAvatars || b.avatars) ? b : null;
     }
     /** 백그라운드로 만들기(같은 열쇠가 도는 중이면 하나만) — 끝나면 onReady 를 메인 스레드에(Handler) · avatars = 줄마다 프로필·아바타도 미리.
-     *  이미 있으면 계산 없이 onReady 만 보낸다 */
+     *  이미 있으면 계산 없이 onReady 만 보낸다 — 아바타를 원하는데 아바타 없이 만든 판이면(게임 안 서랍이 먼저 데움) 아바타만 마저 데운 뒤 */
     static void warm(final android.content.Context c, final RankCore.Me me, final boolean around, final int k, final boolean avatars, final Runnable onReady) {
         if (me == null) return;
         final String key = key(me, around, k);
         final int g;
+        final Job job;
         synchronized (CACHE) {
-            if (CACHE.containsKey(key)) { if (onReady != null) post(onReady); return; }
-            java.util.List<Runnable> w = BUSY.get(key);
-            if (w != null) { if (onReady != null) w.add(onReady); return; }
-            w = new java.util.ArrayList<>();
-            if (onReady != null) w.add(onReady);
-            BUSY.put(key, w);
+            Board have = CACHE.get(key);
+            if (have != null && (!avatars || have.avatars)) { if (onReady != null) post(onReady); return; }
+            Job running = BUSY.get(key);
+            if (running != null) { running.avatars |= avatars; if (onReady != null) running.waiters.add(onReady); return; }
+            job = new Job();
+            job.avatars = avatars;
+            if (onReady != null) job.waiters.add(onReady);
+            BUSY.put(key, job);
             g = gen;
         }
-        Runnable job = () -> {
-            Board b = compute(c, me, around, k, avatars, key);
+        Runnable run = () -> {
+            Board b;
+            synchronized (CACHE) { b = CACHE.get(key); }
+            if (b == null) b = compute(c, me, around, k, false, key);
             java.util.List<Runnable> w;
-            synchronized (CACHE) {
-                w = BUSY.remove(key);
-                if (g != gen) return;                          /* 그 사이 버렸다(새 시즌 등) */
-                CACHE.put(key, b);
+            while (true) {
+                boolean av;
+                synchronized (CACHE) {
+                    /* 그 사이 버렸다(새 시즌·다시 읽기) — 새 계산(같은 열쇠의 새 Job)은 건드리지 않는다: 그 대기 목록·BUSY 칸은 그것 몫 */
+                    if (g != gen) { if (BUSY.get(key) == job) BUSY.remove(key); return; }
+                    CACHE.put(key, b);                         /* 줄은 이미 쓸 수 있다(아바타를 마저 데우는 동안에도 get(…, false) 는 이 판) */
+                    av = job.avatars && !b.avatars;
+                    if (!av) {
+                        if (BUSY.get(key) == job) BUSY.remove(key);
+                        w = new java.util.ArrayList<>(job.waiters);
+                        break;
+                    }
+                }
+                warmAvatars(c, b);                              /* 늦게 온 warm 이 아바타를 켤 수 있어 다시 본다 */
             }
-            if (w != null) for (Runnable r : w) post(r);
+            for (Runnable r : w) post(r);
         };
-        if (inline) job.run();
-        else new Thread(job, "league-board").start();
+        if (inline) run.run();
+        else new Thread(run, "league-board").start();
+    }
+    /** 줄마다 프로필·아바타 미리(리그 화면 순위표) — 판은 그대로(아바타는 Avatar·League 캐시에 든다) */
+    static int avatarPasses = 0;                                /* 시험용 */
+    private static void warmAvatars(android.content.Context c, Board b) {
+        avatarPasses++;
+        try { for (RankCore.Row r : b.rows) if (!r.me && r.p != null) Avatar.of(League.pfOf(c, r.p), r.id); }
+        catch (Exception ignored) { }
+        b.avatars = true;
     }
     /** 그 열쇠가 계산 중인가 */
     static boolean busy(RankCore.Me me, boolean around, int k) {
@@ -95,7 +125,7 @@ final class BoardCache {
             b.rank = RankCore.rankOf(seed, day, bk, mk);
             b.rows = RankCore.unmodifiable(around ? RankCore.around(seed, day, bk, mk, "나", k) : RankCore.top(seed, day, k, bk, mk, "나"));
             b.top3 = RankCore.unmodifiable(RankCore.top(seed, day, 3, bk, mk, "나"));
-            if (avatars) for (RankCore.Row r : b.rows) if (!r.me && r.p != null) Avatar.of(League.pfOf(c, r.p), r.id);   /* 프로필·아바타도 미리 */
+            if (avatars) warmAvatars(c, b);                    /* 프로필·아바타도 미리 */
         } catch (Exception e) {
             b.rows = RankCore.unmodifiable(new java.util.ArrayList<RankCore.Row>());
             if (b.top3 == null) b.top3 = RankCore.unmodifiable(new java.util.ArrayList<RankCore.Row>());
