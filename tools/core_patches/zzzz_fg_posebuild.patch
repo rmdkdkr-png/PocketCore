@@ -1,0 +1,387 @@
+앱 방 코어 패치 zzzz_fg_posebuild — 맞고 날아가는 몸 포즈 섞기(패치 80) 동안에도 ¼ px·사이 그림.
+① 다른 몸: 예전엔 한 몸이라도 포즈 섞기 중이면 id_build 가 통째로 빠져, 땅에서 걷고 대시하고 치는 다른 몸까지 ¼ px·사이 그림이 꺼졌다
+   (4장 중 한 장에 몰아 움직임 «가다 섬», 포즈 툭). 이제 섞는 몸만 조각에서 빼고, 섞는 몸이 지나는 줄은 두 판(지금 포즈·다음 포즈)을
+   따로 합친 뒤 render2 와 같은 비율로 섞는다. 둘째 판의 다음 포즈 조각도 슬롯 순서(rl_cur_slot)를 적어 두 몸 앞뒤가 판마다 맞게.
+② 섞는 몸: 지금 포즈(base 조각)와 다음 포즈(pp_to 조각)를 붙은 조각과 함께 1배 틀(bl_*)에 따로 그려 두고, 조각을 합칠 때 판마다
+   같은 ¼ px 만큼 밀어 얹어 섞는다(그 몸은 줄·둘째 판에서 뺌). 예전엔 줄에서 1배 정수 자리로 섞여 날아가는 꼭대기처럼 느릴 때
+   4장 중 두 장이 같은 자리였다. 두 포즈의 ¼ 나머지가 다르거나 틀이 80×96 을 넘으면 예전처럼 줄에서 섞는다.
+호스트 봇 66판(33 상태 × 시드 2, 출력 316,800장): 한 그림(30Hz) 사이 고르지 않은 움직임 1,561 → 424(다른 몸 섞기 중 400 → 0,
+섞는 몸 761 → 24, 남은 것은 입력이 바뀐 예측 빗나감 337 등 구조상), 대전 포즈 툭 4,444 → 4,309(다른 몸 섞기 중 145 → 10).
+출력은 포즈 섞기 칸만 다름(4판 해시: 바뀐 장 모두 섞기 칸), ASan 3판 깨끗. CPU +2~4%(섞기 칸에서 조각을 그리게 된 몫).
+
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index 9eea300..037abd0 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -1154,6 +1154,7 @@ static uint8_t pp_skip[64], pp_add[64];
+ static int16_t pp_dx[64], pp_dy[64];
+ static const ss2fg_frame *pp_to = 0;
+ static int pp_ymin, pp_ymax;
++static int pp_t;                   /* zzzz_fg_posebuild: 섞는 비율(t_spr) — id_build 의 조각 줄도 같은 비율로 섞는다 */
+ 
+ /* f 의 몸 p 조각 — 몸 팔레트(P1 0 · P2 5) 무리(sprite_moves 와 같은 무리 나누기) 중 테두리가 몸 자리 근처(body_vec 과 같은 창) */
+ static int body_mask(const ss2fg_frame *f, int p, uint8_t *mask)
+@@ -1360,6 +1361,7 @@ static void render_line(const ss2fg_frame *base, const ss2fg_frame *to, const in
+          if (pt && y >= sy && y <= sy + 7)
+          {
+             unsigned row = (unsigned)(y - sy) & 7;
++            rl_cur_slot = spr;                                   /* zzzz_fg_posebuild: 조각 줄(rl_slot)의 앞뒤 — 그 자리 순서 */
+             draw_pattern(pp_to, rb, scan, zbuf, sx, dt & 0x01FF, (dt & 0x4000) ? 7 - row : row,
+                          dt & 0x8000, pp_to->pal, pp_to->sprcol[spr] & 0xF, (uint8_t)(pt << 1));
+          }
+@@ -3064,20 +3066,31 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+       뒤에 붙인 조각이 앞 몸의 사이 그림을 덮어 그 부분만 사이 그림이 빠졌다(¼ px 몸 조각을 늘 그리면 자주 생김) */
+    static uint16_t id_tc2[(ID_W * ID_S) * (ID_H * ID_S)];
+    static uint8_t  id_tc2p[(ID_W * ID_S) * (ID_H * ID_S)];   /* zzz_fg_phase */
+-   struct { int on, W4, gh, ux0, uy0, sh4x, sh4y, x0, y0, x1, y1, depth, first, cur, r4x, r4y, an, ax0, ay0, ax1, ay1; const uint16_t *img; const uint8_t *iph; uint8_t m[64]; } dr[ID_NR];   /* 99w: 몸 둘 + 이펙트 */
++   struct { int on, W4, gh, ux0, uy0, sh4x, sh4y, x0, y0, x1, y1, depth, first, cur, r4x, r4y, an, ax0, ay0, ax1, ay1, bl; const uint16_t *img; const uint8_t *iph; uint8_t m[64]; } dr[ID_NR];   /* 99w: 몸 둘 + 이펙트 · bl = 섞는 몸(posebuild ②) */
+    id_req_t self[2];
+    uint8_t skip[64], zrow[256], szr[256], bm[2][64], am[2][64];
+    static uint16_t al_c[2][ID_W * ID_H];                      /* 99r: 붙은 조각만 그린 1배 그림(색·깊이·슬롯) */
+    static uint8_t  al_z[2][ID_W * ID_H];
+    static int8_t   al_s[2][ID_W * ID_H];
+-   int an_any = 0;
++   static uint16_t bl_c[2][2][ID_W * ID_H];                   /* zzzz_fg_posebuild ②: 섞는 몸 [몸][판 0 = 지금 포즈 · 1 = 다음 포즈] 1배 그림(색·깊이·슬롯) */
++   static uint8_t  bl_z[2][2][ID_W * ID_H];
++   static int8_t   bl_s[2][2][ID_W * ID_H];
++   uint8_t blam[2][64];                                        /* 그 몸에 붙은 조각(같이 ¼ px) */
++   int an_any = 0, bl_any = 0, pp2 = 0;
+    int16_t srow[256], ssr[256];
+    uint16_t scan[256], scr[256];
++   /* zzzz_fg_posebuild: 날아가는 몸 포즈 섞기(pp_on) 중 — 섞는 몸이 지나는 줄은 둘째 판(다음 포즈)도 그려 두 판을 따로 합친 뒤 섞는다 */
++   uint8_t zrow2[256], szr2[256];
++   int16_t srow2[256], ssr2[256];
++   uint16_t scan2[256], scr2[256];
+    int s = id_slot, p, q, k;
+    if (s < 0 || s > 1 || !id_on) return;
+    memset(dr, 0, sizeof dr);
+    for (p = 0; p < ID_NR; p++) id_pt[s][p].on = 0;
+-   if (pp_on || fx_fade_on) return;                            /* 포즈·이펙트 섞기 중엔 몸 뺀 줄을 같게 못 만든다 */
++   if (fx_fade_on) return;                                     /* 이펙트 섞기(선택 «섞기») 중엔 몸 뺀 줄을 같게 못 만든다 */
++   /* zzzz_fg_posebuild: 포즈 섞기(pp_on)는 예전엔 여기서 끝 — 맞고 날아가는 동안 다른 몸(땅에서 걷고 대시하고 치는 몸)까지
++      ¼ px·사이 그림이 꺼져 4장 중 한 장에 몰아 움직이고(봇 36판 «가다 섬» 186 중 174) 포즈가 툭 바뀌었다(~95).
++      이제 섞는 몸만 조각에서 빼고(그 몸은 줄에서 섞임), 그 몸이 지나는 줄은 두 판을 따로 합쳐 섞는다(render2 와 같은 비율) */
+    memset(am, 0, sizeof am);
+    for (p = 0; p < 2; p++) body_mask(base, p, bm[p]);         /* 99r: 두 몸 조각(붙은 조각에서 뺀다) */
+    for (p = 0; p < 2; p++)
+@@ -3088,6 +3101,11 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+       int mvx = 0, mvy = 0, r4x = 0, r4y = 0;
+       if (!rq->on && !fg_ex_on[p]) continue;
+       if (!body_mask(base, p, dr[p].m)) continue;
++      if (pp_on)
++      {  /* zzzz_fg_posebuild: 섞는 몸(그 조각이 pp_skip)은 줄에서 두 포즈를 섞으니 조각으로 안 그린다 */
++         for (k = 0; k < 64 && !(dr[p].m[k] && pp_skip[k]); k++) ;
++         if (k < 64) continue;
++      }
+       {  /* 몸 조각이 옮겨 그려지는 만큼(보간 자리) — 모두 같아야. 서기(배운 바뀜)는 제자리만, 캐시는 움직이는 몸도(걷기·점프 등, 패치 98) */
+          int seen = 0, same = 1;
+          for (k = 0; k < 64; k++)
+@@ -3244,8 +3262,136 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+          dr[q].on = 1;
+       }
+    }
++   memset(blam, 0, sizeof blam);
++   if (pp_on && pp_to)
++      for (p = 0; p < 2; p++)
++      {  /* zzzz_fg_posebuild ②: 섞는 몸도 ¼ px — 지금 포즈(base 조각)와 다음 포즈(pp_to 조각)를 1배 틀(bl_*)에 따로 그려 두고,
++            조각을 합칠 때 판마다(0 = 지금 · 1 = 다음) 같은 ¼ px 만큼 밀어 얹어 섞는다. 그 몸(과 붙은 조각)은 줄에서 빼고 둘째 판에도 안 그린다.
++            예전(①까지)엔 줄에서 1배 정수 자리로 섞여, 날아가는 꼭대기처럼 느릴 때 4장 중 두 장이 같은 자리였다(봇 18판 «떨림» 196).
++            두 포즈의 ¼ 나머지가 다르거나(몸 이동과 RAM 이동이 다름) 틀이 너무 크면 예전처럼 줄에서 섞는다 */
++         uint8_t mt[64];
++         int mvx = 0, mvy = 0, seen = 0, same = 1, vx, vy, r4x, r4y, bx0 = 9999, by0 = 9999, bx1 = -9999, by1 = -9999;
++         int fx0 = 9999, fy0 = 9999, fx1 = -9999, fy1 = -9999, yy, aw, ps;
++         for (k = 0; k < 64 && !(bm[p][k] && pp_skip[k]); k++) ;
++         if (k == 64 || !fg_ex_on[p] || !body_mask(pp_to, p, mt)) continue;
++         for (k = 0; k < 64; k++)
++            if (bm[p][k])
++            {
++               int dx = offx ? offx[k] : 0, dy = offy ? offy[k] : 0;
++               if (!seen) { mvx = dx; mvy = dy; seen = 1; }
++               else if (dx != mvx || dy != mvy) same = 0;
++            }
++         if (!seen || !same) continue;
++         r4x = id_round4(fg_ex_x[p]) - mvx * ID_S; r4y = id_round4(fg_ex_y[p]) - mvy * ID_S;
++         if ((!r4x && !r4y) || r4x < -3 || r4x > 3 || r4y < -3 || r4y > 3) continue;   /* ¼ 이 없는 칸은 줄에서 섞어도 같다 */
++         vx = (int8_t)(uint8_t)(pp_to->ob_x[p] - base->ob_x[p]); vy = (int8_t)(uint8_t)(pp_to->ob_y[p] - base->ob_y[p]);
++         if (vx > SS2FG_SPR_MAX_STEP || vx < -SS2FG_SPR_MAX_STEP || vy > SS2FG_SPR_MAX_STEP || vy < -SS2FG_SPR_MAX_STEP) vx = vy = 0;
++         if (id_round4(vx * pp_t) - lerp_i(0, vx, pp_t) * ID_S != r4x || id_round4(vy * pp_t) - lerp_i(0, vy, pp_t) * ID_S != r4y) continue;
++         for (k = 0; k < 64; k++)
++         {
++            int sx0, sy0;
++            if (bm[p][k])
++            {
++               sx0 = wrapx(base->ax[k] + base->line[0].spx) + mvx; sy0 = wrapc(base->ay[k] + base->line[0].spy) + mvy;
++               fx0 = imin(fx0, sx0); fy0 = imin(fy0, sy0); fx1 = imax(fx1, sx0 + 8); fy1 = imax(fy1, sy0 + 8);
++            }
++            if (mt[k] && pp_add[k])
++            {
++               sx0 = wrapx(pp_to->ax[k] + pp_to->line[0].spx) + pp_dx[k]; sy0 = wrapc(pp_to->ay[k] + pp_to->line[0].spy) + pp_dy[k];
++               bx0 = imin(bx0, sx0); by0 = imin(by0, sy0); bx1 = imax(bx1, sx0 + 8); by1 = imax(by1, sy0 + 8);
++            }
++         }
++         if (fx0 > fx1) continue;
++         for (k = 0; k < 64; k++)
++         {  /* 붙은 조각 — 99r 과 같은 규칙(몸 조각·다른 몸 붙은 조각·이펙트 사이 그림 무리 빼고, 같은 이동, 몸 틀 ±2 에 닿음) */
++            uint16_t w = ld16(base->spr + k * 4);
++            int sx0, sy0, inq = 0;
++            if (!(w & 0x1800) || bm[0][k] || bm[1][k] || am[0][k] || am[1][k]) continue;
++            for (q = 2; q < ID_NR; q++) if (dr[q].on && dr[q].m[k]) inq = 1;
++            if (inq) continue;
++            if (fg_spe_x[k] != fg_ex_x[p] || fg_spe_y[k] != fg_ex_y[p]) continue;
++            if ((offx ? offx[k] : 0) != mvx || (offy ? offy[k] : 0) != mvy) continue;
++            sx0 = wrapx(base->ax[k] + base->line[0].spx) + mvx; sy0 = wrapc(base->ay[k] + base->line[0].spy) + mvy;
++            if (sx0 + 8 <= fx0 - 2 || sx0 >= fx1 + 2 || sy0 + 8 <= fy0 - 2 || sy0 >= fy1 + 2) continue;
++            blam[p][k] = 1;
++            fx0 = imin(fx0, sx0); fy0 = imin(fy0, sy0); fx1 = imax(fx1, sx0 + 8); fy1 = imax(fy1, sy0 + 8);
++         }
++         bx0 = imax(imin(bx0, fx0), 0); by0 = imax(imin(by0, fy0), 0);
++         bx1 = imin(imax(bx1, fx1), SS2FG_W); by1 = imin(imax(by1, fy1), SS2FG_H);
++         if (bx1 <= bx0 || by1 <= by0 || (bx1 - bx0 + 2) * (by1 - by0 + 2) > ID_W * ID_H) { memset(blam[p], 0, 64); continue; }
++         aw = bx1 - bx0;
++         for (yy = by0; yy < by1; yy++)
++         {
++            const ss2fg_regs *rb = &base->line[yy];
++            const ss2fg_regs *rt = &pp_to->line[yy];
++            for (ps = 0; ps < 2; ps++)
++            {
++               uint16_t esc[256];
++               uint8_t ezb[256];
++               int16_t esl[256];
++               int xx;
++               memset(ezb, 0, sizeof ezb);
++               if (yy >= rb->winy && yy < rb->winy + rb->winh)
++               {
++                  int16_t *sv_slot = rl_slot;
++                  uint8_t *sv_sprz = rl_sprz;
++                  int sv_cur = rl_cur_slot;
++                  rl_slot = esl; rl_sprz = 0;
++                  for (k = 0; k < 64; k++)
++                  {  /* render_line 과 같은 차례 — 슬롯마다 base 조각, 그다음 둘째 판이면 다음 포즈 조각 */
++                     uint16_t d;
++                     int sxx, syy;
++                     if ((ps == 0 && bm[p][k]) || blam[p][k])
++                     {
++                        d = ld16(base->spr + k * 4);
++                        sxx = wrapx(base->ax[k] + rb->spx) + mvx; syy = wrapc(base->ay[k] + rb->spy) + mvy;
++                        if ((d & 0x1800) && yy >= syy && yy <= syy + 7)
++                        {
++                           rl_cur_slot = k;
++                           draw_pattern(base, rb, esc, ezb, sxx, d & 0x01FF, (d & 0x4000) ? 7 - ((unsigned)(yy - syy) & 7) : ((unsigned)(yy - syy) & 7),
++                                        d & 0x8000, base->pal, base->sprcol[k] & 0xF, (uint8_t)(((d & 0x1800) >> 11) << 1));
++                        }
++                     }
++                     if (ps == 1 && mt[k] && pp_add[k])
++                     {
++                        d = ld16(pp_to->spr + k * 4);
++                        sxx = wrapx(pp_to->ax[k] + rt->spx) + pp_dx[k]; syy = wrapc(pp_to->ay[k] + rt->spy) + pp_dy[k];
++                        if ((d & 0x1800) && yy >= syy && yy <= syy + 7)
++                        {
++                           rl_cur_slot = k;
++                           draw_pattern(pp_to, rb, esc, ezb, sxx, d & 0x01FF, (d & 0x4000) ? 7 - ((unsigned)(yy - syy) & 7) : ((unsigned)(yy - syy) & 7),
++                                        d & 0x8000, pp_to->pal, pp_to->sprcol[k] & 0xF, (uint8_t)(((d & 0x1800) >> 11) << 1));
++                        }
++                     }
++                  }
++                  rl_slot = sv_slot; rl_sprz = sv_sprz; rl_cur_slot = sv_cur;
++               }
++               for (xx = bx0; xx < bx1; xx++)
++               {
++                  int o = (yy - by0) * aw + (xx - bx0);
++                  bl_z[p][ps][o] = ezb[xx];
++                  bl_c[p][ps][o] = ezb[xx] ? esc[xx] : 0;
++                  bl_s[p][ps][o] = (int8_t)(ezb[xx] ? esl[xx] : -1);
++               }
++            }
++         }
++         for (k = 0; k < 64; k++) if (mt[k]) pp_add[k] = 0;    /* 둘째 판(다른 몸이 또 섞일 때)에도 이 몸은 안 그린다 — render2 가 다음 칸에 다시 정함 */
++         memcpy(dr[p].m, bm[p], 64);                            /* 줄에서 뺄 조각 */
++         dr[p].ax0 = bx0; dr[p].ay0 = by0; dr[p].ax1 = bx1; dr[p].ay1 = by1;
++         dr[p].x0 = imax(bx0 - 1, 0); dr[p].y0 = imax(by0 - 1, 0); dr[p].x1 = imin(bx1 + 1, SS2FG_W); dr[p].y1 = imin(by1 + 1, SS2FG_H);
++         dr[p].r4x = r4x; dr[p].r4y = r4y; dr[p].an = 0;
++         dr[p].on = 1; dr[p].bl = 1;
++         bl_any = 1;
++      }
++   if (pp_on)
++      for (p = 0; p < 2; p++)
++      {  /* 아직 줄에서 섞어야 하는 몸(② 를 못 한 몸)이 있으면 섞는 줄은 둘째 판도 그린다(①) */
++         for (k = 0; k < 64 && !(bm[p][k] && pp_skip[k]); k++) ;
++         if (k < 64 && !(dr[p].on && dr[p].bl)) pp2 = 1;
++      }
+    memset(skip, 0, sizeof skip);
+    for (p = 0; p < ID_NR; p++) if (dr[p].on) for (k = 0; k < 64; k++) if (dr[p].m[k]) skip[k] = 1;
++   for (p = 0; p < 2; p++) for (k = 0; k < 64; k++) if (blam[p][k]) skip[k] = 1;
+    for (q = 0; q < 2; q++)
+    {  /* 99r: 붙은 조각 — 몸 뺀 줄에서도 빼고, 따로 1배 그림(창·슬롯 규칙은 render_line 과 같게)을 만들어 4배로 고를 때 몸과 같은 ¼ px 로 */
+       int yy, aw;
+@@ -3303,11 +3449,24 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+          int in_win = (y >= rb->winy) && (y < rb->winy + rb->winh);
+          int wx0 = rb->winx, wx1 = imin(rb->winx + rb->winw, SS2FG_W);
+          int spl = fg_sp[s].on && fg_sp[s].any[y];             /* 99j: 배경을 ¼ px 옮긴 줄 */
++         int ppl = pp2 && y >= pp_ymin && y <= pp_ymax;        /* zzzz_fg_posebuild ①: 줄에서 섞는 몸이 지나는 줄 — 둘째 판도 */
++         int blr = 0;                                           /* ②: 섞는 몸 틀이 걸친 줄 — 판마다 그 몸 그림만 바꿔 두 번 합친다 */
+          /* zzz_fg_phase: ¼ px 옮긴 플레인의 원래 화소 경계 — 플레인 화소 (X + r) >> 2 라 경계는 X ≡ -r (mod 4) */
+          uint8_t phF = spl ? PH4(-fg_sp[s].rfx[y], -fg_sp[s].rfy[y]) : 0, phB = spl ? PH4(-fg_sp[s].rbx[y], -fg_sp[s].rby[y]) : 0;
++         if (bl_any) for (q = 0; q < 2; q++) if (dr[q].on && dr[q].bl && y >= dr[q].y0 && y < dr[q].y1) blr = 1;
+          if (spl) { rl_sprz = szr; rl_sprc = scr; rl_sprs = ssr; }
+          render_line(base, to_scr, offx, offy, t_scr, y, scan);
+          rl_sprz = 0; rl_sprc = 0; rl_sprs = 0;
++         if (ppl)
++         {
++            rl_zout = zrow2; rl_slot = srow2;
++            if (spl) { rl_sprz = szr2; rl_sprc = scr2; rl_sprs = ssr2; }
++            pp_on = 2;                                         /* 둘째 판: 섞는 몸을 다음 포즈로(render2 와 같게) */
++            render_line(base, to_scr, offx, offy, t_scr, y, scan2);
++            pp_on = 1;
++            rl_sprz = 0; rl_sprc = 0; rl_sprs = 0;
++            rl_zout = zrow; rl_slot = srow;
++         }
+          for (sy = 0; sy < ID_S; sy++)
+          {
+             uint16_t *dst = pt->px + ((y - y0) * ID_S + sy) * ((x1 - x0) * ID_S);
+@@ -3317,61 +3476,90 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+             for (q = 0; q < ID_NR; q++)
+             {
+                int ty = (y - dr[q].uy0) * ID_S + sy - dr[q].sh4y;
+-               tw[q] = (dr[q].on && ty >= 0 && ty < dr[q].gh * ID_S) ? dr[q].img + ty * dr[q].W4 : 0;
++               tw[q] = (dr[q].on && !dr[q].bl && ty >= 0 && ty < dr[q].gh * ID_S) ? dr[q].img + ty * dr[q].W4 : 0;
+                twp[q] = (tw[q] && dr[q].iph) ? dr[q].iph + ty * dr[q].W4 : 0;
+             }
+             for (x = x0; x < x1; x++)
+                for (sx = 0; sx < ID_S; sx++)
+                {
+-                  uint16_t c = scan[x];
+-                  int z = zrow[x], sl = srow[x], win = -1;
+-                  uint8_t ph = 0;                                /* 1배 줄(몸 뺀 줄)은 4배 모눈 그대로 */
+-                  if (spl && in_win && x >= wx0 && x < wx1)
+-                  {  /* 99j: 몸 뺀 줄의 스프라이트 · ¼ px 옮긴 플레인 · 배경색 중 앞 */
+-                     int zw;
+-                     c = (uint16_t)sp_px(&fg_sp[s], y, sy, x * ID_S + sx, szr[x], scr[x], &zw);
+-                     z = zw; sl = (zw > 0 && !(zw & 1)) ? ssr[x] : -1;
+-                     ph = zw == ZD_FG_SCROLL ? phF : zw == ZD_BG_SCROLL ? phB : 0;
+-                  }
+-                  if (in_win && x >= wx0 && x < wx1)
+-                     for (q = 0; q < ID_NR; q++)                 /* 두 몸 + 이펙트(99w) — 앞뒤는 우선순위, 같으면 앞 슬롯 */
+-                     {
+-                        int tx;
+-                        uint16_t v;
+-                        if (!tw[q]) continue;
+-                        tx = (x - dr[q].ux0) * ID_S + sx - dr[q].sh4x;
+-                        if (tx < 0 || tx >= dr[q].W4) continue;
+-                        v = tw[q][tx];
+-                        if (v == ID_NONE) continue;
+-                        if (win < 0 ? (dr[q].depth > z || (dr[q].depth == z && sl > dr[q].first))
+-                                    : (dr[q].depth > dr[win].depth || (dr[q].depth == dr[win].depth && dr[q].cur < dr[win].cur)))
++                  uint16_t cc0 = 0;
++                  uint8_t ph0 = 0;
++                  int pass;
++                  for (pass = 0; pass <= (ppl | blr); pass++)
++                  {  /* zzzz_fg_posebuild: 섞는 줄은 두 판(지금 포즈·다음 포즈)을 따로 합친다 — 섞는 몸과 다른 몸의 앞뒤가 판마다 다를 수 있어 */
++                     int p2l = pass && ppl;                         /* 둘째 판 줄은 ① 일 때만 따로 */
++                     const uint16_t *SCAN = p2l ? scan2 : scan, *SCR = p2l ? scr2 : scr;
++                     const uint8_t *ZROW = p2l ? zrow2 : zrow, *SZR = p2l ? szr2 : szr;
++                     const int16_t *SROW = p2l ? srow2 : srow, *SSR = p2l ? ssr2 : ssr;
++                     uint16_t c = SCAN[x];
++                     int z = ZROW[x], sl = SROW[x], win = -1;
++                     uint8_t ph = 0;                                /* 1배 줄(몸 뺀 줄)은 4배 모눈 그대로 */
++                     if (spl && in_win && x >= wx0 && x < wx1)
++                     {  /* 99j: 몸 뺀 줄의 스프라이트 · ¼ px 옮긴 플레인 · 배경색 중 앞 */
++                        int zw;
++                        c = (uint16_t)sp_px(&fg_sp[s], y, sy, x * ID_S + sx, SZR[x], SCR[x], &zw);
++                        z = zw; sl = (zw > 0 && !(zw & 1)) ? SSR[x] : -1;
++                        ph = zw == ZD_FG_SCROLL ? phF : zw == ZD_BG_SCROLL ? phB : 0;
++                     }
++                     if (in_win && x >= wx0 && x < wx1)
++                        for (q = 0; q < ID_NR; q++)                 /* 두 몸 + 이펙트(99w) — 앞뒤는 우선순위, 같으면 앞 슬롯 */
+                         {
+-                           uint16_t col = ld16(base->pal + ((v >> 2) << 3) + ((v & 3) << 1)) & 0x0FFF;
+-                           int ip = twp[q] ? twp[q][tx] : 0;     /* 그림 안 모눈 + 놓은 자리(sh4) */
+-                           c = rb->neg ? (uint16_t)~col : col;
+-                           z = dr[q].depth; sl = dr[q].first; win = q;
+-                           ph = PH4((ip & 3) + dr[q].sh4x, ((ip >> 2) & 3) + dr[q].sh4y);
++                           int tx;
++                           uint16_t v;
++                           if (!tw[q]) continue;
++                           tx = (x - dr[q].ux0) * ID_S + sx - dr[q].sh4x;
++                           if (tx < 0 || tx >= dr[q].W4) continue;
++                           v = tw[q][tx];
++                           if (v == ID_NONE) continue;
++                           if (win < 0 ? (dr[q].depth > z || (dr[q].depth == z && sl > dr[q].first))
++                                       : (dr[q].depth > dr[win].depth || (dr[q].depth == dr[win].depth && dr[q].cur < dr[win].cur)))
++                           {
++                              uint16_t col = ld16(base->pal + ((v >> 2) << 3) + ((v & 3) << 1)) & 0x0FFF;
++                              int ip = twp[q] ? twp[q][tx] : 0;     /* 그림 안 모눈 + 놓은 자리(sh4) */
++                              c = rb->neg ? (uint16_t)~col : col;
++                              z = dr[q].depth; sl = dr[q].first; win = q;
++                              ph = PH4((ip & 3) + dr[q].sh4x, ((ip >> 2) & 3) + dr[q].sh4y);
++                           }
+                         }
+-                     }
+-                  if (an_any && in_win && x >= wx0 && x < wx1)
+-                     for (q = 0; q < 2; q++)                     /* 99r: 붙은 조각 — 몸과 같은 ¼ px 자리에서 */
+-                     {
+-                        int X4, Y4, xs, ys, o, ez, es, wz, ws;
+-                        if (!dr[q].on || !dr[q].an) continue;
+-                        X4 = x * ID_S + sx - dr[q].r4x; Y4 = y * ID_S + sy - dr[q].r4y;
+-                        xs = X4 >= 0 ? X4 / ID_S : -((-X4 + ID_S - 1) / ID_S);
+-                        ys = Y4 >= 0 ? Y4 / ID_S : -((-Y4 + ID_S - 1) / ID_S);
+-                        if (xs < dr[q].ax0 || xs >= dr[q].ax1 || ys < dr[q].ay0 || ys >= dr[q].ay1) continue;
+-                        o = (ys - dr[q].ay0) * (dr[q].ax1 - dr[q].ax0) + (xs - dr[q].ax0);
+-                        ez = al_z[q][o];
+-                        if (!ez) continue;
+-                        es = al_s[q][o];
+-                        if (win >= 0 && win < ID_NR) { wz = dr[win].depth; ws = dr[win].cur; }
+-                        else { wz = z; ws = sl; }
+-                        if (ez > wz || (ez == wz && es < ws)) { c = al_c[q][o]; z = ez; sl = es; win = ID_NR + q; ph = PH4(dr[q].r4x, dr[q].r4y); }
+-                     }
+-                  *dst++ = (uint16_t)colormap[c & 4095];
+-                  *dph++ = ph;
++                     if (blr && in_win && x >= wx0 && x < wx1)
++                        for (q = 0; q < 2; q++)                     /* zzzz_fg_posebuild ②: 섞는 몸 — 이 판의 포즈를 ¼ px 자리에서 */
++                        {
++                           int X4, Y4, xs, ys, o, ez, es, wz, ws;
++                           if (!dr[q].on || !dr[q].bl) continue;
++                           X4 = x * ID_S + sx - dr[q].r4x; Y4 = y * ID_S + sy - dr[q].r4y;
++                           xs = X4 >= 0 ? X4 / ID_S : -((-X4 + ID_S - 1) / ID_S);
++                           ys = Y4 >= 0 ? Y4 / ID_S : -((-Y4 + ID_S - 1) / ID_S);
++                           if (xs < dr[q].ax0 || xs >= dr[q].ax1 || ys < dr[q].ay0 || ys >= dr[q].ay1) continue;
++                           o = (ys - dr[q].ay0) * (dr[q].ax1 - dr[q].ax0) + (xs - dr[q].ax0);
++                           ez = bl_z[q][pass][o];
++                           if (!ez) continue;
++                           es = bl_s[q][pass][o];
++                           if (win >= 0 && win < ID_NR) { wz = dr[win].depth; ws = dr[win].cur; }
++                           else { wz = z; ws = sl; }
++                           if (ez > wz || (ez == wz && es < ws)) { c = bl_c[q][pass][o]; z = ez; sl = es; win = ID_NR + 2 + q; ph = PH4(dr[q].r4x, dr[q].r4y); }
++                        }
++                     if (an_any && in_win && x >= wx0 && x < wx1)
++                        for (q = 0; q < 2; q++)                     /* 99r: 붙은 조각 — 몸과 같은 ¼ px 자리에서 */
++                        {
++                           int X4, Y4, xs, ys, o, ez, es, wz, ws;
++                           if (!dr[q].on || !dr[q].an) continue;
++                           X4 = x * ID_S + sx - dr[q].r4x; Y4 = y * ID_S + sy - dr[q].r4y;
++                           xs = X4 >= 0 ? X4 / ID_S : -((-X4 + ID_S - 1) / ID_S);
++                           ys = Y4 >= 0 ? Y4 / ID_S : -((-Y4 + ID_S - 1) / ID_S);
++                           if (xs < dr[q].ax0 || xs >= dr[q].ax1 || ys < dr[q].ay0 || ys >= dr[q].ay1) continue;
++                           o = (ys - dr[q].ay0) * (dr[q].ax1 - dr[q].ax0) + (xs - dr[q].ax0);
++                           ez = al_z[q][o];
++                           if (!ez) continue;
++                           es = al_s[q][o];
++                           if (win >= 0 && win < ID_NR) { wz = dr[win].depth; ws = dr[win].cur; }
++                           else { wz = z; ws = sl; }
++                           if (ez > wz || (ez == wz && es < ws)) { c = al_c[q][o]; z = ez; sl = es; win = ID_NR + q; ph = PH4(dr[q].r4x, dr[q].r4y); }
++                        }
++                     if (!pass) { cc0 = c; ph0 = ph; }
++                     else if (c != cc0) cc0 = mix12(cc0, c, pp_t);   /* 두 판이 다른 곳만(render2 와 같게) — 모눈은 첫 판 것 */
++                  }
++                  *dst++ = (uint16_t)colormap[cc0 & 4095];
++                  *dph++ = ph0;
+                }
+          }
+       }
+@@ -3624,6 +3812,7 @@ int ss2fg_render2(const ss2fg_frame *base, const ss2fg_frame *to_spr, int t_spr,
+       }
+       pp_to = to_spr;
+       pp_ymin = ymin; pp_ymax = ymax;
++      pp_t = t_spr;
+    }
+ 
+    {  /* 99j: 이 칸(4배 내보내기)의 배경 스크롤 ¼ px — 줄마다 계획한 자리가 1배 그림의 정수 자리와 다르면 다시 고를 줄 */

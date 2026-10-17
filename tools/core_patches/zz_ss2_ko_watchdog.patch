@@ -1,0 +1,45 @@
+앱 방 코어 패치 — 이미 멈춘 상태 파일·오토세이브를 살리는 안전망(zz_ss2_ko_guard 이전 판에서 멈춰 저장된 것).
+라운드 중 선수 애니 대본 포인터가 카트 롬 밖이면 보통 KO 반응 대본으로 돌린다.
+
+diff --git a/src/libretro.c b/src/libretro.c
+index 9f2d4c6..fea89af 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -1701,6 +1701,29 @@ static void update_input(void)
+    }
+ }
+ 
++/* 코어 패치 zz_ss2_ko_watchdog — 사무쇼2 멈춘 막타 살리기(안전망). 라운드 진행 중(MODE 0x40A7==241, 0x411A==1)엔 두 선수의
++   애니 대본 포인터(블록+0x4F, 24비트)가 늘 카트 롬(0x200000~0x3FFFFF) 안이다. 밖이면 메인 스레드가 대본 해석기
++   (0x226F32)에서 못 나오는 중이다(zz_ss2_ko_guard 이전 판에서 멈춘 상태 파일·오토세이브 포함). 그 포인터를 보통 KO 반응 대본
++   (반응 0x6E = 0x242DCB)으로 돌려 막타가 끝나고 라운드가 정상으로 넘어가게 한다. 해석기가 포인터를 레지스터에 든 채
++   프레임이 끊겼으면 한 번은 덮일 수 있어, 범위 안으로 돌아올 때까지 프레임마다 다시 쓴다(실측 1~2번). */
++static void ss2_ko_watchdog(void)
++{
++   static const uint16_t base[2] = { 0x59C6, 0x5BC6 };   /* P1 · P2 선수 블록 */
++   int i;
++   if (CPUExRAM[0x40A7 - 0x4000] != 241 || CPUExRAM[0x411A - 0x4000] != 1)
++      return;
++   for (i = 0; i < 2; i++)
++   {
++      uint8 *o = &CPUExRAM[base[i] - 0x4000];
++      uint32_t p = o[0x4F] | (o[0x50] << 8) | ((uint32_t)o[0x51] << 16);
++      if (p >= 0x200000 && p < 0x400000)
++         continue;
++      o[0x4F] = 0xCB; o[0x50] = 0x2D; o[0x51] = 0x24; o[0x52] = 0x00;   /* 대본 = 0x242DCB */
++      o[0x56] = 0x80;                                                  /* 새 명령부터 읽기 */
++      o[0xB8] = 0x00;                                                  /* 대본 호출 깊이 */
++   }
++}
++
+ void retro_run(void)
+ {
+    int total = 0;
+@@ -1767,6 +1790,7 @@ void retro_run(void)
+    if (!ss2_paused && !synth)
+    {
+       Emulate(&spec, sound_buf);
++      if (ss2comm_rom_is_ss2()) ss2_ko_watchdog();   /* 코어 패치 zz_ss2_ko_watchdog */
+ 
+       width  = spec.DisplayRect.w;
+       height = spec.DisplayRect.h;

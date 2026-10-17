@@ -4,44 +4,99 @@
 
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <!-- 안드로이드 8~10: /sdcard/PocketCore 에 쓰려면(세이브·리그 기록) 쓰기 권한이 따로 있어야 한다. 11+ 는 MANAGE_EXTERNAL_STORAGE -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
-    <!-- 앱 내 업데이트: PC 릴리즈 서버(같은 와이파이, http)에서 받아 설치창 호출 -->
+    <!-- 업데이트 확인·한글패치·팩 받기 -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 132: UPDATE_PACKAGES_WITHOUT_USER_ACTION 뺌(유저 2026-10-14 「유해한 앱이라고 아직도 떠」).
+         154: 앱이 APK 를 받아 직접 깔던 것(PackageInstaller 세션·APK 프로바이더)을 뺐다(유저 2026-10-17 「유해한앱이라고 안뜨게해줭」) —
+         「새 판 받기」는 시스템 다운로드에 맡기고 그 알림을 눌러 시스템 설치기로(Updater.checkApk). 코어(.so)도 더 받지 않는다.
+         이 권한은 남는다: 시스템 다운로드 알림으로 여는 설치도 «받기를 맡긴 앱»의 권한을 본다(InstallStart 가 EXTRA_ORIGINATING_UID 로 —
+         CI API 33 에서 권한 없이 «Requesting uid needs to declare permission REQUEST_INSTALL_PACKAGES»로 설치기가 그냥 닫혔다) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
 
     <application
-        android:label="PocketCore"
+        android:label="${appLabel}"
         android:icon="@mipmap/ic_launcher"
         android:hardwareAccelerated="true"
         android:extractNativeLibs="true"
-        android:usesCleartextTraffic="true"
+        android:requestLegacyExternalStorage="true"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
 
-        <!-- 받은 update.apk 를 설치기에 건네는 통로 (자체 최소 프로바이더, 의존성 0) -->
-        <provider
-            android:name=".ApkProvider"
-            android:authorities="com.dudu.pocketcore.apk"
-            android:exported="false"
-            android:grantUriPermissions="true" />
-
+        <!-- 런처 화면(121~ 진짜 클래스는 Home). 아이콘은 아래 별칭 넷이 나눠 든다 — 설정 「화면 › 앱 아이콘」(AppIcon) -->
         <activity
-            android:name=".MainActivity"
+            android:name=".Home"
             android:exported="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode">
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode" />
+
+        <!-- 기본 아이콘 — 120 까지 런처 이름(.MainActivity)을 그대로 써서 업데이트해도 홈 화면 아이콘이 붙어 있다 -->
+        <activity-alias
+            android:name=".MainActivity"
+            android:targetActivity=".Home"
+            android:exported="true"
+            android:enabled="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="${appLabel}">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconInk"
+            android:targetActivity=".Home"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_ink"
+            android:label="${appLabel}">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconPocket"
+            android:targetActivity=".Home"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_pocket"
+            android:label="${appLabel}">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconModern"
+            android:targetActivity=".Home"
+            android:exported="true"
+            android:enabled="false"
+            android:icon="@mipmap/ic_launcher_modern"
+            android:label="${appLabel}">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <activity
             android:name=".EmuActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode" />
+
+        <activity
+            android:name=".LeagueActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
 
         <activity
             android:name=".SettingsActivity"

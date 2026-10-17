@@ -7,3 +7,5 @@ local.properties
 app/.cxx/
 app/build/
 .gradle/
+__pycache__/
+*.pyc

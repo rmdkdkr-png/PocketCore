@@ -1,0 +1,233 @@
+diff --git a/src/ss2sp.c b/src/ss2sp.c
+index 415ae6e..f537d9f 100644
+--- a/src/ss2sp.c
++++ b/src/ss2sp.c
+@@ -204,8 +204,76 @@ static int ss2_atk_young(int act)
+    2 프레임 다시 누른다(4 프레임마다, 기술이 나오거나 기본기가 끝날 때까지). 안 받아 준 누름은 게임이 버린다(실측 — 다른 기본기로 안 바뀜). */
+ #define QR_MAX 12
+ static int ss2_qr_on(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_QR"); v=e?atoi(e):1;} return v; }
+-static uint8_t inj_dirs[32], inj_fin; static int inj_ne;
++static uint8_t inj_dirs[32], inj_fin; static int inj_ne;   /* 99za: inj_ne = 방향 수(칸 수는 적을 때 고른다) */
+ static int qr_live, qr_tries, qr_attempt;
++/* 99za: 누를 때 나가는 기술 — 게임은 기술마다 «버튼을 누른 틱»에 내거나(강약 없음) «뗀 틱·누른 틱 + 8»에 낸다(강약). 기본기 캔슬에서
++   받는 틱(히트스톱 끝 +3, +7 부터)에 그 사건이 떨어져야 하는데, 누를 때 나가는 기술을 히트스톱 끝에 바로 누르면 +1 틱(안 받음)에 떨어져
++   다시 누르기로 +9 틱에야 나갔다(한조 거미달리기·소게츠 렌게스이부·리무루루 카무이 시토우키 — 게임 최속 21·23 인데 27·29).
++   유저 2026-10-15 「모션끝나고 나가는게 최속이 아닌데」. 스타일별 기술 번호 비트 — 실측: SS2SP_FORCEMV 로 기술마다 SP 를 1·4·8 프레임 잡아
++   시작 프레임이 같으면 누름(61개), 길이 따라 늦어지면 뗌(62개, 강약 있음). 안 나온 36개(카드·비오의·잡기·공중)는 뗌으로 둔다 */
++static const struct { const char *id; unsigned char bits; } ss2_press_tbl[] = {
++{"kazuki_s", 0x0f},   /* 0 부동격 · 1 대폭살 · 2 사이엔 · 3 엔메츠 */
++   {"kazuki_bst", 0x05},   /* 0 리쿠도렛카 · 2 폭호참 */
++   {"sogetsu_s", 0x15},   /* 0 월륜파 · 2 소환 · 4 시게츠 */
++   {"sogetsu_bst", 0x01},   /* 0 렌게스이부 */
++   {"haohmaru_s", 0x18},   /* 3 오월인 · 4 술병 치기 */
++   {"haohmaru_bst", 0x08},   /* 3 강파 */
++   {"genjuro_s", 0x08},   /* 3 시즈쿠진 */
++   {"genjuro_bst", 0x02},   /* 1 가신토츠 */
++   {"nakoruru_s", 0x28},   /* 3 레라 오 치키리 · 5 마마하하 타기 */
++   {"nakoruru_bst", 0x18},   /* 3 싯소 루텐쿄게키하 · 4 시크루 타기 */
++   {"rimururu_s", 0x10},   /* 4 에타이에 시노 */
++   {"rimururu_bst", 0x0f},   /* 0 카무이 시토우키 · 1 루푸 테쿠 누무 · 2 콘루 멤 · 3 아르카 아르카 */
++   {"hanzo_s", 0x7a},   /* 1 폭염미진가쿠레 · 3 폭염진 · 4 그림자분신 · 5 우츠세미 천무 · 6 우츠세미 지참 */
++   {"hanzo_bst", 0x5f},   /* 0 거미달리기 · 1 그림자분신 · 2 키루마이 · 3 바츠 (잡기) · 4 모즈 떨구기 · 6 라이 (잡기) */
++   {"galford_s", 0x1a},   /* 1 그림자분신 · 3 오버헤드 크래시 · 4 레플리카 어택 */
++   {"galford_bst", 0x3c},   /* 2 라이트닝 슬래시 · 3 스트라이크 헤즈 · 4 그림자분신 · 5 레플리카 어택 */
++   {"asura_s", 0x08},   /* 3 노 아무 */
++   {"asura_bst", 0x04},   /* 2 르 태그 라구 */
++   {"charlotte_s", 0x00},   /* 없음 */
++   {"charlotte_bst", 0x00},   /* 없음 */
++   {"morozumi_s", 0x00},   /* 없음 */
++   {"morozumi_bst", 0x04},   /* 2 봉인 */
++   {"ukyo_s", 0x06},   /* 1 천상의 자세 · 2 나다레 */
++   {"ukyo_bst", 0x2e},   /* 1 무소 카스미(상) · 2 아사나기 · 3 무소 카스미(하) · 5 유우나기 */
++   {"jubei_s", 0x00},   /* 없음 */
++   {"jubei_bst", 0x0a},   /* 1 천멸 베기 · 3 간헐 필살돌 */
++   {"shiki_s", 0x0c},   /* 2 쿠비카타나 · 3 요미오토시 */
++   {"shiki_bst", 0x7e},   /* 1 무묘 · 2 세츠나 · 3 무쇼 · 4 무슈카 · 5 타쿠메츠 · 6 지비 */
++};
++static int ss2_za_on(void){ static int v=-1; if(v<0){const char*e=getenv("SS2SP_ZA"); v=e?atoi(e):1;} return v; }   /* 99za 시험 스위치 */
++static int q_press;                /* 지금 써 넣은 기술이 누를 때 나가는 것인가 */
++static int q_basic;                /* 99za: 자기 기본기 중에 써 넣었나(헛친 기본기 캔슬 포함) */
++static int qr_wait;                /* 99za: 다시 누르기가 고리 0 칸에 걸려 기다린 프레임 */
++static const ss2_style *ss2_cur_style(void);
++static int ss2_move_is_press(const ss2_move *m)
++{
++   const ss2_style *st = ss2_cur_style();
++   int i, k;
++   if (!ss2_za_on() || !st || !m || m < st->mv || m >= st->mv + st->n) return 0;
++   i = (int)(m - st->mv);
++   for (k = 0; k < (int)(sizeof ss2_press_tbl / sizeof ss2_press_tbl[0]); k++)
++      if (!strcmp(ss2_press_tbl[k].id, st->id)) return (ss2_press_tbl[k].bits >> i) & 1;
++   return 0;
++}
++/* 받는 틱 — 히트스톱 끝(hs_end_f) 뒤 k 프레임에 낸 사건(누름·뗌)이 받는 틱에 보이나: +2·+3 은 +3 틱, +6 부터 늘. +0·+1·+4·+5 는 안 받는다 */
++static int ss2_k_bad(int k) { return k < 2 || k == 4 || k == 5; }
++/* 99za: 고리에 방향 nd 개를 칸 rep 개씩 + 앞 센티널로 커서 앞에 적을 수 있나(0 칸·커서 뒤 2 칸에 안 걸리게) — 되는 rep(2 먼저, 안 되면 1), 없으면 0.
++   1 칸씩도 같은 기술·같은 프레임(실측: 30 스타일 159 기술 서서 SP — INJ_REP 2 와 바이트 같은 결과). 게임은 공격을 낼 때·안 받은 누름 뒤에
++   고리를 1 칸부터 다시 써서(커서 2) 2 칸씩은 3 틱을 기다려야 했다 — 헛친 약베기 캔슬이 2 프레임 늦고, 다시 누르기가 6 프레임씩 쉬었다 */
++static int ss2_fit_rep(int c, int nd, int min_rep)
++{
++   int rep, k, ok;
++   for (rep = INJ_REP; rep >= min_rep; rep--)
++   {
++      int ne = nd * rep;
++      ok = 1;
++      for (k = -ne; k <= 2; k++) if (((c + k) & 0x7F) == 0) { ok = 0; break; }
++      if (ok) return rep;
++      if (!ss2_za_on()) return 0;
++   }
++   return 0;
++}
+ static int q_inj;                  /* 지금 큐가 «써 넣고 버튼만» 인가(0 = 예전 매크로) */
+ /* 99x 떼는 때 고르기 — 자기 기본기가 맞아 히트스톱이 끝난 프레임(hs_end_f, 엔진 프레임)을 기억해, 버튼을 떼는 프레임이
+    +4·+5 에 걸리지 않게 한다(갈포드 등 약베기는 +2·+3 에 받고 +4·+5 는 버린다 — 위 설명).
+@@ -230,7 +298,7 @@ static int ss2_rawhold(void){ static int v=-1; if(v<0){const char*e=getenv("SS2S
+ static int ss2_inject(const ss2_move *m, int tk, int mirror)
+ {
+    uint8_t dirs[16], fin;
+-   int nd = 0, ne, c, k, last = tk ? m->len : m->len - 1;
++   int nd = 0, ne, c, k, rep, last = tk ? m->len : m->len - 1;
+    if (!ss2_inject_on() || last < 0) return 0;
+    {
+       int act = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8);
+@@ -246,8 +314,12 @@ static int ss2_inject(const ss2_move *m, int tk, int mirror)
+          int left = (int)(hs_val_since + 2 * (unsigned)CPUExRAM[OFF_HITSTOP] - frame_no);   /* 히트스톱 끝까지 남은 프레임 */
+          /* 강은 누른 틱 + 8 프레임에 터진다 → 끝 5 프레임 전에 누르면 끝 +3 틱(받는 틈), 6~3 프레임 전이면 +5 틱(안 받는 틈)이라
+             그때는 2 프레임 전까지 더 미뤄 +7 틱에 */
+-         if (!(sp_want_strong() && (left == 5 || left <= 2))) { deferred = m; deferred_tk = tk; deferred_left = 40; return -1; }
++         if (!(sp_want_strong() && !ss2_move_is_press(m) && (left == 5 || left <= 2))) { deferred = m; deferred_tk = tk; deferred_left = 40; return -1; }
+       }
++      /* 99za: 누를 때 나가는 기술 — 누름이 받는 틱에 처음 보이게, 히트스톱 끝 +2 프레임(또는 +6 부터)까지 미룬다 */
++      if (ss2_gate_on() && act >= 0x50 && act <= 0xFF && hs_end_f && !CPUExRAM[OFF_HITSTOP] && ss2_move_is_press(m)
++          && ss2_k_bad((int)(frame_no - hs_end_f)))
++      { deferred = m; deferred_tk = tk; deferred_left = 40; return -1; }
+       /* 기본기 중이면(받아 줄 수도, 안 받아 줄 수도) — 안 나가면 기본기가 끝날 때 한 번 더 */
+       if (act >= 0x50 && act <= 0xFF) { retry_m = m; retry_tk = tk; retry_left = 60; qr_live = ss2_qr_on(); qr_tries = 0; }
+       else { retry_m = 0; qr_live = 0; }
+@@ -260,9 +332,10 @@ static int ss2_inject(const ss2_move *m, int tk, int mirror)
+       if (nd >= 16) return 0;
+       dirs[nd++] = d;
+    }
+-   ne = nd * INJ_REP;
+    c = CPUExRAM[OFF_CMDRING] & 0x7F;
+-   for (k = -ne; k <= 2; k++) if (((c + k) & 0x7F) == 0)
++   rep = ss2_fit_rep(c, nd, 1);                                           /* 99za: 2 칸씩이 0 칸에 걸리면 1 칸씩 */
++   ne = nd * (rep ? rep : INJ_REP);
++   if (!rep)
+    {
+       /* 0 칸에 걸림. 99x: 기본기 중이면 매크로로 가지 말고 커서가 지나갈 때까지 미룬다 — 게임은 공격을 낼 때 고리를 1 칸부터
+          다시 써서(커서 2) 기본기 직후엔 거의 늘 걸렸고, 매크로(방향마다 2 프레임)로 넘어가 히트스톱 뒤 27 프레임에야 나갔다.
+@@ -272,30 +345,34 @@ static int ss2_inject(const ss2_move *m, int tk, int mirror)
+       return 0;                                                       /* 그 밖엔 매크로로 */
+    }
+    CPUExRAM[OFF_CMDRING + ((c - ne) & 0x7F)] = 0xFF;                   /* 센티널 = 게임 리셋과 같은 것 */
+-   for (k = 0; k < ne; k++) CPUExRAM[OFF_CMDRING + ((c - ne + 1 + k) & 0x7F)] = dirs[k / INJ_REP];
+-   for (k = 0; k < ne && k < 32; k++) inj_dirs[k] = dirs[k / INJ_REP];
+-   inj_ne = ne < 32 ? ne : 32;
++   for (k = 0; k < ne; k++) CPUExRAM[OFF_CMDRING + ((c - ne + 1 + k) & 0x7F)] = dirs[k / rep];
++   for (k = 0; k < nd; k++) inj_dirs[k] = dirs[k];                     /* 99za: 방향만 기억 — 다시 누를 때 칸 수를 다시 고른다 */
++   inj_ne = nd;
+    if (tk) { uint8_t d9 = PAD_UP | PAD_RIGHT; if (mirror) d9 = ss2_mirror(d9); fin = (uint8_t)(d9 | m->btn); }
+    else    { uint8_t d = m->len ? m->motion[m->len - 1] : 0; if (mirror) d = ss2_mirror(d); fin = (uint8_t)(d | m->btn); }
+    inj_fin = fin;
+    q_n = q_i = 0;
+    q[q_n].pad = fin; q[q_n].frames = HOLD_FRAMES; q[q_n].sustain = 1; q_n++;   /* 트리거를 잡고 있으면 늘어난다(강) */
+    q[q_n].pad = 0; q[q_n].frames = TAIL_FRAMES; q[q_n].sustain = 0; q_n++;
+-   q_inj = 1; fin_frames = 0;
+-   if (ss2_dbg()) fprintf(stderr, "[ss2sp] inject %s c=%d ne=%d fin=%02x strong=%d\n", m->name, c, ne, fin, sp_want_strong());
++   q_inj = 1; fin_frames = 0; q_press = ss2_move_is_press(m); qr_wait = 0;
++   { int a2 = CPUExRAM[OFF_ACT] | (CPUExRAM[OFF_ACT + 1] << 8); q_basic = (a2 >= 0x50 && a2 <= 0xFF); }
++   if (ss2_dbg()) fprintf(stderr, "[ss2sp] inject %s c=%d ne=%d fin=%02x strong=%d press=%d f=%u hs_end=%u\n", m->name, c, ne, fin, sp_want_strong(), q_press, (unsigned)frame_no, (unsigned)hs_end_f);
+    return 1;
+ }
+ 
+ /* 99x 다시 누르기 — 처음 써 넣은 모션을 지금 커서 앞에 다시 적고 버튼 2 프레임(잡고 있기 없음 — 약) */
+ static int ss2_repress(void)
+ {
+-   int c = CPUExRAM[OFF_CMDRING] & 0x7F, k;
++   int c = CPUExRAM[OFF_CMDRING] & 0x7F, k, rep, ne;
+    if (inj_ne <= 0 && !inj_fin) return 0;
+-   for (k = -inj_ne; k <= 2; k++) if (((c + k) & 0x7F) == 0) return 0;
+-   CPUExRAM[OFF_CMDRING + ((c - inj_ne) & 0x7F)] = 0xFF;
+-   for (k = 0; k < inj_ne; k++) CPUExRAM[OFF_CMDRING + ((c - inj_ne + 1 + k) & 0x7F)] = inj_dirs[k];
++   rep = ss2_fit_rep(c, inj_ne, INJ_REP);                              /* inj_ne = 방향 수. 다시 누르기는 2 칸씩만(1 칸씩은 박자가 바뀌어 나코루루 약베기가 35 → 39) */
++   if (!rep) return 0;
++   ne = inj_ne * rep;
++   CPUExRAM[OFF_CMDRING + ((c - ne) & 0x7F)] = 0xFF;
++   for (k = 0; k < ne; k++) CPUExRAM[OFF_CMDRING + ((c - ne + 1 + k) & 0x7F)] = inj_dirs[k / rep];
+    q_n = q_i = 0;
+-   q[q_n].pad = inj_fin; q[q_n].frames = 2; q[q_n].sustain = 0; q_n++;
++   /* 99za: 강을 원했으면(SP 를 9 프레임 넘게 잡음) 다시 누르기도 강 — 누른 틱 + 8 에 강이 터지게 10 프레임 잡는다(전엔 늘 약 — 나코루루 강이 35 약으로) */
++   q[q_n].pad = inj_fin; q[q_n].frames = (ss2_za_on() && sp_want_strong() && !q_press) ? STRONG_FRAMES + 1 : 2; q[q_n].sustain = 0; q_n++;
+    q[q_n].pad = 0; q[q_n].frames = TAIL_FRAMES; q[q_n].sustain = 0; q_n++;
+    q_left = q[0].frames;
+    qr_attempt = 1; q_inj = 1; fin_frames = 0;
+@@ -477,7 +554,7 @@ static uint8_t ss2_step_out(int held)
+    if (q_inj && q_i == 0)
+    {
+       fin_frames++;
+-      if (sp_want_strong() && fin_frames <= STRONG_FRAMES && !qr_attempt)
++      if (sp_want_strong() && !q_press && fin_frames <= STRONG_FRAMES && !qr_attempt)
+       {  /* 99x: 강을 원했다 — 잡은 길이를 게임이 재므로 히트스톱과 상관없이 10 프레임은 잡는다 */
+          hold_elapsed = fin_frames; if (fin_frames >= STRONG_FRAMES) ss2sp_last_strong = 1;
+          return out;
+@@ -492,6 +569,11 @@ static uint8_t ss2_step_out(int held)
+    {  /* 99x: 기본기 캔슬 — 떼는 프레임(다음 프레임)이 안 받는 틈(+4·+5)에 걸리면 한 프레임씩 더 잡는다.
+          잡고 있기(강)는 예전대로 따른다(나코루루 약베기처럼 받는 틈이 늦은 기본기는 예전 박자가 우연히 맞던 자리가 있다) */
+       int k = (int)(frame_no + 1 - hs_end_f);
++      if (q_press && ss2_za_on())
++      {  /* 99za: 누를 때 나가는 기술 — 이미 누른 틱에 결판이 났다(강약 없음). 손을 잡고 있어도 늘리지 않고 2 프레임 뒤 뗀다(다시 누르기가 빨리 오게) */
++         if (--q_left <= 0) { if (++q_i < q_n) q_left = q[q_i].frames; else { q_n = q_i = 0; q_left = 0; } }
++         return out;
++      }
+       if (q[q_i].sustain && held && hold_elapsed < MAX_HOLD)
+       {
+          if (++hold_elapsed >= STRONG_FRAMES) ss2sp_last_strong = 1;
+@@ -500,7 +582,7 @@ static uint8_t ss2_step_out(int held)
+       /* 99z: 유저가 SP 를 뗐고 버튼 칸이 이미 HOLD_FRAMES 넘게 나가 있었다(틱 하나는 봤다) — 남은 칸을 더 잡지 않고 이 프레임에
+          뗀다(받는 틈이면). 전엔 뗀 뒤에도 2 프레임을 더 잡아, SP 를 5~8 프레임 톡 누르면 버튼 칸이 8 프레임을 넘겨 강이 터지거나
+          (히트스톱 끝 무렵에 누르면 29 강 · 31 강 — 콤보 끊김) 받는 틱을 하나 놓쳐 27 이 됐다(유저 「히트시 캔슬 타이밍이 다른데」) */
+-      if (ss2_z_on() && fin_frames > HOLD_FRAMES)
++      if (ss2_z_on() && q[q_i].sustain && fin_frames > HOLD_FRAMES)
+       {
+          int k0 = k - 1;                                              /* 이 프레임에 떼면 */
+          if (k0 < 2 || k0 == 4 || k0 == 5) return out;                /* 안 받는 틱 — 한 프레임 더 */
+@@ -520,6 +602,14 @@ static uint8_t ss2_step_out(int held)
+          if (++hold_elapsed >= STRONG_FRAMES) ss2sp_last_strong = 1;
+          return out;
+       }
++      /* 99za: 헛친 기본기 중에 써 넣었어도 뗀 프레임에 바로(99z 와 같은 까닭 — 뗀 뒤 2 프레임 더 잡아 5~8 프레임 톡이 강으로 샜다).
++         서서 누른 SP 는 예전 그대로(뗀 뒤 2 프레임 더) */
++      if (ss2_za_on() && q_inj && q_basic && q_i == 0 && q[q_i].sustain && fin_frames > HOLD_FRAMES)
++      {
++         if (++q_i < q_n) { q_left = q[q_i].frames; out = q[q_i].pad; if (--q_left <= 0) { if (++q_i < q_n) q_left = q[q_i].frames; else { q_n = q_i = 0; q_left = 0; } } }
++         else { q_n = q_i = 0; q_left = 0; out = 0; }
++         return out;
++      }
+       if (--q_left <= 0)
+       {
+          if (++q_i < q_n) q_left = q[q_i].frames;
+@@ -594,8 +684,13 @@ uint8_t ss2sp_frame(uint8_t pad, uint16_t trig)
+       if (act >= 0x100 || act < 0x50 || CPUExRAM[OFF_MODE] != 241 || edge || qr_tries >= QR_MAX) qr_live = 0;
+       else if (!CPUExRAM[OFF_HITSTOP])
+       {
+-         if (ss2_repress()) { qr_tries++; return ss2_step_out(0); }
+-         qr_live = 0;
++         if (ss2_za_on() && q_press && hs_end_f && ss2_k_bad((int)(frame_no - hs_end_f)))
++            ;                                                  /* 99za: 누를 때 나가는 기술 — 누름이 받는 틱에 보이게 한 프레임 더 */
++         else if (ss2_repress()) { qr_tries++; qr_wait = 0; return ss2_step_out(0); }
++         /* 99za: 고리 0 칸 근처(게임이 안 받은 누름을 새 공격으로 보고 고리를 처음부터 다시 쓴 뒤 — 나코루루 약베기) — 커서가 지나갈 때까지
++            기다린다. 전엔 여기서 다시 누르기를 그만둬 기본기가 다 끝난 뒤(47)에 나갔다(게임은 35 에 받음) */
++         else if (ss2_za_on() && (inj_ne > 0 || inj_fin) && ++qr_wait <= 24) ;
++         else qr_live = 0;
+       }
+    }
+    /* v0.5.4: 전투가 끝났는데 보류(pending)가 남아 있으면 버린다.
+@@ -866,7 +961,7 @@ void ss2sp_reset(void)
+    hold_bit = 0; hold_elapsed = 0; ss2sp_last_strong = 0;
+    verify_left = 0;
+    ss2_mode_warm = 0;
+-   inj_ne = 0; inj_fin = 0; qr_live = 0; qr_tries = 0; qr_attempt = 0; q_inj = 0; hs_seen_basic = 0; hs_end_f = 0; hs_val_prev = 0; hs_val_since = 0; sp_hold_total = 0; fin_frames = 0;
++   inj_ne = 0; inj_fin = 0; qr_live = 0; qr_tries = 0; qr_attempt = 0; q_inj = 0; q_press = 0; q_basic = 0; qr_wait = 0; hs_seen_basic = 0; hs_end_f = 0; hs_val_prev = 0; hs_val_since = 0; sp_hold_total = 0; fin_frames = 0;
+    deferred = 0; deferred_left = 0; atk_prev = -1; retry_m = 0; btn_since = (uint32_t)-1000; prev_btn = 0;
+    ss2sp_last_ok = -1;
+    ss2sp_last_name = 0;

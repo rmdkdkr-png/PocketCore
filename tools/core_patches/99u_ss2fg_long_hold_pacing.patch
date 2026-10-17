@@ -1,0 +1,12 @@
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index 8bf7f04..50be44c 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -2127,6 +2127,7 @@ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+          if (!K && tot2 < e2 + 6) tot2 = e2 + 6;                                 /* D+2 까진 안 바뀜 — 적어도 3 프레임 남음 */
+          if (tot2 <= 0 || e2 < 0) return 0;
+          ti = (8 * e2 + tot2) / (2 * tot2) - 1;                                   /* round(4t) − 1 */
++         if (!K && tot2 >= 20) ti = 3 * e2 / (tot2 - 4) - 1;                      /* 99u: 긴 머묾 — 바뀜이 보이기 전 시간을 셋으로(앞·¼·½) */
+          if (ti > 2) ti = 2;
+          if (!K && ti > 1) ti = 1;   /* 99k: 바뀔 때가 안 보이면(미리 돌린 D+1·D+2 에 아직 없음) ½ 까지만 — ¾ 는 바뀜이 보인 마지막 2 프레임에.
+                                         길이가 맞으면 원래도 ¾ 는 그 2 프레임이라 같고, 빗나가 오래 머물면(걷다 미끄러지며 포즈만 멈춤 등)

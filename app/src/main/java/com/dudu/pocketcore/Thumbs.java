@@ -55,12 +55,9 @@ public final class Thumbs {
             } catch (Throwable ignored) { }
             String romPath = Patcher.resolve(ctx, rom.getPath(), game, lang, false, false);
 
-            /* 코어 선택 — EmuActivity 와 같은 순서의 축약판: 내부 자동 → 동봉 */
-            String want = (game != null && "ss2".equals(game.id)) ? "ss2" : "svc";
-            File auto = new File(new File(ctx.getFilesDir(), "cores"), want + ".so");
-            String core = auto.exists() ? auto.getAbsolutePath()
-                    : ctx.getApplicationInfo().nativeLibraryDir + "/"
-                      + ((game != null) ? game.core : Games.fallbackCore());
+            /* 코어 — 늘 동봉(154, EmuActivity.corePath 와 같게) */
+            String core = ctx.getApplicationInfo().nativeLibraryDir + "/"
+                    + ((game != null) ? game.core : Games.fallbackCore());
 
             int rc = Emu.nativeLoad(core, romPath,
                     MainActivity.sysDir().getAbsolutePath(),
@@ -71,6 +68,10 @@ public final class Thumbs {
             /* 띠 없이 게임 화면만 — 런타임 옵션이라 options.txt 는 안 건드린다.
                기둥·해설창은 폐기해서 끌 것이 없다(2026-09-07). */
             Emu.nativeSetOption("ngp_svcsp_band", "disabled");
+            Emu.nativeSetOption("ngp_framegen_idle", "off");     /* 썸네일은 원래 크기(160) — 서기 그리기는 4배로 내보낸다 */
+            Emu.nativeSetOption("ngp_framegen_motion", "off");
+            /* 사무쇼2 코어는 프레임 패치가 켜져 있으면 숨은 프레임을 더 돌린다 — 썸네일은 끄고 1배·빠르게(900 프레임) */
+            Emu.nativeSetOption("ngp_framegen", "disabled");
             Emu.nativeRunFrames(BOOT_FRAMES);
             int w = Emu.nativeFrameWidth(), h = Emu.nativeFrameHeight();
             Bitmap bmp = null;

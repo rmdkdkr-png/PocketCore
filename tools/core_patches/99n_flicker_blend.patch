@@ -1,0 +1,241 @@
+diff --git a/src/libretro.c b/src/libretro.c
+index dbe4b96..2931c0c 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -715,6 +715,41 @@ static void fl_apply(uint16_t *buf, int w, int h, int pitch)
+    for (y = 0; y < h; y++) memcpy(fl_prev + (size_t)y * w, buf + (size_t)y * pitch, (size_t)w * sizeof(uint16_t));   /* 곧 번쩍 — 지금 화면을 남김 */
+    fl_w = w; fl_h = h; fl_have = 1;
+ }
++/* 99n: 플레인 깜빡임 섞기 — 실제 프레임마다 ss2fg_flicker_plan 이 낸 «다른 위상» 1배 색(565 로 바꿔 둠)을 바뀐 칸에만 섞는다.
++   약하게 25%(켜짐·꺼짐 차이 절반) · 거의 없게 50%(두 위상이 같아져 안 깜빡임). 필살기 빛기둥(2 프레임 켜짐·꺼짐, 화면 ⅕~¼)이
++   반투명 기둥으로 보인다. scale 1 = 1배 출력, 4 = 4배(640×608). y0 = 게임 그림 첫 줄(위 띠) */
++static uint16_t pf_oc[FB_WIDTH * FB_HEIGHT];
++static uint8_t  pf_om[FB_WIDTH * FB_HEIGHT], pf_line[FB_HEIGHT];
++static int      pf_n = 0;
++static void pf_apply(uint16_t *buf, int scale, int pitch, int y0)
++{
++   int a, y, x, sy, sx;
++   if (!fl_opt || !pf_n) return;
++   a = fl_opt == 1 ? 64 : 128;
++   for (y = 0; y < FB_HEIGHT; y++)
++   {
++      const uint8_t *m = pf_om + y * FB_WIDTH;
++      const uint16_t *o = pf_oc + y * FB_WIDTH;
++      if (!pf_line[y]) continue;
++      for (sy = 0; sy < scale; sy++)
++      {
++         uint16_t *row = buf + (size_t)(y0 + y * scale + sy) * pitch;
++         for (x = 0; x < FB_WIDTH; x++)
++         {
++            int orr, og, ob;
++            if (!m[x]) continue;
++            orr = (o[x] >> 11) & 31; og = (o[x] >> 5) & 63; ob = o[x] & 31;
++            for (sx = 0; sx < scale; sx++)
++            {
++               uint16_t *p = row + x * scale + sx;
++               int r = (*p >> 11) & 31, g = (*p >> 5) & 63, b = *p & 31;
++               r += ((orr - r) * a) / 256; g += ((og - g) * a) / 256; b += ((ob - b) * a) / 256;
++               *p = (uint16_t)((r << 11) | (g << 5) | b);
++            }
++         }
++      }
++   }
++}
+ static uint16_t idle_out4[(FB_WIDTH * 4) * (FB_HEIGHT * 4)];
+ static int fg_predict4(int ra)
+ {
+@@ -751,6 +786,17 @@ static int fg_predict4(int ra)
+       fl_soon = !a0 && (a1 || a2);
+       if (fl_cur) fl_col = (uint16_t)NGPGfx->ColorMap[c12 & 4095];
+    }
++   pf_n = 0;
++   if (fl_opt && ss2comm_rom_is_ss2())
++   {  /* 99n: 플레인 깜빡임(필살기 빛기둥 등) — 다른 위상과 섞을 칸 */
++      const ss2fg_frame *hh[7];
++      int i;
++      for (i = 0; i < 7; i++) hh[i] = ss2fg_hist(6 - i);       /* D-4 .. D+2 */
++      pf_n = ss2fg_flicker_plan(hh, pf_oc, pf_om, pf_line);
++      if (pf_n)
++         for (i = 0; i < FB_WIDTH * FB_HEIGHT; i++)
++            if (pf_line[i / FB_WIDTH] && pf_om[i]) pf_oc[i] = (uint16_t)NGPGfx->ColorMap[pf_oc[i] & 4095];
++   }
+ 
+    /* 스프라이트: 다음 바뀌는 프레임 K(D 기준 +1/+2), 지난번 바뀐 때 L(≤0, K-2 이상) */
+    Ks = (m01 & 1) ? 1 : (m12 & 1) ? 2 : 0;
+@@ -1580,7 +1626,7 @@ void retro_run(void)
+ 
+       {
+          int ra = hidden ? 0 : ra_frames();                     /* 런어헤드: 보여 줄 그림을 ra 프레임 앞 것으로 */
+-         if (!hidden) fl_cur = fl_soon = 0;                     /* 99l: 예측 4배(fg_predict4)가 다시 정한다 */
++         if (!hidden) { fl_cur = fl_soon = 0; pf_n = 0; }       /* 99l·99n: 예측 4배(fg_predict4)가 다시 정한다 */
+          if (fg_active)
+          {
+             memcpy(fg_real, surf->pixels, sizeof fg_real);        /* 후처리 전 원본 — 합성 실패·보간 모드용 */
+@@ -1673,6 +1719,7 @@ void retro_run(void)
+          게임 그림을 가운데로 옮겨 넓은 캔버스(288px)로 내보낸다 */
+       const uint16_t *fbuf = (const uint16_t *)surf->pixels;
+       unsigned y;
++      if (!ss2_paused && !hidden) pf_apply((uint16_t *)surf->pixels, 1, FB_WIDTH, ss2comm_band_top() ? ss2comm_band_h() : 0);   /* 99n */
+       if (!ss2_paused && !hidden) fl_apply((uint16_t *)surf->pixels, (int)width, (int)height, FB_WIDTH);   /* 99l */
+       for (y = 0; y < height; y++)
+          memcpy(ss2_wide + y * SS2_WIDE_W + SS2_SIDE_W, fbuf + y * FB_WIDTH,
+@@ -1690,11 +1737,13 @@ void retro_run(void)
+       if (idle_opt && ss2comm_rom_is_ss2() && !hidden && width == FB_WIDTH && height == FB_HEIGHT)
+       {  /* 서기 사이 그림 — 4배로 늘리고 이번 출력의 조각을 붙여 640×608 로 */
+          ss2fg_idle_compose(idle_out4, FB_WIDTH * 4, (const uint16_t *)surf->pixels, FB_WIDTH, (int)width, (int)height, idle_out_slot);
++         if (!ss2_paused) pf_apply(idle_out4, 4, FB_WIDTH * 4, 0);   /* 99n */
+          if (!ss2_paused) fl_apply(idle_out4, (int)width * 4, (int)height * 4, FB_WIDTH * 4);   /* 99l */
+          video_cb(idle_out4, width * 4, height * 4, FB_WIDTH * 4 * 2);
+       }
+       else
+       {
++         if (!ss2_paused && !hidden) pf_apply((uint16_t *)surf->pixels, 1, FB_WIDTH, ss2comm_band_top() ? ss2comm_band_h() : 0);   /* 99n */
+          if (!ss2_paused && !hidden) fl_apply((uint16_t *)surf->pixels, (int)width, (int)height, FB_WIDTH);   /* 99l */
+          video_cb(surf->pixels, width, height, FB_WIDTH * 2);
+       }
+diff --git a/src/libretro_core_options.h b/src/libretro_core_options.h
+index 548215e..ea3bef4 100644
+--- a/src/libretro_core_options.h
++++ b/src/libretro_core_options.h
+@@ -185,7 +185,7 @@ struct retro_core_option_v2_definition option_defs_us_v2[] = {
+       "ngp_flash_reduce",
+       "번쩍임 줄이기",
+       NULL,
+-      "큰 타격 때 화면 전체가 1 프레임 하얗게(또는 까맣게) 번쩍이는 것(창을 접어 칠함)을 바로 앞 화면 위에 그 색을 조금만 얹어 보여 줌. 약하게 = 절반 · 거의 없게 = 살짝 · 끔 = 원래대로. 사무쇼2 예측 4배·60Hz 사이 그림에서.",
++      "큰 타격 때 화면 전체가 1 프레임 하얗게(또는 까맣게) 번쩍이는 것(창을 접어 칠함)을 바로 앞 화면 위에 그 색을 조금만 얹어 보여 주고, 필살기 빛기둥처럼 2 프레임마다 켜졌다 꺼지는 그림은 반투명으로 섞음. 약하게 = 절반 · 거의 없게 = 살짝(빛기둥은 깜빡임 없이) · 끔 = 원래대로. 사무쇼2 예측 4배·60Hz 사이 그림에서.",
+       NULL,
+       "video",
+       {
+@@ -340,7 +340,7 @@ struct retro_core_option_definition option_defs_us[] = {
+    {
+       "ngp_flash_reduce",
+       "번쩍임 줄이기",
+-      "큰 타격 때 화면 전체가 1 프레임 번쩍이는 것을 앞 화면 위에 그 색을 조금만 얹어 보여 줌. 약하게 = 절반 · 거의 없게 = 살짝 · 끔 = 원래대로.",
++      "큰 타격 때 화면 전체가 1 프레임 번쩍이는 것을 앞 화면 위에 그 색을 조금만 얹어 보여 주고, 필살기 빛기둥처럼 2 프레임마다 깜빡이는 그림은 반투명으로 섞음. 약하게 = 절반 · 거의 없게 = 살짝 · 끔 = 원래대로.",
+       {
+          { "off",    "끔" },
+          { "half",   "약하게" },
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index 6d5cc42..9ff33df 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -2390,6 +2390,105 @@ static unsigned sp_px(const fg_sp_t *sp, int y, int sy, int X, int zs, unsigned
+    return c;
+ }
+ void ss2fg_scroll_stats(int *out4) { int i; for (i = 0; i < 4; i++) out4[i] = sp_stats[i]; }
++/* 99n: 플레인 깜빡임 섞기 — 사무쇼2 는 대전 내내 앞 플레인(플레인 1)의 스크롤을 2 프레임마다 (0,0) ↔ (x,120) 으로 옮겨 두 자리를
++   번갈아 보인다(10판 실측: 대전 처음부터 끝까지). 평소엔 둘 다 비어 안 보이지만 필살기의 빛기둥(흰·노랑, 화면 ⅕~¼)은 한쪽 자리에만
++   그려져 2 프레임 켜짐·2 프레임 꺼짐(15Hz)으로 번쩍인다 — 옛 기계의 느린 액정에서는 반투명처럼 보였을 연출.
++   줄마다 플레인 스크롤이 지금만 멀고(16px 넘게) 1~2 프레임 앞·뒤는 서로 같은(8px 안) «켰다 끄기» 박자이고, 4 프레임 앞(1·1 박자면
++   2 프레임 앞)도 지금과 같은 자리여야(되풀이) 깜빡임으로 친다. 그런 줄은 그 플레인만 다른 위상(지난 프레임)의 것으로 바꿔 다시 고른다
++   (스프라이트·다른 플레인·배경색·창은 지금 것) — 바뀐 칸만 om=1, 색은 oc(12비트). 출력에서 이 색을 섞는다(libretro.c pf_apply) */
++static int fk_d8(uint8_t a, uint8_t b) { int d = (uint8_t)(a - b); return d > 128 ? 256 - d : d; }
++static int fk_dist(const ss2fg_regs *a, const ss2fg_regs *b, int p)
++{
++   int dx = p == 1 ? fk_d8(a->s1x, b->s1x) : fk_d8(a->s2x, b->s2x);
++   int dy = p == 1 ? fk_d8(a->s1y, b->s1y) : fk_d8(a->s2y, b->s2y);
++   return dx > dy ? dx : dy;
++}
++#define FK_FAR  16
++#define FK_NEAR 8
++/* 줄 y 의 플레인 p 가 D(h[4])에서 깜빡이는 박자면 다른 위상의 지난 프레임, 아니면 0 */
++static const ss2fg_frame *fk_other(const ss2fg_frame *const *h, int y, int p)
++{
++   const ss2fg_regs *r0 = &h[4]->line[y];
++   int dk[7], k;
++   for (k = 0; k < 7; k++) dk[k] = (h[k] && h[k]->valid && !h[k]->mono) ? fk_dist(r0, &h[k]->line[y], p) : -1;
++#define FK_F(k)    (dk[k] >= FK_FAR)
++#define FK_S(k)    (dk[k] >= 0 && dk[k] <= FK_NEAR)
++#define FK_N(a, b) (fk_dist(&h[a]->line[y], &h[b]->line[y], p) <= FK_NEAR)
++   if (FK_F(3) && FK_F(6) && FK_S(5) && FK_S(0) && FK_N(3, 6)) return h[3];   /* 2·2 박자, D 가 첫 칸 — 다른 위상 D-1 */
++   if (FK_F(2) && FK_F(5) && FK_S(3) && FK_S(0) && FK_N(2, 5)) return h[2];   /* 2·2 박자, D 가 둘째 칸 — D-2 */
++   if (FK_F(3) && FK_F(5) && FK_S(2) && FK_N(3, 5)) return h[3];              /* 1·1 박자 — D-1 */
++#undef FK_F
++#undef FK_S
++#undef FK_N
++   return 0;
++}
++static void fk_row(const ss2fg_frame *f, int y, int p, int on, uint16_t *out)
++{
++   const ss2fg_regs *r = &f->line[y];
++   int X;
++   if (!on) { for (X = 0; X <= SS2FG_W; X++) out[X] = 0xFFFF; return; }
++   if (p == 1) sp_row(f, r, 1, r->s1x, (uint8_t)(y + r->s1y), out);
++   else        sp_row(f, r, 2, r->s2x, (uint8_t)(y + r->s2y), out);
++}
++int ss2fg_flicker_plan(const ss2fg_frame *const *h, uint16_t *oc, uint8_t *om, uint8_t *oline)
++{
++   static uint16_t rFD[SS2FG_W + 1], rFO[SS2FG_W + 1], rBD[SS2FG_W + 1], rBO[SS2FG_W + 1], scan[SS2FG_W], sc[SS2FG_W];
++   static uint8_t zs[SS2FG_W];
++   const ss2fg_frame *f0 = h[4];
++   int y, n = 0;
++   memset(oline, 0, SS2FG_H);
++   if (!f0 || !f0->valid || f0->mono) return 0;
++   for (y = 0; y < SS2FG_H; y++)
++   {
++      const ss2fg_regs *r0 = &f0->line[y];
++      const ss2fg_frame *o1, *o2, *oF, *oB;
++      int pF = r0->swap ? 2 : 1, x, x0, x1, any = 0, nl = 0;
++      unsigned bc;
++      if (!(y >= r0->winy && y < r0->winy + r0->winh)) continue;
++      x0 = r0->winx; x1 = imin(r0->winx + r0->winw, SS2FG_W);
++      if (x0 >= x1) continue;
++      o1 = fk_other(h, y, 1); o2 = fk_other(h, y, 2);
++      if (!o1 && !o2) continue;
++      oF = pF == 1 ? o1 : o2; oB = pF == 1 ? o2 : o1;
++      if (oF)
++      {
++         fk_row(f0, y, pF, f0->layers & 2, rFD);
++         fk_row(oF, y, pF, oF->layers & 2, rFO);
++         for (x = x0; x < x1 && !any; x++) any = rFD[x] != rFO[x];
++      }
++      if (oB)
++      {
++         fk_row(f0, y, 3 - pF, f0->layers & 1, rBD);
++         fk_row(oB, y, 3 - pF, oB->layers & 1, rBO);
++         for (x = x0; x < x1 && !any; x++) any = rBD[x] != rBO[x];
++      }
++      if (!any) continue;                               /* 두 위상 모두 비었다(평소 대전 — 줄마다 두 행만 보고 끝) */
++      if (!oF) { fk_row(f0, y, pF, f0->layers & 2, rFD); memcpy(rFO, rFD, sizeof rFO); }
++      if (!oB) { fk_row(f0, y, 3 - pF, f0->layers & 1, rBD); memcpy(rBO, rBD, sizeof rBO); }
++      {  /* 지금 프레임의 스프라이트만 맨 앞(깊이·색) — 다른 단계의 설정은 잠시 끈다 */
++         const uint8_t *sk = rl_skip; uint8_t *zo = rl_zout; int16_t *sl = rl_slot; int ppo = pp_on, ffo = fx_fade_on;
++         rl_skip = 0; rl_zout = 0; rl_slot = 0; pp_on = 0; fx_fade_on = 0;
++         rl_sprz = zs; rl_sprc = sc; rl_sprs = 0;
++         render_line(f0, 0, 0, 0, 0, y, scan);
++         rl_sprz = 0; rl_sprc = 0;
++         rl_skip = sk; rl_zout = zo; rl_slot = sl; pp_on = ppo; fx_fade_on = ffo;
++      }
++      {
++         uint16_t c = ld16(f0->pal + 0x01E0 + ((r0->bgc & 7) << 1));
++         if (r0->neg) c = (uint16_t)~c;
++         bc = c & 0x0FFF;
++      }
++      memset(om + y * SS2FG_W, 0, SS2FG_W);
++      for (x = x0; x < x1; x++)
++      {
++         unsigned d = sp_pick(zs[x], sc[x], rFD[x], rBD[x], bc), o = sp_pick(zs[x], sc[x], rFO[x], rBO[x], bc);
++         if (o == d) continue;
++         om[y * SS2FG_W + x] = 1; oc[y * SS2FG_W + x] = (uint16_t)o; nl++;
++      }
++      if (nl) { oline[y] = 1; n += nl; }
++   }
++   return n;
++}
+ /* 99l: 사무쇼2 는 큰 타격 때 창(window) 폭을 0 으로 접어 화면 전체를 창 밖 색(흰 fff·검은 000)으로 1 프레임 칠한다
+    (실측: 반전 NEG 는 한 번도 안 씀). 줄의 9할 넘게 창 밖이면 그런 프레임 */
+ int ss2fg_flash_frame(const ss2fg_frame *f, uint16_t *c12)
+diff --git a/src/ss2fg.h b/src/ss2fg.h
+index 6ef21e2..2b019fe 100644
+--- a/src/ss2fg.h
++++ b/src/ss2fg.h
+@@ -112,6 +112,9 @@ int  ss2fg_scroll_plan(const ss2fg_frame *fp, const ss2fg_frame *f0, const ss2fg
+ void ss2fg_scroll_stats(int *out4);  /* 시험용 계기 */
+ /* 99l: 화면 전체 번쩍 — 창이 접혀(거의 모든 줄이 창 밖) 화면이 창 밖 색 한 가지인 프레임. c12 = 그 색(12비트, 반전 반영) */
+ int  ss2fg_flash_frame(const ss2fg_frame *f, uint16_t *c12);
++/* 99n: 플레인 깜빡임 — 줄마다 플레인 스크롤을 1~2 프레임 간격으로 멀리 옮겼다 되돌리는(이펙트를 켰다 껐다) 박자를 찾아, 그 줄을
++   다른 위상(지난 프레임)의 그 플레인으로 다시 고른 1배 색(oc, 12비트)·바뀐 칸(om=1)·줄 표시(oline). h[0..6] = D-4..D+2. 반환 = 바뀐 칸 수 */
++int  ss2fg_flicker_plan(const ss2fg_frame *const *h, uint16_t *oc, uint8_t *om, uint8_t *oline);
+ void ss2fg_idle_stats(int *out6);
+ /* 모션 캐시(패치 97) — 시스템 폴더 ss2_motion.bin. open 반환 = 바뀜 수 또는 -1 */
+ int  ss2fg_motion_open(const char *path);

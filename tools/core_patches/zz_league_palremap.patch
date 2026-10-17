@@ -1,0 +1,60 @@
+From 0966bed (ss2-sp-core main) — 팔레트 바꿔 쓰기 내보냄 retro_ngp_palremap: 가상 리그 컬러 고르기용(1249a9e 를 고친 판).
+한 팔레트의 색 1~3 이 모두 맞을 때만 셋 다 바꾼다 — 칸마다 따로 바꾸던 1249a9e 는 커서를 옮긴 프레임에 앞 캐릭터 표가 새 캐릭터와
+같은 색 칸만 바꿔 미리보기 색이 섞여 굳었고(내부 149 유저 보고), 나찰·번쩍임·상대 팔레트 5 도 한 칸씩 잘못 바꿨다.
+아무도 부르지 않으면 표가 비어 있어 하는 일 없음. 상태 저장에 안 들어감.
+
+diff --git a/src/mednafen/ngp/gfx.c b/src/mednafen/ngp/gfx.c
+index 6d4dd4c..d87c26e 100644
+--- a/src/mednafen/ngp/gfx.c
++++ b/src/mednafen/ngp/gfx.c
+@@ -816,6 +816,39 @@ static void ss2fg_note_write(ngpgfx_t *gfx, uint32 address)
+    else if (address >= 0x8200 && address <= 0x83ff) ss2fg_capture_write(SS2FG_DIRTY_PAL);
+ }
+ 
++/* 앱이 정하는 팔레트 바꿔 쓰기(가상 리그 컬러 고르기) — 한 팔레트(4색)의 색 1~3 이 모두 자리 slot 의 from 색이 되는 순간
++   (게임이 그 팔레트를 쓰는 중 마지막 칸 윗바이트) 셋 다 to 로 바꿔 넣는다. 게임은 몸 팔레트를 롬에서 자주 다시 쓰므로(대전 중
++   1초에 한 번꼴) 프레임 뒤에 고쳐 쓰면 원래 색이 한 프레임씩 보인다 — 여기서 바꾸면 런어헤드·프레임 생성 프레임까지 같다.
++   세 칸을 함께 보므로 맞을 때 번쩍임처럼 한 칸만 같은 다른 팔레트는 안 건드린다. 칸 idx(16비트 칸 0~255, 팔레트 k 의 색 j = k*4+j)
++   마다 자리 둘(검질 고르기처럼 두 팔레트가 번갈아 올 때) — 한 자리는 세 칸(j = 1~3)을 모두 정해야 쓴다. 상태 저장엔 안 들어간다. */
++static uint16 pr_from[256][2], pr_to[256][2];
++static uint8 pr_on[256];
++void retro_ngp_palremap(int idx, int slot, int from, int to)
++{
++   if (idx < 0) { memset(pr_on, 0, sizeof pr_on); return; }
++   if (idx > 255 || slot < 0 || slot > 1) return;
++   if (from < 0) { pr_on[idx] &= (uint8)~(1 << slot); return; }
++   pr_from[idx][slot] = (uint16)(from & 0x0FFF); pr_to[idx][slot] = (uint16)(to & 0x0FFF);
++   pr_on[idx] |= (uint8)(1 << slot);
++}
++static uint16 pal_rd16(ngpgfx_t *gfx, uint32 idx) { return (uint16)((gfx->ColorPaletteRAM[idx * 2] | (gfx->ColorPaletteRAM[idx * 2 + 1] << 8)) & 0x0FFF); }
++static void pal_remap(ngpgfx_t *gfx, uint32 off)
++{
++   uint32 b = (off >> 1) & ~3u;                    /* 이 팔레트의 색 0 칸 */
++   if ((off >> 1) == b || !(pr_on[b + 1] | pr_on[b + 2] | pr_on[b + 3])) return;
++   for (int k = 0; k < 2; k++) {
++      int j;
++      for (j = 1; j <= 3; j++)
++         if (!(pr_on[b + j] & (1 << k)) || pal_rd16(gfx, b + j) != pr_from[b + j][k]) break;
++      if (j <= 3) continue;
++      for (j = 1; j <= 3; j++) {
++         gfx->ColorPaletteRAM[(b + j) * 2] = (uint8)pr_to[b + j][k];
++         gfx->ColorPaletteRAM[(b + j) * 2 + 1] = (uint8)(pr_to[b + j][k] >> 8);
++      }
++      return;
++   }
++}
++
+ void ngpgfx_write8(ngpgfx_t *gfx, uint32 address, uint8 data)
+ {
+    ss2fg_note_write(gfx, address);
+@@ -828,7 +861,10 @@ void ngpgfx_write8(ngpgfx_t *gfx, uint32 address, uint8 data)
+    else if(address >= 0x8c00 && address <= 0x8c3f)
+       gfx->SpriteVRAMColor[address - 0x8c00] = data & 0x0f;
+    else if(address >= 0x8200 && address <= 0x83ff)
++   {
+       gfx->ColorPaletteRAM[address - 0x8200] = data;
++      if (address & 1) pal_remap(gfx, address - 0x8200);   /* 16비트 쓰기는 아랫바이트 → 윗바이트 순 */
++   }
+    else switch(address)
+    {
+       case 0x8000:

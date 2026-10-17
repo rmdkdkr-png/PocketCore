@@ -1,0 +1,11 @@
+diff -ruN a/build/mednafen/ngp/gfx.c b/build/mednafen/ngp/gfx.c
+--- a/build/mednafen/ngp/gfx.c	2026-10-16 20:12:45.851318634 +0900
++++ b/build/mednafen/ngp/gfx.c	2026-10-16 20:12:45.866467927 +0900
+@@ -452,6 +452,7 @@
+          *scan++ = data16;
+ 
+       x = MIN(gfx->winx + gfx->winw, SCREEN_WIDTH);
++      scan = &cfb_scanline[x];   /* Legacito: 컬러 판처럼 — 빠져서 흑백 게임 창 오른쪽 밖이 안 칠해지고 이전 그림·쓰레기가 남던 것 */
+    }
+ 
+    /* Bottom and Top */

@@ -41,6 +41,49 @@ public final class Patcher {
      *  대본 물리 바닥까지만 — 차등 보존, 전 항목 실측 검증). 문턱·판정 알고리즘은 안
      *  건드리므로 약/강 구분은 순정 그대로. 한글패치와 겹치는 바이트 없음(실측).
      *  현재 svc(20기술)·kofr2(14명) 에 자산이 있고, 다른 게임은 자산이 없어 자동 무시된다. */
+    /** 사무쇼2 배경음악 결과 — resolve 가 채운다(사무쇼2·SS1 음악 켬일 때만, 아니면 null). 게임 시작 토스트가 보여 준다. */
+    public static volatile String musicNote;
+    public static final String MUSIC_OK = "배경음악: 사무쇼1 곡";
+    public static final String MUSIC_NO_ROM = "배경음악: 사무쇼1 롬을 못 찾아 원래 곡 — 롬 폴더에 넣거나 「롬 › 저장소에서 롬 스캔」";
+    public static final String MUSIC_FAIL = "배경음악: 이 사무쇼1 롬에선 곡을 못 꺼내 원래 곡";
+    public static final String MUSIC_MUTE = "배경음악: 끔(효과음만)";
+    public static final String MUSIC_MUTE_FAIL = "배경음악: 이 롬에선 끄지 못해 원래 곡";
+
+    /** 가상 리그 랭크전 전용 사본 — 원본 롬 + 번역 패치(내려받은 판, 없으면 동봉 판)만 입힌다.
+     *  수동 패치·조작 패치(mods)·사무쇼1 배경음악은 얹지 않는다: 판정 주소를 실측한 고정 판(League.ROMS 의 md5)으로만
+     *  정산하기 위해서다(기획서 4장 «버전 고정»). 사본은 루트/league/rom/<원래 이름> — 세이브 이름도 원래 이름에서 나온다.
+     *  번역이 필요 없는 언어(ja·en)면 원본 그대로. 실패하면 원본 경로(그러면 md5 검사가 정산을 멈춘다). */
+    public static String resolveLeague(Context ctx, String romPath, Games.Game game, String lang) {
+        musicNote = null;                                     /* 랭크전은 배경음악을 안 바꾼다 — 자유 플레이 때 알림이 남지 않게 */
+        String name = (game != null) ? game.patchFor(lang) : null;
+        if (name == null) return romPath;
+        try {
+            File rom = new File(romPath);
+            /* 이미 한글패치가 든 롬(실측한 사본)이면 그대로 — 한 번 더 입히면 판정 주소를 모르는 롬이 된다 */
+            String lab = League.romLabel(League.md5(rom));
+            if (lab != null && lab.contains("한글패치")) return romPath;
+            byte[] ips = readFile(new File(new File(MainActivity.root(), "patch"), name));
+            if (ips == null) ips = readAsset(ctx, "patch/" + name);
+            byte[] data = readFile(rom);
+            if (ips == null || data == null) return romPath;
+            byte[] done = apply(data, ips);
+            if (done == null) return romPath;
+            File out = new File(League.romDir(), rom.getName());
+            byte[] old = readFile(out);
+            if (old == null || !java.util.Arrays.equals(old, done)) {
+                /* 임시 파일 → 이름 바꾸기 — 리그 화면의 롬 확인과 게임 창이 같은 사본을 동시에 써도 반쯤 쓴 롬이 안 남는다 */
+                File tmp = new File(out.getPath() + ".tmp" + android.os.Process.myTid());
+                try {
+                    try (FileOutputStream fo = new FileOutputStream(tmp)) { fo.write(done); fo.getFD().sync(); }
+                    if (!tmp.renameTo(out)) return romPath;
+                } finally { tmp.delete(); }                  /* 쓰다 실패해도 임시 파일을 남기지 않는다(이름 바꾼 뒤면 이미 없다) */
+            }
+            return out.getPath();
+        } catch (Exception e) {
+            return romPath;
+        }
+    }
+
     public static String resolve(Context ctx, String romPath, Games.Game game, String lang,
                                  boolean fastRom, boolean withMods) {
         String name = (game != null) ? game.patchFor(lang) : null;
@@ -78,6 +121,31 @@ public final class Patcher {
                     saveTag.append('.').append(md.saveTag);
             }
         }
+        /* 사무쇼2 배경음악 — 폰에 있는 사무쇼1 롬에서 곡을 꺼내 사본에 심는다(Ss1Music). 옵션 pocketcore_ss2_music:
+           ss1 = SS1 음악(기본) · same = 같은 곡만 SS1 판 · off = 원래 · mute = 끔(효과음만, SS1 롬 필요 없음).
+           SS1 롬이 없으면 원래 음악. */
+        byte[] ss1rom = null;
+        boolean musicAll = true, musicMute = false;
+        String musicSig = "";
+        musicNote = null;
+        if (game != null && "ss2".equals(game.id)) {
+            String mv = Settings.load().get("pocketcore_ss2_music");
+            if (mv == null) mv = "ss1";
+            if ("mute".equals(mv)) {                          /* 유저 2026-10-10 「BGM 끄는 옵션 추가하고」 */
+                musicMute = true;
+                musicSig = "mute,v" + Ss1Music.VER;
+                musicNote = MUSIC_MUTE;
+            } else if (!"off".equals(mv)) {
+                File f1 = Ss1Music.findSs1Rom();
+                if (f1 != null) {
+                    ss1rom = readFile(f1);
+                    musicAll = !"same".equals(mv);
+                    if (ss1rom != null) musicSig = mv + "," + f1.length() + "," + f1.lastModified() + ",v" + Ss1Music.VER
+                            + ",m" + Integer.toHexString(Ss1Music.mapSig(musicAll));
+                }
+                musicNote = ss1rom == null ? MUSIC_NO_ROM : MUSIC_OK;
+            }
+        }
         try {
             File rom = new File(romPath);
             File pdir = new File(MainActivity.root(), "patch");
@@ -108,7 +176,7 @@ public final class Patcher {
                     ips = readAsset(ctx, "patch/" + name);
                 }
             }
-            if (ips == null && extra == null && mods.isEmpty())
+            if (ips == null && extra == null && mods.isEmpty() && ss1rom == null && !musicMute)
                 return romPath;                               /* 쓸 패치가 하나도 없다 */
 
             /* 사본 이름은 원본과 같게 둔다 — 상태저장·세이브 파일 이름이 롬 이름에서 나오므로,
@@ -134,9 +202,19 @@ public final class Patcher {
                         + (ips != null ? ips.length : 0)
                         + ":F" + (extra != null ? extra.length : 0)
                         + ":M" + modSig
-                        + ":P" + pver;                        /* 새 판 받으면 다시 입힌다 */
+                        + ":P" + pver                         /* 새 판 받으면 다시 입힌다 */
+                        + ":S" + musicSig;                     /* 사무쇼2 배경음악(SS1) */
 
-            if (out.exists() && want.equals(readText(stamp))) return out.getPath();
+            /* 배경음악을 심은 사본은 «심기 전» md5 기록(.base)이 있어야 한다 — 연습 대전이 판을 알아보는 근거. 없으면(옛 판이 구운 사본) 다시 굽는다 */
+            boolean baseOk = (ss1rom == null && !musicMute) || new File(out.getPath() + ".base").exists();
+            if (out.exists() && want.equals(readText(stamp)) && baseOk) {
+                if (ss1rom != null || musicMute) {
+                    String mres = readText(new File(out.getPath() + ".music"));
+                    if ("fail".equals(mres)) musicNote = musicMute ? MUSIC_MUTE_FAIL : MUSIC_FAIL;
+                    else if (mres != null && mres.startsWith("part ")) musicNote = MUSIC_OK + " (" + mres.substring(5) + "곡)";
+                }
+                return out.getPath();
+            }
 
             byte[] data = readFile(rom);
             if (data == null) return romPath;
@@ -154,11 +232,37 @@ public final class Patcher {
                 byte[] d3 = apply(done, modb);
                 if (d3 != null) done = d3;
             }
+            boolean musicFail = false;
+            String musicRes = "ok";
+            byte[] beforeMusic = done;                       /* 배경음악을 심기 전(원본 + 번역·문턱·조작 패치) — .base 기록용 */
+            if (ss1rom != null || musicMute) {               /* 맨 마지막 — 한패·조작 패치가 쓰고 남은 빈칸에 심는다 */
+                /* 빈칸 = 원래 롬의 끝 채움 중 어느 패치도 안 쓴 바이트. 패치가 0xFF 로 쓴 자리도 «쓴 것» —
+                   한패 v1.01 은 줄인 대사 뒤를 0xFF 로 메우고 빈 줄로 가리킨다(거기 곡을 쓰면 그 장면에서 멈춘다). */
+                boolean[] touched = new boolean[done.length];
+                if (ips != null) markIps(ips, touched);
+                if (extra != null) markIps(extra, touched);
+                for (byte[] modb : mods) markIps(modb, touched);
+                boolean[] sp = Ss1Music.spare(done, data, touched);
+                byte[] d4 = musicMute ? Ss1Music.mute(done, sp) : Ss1Music.apply(done, ss1rom, musicAll, sp);
+                if (d4 != null) {
+                    done = d4;
+                    if (Ss1Music.lastPlaced < Ss1Music.lastWanted) {   /* 빈칸이 모자라 일부 장면은 원래 곡 */
+                        musicRes = "part " + Ss1Music.lastPlaced + "/" + Ss1Music.lastWanted;
+                        musicNote = MUSIC_OK + " (" + Ss1Music.lastPlaced + "/" + Ss1Music.lastWanted + "곡)";
+                    }
+                }
+                else { musicFail = true; musicNote = musicMute ? MUSIC_MUTE_FAIL : MUSIC_FAIL; }
+            }
             if (java.util.Arrays.equals(done, data)) return romPath;  /* 아무 변화 없음 */
 
             out.getParentFile().mkdirs();
             try (FileOutputStream fo = new FileOutputStream(out)) { fo.write(done); }
             writeText(stamp, want);
+            writeText(new File(out.getPath() + ".music"), musicFail ? "fail" : musicRes);
+            /* .base = «심기 전 md5 심은 뒤 md5». 배경음악은 소리 자료(빈칸)와 그 주소를 가리키는 조립 코드 즉시값만 바꾸고 게임 램 배치는
+               그대로라, 심기 전 판이 판정 주소를 실측한 판(League.romLabel)이면 연습 대전을 켤 수 있다(EmuActivity.practiceSetup). */
+            writeText(new File(out.getPath() + ".base"), (ss1rom != null || musicMute) && !musicFail
+                    ? md5(beforeMusic) + " " + md5(done) : "");
             return out.getPath();
         } catch (Exception e) {
             return romPath;
@@ -208,6 +312,28 @@ public final class Patcher {
         return null;                                        /* EOF 를 못 만났다 */
     }
 
+    /** IPS 가 쓰는 바이트를 mark 에 표시한다(데이터·RLE 모두). 형식이 어긋나면 거기서 멈춘다. */
+    static void markIps(byte[] ips, boolean[] mark) {
+        if (ips == null || ips.length < 8 || ips[0] != 'P' || ips[1] != 'A' || ips[2] != 'T'
+                || ips[3] != 'C' || ips[4] != 'H') return;
+        int p = 5;
+        while (p + 3 <= ips.length) {
+            if (ips[p] == 'E' && ips[p+1] == 'O' && ips[p+2] == 'F') return;
+            if (p + 5 > ips.length) return;
+            int off = ((ips[p] & 0xff) << 16) | ((ips[p+1] & 0xff) << 8) | (ips[p+2] & 0xff);
+            int len = ((ips[p+3] & 0xff) << 8) | (ips[p+4] & 0xff);
+            p += 5;
+            if (len == 0) {
+                if (p + 3 > ips.length) return;
+                len = ((ips[p] & 0xff) << 8) | (ips[p+1] & 0xff);
+                p += 3;
+            } else {
+                p += len;
+            }
+            for (int k = off; k < off + len && k < mark.length; k++) mark[k] = true;
+        }
+    }
+
     private static byte[] grow(byte[] a, int need) {
         if (need <= a.length) return a;
         byte[] b = new byte[need];
@@ -227,7 +353,26 @@ public final class Patcher {
         }
     }
 
-    private static byte[] readFile(File f) {
+    static String md5(byte[] b) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            StringBuilder sb = new StringBuilder();
+            for (byte x : md.digest(b)) sb.append(String.format("%02x", x & 0xff));
+            return sb.toString();
+        } catch (Exception e) { return ""; }
+    }
+
+    /** 배경음악을 심은 사본의 «심기 전» 판 이름(League.romLabel) — .base 기록이 지금 사본(md5)과 맞고 심기 전 판을 알 때만. 아니면 null */
+    static String musicBaseLabel(String copyPath, String copyMd5) {
+        String t = readText(new File(copyPath + ".base"));
+        if (t == null) return null;
+        String[] w = t.trim().split(" ");
+        if (w.length != 2 || !w[1].equals(copyMd5)) return null;
+        String lab = League.romLabel(w[0]);
+        return lab == null ? null : lab + " + 배경음악";
+    }
+
+    static byte[] readFile(File f) {
         long len = f.length();
         if (len <= 0 || len > 64L * 1024 * 1024) return null;
         byte[] b = new byte[(int) len];

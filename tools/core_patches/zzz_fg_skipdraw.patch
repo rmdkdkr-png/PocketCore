@@ -1,0 +1,55 @@
+앱 방 코어 패치 zzz_fg_skipdraw — 프레임 패치가 몰래 더 돌리는 숨은 프레임(D+1·D+2 · 더 미리 · 런어헤드 · 멀리 미리 보기,
+실제 프레임마다 2~8 장) 중 그림을 남기지 않는 것은 줄 그리기(draw_scanline)만 건너뛴다. 프레임 패치는 숨은 프레임의 그림을 안 쓰고
+캡처한 레지스터·VRAM 으로 다시 그린다(색칠된 surf 는 곧 덮이고, 멀리 미리 보기는 되돌린다). 캡처·게임 진행은 그대로라 결과가 같다 —
+호스트 12 갈래(예측·보간·2배·60Hz·런어헤드 2 × 봇 대전·걷기) 출력·쪽지 해시가 한 장도 안 다름.
+CPU(호스트, 런어헤드 2, 실제 프레임당): 봇 대전 7.20 → 6.30ms(−12%), 걷기 7.34 → 6.89ms(zzz_fg_walk 까지 넣고도 157 보다 적음).
+
+diff --git a/src/libretro.c b/src/libretro.c
+index a68916a..21bc5e0 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -420,6 +420,7 @@ static int16_t  fg_scratch_snd[0x10000];
+ static void Emulate(EmulateSpecStruct *espec, int16_t *sound_buf);
+ extern int ngplink_active(void);
+ int ngp_fg_mute = 0;                      /* sound.cpp 가 본다 — 예측 프레임 중 소리 무시 */
++int ngp_fg_skipdraw = 0;                  /* zzz_fg_skipdraw: interrupt.c 가 본다 — 그림을 안 쓸 숨은 프레임은 줄 그리기를 건너뜀(캡처는 그대로) */
+ extern int ngp_fg_predict;                /* mem.c — 예측 프레임 중 롬/플래시 쓰기 차단 */
+ extern void ngp_mem_fg_extras(uint8_t *buf, int load);
+ extern int iline;                         /* z80_ops.c — Z80 인터럽트선, 어떤 StateAction 에도 없다 */
+@@ -691,9 +692,14 @@ static void fg_hidden(int n, int keep)
+    for (k = 1; k <= n; k++)
+    {
+       ps.SoundBufSize = 0;
++      /* zzz_fg_skipdraw: 그림을 남기지 않는 숨은 프레임(keep 아닌 것) — 줄 그리기만 건너뛴다. 프레임 패치는 숨은 프레임의 그림을 안 쓰고
++         캡처한 레지스터·VRAM 으로 다시 그린다(색칠된 surf 는 곧 덮임·멀리 미리 보기는 되돌림). 게임 진행·캡처는 같다 — 호스트 12 갈래
++         (예측·보간·2배·60Hz·런어헤드 2, 봇·걷기) 출력·쪽지 해시가 한 장도 안 다름. 숨은 프레임이 실제 프레임마다 2~8 장이라 CPU 를 꽤 먹었다 */
++      ngp_fg_skipdraw = k != keep;
+       Emulate(&ps, fg_scratch_snd);                /* 입력은 마지막 실제 프레임 값 그대로(붙잡고 있다고 가정) */
+       if (k == keep) memcpy(fg_real, surf->pixels, sizeof fg_real);
+    }
++   ngp_fg_skipdraw = 0;
+    ngp_fg_mute = 0; ngp_fg_predict = 0;
+ }
+ 
+diff --git a/src/mednafen/ngp/interrupt.c b/src/mednafen/ngp/interrupt.c
+index b23abfa..8275291 100644
+--- a/src/mednafen/ngp/interrupt.c
++++ b/src/mednafen/ngp/interrupt.c
+@@ -24,6 +24,8 @@
+ #include "interrupt.h"
+ #include "Z80_interface.h"
+ #include "dma.h"
++
++extern int ngp_fg_skipdraw;   /* zzz_fg_skipdraw: libretro.c — 프레임 패치의 숨은 프레임 중 그림을 안 쓰는 것은 줄 그리기 생략 */
+ #include "system.h"
+ 
+ #ifndef NDEBUG
+@@ -275,7 +277,7 @@ bool updateTimers(void *data, int cputicks)
+       uint8_t _data;
+ 
+       h_int = ngpgfx_hint(NGPGfx);	
+-      ret   = ngpgfx_draw(NGPGfx, data, false);
++      ret   = ngpgfx_draw(NGPGfx, data, ngp_fg_skipdraw != 0);
+ 
+       timer_hint -= TIMER_HINT_RATE;	/* Start of next scanline */
+ 
