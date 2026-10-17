@@ -175,4 +175,16 @@ public final class Emu {
     public static native void nativeOvClear(int mask);
     /** [OVS_*] — 아무 스레드. [OVS_VER] 0 = 덧판 없음(빈 껍데기) */
     public static native int[] nativeOvStatus();
+    /* 157 post — 경기 중 HUD 이름표(체력 막대 아래 검은 줄): 메뉴 층과 따로 · 입력 안 막음 · native 가 라운드 조작 중(램)일 때만, 게임이 그 자리에 무엇을 그리면
+       비켜 줌(OV_TAG_CLEAR 20프레임 비면 다시) · 라운드 시작 2초 강조. 메뉴 닫기(nativeOvClear)는 안 지움 — 코어가 통째로 바뀌는 곳(로드·내림·리셋·허브 돌아가기·
+       상태 불러오기)에서 native 가 지운다. GL 스레드(LeagueMenu.OvPort)에서만 · 옛 native 면 UnsatisfiedLinkError(부르는 쪽이 받아 이름표 없이) */
+    public static final int OV_TAG_ME = 0, OV_TAG_OPP = 1, OV_TAG_MAXW = 64, OV_TAG_H = 8, OV_TAG_CLEAR = 20;
+    /** nativeOvTagStatus 칸 */
+    public static final int OVT_ON = 0, OVT_LIVE = 1, OVT_VIS = 2, OVT_FLASH = 3, OVT_OCC = 4, OVT_SCANS = 5, OVT_YIELDS = 6, OVT_EMPH = 7, OVT_SIG = 8, OVT_ROUNDS = 9, OV_TAG_NSTAT = 10;
+    /** 이름표 한쪽 — pix w×h(칠 0..3, 0 투명) · 게임 px (x,y) · pals 6칸 = 강조 c1..c3 · 보통 c1..c3(12비트 0x0BGR). pix null = 그 쪽 지움 */
+    public static native boolean nativeOvTag(int side, byte[] pix, int w, int h, int x, int y, short[] pals);
+    /** 이름표 켬/끔(랭크 경기 동안 켬) */
+    public static native void nativeOvTagOn(boolean on);
+    /** [OVT_*] — 아무 스레드 */
+    public static native int[] nativeOvTagStatus();
 }

@@ -1267,12 +1267,22 @@ final class League {
         int omr = st.optInt("opp_mr");
         if (omr <= 0) omr = (int) Math.round(1500 + (st.optDouble("opp_mmr", me.mmr) - 1600) * 1.5);   /* 상대 MR 이 안 적힌 경기 — Player.mr 과 같은 식 */
         RankCore.Outcome o = RankCore.settle(me, out.charAt(0), st.optDouble("opp_mmr", me.mmr), omr, revenge, today());
+        /* 157 post: 상대 LP 변화 — 결판 띠의 두 게이지(유저 «게이지로 상대와 나 점수 변화»). 상대 모습(순위표·프로필·카드와 같은 셈: Player.lp(오늘, mmr_adj, lp_adj))을
+           이 경기 조정 전·뒤로 — 같은 날 값이라 차이는 이 경기 몫뿐(MMR −16(S−E) · LP ∓(20~60)), 뒤 값 = 지금 순위표 값. 무쌍(LP 9000)이면 MR */
+        RankCore.Player op = RankCore.resolve(rankSeed(), oid, book());
+        int day = today();
+        double adj0 = pr.optDouble("mmr_adj"); int la0 = pr.optInt("lp_adj");
         if ("W".equals(out)) { pr.put("w", pr.optInt("w") + 1); pr.put("last", 1); pr.put("broke", 0); }
         else if ("L".equals(out)) { pr.put("l", pr.optInt("l") + 1); pr.put("last", -1); if (streak0 >= 2) { pr.put("broke", streak0); m.put("broke_streak", streak0); } }
         else { pr.put("d", pr.optInt("d") + 1); pr.put("last", 0); }
         pr.put("mmr_adj", Math.max(-150, Math.min(150, pr.optDouble("mmr_adj") + o.oppMmrDelta)));
         pr.put("lp_adj", Math.max(-600, Math.min(600, pr.optInt("lp_adj") + o.oppLpDelta)));
         pr.put("at", System.currentTimeMillis());
+        if (op != null) {
+            int lb = op.lp(day, adj0, la0), la = op.lp(day, pr.optDouble("mmr_adj"), pr.optInt("lp_adj"));
+            m.put("opp_lp_before", Math.min(lb, RankCore.MASTER_LP)).put("opp_lp_after", Math.min(la, RankCore.MASTER_LP));
+            if (lb >= RankCore.MASTER_LP || la >= RankCore.MASTER_LP) m.put("opp_mr_before", op.mr(day, adj0)).put("opp_mr_after", op.mr(day, pr.optDouble("mmr_adj")));
+        }
         me.recent.remove(oid); me.recent.add(0, oid);
         JSONObject pd = r.optJSONObject("pending");
         if (pd != null && oid.equals(pd.optString("id"))) r.remove("pending");

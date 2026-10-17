@@ -122,6 +122,7 @@ static GLuint    g_tex_gh = 0;
 /* 157 덧판 — 합성한 그림(ovplane.c 버퍼)을 올리는 따로 텍스처. g_tex(날것 g_fb)는 그대로 */
 static GLuint    g_tex_ov = 0;
 static unsigned  g_tex_ov_w = 0, g_tex_ov_h = 0;
+static uint32_t  g_tex_tag = 0;            /* 157 post: g_tex 의 이름표 줄에 지금 덧칠된 HUD 이름표 서명(0 = 날 그림 그대로) */
 
 /* audio ring buffer (stereo int16) */
 #define ARING_FRAMES 16384
@@ -624,6 +625,8 @@ static void gl_draw(void)
       } else
          glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, g_fb_w, g_fb_h, GL_RGBA, GL_UNSIGNED_BYTE, g_fb);
       g_fb_dirty = 0;
+      g_tex_tag = 0;
+      ov_tag_scan(img, iw, ih);           /* 157 post: 새 게임 그림 — HUD 이름표 자리에 게임이 무엇을 그렸나(날 그림으로) */
    }
 
    /* aspect-correct, integer-scaled viewport.
@@ -687,6 +690,18 @@ static void gl_draw(void)
       glBindTexture(GL_TEXTURE_2D, g_tex_gh);
       glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, shown);
       tex = g_tex_gh;
+   }
+   if (!ob) {                     /* 157 post: HUD 이름표 — 메뉴가 안 보이면 그려 낼 게임 텍스처의 이름표 줄만 덧칠(4배 그림도 32줄) ·
+                                     잔상 텍스처는 vsync 마다 새로 올라오니 늘, 게임 텍스처는 서명이 바뀔 때만(숨길 땐 날 줄로 되돌림) */
+      uint32_t sig = ov_tag_sig();
+      int need = ghost ? sig != 0 : sig != g_tex_tag;
+      int by = 0, bn = 0;
+      const uint8_t *band = need ? ov_tag_band(shown, iw, ih, &by, &bn) : NULL;
+      if (band && bn > 0 && by >= 0 && by + bn <= (int)ih) {
+         glBindTexture(GL_TEXTURE_2D, tex);
+         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, by, iw, bn, GL_RGBA, GL_UNSIGNED_BYTE, band);
+         if (!ghost) g_tex_tag = sig;
+      } else if (need && !ghost) g_tex_tag = sig;
    }
 
    int up = (g_d_mix > 0 && sub == 1) ? g_d_up : 0;    /* 업스케일러는 도트 한 칸 = 텍셀 한 칸일 때만 — 4배 그림엔 쉰다 */
@@ -825,6 +840,7 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
 {
    league_disarm();                      /* 새 게임은 무장 없이 시작 — 랭크전이면 Java 가 로드 뒤에 다시 무장한다 */
    ov_clear(OV_CLR_ALL);                 /* 157 덧판: 코어 상태가 통째로 바뀜 — 메뉴·대본·멈춤·막기 모두(상태용 램 포인터는 올린 뒤 새로) */
+   ov_tag_clear();                       /* 157 post: HUD 이름표도(메뉴 닫기는 안 지움 — 여기 다섯 곳만) */
    ov_game_ram(NULL, 0);
    league_hub(0, NULL, NULL);            /* 게임 속 리그도 끈 채로 — 허브로 켠 화면만 로드 뒤에 다시 켠다(앞 세션의 허브가 자유 플레이로 새지 않게) */
    practice_forget();                    /* 연습 대전도 — 일반 세션이고 확인한 롬 판이면 Java 가 로드 뒤에 연습 허브를 켠다 */
@@ -903,6 +919,7 @@ static void unload_locked(void)
 {
    league_disarm();                      /* 코어가 내려가면 랭크전 무장은 무조건 끝 — 다음 게임으로 새지 않게 */
    ov_clear(OV_CLR_ALL);                 /* 157 덧판 지움 · 상태용 램 포인터도 버림(코어가 내려감 — dlclose 뒤 읽지 않게) */
+   ov_tag_clear();
    ov_game_ram(NULL, 0);
    league_hub(0, NULL, NULL);
    practice_forget();
@@ -1045,7 +1062,7 @@ JNI(void, nativeAudioResume)(JNIEnv *env, jclass cls)
 
 /* 게임 속 리그: 결판 뒤 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
 JNI(void, nativeLeagueHubReturn)(JNIEnv *env, jclass cls, jint rematch)
-{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); look_forget(); cheat_forget(); ov_clear(OV_CLR_ALL); CORE_UNLOCK(); }
+{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); look_forget(); cheat_forget(); ov_clear(OV_CLR_ALL); ov_tag_clear(); CORE_UNLOCK(); }
 
 JNI(void, nativeReset)(JNIEnv *env, jclass cls)
 {
@@ -1057,6 +1074,7 @@ JNI(void, nativeReset)(JNIEnv *env, jclass cls)
    look_forget();                                /* 컬러: 경기 컬러·세로 칸을 잊는다(기억·내 색은 그대로) */
    cheat_forget();                               /* 치트: 보관한 카드는 되돌리지 않고 버린다(램이 새로 시작) */
    ov_clear(OV_CLR_ALL);                         /* 157 덧판: 코어가 새로 시작 — 메뉴·멈춤·막기 지움 */
+   ov_tag_clear();
    CORE_UNLOCK();
 }
 
@@ -1221,6 +1239,7 @@ JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
       look_resume(lsn ? lside + 12 : NULL, lsn ? lsn - 12 : 0);
       cheat_forget();                                /* 치트: 램이 통째로 바뀜 — 보관한 카드는 버리고 다음 프레임부터 새로 */
       ov_clear(OV_CLR_ALL);                          /* 157 덧판: 코어 상태가 통째로 바뀜 */
+      ov_tag_clear();
    }
    CORE_UNLOCK();
    free(buf);

@@ -126,7 +126,7 @@ final class LgmPages {
         TileCanvas cv = b.cv;
         boolean loss = m.outcome == MenuModel.O_LOSS || m.outcome == MenuModel.O_FORFEIT;
         resultPals(cv, m, false);
-        band(b, m);
+        Bars bs = band(b, m);
         boolean nm = m.prefs.fx != MenuModel.Prefs.FX_SHORT;
         /* 호명 띠 — 하나(r4–5) · 둘째는 창고(r19–20)에서 창유리로 같은 자리에 */
         int nr = nm ? m.ribbons.length : 0;
@@ -166,10 +166,10 @@ final class LgmPages {
         Scene s = b.finish(TileCanvas.RIGHT);
         if (fuse) { s.fusePane = PN_FUSE; s.hintPane = PN_HINT; }
         /* 대본 */
-        Cue q = resultCue(m, hd, nr, crest, ntags, fuse, loss);
+        Cue q = resultCue(m, hd, bs, nr, crest, ntags, fuse, loss);
         s.cue = q.build(); s.cueEnd = q.end();
         s.readyT = resultReady(m);
-        int[] noFuse = resultCue(m, hd, nr, crest, ntags, false, loss).build();
+        int[] noFuse = resultCue(m, hd, bs, nr, crest, ntags, false, loss).build();
         s.swapCue = concat(snap(noFuse), new Cue().wipe(0, SWING, Cue.W, 10, 4, 19, 16, 2, false, R_GOLD, 1, Cue.EASE_LINEAR).build());
         Cue c = new Cue().slide(0, CLOSE, Cue.W, PN_SHEATH, Cue.AXIS_X, 0, 80, Cue.EASE_IN)
                 .base(0, CLOSE, B_CLOSE_TOP, Emu.OV_BASE_FILL, 32, 83, 0, 52, 0x012, Cue.EASE_IN)
@@ -187,7 +187,7 @@ final class LgmPages {
         Sb b = new Sb(SC_QUIT);
         TileCanvas cv = b.cv;
         resultPals(cv, m, true);
-        band(b, m);
+        Bars bs = band(b, m);
         boolean nm = m.prefs.fx != MenuModel.Prefs.FX_SHORT;
         if (nm && m.ribbons.length >= 1) ribbon(cv, 4, ribbonText(m, m.ribbons[0]));   /* 끝 장면에 남는 띠(가장 앞 사건) */
         sheath(cv, 4, 16);
@@ -212,6 +212,7 @@ final class LgmPages {
         b.base(B_DIM, Emu.OV_BASE_DIM, 32, 135, 3, 0);
         Scene s = b.finish(TileCanvas.RIGHT);
         Cue q = new Cue().wipe(0, SWING, Cue.W, 10, 4, 19, 16, 2, false, R_GOLD, 1, Cue.EASE_LINEAR);
+        bandCue(q, bs, 0, 0);                                              /* 띠 LP 막대·숫자 끝 상태 */
         ambient(q, 0, R_SEL);
         s.cue = q.build(); s.cueEnd = q.end(); s.readyT = 0;
         s.swapCue = s.cue;
@@ -237,9 +238,9 @@ final class LgmPages {
         boolean meDim = quitLook && loss, opDim = quitLook && win;
         setPal(cv, R_NAME_L, meDim ? C_B_DIM : C_B_NAME);
         setPal(cv, R_STY_L, meDim ? C_B_DIM : C_B_STY);
-        setPal(cv, R_LP_L, meDim ? C_B_DIM : lpPal(m.me));
+        setPal(cv, R_LP_L, lpPal(m.me));                                  /* LP 줄은 진 쪽도 제 빛(157 post) */
         setPal(cv, R_NAME_R, opDim ? C_B_DIM : C_B_NAME);
-        setPal(cv, R_LP_R, opDim ? C_B_DIM : lpPal(m.opp));
+        setPal(cv, R_LP_R, lpPal(m.opp));
         setPal(cv, R_SEAL, win ? C_SEAL : m.outcome == MenuModel.O_DRAW ? C_SEALD : C_SEALK);
         setPal(cv, R_INK, C_INK); setPal(cv, R_GOLD, C_GOLD); setPal(cv, R_SEL, C_SEL); setPal(cv, R_WARN, C_WARN);
         setPal(cv, R_HEAD, loss ? C_TAIL : C_GOLD);
@@ -254,8 +255,10 @@ final class LgmPages {
         return new int[]{ LP_YELLOW, TIER_C[Math.max(0, Math.min(7, s.tier))][0], 0x000 };
     }
 
-    /** 위 검은 띠(r0–3) — 156 VS 띠와 같은 칸 배치: 왼쪽 나(닉·검질 · 티어★ LP) · 가운데 낙관 24×24 + 점수 · 오른쪽 상대 */
-    private void band(Sb b, MenuModel m) {
+    /** 위 검은 띠(r0–3) — 156 VS 띠와 같은 칸 배치: 왼쪽 나(닉·검질 · 티어★ · LP) · 가운데 낙관 24×24 + 점수 · 오른쪽 상대.
+     *  157 post(유저 «승리·패배 후 게이지로 상대와 나 점수 변화 주르르릉 — 인게임 디스플레이 느낌»): r2 = 티어(갈무리7)·LP 숫자(COUNT 로 판 전 → 뒤) ·
+     *  r3 = LP 막대(지금 ★ 칸 안 자리 — 게임 체력 막대처럼 바깥 끝에 붙음: 나는 왼쪽 끝부터 · 상대는 오른쪽 끝부터) — 두 사람이 같은 때 같이 오르내린다. 돌려줌: 두 쪽 움직임 */
+    private Bars band(Sb b, MenuModel m) {
         TileCanvas cv = b.cv;
         /* 나 */
         String sty = m.me.style;
@@ -273,11 +276,17 @@ final class LgmPages {
         /* 상대 */
         cv.cellPal(12, 0, 19, 1, R_NAME_R);
         cv.text(fit(cover7or11(m.opp.nick), 62, ink.g11), 157, 2, 1, ink.g11, 2, TileCanvas.RIGHT, 0);
-        /* 티어·LP 줄(r2–3) — 결판 뒤 값 */
+        /* 티어·LP·막대(r2–3) */
         cv.cellPal(0, 2, 7, 3, R_LP_L);
-        sideStats(cv, m.me, m.mode == MenuModel.M_PLACEMENT && m.placementLeft > 0 ? 5 - m.placementLeft : -1, true);
         cv.cellPal(12, 2, 19, 3, R_LP_R);
-        sideStats(cv, m.opp, -1, false);
+        Bars bs = new Bars();
+        boolean voidM = m.outcome == MenuModel.O_VOID;
+        if (m.mode == MenuModel.M_PLACEMENT && !m.placementDone) {
+            bs.l = new Bar();
+            cv.text("배치 " + Math.max(0, Math.min(5, 5 - m.placementLeft)) + "/5", 2, 16, 2, ink.g7);   /* 배치 중 — 숫자·막대 없음 */
+        } else if (m.mode == MenuModel.M_MASTER) bs.l = sideBar(cv, true, m.mrBefore, voidM ? m.mrBefore : m.mrAfter, true, true);
+        else bs.l = sideBar(cv, true, m.mode == MenuModel.M_PLACEMENT ? m.lpAfter : m.lpBefore, m.lpAfter, false, m.enteredMaster || m.tierAfter >= 7);
+        bs.r = sideBar(cv, false, m.oppBefore, voidM ? m.oppBefore : m.oppAfter, m.oppMasterBefore, m.oppMasterAfter);
         /* 낙관 + 점수 */
         cv.cellPal(8, 0, 11, 2, R_SEAL);
         if (m.outcome == MenuModel.O_FORFEIT || m.outcome == MenuModel.O_VOID)          /* 기획서 §4.2·§8 — 먹 «기권» · «무효» 두 글자 낙관(무승부 «무» 와 헷갈리지 않게) */
@@ -287,40 +296,84 @@ final class LgmPages {
         cv.cellPal(8, 3, 11, 3, R_SEL);
         String score = m.outcome == MenuModel.O_FORFEIT || m.outcome == MenuModel.O_VOID ? "" : m.w1 >= 0 ? m.w1 + " : " + m.w2 : "";
         if (!score.isEmpty()) cv.text(score, 80, 25, 1, ink.g7, -1, TileCanvas.CENTER, 0);
+        return bs;
     }
-    /** 한쪽 «티어 ★n LP» — 왼쪽(나)은 왼쪽 맞춤, 오른쪽(상대)은 오른쪽 맞춤. placementN ≥ 0 = 배치 n/5 */
-    private void sideStats(TileCanvas cv, MenuModel.Side s, int placementN, boolean left) {
-        if (left) {
-            if (placementN >= 0 || s.placement) {
-                int n = placementN >= 0 ? placementN : s.placementPlayed;
-                cv.text("배치 " + n + "/5", 2, 18, 2, ink.g11);
-                return;
+
+    /* ── 띠 LP 칸(157 post) ── 왼쪽(나) c0–7 · 오른쪽(상대) c12–19. r2: 티어 «검객★3»(칠 2 티어 빛) · LP 숫자(mini4 칠 1 노랑, 3칸) · r3: 막대(테 칠 2 · 채움 칠 1 · 빈 칠 3) */
+    static final int BAR_W = 58, BAR_XL = 3, BAR_XR = 99, BAR_Y = 26, BAR_H = 4;
+    static final int CNT_L_C = 5, CNT_R_C = 12, CNT_W = 3, CNT_SRC_L = 25, CNT_SRC_R = 28, CNT_SRC_R0 = 5;   /* 숫자 칸 · 프레임 창고(c25–27 · c28–30 × r5..) */
+    static final int F_BAR_L = 4, F_BAR_R = 5;
+    /** 한쪽 움직임 — 막대(같은 ★ 칸이면 한 번 · ★ 칸이 바뀌면 끝까지 갔다 새 칸에서) · 숫자 프레임 수 */
+    static final class Bar {
+        boolean gauge, count, two, up; int wFrom, wTo, nframes;
+    }
+    static final class Bars { Bar l = new Bar(), r = new Bar(); }
+    private static int bw(int lp) {
+        int[] bd = MenuModel.starBand(lp);
+        if (bd[1] <= bd[0]) return BAR_W;
+        return Math.max(0, Math.min(BAR_W, (int) ((long) BAR_W * (lp - bd[0]) / (bd[1] - bd[0]))));
+    }
+    /** 티어 글(왼쪽 = x2 부터 · 오른쪽 = x157 까지) · LP 숫자 칸 · 막대 테 — 숫자 프레임은 창고에. master = MR(막대 없음) */
+    private Bar sideBar(TileCanvas cv, boolean left, int before, int after, boolean masterBefore, boolean masterAfter) {
+        Bar r = new Bar();
+        boolean master = masterBefore || masterAfter;
+        int tier = master ? 7 : RankCore.tierOf(after), star = master ? 0 : RankCore.starOf(after);
+        String name = RankCore.TIER[tier], label = master ? name : name + "★" + star;
+        int lim = 37;                                                         /* 숫자 칸(왼쪽 x40.. · 오른쪽 ..x119) 앞까지 */
+        if (cv.textW(label, ink.g7) > lim) label = name;
+        if (left) cv.text(label, 2, 16, 2, ink.g7);
+        else cv.text(label, 157, 16, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
+        int cc = left ? CNT_L_C : CNT_R_C;
+        numberAt(cv, cc, 2, after, left);
+        r.count = before != after;
+        if (r.count) {
+            r.nframes = COUNT_FRAMES;
+            int src = left ? CNT_SRC_L : CNT_SRC_R;
+            for (int k = 0; k < r.nframes; k++) {
+                cv.cellPal(src, CNT_SRC_R0 + k, src + CNT_W - 1, CNT_SRC_R0 + k, left ? R_LP_L : R_LP_R);
+                int v = before + (int) ((long) (after - before) * k / (r.nframes - 1));
+                numberAt(cv, src, CNT_SRC_R0 + k, v, left);
             }
-            /* 왼쪽 64px 안(가운데 낙관 칸 c8–11 비움) — 넘치면 별 빼고, 그래도 넘치면 숫자만 */
-            String name = RankCore.TIER[Math.max(0, Math.min(7, s.tier))], lp = String.valueOf(s.lp), st = s.master ? null : "*" + s.stars;
-            int nw = cv.textW(name, ink.g11), sw = st != null ? 2 + TileCanvas.mini4W(st) + 1 : 0, lw = TileCanvas.mini4W(lp);
-            boolean showName = true;
-            int lx = (2 + nw + sw + 2 + 7) / 8 * 8;
-            if (lx + lw > 63) { st = null; sw = 0; lx = (2 + nw + 2 + 7) / 8 * 8; }
-            if (lx + lw > 63) { lx = 63 - lw; if (2 + nw + 2 > lx) showName = false; }
-            int x = 2;
-            if (showName) x = cv.text(name, 2, 18, 2, ink.g11);
-            if (showName && st != null) cv.mini4(st, x + 2, 20, 2, -1, TileCanvas.LEFT);
-            cv.mini4(lp, showName ? lx : 2, 20, 1, 2, TileCanvas.LEFT);
-        } else {
-            /* 오른쪽 c12–19 안 — 넘치면 별 빼고, 그래도 넘치면 숫자만 */
-            String name = RankCore.TIER[Math.max(0, Math.min(7, s.tier))], lp = String.valueOf(s.lp);
-            boolean star = !s.master, showName = true;
-            int lw = TileCanvas.mini4W(lp);
-            int tw = cv.textW(name, ink.g11) + (star ? 2 + 10 : 0), tx = 157 - tw, rx = (tx / 8) * 8 - 2;
-            if (rx - lw < 97 && star) { star = false; tw = cv.textW(name, ink.g11); tx = 157 - tw; rx = (tx / 8) * 8 - 2; }
-            if (rx - lw < 97) { showName = false; rx = 157; }
-            if (showName) {
-                int x = cv.text(name, tx, 18, 2, ink.g11);
-                if (star) cv.mini4("*" + s.stars, x + 2, 20, 2, -1, TileCanvas.LEFT);
-            }
-            cv.mini4(lp, rx, 20, 1, 2, TileCanvas.RIGHT);
         }
+        if (!master) {
+            int x0 = left ? 2 : 98;
+            for (int x = x0; x <= x0 + 59; x++) { cv.px(x, 25, 2); cv.px(x, 30, 2); }
+            for (int y = 25; y <= 30; y++) { cv.px(x0, y, 2); cv.px(x0 + 59, y, 2); }
+            cv.fill(x0 + 1, 26, x0 + 58, 29, left ? 3 : 1);                   /* 오른쪽은 채운 채로 두고 빈 몫(칠 3)을 왼쪽 안쪽 끝부터 덮는다(오른쪽 끝에 붙은 막대) */
+            r.gauge = true;
+            int[] b0 = MenuModel.starBand(before), b1 = MenuModel.starBand(after);
+            r.wFrom = bw(before); r.wTo = bw(after);
+            r.two = b0[0] != b1[0] && before != after;
+            r.up = after > before;
+        }
+        return r;
+    }
+    /** LP 숫자 — 칸 (c..c+2, row) 안: 왼쪽은 오른쪽 맞춤(x c*8+22) · 오른쪽은 왼쪽 맞춤(x c*8+2) · 7줄(y row*8 — 그림자 한 줄까지 칸 안) */
+    private static void numberAt(TileCanvas cv, int c, int row, int v, boolean left) {
+        String t = String.valueOf(Math.max(0, v));
+        if (left) cv.mini4(t, c * 8 + CNT_W * 8 - 3, row * 8, 1, 2, TileCanvas.RIGHT);
+        else cv.mini4(t, c * 8 + 2, row * 8, 1, 2, TileCanvas.LEFT);
+    }
+    /** 띠 LP 대본 — 두 쪽 숫자·막대가 t0 부터 dur 동안 같이(★ 칸이 바뀌면 반씩: 끝까지 → 새 칸) */
+    private static void bandCue(Cue q, Bars bs, int t0, int dur) {
+        bandSide(q, bs.l, true, t0, dur);
+        bandSide(q, bs.r, false, t0, dur);
+    }
+    private static void bandSide(Cue q, Bar b, boolean left, int t0, int dur) {
+        if (b == null) return;
+        if (b.count) q.count(t0, dur, Cue.W, b.nframes, left ? CNT_L_C : CNT_R_C, 2, CNT_W, 1, left ? CNT_SRC_L : CNT_SRC_R, CNT_SRC_R0, 0, 1, Cue.EASE_LINEAR);
+        if (!b.gauge) return;
+        int slot = left ? F_BAR_L : F_BAR_R, pal = left ? R_LP_L : R_LP_R, col = left ? 1 : 3, x = left ? BAR_XL : BAR_XR;
+        if (!b.two) bar(q, t0, dur, slot, pal, col, x, left, b.wFrom, b.wTo);
+        else {
+            int d1 = dur / 2, d2 = dur - d1;
+            bar(q, t0, d1, slot, pal, col, x, left, b.wFrom, b.up ? BAR_W : 0);
+            bar(q, t0 + d1, d2, slot, pal, col, x, left, b.up ? 0 : BAR_W, b.wTo);
+        }
+    }
+    /** 막대 한 토막 — 왼쪽은 채움 폭 그대로 · 오른쪽은 빈 몫(BAR_W − 채움)을 왼쪽 안쪽 끝부터 칠 3 으로 */
+    private static void bar(Cue q, int t0, int dur, int slot, int pal, int col, int x, boolean left, int from, int to) {
+        q.gauge(t0, Math.max(0, dur), Cue.W, slot, pal, col, x, BAR_Y, BAR_H, left ? from : BAR_W - from, left ? to : BAR_W - to, Cue.EASE_LINEAR);
     }
 
     /** 호명 띠(16px) — 주홍 바탕, 오른쪽 사선 끝(목업 ribbon, x1 76) */
@@ -590,7 +643,7 @@ final class LgmPages {
     }
 
     /** 결판 대본 — 계약서 §10.4(보통 ≈36f · 사건 판 일섬 +12 · 호명 띠 24f · 승급 문장 36f / 짧게 ≈18f) */
-    private Cue resultCue(MenuModel m, Head h, int nr, boolean crest, int ntags, boolean fuse, boolean loss) {
+    private Cue resultCue(MenuModel m, Head h, Bars bs, int nr, boolean crest, int ntags, boolean fuse, boolean loss) {
         Cue q = new Cue();
         boolean nm = m.prefs.fx != MenuModel.Prefs.FX_SHORT;
         int e = nm && m.eventful ? ISSEN : 0;
@@ -604,11 +657,9 @@ final class LgmPages {
         q.show(tS, Cue.W, PN_SEAL, true);
         q.stamp(tS, 4, Cue.W, R_SEAL, 2, 2, 0xFFF);
         boolean win = m.outcome == MenuModel.O_WIN;
-        if (win) { q.pal(tS, Cue.W, R_NAME_R, C_B_DIM[0], C_B_DIM[1], C_B_DIM[2]); q.pal(tS, Cue.W, R_LP_R, C_B_DIM[0], C_B_DIM[1], C_B_DIM[2]); }
-        if (loss) {
-            q.pal(tS, Cue.W, R_NAME_L, C_B_DIM[0], C_B_DIM[1], C_B_DIM[2]); q.pal(tS, Cue.W, R_STY_L, C_B_DIM[0], C_B_DIM[1], C_B_DIM[2]);
-            q.pal(tS, Cue.W, R_LP_L, C_B_DIM[0], C_B_DIM[1], C_B_DIM[2]);
-        }
+        /* 진 쪽 이름만 회색 — 157 post: LP 줄(티어·숫자·막대)은 제 빛 그대로(두 사람 LP 가 같이 오르내리는 게 보이게) */
+        if (win) q.pal(tS, Cue.W, R_NAME_R, C_B_DIM[0], C_B_DIM[1], C_B_DIM[2]);
+        if (loss) { q.pal(tS, Cue.W, R_NAME_L, C_B_DIM[0], C_B_DIM[1], C_B_DIM[2]); q.pal(tS, Cue.W, R_STY_L, C_B_DIM[0], C_B_DIM[1], C_B_DIM[2]); }
         int tK = nm ? e + 6 : 2, dK = nm ? SHEATH_IN : SHEATH_IN_SHORT;
         q.show(tK, Cue.W, PN_SHEATH, true).slide(tK, dK, Cue.W, PN_SHEATH, Cue.AXIS_X, 72, 0, Cue.EASE_OUT);
         q.show(tK, Cue.W, PN_RANK, true).show(tK, Cue.W, PN_HINT, true).show(tK, Cue.W, PN_DESC, true);
@@ -634,6 +685,7 @@ final class LgmPages {
             } else gauge(q, tL, dL, gp, h.wFrom, h.wTo, true);
         }
         if (h.count) q.count(tL, lpEnd - tL, Cue.W, h.nframes, 11, 5, 5, 1, 20, 5, 0, 1, Cue.EASE_LINEAR);
+        bandCue(q, bs, tL, dL);                                            /* 157 post: 띠의 두 사람 LP 숫자·막대 — 칼집 머리 숫자와 같은 때 같이 */
         /* 아래 띠 도장 */
         int tT = nm ? e + 18 : 10;
         for (int k = 0; k < ntags; k++) q.show(tT + (nm ? k * TAG_GAP : 0), Cue.W, PN_TAG0 + k, true);
@@ -688,7 +740,7 @@ final class LgmPages {
         setPal(cv, P_PULSE, C_SEL);
         cv.setPal(P_TIER, LP_YELLOW, TIER_C[Math.max(0, Math.min(7, m.opp.tier))][0], 0x012);
         infoPlate(cv, m);
-        int rEnd = confirm ? 16 : 14;
+        int rEnd = 14;                                                       /* 157 post: 기권 확인은 같은 칼집 안에서(줄 그대로 · 기권 줄 맥박 · 아래 띠 글) — 따로 «아니오/기권» 칸 없음 */
         sheathP(cv, 4, rEnd);
         cv.cellPal(11, 4, 19, 5, P_GOLD);
         cv.text("쉼", 90, 36, 1, ink.g11b);
@@ -702,34 +754,22 @@ final class LgmPages {
         for (int i = 0; i < right.length; i++) if (m.rows[i] == MenuModel.ROW_VOIDQUIT) right[i] = null;   /* «그만두기»(48px)와 오른쪽 «무효»가 겹쳤다 — 무효는 아래 띠 설명이 말함 */
         cmdRows(b, m, 6, P_INK, P_WARN, P_SEL, m.rows, m.rowOn, right, lab, -1);
         int fi = m.rowIndex(MenuModel.ROW_FORFEIT);
-        if (confirm) {
-            if (fi >= 0) cv.cellPal(11, 6 + 2 * fi, 19, 7 + 2 * fi, P_PULSE);     /* 기권 줄이 주홍으로 맥박 */
-            cv.cellPal(11, 14, 19, 14, P_WARN);
-            cv.text("정말 기권할까요?", 90, 113, 1, ink.g7);
-            cv.cellPal(11, 15, 15, 15, P_INK);
-            cv.text("아니오", 100, 121, 1, ink.g7);
-            cv.cellPal(16, 15, 19, 15, P_INK);
-            cv.text("기권", 136, 121, 1, ink.g7);
-            b.rows.clear();
-            Row no = new Row(), yes = new Row();
-            no.id = CONFIRM_NO; no.c0 = 11; no.r0 = 15; no.c1 = 15; no.r1 = 15; no.palOn = P_SEL; no.palOff = P_INK; no.quadX = 89; no.quadY = 121; no.enabled = true;
-            no.rc0 = 10; no.rr0 = 15; no.rc1 = 15; no.rr1 = 15;
-            yes.id = CONFIRM_YES; yes.c0 = 16; yes.r0 = 15; yes.c1 = 19; yes.r1 = 15; yes.palOn = P_SEL; yes.palOff = P_INK; yes.quadX = 127; yes.quadY = 121; yes.enabled = true;
-            yes.rc0 = 16; yes.rr0 = 15; yes.rc1 = 19; yes.rr1 = 15;
-            b.rows.add(no); b.rows.add(yes);
-            if (fi >= 0) b.quad(1, 89, (6 + 2 * fi) * 8 + 4, P_PULSE);      /* 기권 줄 단도(고른 줄처럼) */
+        if (confirm && fi >= 0) {                                            /* 157 post: 한 번에 묻기 — 기권 줄이 주홍으로 맥박(고른 줄 팔레트를 맥박 칸으로), A 한 번 더 = 기권 */
+            Row fr = b.rows.get(fi);
+            fr.palOn = P_PULSE;
         }
         /* 아래 먹 띠(불투명) — 위 금 줄 */
         cv.cellPal(0, 16, 10, 16, P_GOLD);
-        if (!confirm) cv.cellPal(11, 16, 19, 16, P_GOLD);
-        cv.fill(0, 135, confirm ? 87 : 159, 135, 2);
+        cv.cellPal(11, 16, 19, 16, P_GOLD);
+        cv.fill(0, 135, 159, 135, 2);
         cv.fill(0, 136, 159, 151, 3);
         cv.cellPal(0, 17, 19, 18, P_INK);
         if (confirm) {
             String line = m.forfeit != null ? m.forfeit.line : "패배로 기록돼요";
             if (m.forfeit != null && cv.textW(line, ink.g7) > 155) line = m.forfeit.shorter;   /* 강등·강등 위기가 붙으면 «연승 끊김»은 뺌(잘리지 않게) */
             cv.text(fit(line, 156, ink.g7), 2, 137, 1, ink.g7);
-            cv.text(fit("◀▶ 고르기  A 확정  B 취소", 156, ink.g7), 157, 145, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
+            cv.text(fit("A 한 번 더 = 기권 · B 취소", 156, ink.g7), 157, 145, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
+            for (Row row : b.rows) row.descC = -1;                          /* 줄 설명을 아래 띠로 베끼지 않음(위 글이 남게) — 커서가 옮기면 쉼으로 돌아간다 */
         } else {
             String today = m.todayLine();
             int tw = cv.textW(today, ink.g7);
@@ -756,8 +796,8 @@ final class LgmPages {
         s.portraitOutside = true;
         s.hitRect = new int[]{ 10, 4, 19, rEnd, 0, 4, 9, 9 };
         if (confirm) {
-            s.defaultRow = 0;
-            Cue q = new Cue().wipe(0, SWING, Cue.W, 11, 14, 19, 15, 2, false, P_GOLD, 1, Cue.EASE_LINEAR);
+            s.defaultRow = Math.max(0, fi);
+            Cue q = new Cue().wipe(0, SWING, Cue.W, 0, 17, 19, 18, 2, false, P_GOLD, 1, Cue.EASE_LINEAR);   /* 아래 띠 글만 칼 휘두름으로 바뀜 */
             q.palCycle(0, Cue.AMBIENT, Cue.W, P_PULSE, 3, 0x46E, 0x239, 16, false);
             ambient(q, 0, P_SEL);
             s.cue = q.build(); s.cueEnd = q.end(); s.readyT = 0; s.swapCue = s.cue;
@@ -1234,6 +1274,60 @@ final class LgmPages {
         q.palCycle(t0, Cue.AMBIENT, Cue.W, D_PLATE1, 2, 0x7DF, 0xFFF, 8, false);     /* 1위 왕관 반짝임 */
         if (loading) q.palCycle(0, Cue.AMBIENT, Cue.W, D_LOAD, 1, 0x7DF, 0xFFF, 12, false);
         if (cursor) ambient(q, t0, D_SEL);
+    }
+
+    /* ════════════════════════════════════════════════════════════ 157 post — 경기 중 HUD 이름표 */
+
+    /** 이름표 한쪽 — 덧판 native 의 이름표 칸(Emu.nativeOvTag)에 그대로 올린다(메뉴 층과 따로 · 입력 안 막음).
+     *  px = w×h 칠(1 티어 빛 · 2 닉 · 3 그림자) · (x, y) 게임 px · pals = 강조 c1..c3 · 보통 c1..c3 */
+    static final class HudTag {
+        byte[] px; int w, h, x, y; short[] pals; String label, nick;
+    }
+    /** 사무쇼2 HUD 실측(scratch u157/impl/post/h/measure — CPU 대 CPU 5판): 체력 막대 아래 검은 줄 = 게임 줄 24..31.
+     *  라운드 표지 P1 x0..12(이기면 ★ x0..6) · P2 x146..158(★ x152..158) · 히트 수 P1 x34..63 · P2 x98..127(그때는 native 가 비켜 줌).
+     *  P1 = 표지 뒤 x16 부터 왼쪽 맞춤 · P2 = 표지 앞 x142 까지 오른쪽 맞춤 · 한쪽 62px(가운데 80 을 안 넘음) */
+    static final int TAG_Y = 24, TAG_X_P1 = 16, TAG_X1_P2 = 142, TAG_MAXW = 62, HUD_GAP = 3;
+    /** 강조(라운드 시작 2초) 닉 금빛 · 보통 닉 밝은 회색 */
+    static final int TAG_NICK_EMPH = 0x7DF, TAG_NICK = 0xBBB;
+    /** 이름표 «검객★1 닉…» — 티어 이름(갈무리7) + 작은 별(STAR5)·숫자(mini3)로 짧게(닉 자리를 늘림) · 티어 빛(배치는 수련생 빛 «배치» · 무쌍 «무쌍») ·
+     *  닉은 남는 폭에 «…»로. 강조(라운드 시작 2초) = 닉 금빛 · 티어 제 빛 → 보통 = 닉 밝은 회색 · 티어 빛을 그림자 쪽으로 ⅓. opp = 오른쪽(P2) */
+    HudTag hudTag(MenuModel.Side s, boolean opp) {
+        if (s == null) return null;
+        TileCanvas cv = new TileCanvas(8, 1);
+        int t = s.placement ? 0 : Math.max(0, Math.min(7, s.tier));
+        String name = s.placement ? "배치" : RankCore.TIER[t];
+        int x = cv.text(name, 0, 1, 1, ink.g7);
+        String label = name;
+        if (!s.placement && !s.master && t < 7) {
+            int st = Math.max(0, Math.min(5, s.stars));
+            cv.art(OvArt.STAR5, x + 1, 2, 1, 0, 0, false);
+            x = cv.mini3(String.valueOf(st), x + 7, 2, 1, TileCanvas.LEFT) - 1;
+            label = name + "★" + st;
+        }
+        String nick = null;
+        int nx = x + HUD_GAP, room = TAG_MAXW - nx;
+        if (room >= 12 && s.nick != null && !s.nick.isEmpty()) {
+            nick = fit(cover7(s.nick), room, ink.g7);
+            cv.text(nick, nx, 1, 2, ink.g7);
+        }
+        int w = 0;
+        for (int yy = 0; yy < 8; yy++) for (int xx = 0; xx < 64; xx++) if (cv.get(xx, yy) != 0 && xx + 1 > w) w = xx + 1;
+        if (w <= 0) return null;
+        w = Math.min(w, TAG_MAXW);
+        HudTag g = new HudTag();
+        g.w = w; g.h = 8; g.y = TAG_Y; g.x = opp ? TAG_X1_P2 + 1 - w : TAG_X_P1;
+        g.px = new byte[w * 8];
+        for (int yy = 0; yy < 8; yy++) for (int xx = 0; xx < w; xx++) g.px[yy * w + xx] = (byte) cv.get(xx, yy);
+        int tc = TIER_C[t][0], tn = nibMix(TIER_C[t][0], TIER_C[t][1], 1, 3);
+        g.pals = new short[]{ (short) tc, (short) TAG_NICK_EMPH, 0, (short) tn, (short) TAG_NICK, 0 };
+        g.label = label; g.nick = nick;
+        return g;
+    }
+    /** 12비트 색을 니블마다 a → b 로 k/n */
+    static int nibMix(int a, int b, int k, int n) {
+        int r = 0;
+        for (int sh = 0; sh < 12; sh += 4) { int x = (a >> sh) & 15, y = (b >> sh) & 15; r |= (x + (y - x) * k / n) << sh; }
+        return r;
     }
 
     /* ════════════════════════════════════════════════════════════════════ 공통 */

@@ -28,6 +28,8 @@ final class LeagueMenu {
      *  대사를 넘기던 A·B 연타(153 POST_BGRACE 와 같은 뜻)가 열린 결판에서 «다음 상대»·«설욕전»을 고르거나 «그만할까요?»를 오가지 않게 —
      *  대본 시각(readyT)만으로는 한 번 건너뛰면 바로 다음 누름이 골랐다 */
     static final int ARM_FRAMES = 16, QUIET_FRAMES = 10;
+    /** 157 post — 기권 한 번에 묻기: 기권 줄에서 A → 그 줄이 맥박(«A 한 번 더 = 기권») → 같은 줄 A = 기권. 첫 A 뒤 이만큼(60Hz 프레임)은 둘째 A 를 안 받음(연타 튐) */
+    static final int CONFIRM_MIN = 8;
     /** 서랍 순위 목록 접기(닫을 때 족자 말림 앞) */
     static final int LIST_UP = 4;
     /** UI 가 답하지 않을 때 풀어 주는 끝(쉼 기다림 · 동작 뒤 기다림) */
@@ -50,6 +52,10 @@ final class LeagueMenu {
         void block(int bits);
         void clear(int mask);
         int[] status();
+        /** 157 post — HUD 이름표(Emu.nativeOvTag*). 옛 native·시험 받침은 없음(false · null) */
+        default boolean tag(int side, byte[] pix, int w, int h, int x, int y, short[] pals) { return false; }
+        default void tagOn(boolean on) { }
+        default int[] tagStatus() { return null; }
         /** Emu.nativeOv* 로 — 옛 native(UnsatisfiedLinkError)면 null */
         static OvPort emu() {
             try { if (Emu.nativeOvStatus() == null) return null; } catch (UnsatisfiedLinkError e) { return null; }
@@ -67,6 +73,19 @@ final class LeagueMenu {
                 @Override public void block(int bits) { Emu.nativeOvBlock(bits); }
                 @Override public void clear(int mask) { Emu.nativeOvClear(mask); }
                 @Override public int[] status() { return Emu.nativeOvStatus(); }
+                private boolean natTag = true;          /* 이름표 native(157 post)가 없으면 끄고 이름표 없이 */
+                @Override public boolean tag(int side, byte[] pix, int w, int h, int x, int y, short[] pals) {
+                    if (!natTag) return false;
+                    try { return Emu.nativeOvTag(side, pix, w, h, x, y, pals); } catch (UnsatisfiedLinkError e) { natTag = false; return false; }
+                }
+                @Override public void tagOn(boolean on) {
+                    if (!natTag) return;
+                    try { Emu.nativeOvTagOn(on); } catch (UnsatisfiedLinkError e) { natTag = false; }
+                }
+                @Override public int[] tagStatus() {
+                    if (!natTag) return null;
+                    try { return Emu.nativeOvTagStatus(); } catch (UnsatisfiedLinkError e) { natTag = false; return null; }
+                }
             };
         }
     }
@@ -130,6 +149,8 @@ final class LeagueMenu {
     private boolean armed = true, armFresh; private long openedAt, lastKeyAt;
     /* 서랍 펼침(부른 화면 위로 족자가 내려오는 동안 — 끝나면 서랍 쪽을 W 로) */
     private boolean opening; private long openingAt; private int openingCursor;
+    /* 기권 한 번에 묻기 — 기권 줄을 맥박으로 바꾼 시각(60Hz) */
+    private long confirmAt;
     /* 칼 휘두름 동안 단도 숨김(새 줄은 휘두름이 지나간 뒤에 보인다) */
     private boolean quadHidden; private int quadShowT;
     /* 서랍 목록 넘기기 */
@@ -234,6 +255,23 @@ final class LeagueMenu {
         lastPatch = cells;
         if (cur != null && (cur == sResult || cur == sQuit)) applyPatch(cells);
     }
+    /** 157 post — 경기 중 HUD 이름표(나 · 상대)를 native 에 올리고 켬. native 가 라운드 조작 중일 때만·게임이 그 자리에 그리면 비켜 주며 그린다(메뉴 상태와 따로).
+     *  하나라도 못 올리면(옛 native·인자 틀림) 둘 다 끔 */
+    boolean setTags(LgmPages.HudTag me, LgmPages.HudTag opp) {
+        boolean ok = me != null && opp != null
+                && ov.tag(Emu.OV_TAG_ME, me.px, me.w, me.h, me.x, me.y, me.pals)
+                && ov.tag(Emu.OV_TAG_OPP, opp.px, opp.w, opp.h, opp.x, opp.y, opp.pals);
+        if (!ok) { tagsOff(); return false; }
+        ov.tagOn(true);
+        return true;
+    }
+    /** 이름표 끔·지움(경기 밖) — native 도 코어가 바뀌면 저절로 지운다 */
+    void tagsOff() {
+        ov.tagOn(false);
+        ov.tag(Emu.OV_TAG_ME, null, 0, 0, 0, 0, null);
+        ov.tag(Emu.OV_TAG_OPP, null, 0, 0, 0, 0, null);
+    }
+
     /** 메뉴 사본만 바꿈(설정 탭 — 진 판 기본 커서·연속 대전) */
     void setModel(MenuModel m) { if (m != null) model = m; }
 
@@ -341,7 +379,8 @@ final class LeagueMenu {
                 if (rowAt(cur, c, r) != idx) return;                 /* 손가락이 줄 밖에서 떨어짐 */
                 LgmPages.Row row = cur.rows[idx];
                 if (!row.enabled) return;
-                if (idx == cursor) select(idx);                       /* 같은 줄 다시 탭 = 결정(기권은 늘 두 단계 — 확인 칸도 첫 탭은 커서만) */
+                if (idx == cursor) select(idx);                       /* 같은 줄 다시 탭 = 결정(기권은 맥박으로 한 번 더 — 그 줄을 또 탭하면 기권) */
+                else if (st == ST_CONFIRM) { collapseConfirm(); moveCursorTo(idx); }
                 else moveCursorTo(idx);
                 break;
             }
@@ -504,7 +543,7 @@ final class LeagueMenu {
                 else if ((rise & IN_B) != 0) {
                     int q = rowById(sc, MenuModel.ROW_QUIT);
                     if (q >= 0 && cursor != q) moveCursorTo(q);       /* 처음: 커서만 «그만하기» */
-                    else if (q >= 0) toQuit(0);                        /* 그 위에서 또: 그만할까요? */
+                    else if (q >= 0) select(q);                        /* 그 위에서 또: 그만하기(타이틀로 — 157 post: «그만할까요?» 목록 없음) */
                 } else if ((rise & IN_OPT) != 0) openDrawer(firstTab());
                 break;
             case ST_QUIT:
@@ -517,8 +556,8 @@ final class LeagueMenu {
                 if ((rise & IN_A) != 0) select(cursor);
                 else if ((rise & (IN_B | IN_OPT)) != 0) resume();
                 break;
-            case ST_CONFIRM:
-                if (lr != 0) moveCursorTo(lr < 0 ? 0 : Math.min(1, sc.rows.length - 1));
+            case ST_CONFIRM:                                               /* 157 post: 기권 줄이 맥박 — A = 기권 · ▲▼ = 거두고 옮김 · B/OPTION = 거둠 */
+                if (step != 0) { collapseConfirm(); moveCursor(step); break; }
                 if ((rise & IN_A) != 0) select(cursor);
                 else if ((rise & (IN_B | IN_OPT)) != 0) collapseConfirm();
                 break;
@@ -549,7 +588,7 @@ final class LeagueMenu {
                     case MenuModel.ROW_NEWCHAR: closeThen(() -> act.lgmNext(true)); break;
                     case MenuModel.ROW_REMATCH: closeThen(act::lgmRematch); break;
                     case MenuModel.ROW_DRAWER: openDrawer(firstTab()); break;
-                    case MenuModel.ROW_QUIT: toQuit(0); break;
+                    case MenuModel.ROW_QUIT: closeThen(() -> act.lgmQuit(MenuModel.QUIT_TITLE)); break;   /* 157 post: 바로 타이틀로(리그는 켠 채 · A 로 다시 찾기) — «그만할까요?» 없음 */
                     default: break;
                 }
                 break;
@@ -570,8 +609,9 @@ final class LeagueMenu {
                 }
                 break;
             case ST_CONFIRM:
-                if (id == LgmPages.CONFIRM_YES) { setBusy(); post(act::lgmForfeit); }
-                else collapseConfirm();
+                if (id != MenuModel.ROW_FORFEIT) { collapseConfirm(); break; }
+                if (now - confirmAt < CONFIRM_MIN) break;                    /* 첫 A 의 튐 — 안 받음 */
+                setBusy(); post(act::lgmForfeit);
                 break;
             case ST_DRAWER:
                 if (model == null) break;
@@ -654,15 +694,19 @@ final class LeagueMenu {
         LgmPages.Row r = sc.rows[cursor];
         ov.quad(q[0], q[1], r.quadX, r.quadY, q[4], r.palOn, q[6] | Emu.OV_Q_SHOW);
     }
+    /** 157 post — 기권 한 번에 묻기: 같은 칼집·같은 줄 그대로 기권 줄만 맥박 + 아래 띠 «패배로 기록 · −18 LP» «A 한 번 더 = 기권 · B 취소» */
     private void openConfirm() {
-        if (sConfirm == null) { setBusy(); post(act::lgmForfeit); return; }    /* 확인 장면이 없으면(그림 실패) — 그래도 두 번째로 묻지 않고 넘기지 않게 */
         pauseCursor = cursor;
-        if (!show(sConfirm, SHOW_FULL, Emu.OV_START_NOW, clampRow(sConfirm, sConfirm.defaultRow))) return;
+        confirmAt = now;
+        if (sConfirm == null) { st = ST_CONFIRM; updateHit(); return; }       /* 장면이 없으면(그림 실패) 그림 없이 같은 규칙 — 그래도 A 한 번 더 */
+        int f = rowById(sConfirm, MenuModel.ROW_FORFEIT);
+        if (!show(sConfirm, SHOW_FULL, Emu.OV_START_NOW, f >= 0 ? f : clampRow(sConfirm, sConfirm.defaultRow))) return;
         st = ST_CONFIRM;
         updateHit();
     }
     private void collapseConfirm() {
         if (sPause == null) return;
+        if (cur != sConfirm || sConfirm == null) { st = ST_PAUSE; updateHit(); return; }
         int f = rowById(sPause, MenuModel.ROW_FORFEIT);
         if (!show(sPause, SHOW_END, Emu.OV_START_NOW, f >= 0 ? f : clampRow(sPause, pauseCursor))) return;
         st = ST_PAUSE;

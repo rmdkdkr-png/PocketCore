@@ -741,6 +741,7 @@ void ov_game_ram(const uint8_t *ram, size_t n)
    LOCK(); g_ram = ram; g_ramn = ram ? n : 0; UNLOCK();
 }
 
+static void tag_eval_locked(double now);                   /* 157 post: HUD 이름표(아래 «이름표» 칸) */
 void ov_tick(double now_s, int latch)
 {
    LOCK();
@@ -768,6 +769,7 @@ void ov_tick(double now_s, int latch)
          if (t != g_t) { if (cue_changes(g_t, t)) g_dirty = 1; g_t = t; }
       }
    }
+   tag_eval_locked(now_s);                                  /* 157 post: HUD 이름표 — 라운드 조작 중인가(램)·비켜 준 뒤 다시 보일 때·강조 색 */
    UNLOCK();
 }
 
@@ -797,6 +799,204 @@ void ov_viewport(int vp_x, int vp_y, int vp_w, int vp_h, int view_h, unsigned fb
       g_vh = (int)((int64_t)OV_GAME_H * vp_h / lh);
    } else g_vx = g_vy = g_vw = g_vh = 0;
    UNLOCK();
+}
+
+/* ── 157 post: 경기 중 HUD 이름표(ovplane.h 머리 설명) ─────────────────────────────────────
+   사무쇼2 HUD 실측(u157/impl/post/h/measure — CPU 대 CPU 5판): 체력 막대 아래 검은 줄 = 게임 줄 24..31.
+   그 줄의 게임 것: 라운드 표지(P1 + x2-4·10-12 / 이기면 ★ x0-6 · P2 + x146-148·154-156 / ★ x152-158) · 히트 수(P1 콤보 x34..63 · P2 x98..127) ·
+   큰 타격 때 화면 전체 검정 한 프레임(표지까지 사라짐) → 흰 한 프레임 · 둘째·셋째 라운드 첫 조작 프레임은 붉은 띠(그 프레임만). 나머지는 늘 검정. */
+typedef struct {
+   int on, x, y, w, h;
+   uint8_t px[OV_TAG_H][OV_TAG_MAXW];
+   uint16_t pe[3], pn[3];
+   double last_occ;                 /* 게임이 마지막으로 이 자리에 그린 시각(초) */
+   int vis, occ, reveal;
+   uint32_t rgb[4];                 /* 지금 색(칠 1..3) */
+} ovtag_t;
+static ovtag_t  g_tag[OV_TAG_SIDES];
+static int      g_tag_on, g_tag_live, g_tag_flash, g_tag_scans, g_tag_yields, g_tag_emph, g_tag_rounds;
+static double   g_tag_t0;           /* 이번 라운드 첫 조작 시각 */
+static uint32_t g_tag_sig_v;
+static uint32_t *g_band;            /* ov_tag_band 버퍼 */
+static int      g_band_lo = -1, g_band_hi = -1;   /* 지난 이름표 줄(게임 y) — 다 지운 뒤 되돌림 */
+static size_t   g_bandcap;
+#define TAG_HUD_PY 27               /* 라운드 표지 가운데 줄 — 넷 다 검정이면 화면 전체 검정 번쩍(또는 HUD 가 아직 없음) */
+static const int TAG_PX[4] = { 3, 11, 147, 155 };
+
+static int tag_ram(int a) { return g_ram && g_ramn >= 0x2200 ? g_ram[a - 0x4000] : -1; }
+static int tag_live_ram(void)
+{
+   return tag_ram(0x40A7) == 241 && tag_ram(0x411A) == 1 && tag_ram(0x5824) == 0 && tag_ram(0x5823) == 0;
+}
+static int nib_lerp(int a, int b, int k, int n)   /* 니블마다 a → b (k/n) */
+{
+   int r = 0;
+   for (int s = 0; s < 12; s += 4) {
+      int x = (a >> s) & 15, y = (b >> s) & 15;
+      r |= (x + (y - x) * k / n) << s;
+   }
+   return r;
+}
+static uint32_t tag_fnv(uint32_t h, uint32_t v) { for (int i = 0; i < 4; i++) { h ^= (v >> (8 * i)) & 0xFF; h *= 16777619u; } return h; }
+/* 보이기·색·펼침·서명 — ov_tick(vsync 마다)·ov_tag_scan·setter 뒤 */
+static void tag_eval_locked(double now)
+{
+   int live = g_tag_on && tag_live_ram();
+   if (!live) g_tag_live = 0;
+   else if (!g_tag_live) {                               /* 라운드 첫 조작 프레임(또는 경기 중에 켬) — 강조·펼침 처음부터, 지난 비켜 주기 잊음 */
+      g_tag_live = 1; g_tag_t0 = now; g_tag_flash = 0; g_tag_rounds++;
+      for (int i = 0; i < OV_TAG_SIDES; i++) g_tag[i].last_occ = -1e9;
+   }
+   int f = g_tag_live ? (int)floor((now - g_tag_t0) * 60.0 + 1e-6) : 0;
+   if (f < 0) f = 0;
+   g_tag_emph = g_tag_live && f < OV_TAG_EMPH_F + OV_TAG_FADE_F;
+   uint32_t sig = 2166136261u; int any = 0;
+   for (int i = 0; i < OV_TAG_SIDES; i++) {
+      ovtag_t *T = &g_tag[i];
+      int was = T->vis;
+      T->vis = T->on && g_tag_live && !g_tag_flash && (now - T->last_occ) * 60.0 >= OV_TAG_CLEAR_F - 1e-6;
+      if (was && !T->vis && T->occ && !g_tag_flash) g_tag_yields++;
+      T->reveal = f >= OV_TAG_REVEAL_F - 1 ? T->w : T->w * (f + 1) / OV_TAG_REVEAL_F;
+      for (int k = 0; k < 3; k++) {
+         int c = f < OV_TAG_EMPH_F ? T->pe[k] : f >= OV_TAG_EMPH_F + OV_TAG_FADE_F ? T->pn[k] : nib_lerp(T->pe[k], T->pn[k], f - OV_TAG_EMPH_F, OV_TAG_FADE_F);
+         T->rgb[k + 1] = ov_rgb(c);
+      }
+      if (!T->vis) continue;
+      any = 1;
+      sig = tag_fnv(sig, (uint32_t)(i + 1) | (uint32_t)T->reveal << 8);
+      for (int k = 1; k <= 3; k++) sig = tag_fnv(sig, T->rgb[k]);
+      sig = tag_fnv(sig, (uint32_t)T->x | (uint32_t)T->y << 8 | (uint32_t)T->w << 16);
+   }
+   sig = any ? (sig | 1u) : 0u;
+   if (sig != g_tag_sig_v) { g_tag_sig_v = sig; g_dirty = 1; }   /* 메뉴가 보이면(쉼) 합성을 다시 — 이름표 줄만 바뀐다 */
+}
+/* 게임 그림 한 줄(게임 사각형 안 gx 0..159 · sub 배)에 보이는 이름표를 */
+static void tag_paint_row(uint32_t *g, int gy, int sub)
+{
+   for (int i = 0; i < OV_TAG_SIDES; i++) {
+      const ovtag_t *T = &g_tag[i];
+      if (!T->vis || gy < T->y || gy >= T->y + T->h) continue;
+      const uint8_t *row = T->px[gy - T->y];
+      int a = i == 0 ? 0 : T->w - T->reveal, b = i == 0 ? T->reveal : T->w;   /* P1 은 왼쪽(표지 쪽)부터 · P2 는 오른쪽부터 펼침 */
+      for (int x = a; x < b; x++) {
+         int c = row[x];
+         if (!c) continue;
+         uint32_t col = T->rgb[c], *d = g + (size_t)(T->x + x) * sub;
+         for (int s = 0; s < sub; s++) d[s] = col;
+      }
+   }
+}
+static int tag_row_has(int gy)
+{
+   for (int i = 0; i < OV_TAG_SIDES; i++) if (g_tag[i].vis && gy >= g_tag[i].y && gy < g_tag[i].y + g_tag[i].h) return 1;
+   return 0;
+}
+
+int ov_tag(int side, const uint8_t *pix, int w, int h, int x, int y, const uint16_t *pals6)
+{
+   if (side < 0 || side >= OV_TAG_SIDES) return 0;
+   if (pix && (w < 1 || w > OV_TAG_MAXW || h < 1 || h > OV_TAG_H || x < 0 || y < 0 || x + w > OV_GAME_W || y + h > OV_GAME_H || !pals6)) return 0;
+   if (pix) for (int i = 0; i < w * h; i++) if (pix[i] > 3) return 0;
+   LOCK();
+   ensure_init();
+   ovtag_t *T = &g_tag[side];
+   if (!pix) T->on = 0;
+   else {
+      memset(T->px, 0, sizeof T->px);
+      for (int r = 0; r < h; r++) memcpy(T->px[r], pix + r * w, (size_t)w);
+      for (int k = 0; k < 3; k++) { T->pe[k] = pals6[k] & 0xFFF; T->pn[k] = pals6[3 + k] & 0xFFF; }
+      T->x = x; T->y = y; T->w = w; T->h = h; T->on = 1; T->occ = 0;
+   }
+   tag_eval_locked(g_last_now >= 0.0 ? g_last_now : 0.0);
+   UNLOCK();
+   return 1;
+}
+void ov_tag_on(int on)
+{
+   LOCK(); ensure_init();
+   if (!on || !g_tag_on) g_tag_live = 0;                 /* 켤 때 이미 라운드 중이면 다음 평가가 «첫 조작»으로 본다(체크포인트 이어 하기) */
+   g_tag_on = on ? 1 : 0;
+   tag_eval_locked(g_last_now >= 0.0 ? g_last_now : 0.0);
+   UNLOCK();
+}
+void ov_tag_clear(void)
+{
+   LOCK(); ensure_init();
+   g_tag_on = 0; g_tag_live = 0; g_tag_flash = 0;
+   for (int i = 0; i < OV_TAG_SIDES; i++) { g_tag[i].on = 0; g_tag[i].vis = 0; g_tag[i].occ = 0; }
+   tag_eval_locked(g_last_now >= 0.0 ? g_last_now : 0.0);
+   UNLOCK();
+}
+void ov_tag_status(int v[OV_TAG_NSTAT])
+{
+   LOCK(); ensure_init();
+   v[OVT_ON] = g_tag_on; v[OVT_LIVE] = g_tag_live;
+   v[OVT_VIS] = (g_tag[0].vis ? 1 : 0) | (g_tag[1].vis ? 2 : 0);
+   v[OVT_FLASH] = g_tag_flash; v[OVT_OCC] = (g_tag[0].occ ? 1 : 0) | (g_tag[1].occ ? 2 : 0);
+   v[OVT_SCANS] = g_tag_scans; v[OVT_YIELDS] = g_tag_yields; v[OVT_EMPH] = g_tag_emph;
+   v[OVT_SIG] = (int)(g_tag_sig_v & 0x7FFFFFFF); v[OVT_ROUNDS] = g_tag_rounds;
+   UNLOCK();
+}
+static inline int tag_ink(uint32_t p) { return (int)(p & 0xFF) + (int)((p >> 8) & 0xFF) + (int)((p >> 16) & 0xFF) > 48; }   /* 검정(HUD 바탕)이 아님 */
+void ov_tag_scan(const uint8_t *raw, unsigned w, unsigned h)
+{
+   int x0, y0, sub;
+   if (!raw || !ov_find_rect(w, h, &x0, &y0, &sub)) return;
+   LOCK(); ensure_init();
+   int lo = OV_GAME_H, hi = -1;
+   for (int i = 0; i < OV_TAG_SIDES; i++) if (g_tag[i].on) { if (g_tag[i].y < lo) lo = g_tag[i].y; if (g_tag[i].y + g_tag[i].h - 1 > hi) hi = g_tag[i].y + g_tag[i].h - 1; }
+   if (!g_tag_on || hi < 0 || !tag_live_ram()) { UNLOCK(); return; }
+   const uint32_t *S = (const uint32_t *)raw;
+   #define PIX(gx, gy, sx, sy) S[(size_t)(y0 + (gy) * sub + (sy)) * w + (size_t)(x0 + (gx) * sub + (sx))]
+   /* 화면 전체 번쩍 — 이름표 줄 넓이 전체의 80% 넘게 칠함(흰·붉은 띠) 또는 라운드 표지 넷이 다 검정(검정 번쩍) */
+   int inked = 0, total = 0, probes = 0, c = sub / 2;
+   for (int gy = lo; gy <= hi; gy++) for (int gx = 0; gx < OV_GAME_W; gx++) { total++; inked += tag_ink(PIX(gx, gy, c, c)); }
+   if (TAG_HUD_PY < OV_GAME_H) for (int k = 0; k < 4; k++) probes += tag_ink(PIX(TAG_PX[k], TAG_HUD_PY, c, c));
+   g_tag_flash = inked * 5 >= total * 4 || probes == 0;
+   for (int i = 0; i < OV_TAG_SIDES; i++) {
+      ovtag_t *T = &g_tag[i];
+      T->occ = 0;
+      if (!T->on || g_tag_flash) continue;
+      int xa = T->x - 1 < 0 ? 0 : T->x - 1, xb = T->x + T->w > OV_GAME_W - 1 ? OV_GAME_W - 1 : T->x + T->w;   /* 1px 둘레까지 */
+      for (int gy = T->y; gy < T->y + T->h && !T->occ; gy++)
+         for (int sy = 0; sy < sub && !T->occ; sy++) {
+            const uint32_t *p = &PIX(xa, gy, 0, sy);
+            for (int n = 0; n < (xb - xa + 1) * sub; n++) if (tag_ink(p[n])) { T->occ = 1; break; }
+         }
+      if (T->occ) T->last_occ = g_last_now;
+   }
+   #undef PIX
+   g_tag_scans++;
+   tag_eval_locked(g_last_now >= 0.0 ? g_last_now : 0.0);
+   UNLOCK();
+}
+uint32_t ov_tag_sig(void) { LOCK(); uint32_t s = g_tag_sig_v; UNLOCK(); return s; }
+const uint8_t *ov_tag_band(const uint8_t *src, unsigned w, unsigned h, int *y0p, int *rowsp)
+{
+   int x0, y0, sub;
+   if (!src || !ov_find_rect(w, h, &x0, &y0, &sub)) return NULL;
+   LOCK(); ensure_init();
+   int lo = OV_GAME_H, hi = -1;
+   for (int i = 0; i < OV_TAG_SIDES; i++) if (g_tag[i].on) { if (g_tag[i].y < lo) lo = g_tag[i].y; if (g_tag[i].y + g_tag[i].h - 1 > hi) hi = g_tag[i].y + g_tag[i].h - 1; }
+   if (hi >= 0) { g_band_lo = lo; g_band_hi = hi; }
+   else if (g_band_hi >= 0) { lo = g_band_lo; hi = g_band_hi; }   /* 칸을 다 지운 뒤 — 지난 줄을 날 그림 그대로(텍스처에 남은 이름표를 되돌림) */
+   if (hi < 0) { UNLOCK(); return NULL; }
+   int rows = (hi - lo + 1) * sub;
+   size_t need = (size_t)rows * w;
+   if (need > g_bandcap) {
+      uint32_t *nb = (uint32_t *)realloc(g_band, need * 4);
+      if (!nb) { UNLOCK(); return NULL; }
+      g_band = nb; g_bandcap = need;
+   }
+   const uint32_t *S = (const uint32_t *)src;
+   int top = y0 + lo * sub;
+   memcpy(g_band, S + (size_t)top * w, need * 4);
+   for (int gy = lo; gy <= hi; gy++)
+      if (tag_row_has(gy)) for (int s = 0; s < sub; s++) tag_paint_row(g_band + (size_t)((gy - lo) * sub + s) * w + x0, gy, sub);
+   if (y0p) *y0p = top;
+   if (rowsp) *rowsp = rows;
+   UNLOCK();
+   return (const uint8_t *)g_band;
 }
 
 /* ── 합성 ──────────────────────────────────────────────────────────────── */
@@ -925,11 +1125,12 @@ static inline uint32_t mix_white(uint32_t c, int k)    /* c + ((255−c)·k)/16 
 
 /* 줄마다 «바탕 처리» 사본(줄 밀기·바탕 칸·흰 번쩍) — 지난 합성과 같고 층 그림 줄(g_ovl)도 같으면 그 줄은 다시 만들지도 올리지도 않는다.
    쉬는 메뉴(고른 줄 일렁임·단도 까딱만 도는 결판·쉼·서랍)에서 바뀐 줄만 합성하고, gl_draw 는 그 줄 범위(ov_compose_span)만 올린다 */
-typedef struct { int dx, white, n; int m[OV_BASE_SLOTS], k[OV_BASE_SLOTS]; uint32_t c[OV_BASE_SLOTS]; } ovrow_t;
+typedef struct { int dx, white, n; int m[OV_BASE_SLOTS], k[OV_BASE_SLOTS]; uint32_t c[OV_BASE_SLOTS]; uint32_t tag; } ovrow_t;   /* tag = 이 줄에 보이는 HUD 이름표 서명(없으면 0) */
 static ovrow_t   g_rowd[OV_GAME_H], g_prowd[OV_GAME_H];
 static uint32_t  g_povl[OV_GAME_H][OV_GAME_W];  /* 지난 합성의 층 그림 */
 static int       g_prev_ok, g_prev_shake;
 static uint32_t *g_row;                         /* 한 줄 만들 자리(w 픽셀) */
+static uint32_t *g_trow;                        /* 157 post: 이름표를 얹은 게임 줄(게임 사각형 폭) */
 static size_t    g_rowcap;
 static int       g_span0 = 0, g_span1 = -1;     /* 마지막 합성이 바꾼 그림 줄(포함) — 없으면 span1 < span0 */
 
@@ -944,11 +1145,13 @@ static void build_row(uint32_t *dst, const uint32_t *S, unsigned w, int oy, int 
    if (py < 0 || py >= H) { for (int i = 0; i < GW; i++) g[i] = BLACK; return; }
    const uint32_t *sr = S + (size_t)(y0 + py) * w + (size_t)x0;
    const ovrow_t *r = &g_rowd[py / sub];
+   /* 0. 157 post: HUD 이름표 — 게임 그림의 일부처럼(줄 밀기·바탕 처리를 같이 받고, 층 그림이 위를 덮는다) */
+   if (r->tag) { memcpy(g_trow, sr, (size_t)GW * 4); tag_paint_row(g_trow, py / sub, sub); sr = g_trow; }
    /* 1. 바탕 줄 밀기 */
    if (r->dx) {
       int DX = r->dx * sub;
       for (int i = 0; i < GW; i++) { int si = i - DX; g[i] = (si >= 0 && si < GW) ? sr[si] : BLACK; }
-   } else if (py != y) memcpy(g, sr, (size_t)GW * 4);
+   } else if (py != y || r->tag) memcpy(g, sr, (size_t)GW * 4);
    /* 2. 바탕 칸 0→3 · 일섬 흰 번쩍 */
    for (int n = 0; n < r->n; n++) {
       int m = r->m[n], kk = r->k[n];
@@ -1020,6 +1223,7 @@ static void compose_locked(const uint8_t *src, unsigned w, unsigned h, int x0, i
       }
       if (E.ff >= 6 && E.ff <= 9) dx = gy < E.fy ? -4 : 4;
       r->dx = dx; r->white = E.ff >= 4 && E.ff <= 5;
+      r->tag = tag_row_has(gy) ? g_tag_sig_v : 0;
       for (int k = 0; k < OV_BASE_SLOTS; k++)
          if (gy >= ya[k] && gy <= yb[k]) { r->m[r->n] = E.s.base[k].mode; r->k[r->n] = kk[k]; r->c[r->n] = fc[k]; r->n++; }
    }
@@ -1063,7 +1267,10 @@ const uint8_t *ov_compose(const uint8_t *src, unsigned w, unsigned h, int src_ch
    if ((size_t)w > g_rowcap) {
       uint32_t *nr = (uint32_t *)realloc(g_row, (size_t)w * 4);
       if (!nr) { UNLOCK(); return NULL; }
-      g_row = nr; g_rowcap = w;
+      g_row = nr;
+      uint32_t *nt = (uint32_t *)realloc(g_trow, (size_t)w * 4);
+      if (!nt) { UNLOCK(); return NULL; }
+      g_trow = nt; g_rowcap = w;
    }
    int geom = !g_out_valid || w != g_outw || h != g_outh;
    /* 보이기 시작한 뒤 첫 합성(g_shown 0)은 그림 전체를 견줌 — 안 보이던 동안 게임 그림이 바뀌었어도 gl_draw 는 여기를 부르지 않았다 */
@@ -1159,6 +1366,31 @@ JNI(jboolean, nativeOvCue)(JNIEnv *env, jclass cls, jintArray ops, jint flags)
 JNI(void, nativeOvHold)(JNIEnv *env, jclass cls, jboolean on) { (void)env; (void)cls; ov_hold_set(on ? 1 : 0); }
 JNI(void, nativeOvBlock)(JNIEnv *env, jclass cls, jint bits) { (void)env; (void)cls; ov_block_set(bits); }
 JNI(void, nativeOvClear)(JNIEnv *env, jclass cls, jint mask) { (void)env; (void)cls; ov_clear(mask); }
+
+/* 157 post: HUD 이름표 — pix 는 w×h 바이트(칠 0..3) · pals 6칸(강조 c1..c3 · 보통 c1..c3). pix null = 그 칸 지움 */
+JNI(jboolean, nativeOvTag)(JNIEnv *env, jclass cls, jint side, jbyteArray pix, jint w, jint h, jint x, jint y, jshortArray pals)
+{
+   (void)cls;
+   static uint8_t pb[OV_TAG_MAXW * OV_TAG_H];
+   uint16_t cb[6];
+   if (!pix) return ov_tag(side, NULL, 0, 0, 0, 0, NULL) ? JNI_TRUE : JNI_FALSE;
+   if (!pals || w < 1 || h < 1 || w > OV_TAG_MAXW || h > OV_TAG_H) return JNI_FALSE;
+   if ((*env)->GetArrayLength(env, pix) != w * h || (*env)->GetArrayLength(env, pals) != 6) return JNI_FALSE;
+   (*env)->GetByteArrayRegion(env, pix, 0, w * h, (jbyte *)pb);
+   (*env)->GetShortArrayRegion(env, pals, 0, 6, (jshort *)cb);
+   return ov_tag(side, pb, w, h, x, y, cb) ? JNI_TRUE : JNI_FALSE;
+}
+JNI(void, nativeOvTagOn)(JNIEnv *env, jclass cls, jboolean on) { (void)env; (void)cls; ov_tag_on(on ? 1 : 0); }
+JNI(jintArray, nativeOvTagStatus)(JNIEnv *env, jclass cls)
+{
+   (void)cls;
+   int v[OV_TAG_NSTAT]; jint jv[OV_TAG_NSTAT];
+   ov_tag_status(v);
+   for (int i = 0; i < OV_TAG_NSTAT; i++) jv[i] = v[i];
+   jintArray a = (*env)->NewIntArray(env, OV_TAG_NSTAT);
+   if (a) (*env)->SetIntArrayRegion(env, a, 0, OV_TAG_NSTAT, jv);
+   return a;
+}
 
 JNI(jintArray, nativeOvStatus)(JNIEnv *env, jclass cls)
 {

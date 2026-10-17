@@ -101,6 +101,8 @@ final class MenuModel {
     final int outcome, mode;                    // O_* · M_*
     final int w1, w2;                           // 최종 라운드 승수(기권·무효 −1)
     final int lpBefore, lpAfter, lpDelta, mrBefore, mrAfter;
+    /** 157 post — 상대 LP(무쌍이면 MR) 판 전 → 뒤(League.applyRanked 가 적은 opp_lp_before/after — 순위표와 같은 값). 옛 기록·보류·무효면 둘 다 경기 사본 값 */
+    final int oppBefore, oppAfter; final boolean oppMasterBefore, oppMasterAfter;
     final int tierBefore, tierAfter, starBefore, starAfter;
     final int starFloorBefore, starNextBefore, starFloorAfter, starNextAfter;   // 막대: 지금 ★ 칸의 바닥 LP · 다음 ★(또는 승급) LP
     final int placementLeft;                    // 판 뒤(배치 아니면 0)
@@ -190,6 +192,21 @@ final class MenuModel {
             b.starAfter = b.tierAfter == 7 ? 0 : RankCore.starOf(b.lpAfter);
             int[] fb = starBand(b.lpBefore), fa = starBand(b.lpAfter);
             b.starFloorBefore = fb[0]; b.starNextBefore = fb[1]; b.starFloorAfter = fa[0]; b.starNextAfter = fa[1];
+            {   /* 157 post: 상대 판 전·뒤 — 띠 오른쪽 게이지·숫자가 이 둘 사이를 같이 오르내린다. 띠의 상대 칸(Side)은 판 뒤 모습(나처럼) */
+                JSONObject sn = m.optJSONObject("opp_snap");
+                int slp = sn != null ? sn.optInt("lp") : 0, smr = sn != null ? sn.optInt("mr") : 0;
+                boolean has = !voidM && m.has("opp_lp_before") && m.has("opp_lp_after");
+                int lb = has ? m.optInt("opp_lp_before") : slp, la = has ? m.optInt("opp_lp_after") : slp;
+                b.oppMasterBefore = lb >= RankCore.MASTER_LP || (!has && smr > 0);
+                b.oppMasterAfter = la >= RankCore.MASTER_LP || (!has && smr > 0);
+                b.oppBefore = b.oppMasterBefore ? (has ? m.optInt("opp_mr_before", smr) : smr) : lb;
+                b.oppAfter = b.oppMasterAfter ? (has ? m.optInt("opp_mr_after", smr) : smr) : la;
+                if (has && b.opp != null) {
+                    Side o = b.opp;
+                    b.opp = new Side(o.nick, o.style, b.oppMasterAfter ? 7 : RankCore.tierOf(la), b.oppMasterAfter ? 0 : RankCore.starOf(la), b.oppAfter,
+                            b.oppMasterAfter, false, 0, o.ch, o.sty);
+                }
+            }
             String ev = voidM ? null : m.optString("event", null);
             if (ev != null && ev.isEmpty()) ev = null;
             b.event = ev;
@@ -269,7 +286,7 @@ final class MenuModel {
                         d = on ? "이번 판만 직접 골라요" : "직접 고르는 판이라 그대로예요";
                         break;
                     case ROW_DRAWER: d = "순위표와 전적 보기"; break;
-                    default: d = "리그는 켠 채 쉬어요"; break;
+                    default: d = "타이틀로 · 리그는 켠 채"; break;   /* 157 post: 바로 타이틀로(A 로 다시 찾기) */
                 }
                 b.rowOn[i] = on; b.rowDesc[i] = d; b.rowRight[i] = r;
             }
@@ -406,6 +423,27 @@ final class MenuModel {
         return b;
     }
 
+    /** 157 post — 경기 중 HUD 이름표의 두 사람(경기 시작 모습): 나 = 지금 내 랭크(배치·무쌍 포함) · 상대 = 경기에 적힌 사본(opp_snap). 랭크 경기가 아니면 null */
+    static Side[] tagSides(JSONObject m) {
+        try {
+            if (m == null || !League.isRanked(m)) return null;
+            RankCore.Me me = League.rankMe();
+            boolean plc = me.placementLeft > 0, master = me.master;
+            Side a = new Side(League.myNick(), null, plc ? 0 : master ? 7 : RankCore.tierOf(me.lp), plc || master ? 0 : RankCore.starOf(me.lp),
+                    plc ? 0 : master ? me.mr : me.lp, master, plc, plc ? 5 - me.placementLeft : 0, -1, -1);
+            JSONObject snap = m.optJSONObject("opp_snap");
+            if (snap == null) return null;
+            int olp = snap.optInt("lp"), omr = snap.optInt("mr");
+            boolean om = olp >= RankCore.MASTER_LP || omr > 0;
+            String onick = snap.optString("nick", "");
+            if (onick.isEmpty()) onick = "?";
+            JSONObject rule = m.optJSONObject("rule");
+            Side b = new Side(onick, null, om ? 7 : RankCore.tierOf(olp), om ? 0 : RankCore.starOf(olp), om ? omr : olp, om, false, 0,
+                    rule != null ? rule.optInt("char", -1) : -1, rule != null ? rule.optInt("style", -1) : -1);
+            return new Side[]{ a, b };
+        } catch (Exception e) { return null; }
+    }
+
     /** 서랍 «전적» 요약 */
     static Record record(RankCore.Me me) {
         Record r = new Record();
@@ -484,6 +522,7 @@ final class MenuModel {
         long rankNow = -1, rankBefore = -1, total; Record record;
         int outcome, mode, w1 = -1, w2 = -1;
         int lpBefore, lpAfter, lpDelta, mrBefore, mrAfter;
+        int oppBefore, oppAfter; boolean oppMasterBefore, oppMasterAfter;
         int tierBefore, tierAfter, starBefore, starAfter;
         int starFloorBefore, starNextBefore, starFloorAfter, starNextAfter;
         int placementLeft;
@@ -502,6 +541,7 @@ final class MenuModel {
             rankNow = x.rankNow; rankBefore = x.rankBefore; total = x.total; record = x.record;
             outcome = x.outcome; mode = x.mode; w1 = x.w1; w2 = x.w2;
             lpBefore = x.lpBefore; lpAfter = x.lpAfter; lpDelta = x.lpDelta; mrBefore = x.mrBefore; mrAfter = x.mrAfter;
+            oppBefore = x.oppBefore; oppAfter = x.oppAfter; oppMasterBefore = x.oppMasterBefore; oppMasterAfter = x.oppMasterAfter;
             tierBefore = x.tierBefore; tierAfter = x.tierAfter; starBefore = x.starBefore; starAfter = x.starAfter;
             starFloorBefore = x.starFloorBefore; starNextBefore = x.starNextBefore; starFloorAfter = x.starFloorAfter; starNextAfter = x.starNextAfter;
             placementLeft = x.placementLeft;
@@ -523,6 +563,7 @@ final class MenuModel {
         rankNow = b.rankNow; rankBefore = b.rankBefore; total = b.total; record = b.record;
         outcome = b.outcome; mode = b.mode; w1 = b.w1; w2 = b.w2;
         lpBefore = b.lpBefore; lpAfter = b.lpAfter; lpDelta = b.lpDelta; mrBefore = b.mrBefore; mrAfter = b.mrAfter;
+        oppBefore = b.oppBefore; oppAfter = b.oppAfter; oppMasterBefore = b.oppMasterBefore; oppMasterAfter = b.oppMasterAfter;
         tierBefore = b.tierBefore; tierAfter = b.tierAfter; starBefore = b.starBefore; starAfter = b.starAfter;
         starFloorBefore = b.starFloorBefore; starNextBefore = b.starNextBefore; starFloorAfter = b.starFloorAfter; starNextAfter = b.starNextAfter;
         placementLeft = b.placementLeft;

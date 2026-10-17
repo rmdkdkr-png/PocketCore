@@ -24,7 +24,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define OV_VERSION 1            /* ov_status()[OVS_VER] — 0 = 덧판 없음(빈 껍데기) → Java 는 옛 결과 카드로 */
+#define OV_VERSION 1            /* ov_status()[OVS_VER] — 0 = 덧판 없음(빈 껍데기) → Java 는 옛 결과 카드로 (HUD 이름표 ov_tag* 는 nativeOvTag* 가 있으면 — Java 가 UnsatisfiedLinkError 로 가림) */
 
 /* ── 크기 ── */
 #define OV_GAME_W 160
@@ -182,6 +182,43 @@ void ov_compose_span(int *y0, int *y1);
 void ov_viewport(int vp_x, int vp_y, int vp_w, int vp_h, int view_h, unsigned fbw, unsigned fbh);
 /* 상태용 게임 램(시스템 램 16KB, CPU 0x4000~) — nativeFrame 이 포인터만(NULL = 모름) */
 void ov_game_ram(const uint8_t *ram, size_t n);
+
+/* ── 157 post: 경기 중 HUD 이름표(체력 막대 아래 검은 줄 — 사무쇼2 HUD 게임 줄 24..31) ──
+   메뉴 층(W·L)·대본과 따로인 작은 칸 둘(0 = P1 나 · 1 = P2 상대). 입력을 막지 않고(ov_in_block 에 안 들어감) OVF_VISIBLE 도 아니다.
+   native 가 vsync 마다 램(ov_game_ram)으로 «라운드 조작 중»(0x40A7==241 · 0x411A==1 · 0x5824==0 · 0x5823==0)인지 보고, 아니면 숨김(KO·대사·걸쇠).
+   새 게임 그림마다(ov_tag_scan — 날 그림 g_fb) 이름표 자리 아래를 살펴 게임이 무엇이든 그렸으면(히트 수·MAX·글…) 그 이름표를 숨겼다가
+   OV_TAG_CLEAR_F 프레임(60Hz 시계) 동안 비어 있으면 다시 보인다(«비켜 주기»). 화면 전체 번쩍(흰·검정 한 프레임 · 둘째 라운드 첫 붉은 프레임)은 그 프레임만 숨김.
+   라운드 첫 조작 프레임부터 OV_TAG_EMPH_F 강조(강조 팔레트 + 표지 쪽에서 8프레임 펼침) 뒤 OV_TAG_FADE_F 에 걸쳐 보통 팔레트로.
+   그리는 자리: 메뉴가 안 보이면 gl_draw 가 그려 낼 게임 텍스처의 그 줄만 덧칠(ov_tag_band — 4배 그림이라도 32줄),
+   메뉴가 보이면 ov_compose 가 게임 그림 위·바탕 처리 앞에 넣는다(쉼 DIM 은 32줄부터라 그대로 보이고, 서랍 먹 채움·결판 띠는 덮는다).
+   ov_clear 는 건드리지 않는다(메뉴 닫기가 이름표를 지우지 않게) — 코어 상태가 통째로 바뀌는 다섯 곳에서 native.c 가 ov_tag_clear. */
+#define OV_TAG_SIDES   2
+#define OV_TAG_MAXW    64
+#define OV_TAG_H       8
+#define OV_TAG_CLEAR_F 20       /* 비켜 준 뒤 이만큼 비어 있어야 다시 보임 */
+#define OV_TAG_EMPH_F  120      /* 라운드 시작 강조 */
+#define OV_TAG_FADE_F  15       /* 강조 → 보통 */
+#define OV_TAG_REVEAL_F 8       /* 표지 쪽에서 펼침 */
+#define OV_TAG_NSTAT   10
+#define OVT_ON     0            /* ov_tag_status: 켬 */
+#define OVT_LIVE   1            /* 라운드 조작 중 */
+#define OVT_VIS    2            /* 보이는 칸 비트(1 P1 · 2 P2) */
+#define OVT_FLASH  3            /* 마지막 살핌이 화면 전체 번쩍 */
+#define OVT_OCC    4            /* 마지막 살핌에서 게임이 그린 칸 비트 */
+#define OVT_SCANS  5            /* 살핀 게임 그림 수 */
+#define OVT_YIELDS 6            /* 비켜 준(보이다 숨은) 횟수 */
+#define OVT_EMPH   7            /* 강조 중 1 */
+#define OVT_SIG    8            /* 보이는 그림 서명(0 = 안 보임) */
+#define OVT_ROUNDS 9            /* 라운드 시작(조작 가능) 본 횟수 */
+int  ov_tag(int side, const uint8_t *pix, int w, int h, int x, int y, const uint16_t *pals6);   /* pix w×h 칠 0..3(0 투명) · pals6 = 강조 c1..c3 · 보통 c1..c3 · pix NULL = 그 칸 지움 */
+void ov_tag_on(int on);
+void ov_tag_clear(void);
+void ov_tag_status(int v[OV_TAG_NSTAT]);                                        /* 아무 스레드 */
+void ov_tag_scan(const uint8_t *raw, unsigned w, unsigned h);                    /* gl_draw: 새 게임 그림(날 그림)마다 */
+uint32_t ov_tag_sig(void);                                                       /* 지금 보이는 이름표 그림 서명 — 0 = 안 보임 */
+/* 이름표 줄(켠 칸들의 줄 범위 × sub)만 src 에서 베껴 보이는 이름표를 그린 버퍼(ovplane 소유) — *y0 그림 줄 · *rows 줄 수.
+   켠 칸이 없으면 지난 줄 범위의 날 그림(텍스처에 남은 이름표 되돌림) · 한 번도 켠 적 없거나 사각형 실패면 NULL */
+const uint8_t *ov_tag_band(const uint8_t *src, unsigned w, unsigned h, int *y0, int *rows);
 
 /* ── 시험·Java 와 같은 셈(계약서 §4.2) ── */
 int      ov_ease(int ease, int t, int t0, int dur, int from, int to);
