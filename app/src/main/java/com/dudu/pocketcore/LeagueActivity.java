@@ -101,7 +101,7 @@ public class LeagueActivity extends Activity {
     private String reread() {
         String left = League.reload();
         writeWhy = League.writeProblem();
-        board = null; boardBusy = null;
+        BoardCache.invalidate();
         if (rom == null) { rom = lastRom(); checkRom(); }       /* 이제 읽히면 pref.last_rom 도 */
         tidy();
         return left;
@@ -195,28 +195,13 @@ public class LeagueActivity extends Activity {
     /* ── 랭크 매치 화면(내부 144) — 내 카드 · 하러 가기 · [순위표 | 최근 경기 | 라이벌 | 규칙] · 보류·무효 ──
        상대는 씨앗 하나로 만드는 가상 플레이어(게임 CPU) — 숫자(티어·LP·전적)는 진짜 경기로만 움직이고 닉네임·칭호·사진은 지어낸 것이라고 화면에 적는다. */
     private int tab = 0;                         /* 0 순위표 · 1 최근 경기 · 2 라이벌 · 3 규칙 */
-    /** 순위표·내 순위는 다른 스레드에서 만든다(위 100명 + 프로필 + 아바타 — 에뮬레이터에서 화면이 수십 초 멈췄다). 같은 날·같은 내 LP·같은 탭이면 다시 안 만든다 */
-    private static final class Board { String key; long rank; List<RankCore.Row> rows; }
-    private volatile Board board;
-    private volatile String boardBusy;
-    private String boardKey(RankCore.Me me) { return League.rankSeed() + ":" + League.today() + ":" + League.myKey(me) + ":" + boardAround + ":" + me.games; }
+    /** 순위표·내 순위는 다른 스레드에서 만든다(위 100명 + 프로필 + 아바타 — 에뮬레이터에서 화면이 수십 초 멈췄다). 같은 날·같은 내 LP·같은 탭이면 다시 안 만든다.
+     *  157: 캐시와 계산은 BoardCache(게임 속 메뉴의 순위표와 같이 쓴다) — 내 주변 ±5 · 위 100 · 아바타 미리 */
+    private int boardK() { return boardAround ? 5 : 100; }
     private void boardLoad(final RankCore.Me me) {
-        final String key = boardKey(me);
-        if (key.equals(boardBusy)) return;
-        boardBusy = key;
-        final boolean ar = boardAround;
-        new Thread(() -> {
-            Board b = new Board(); b.key = key;
-            try {
-                long seed = League.rankSeed(); int day = League.today(); RankCore.Book bk = League.book();
-                b.rank = RankCore.rankOf(seed, day, bk, League.myKey(me));
-                b.rows = ar ? RankCore.around(seed, day, bk, League.myKey(me), "나", 5) : RankCore.top(seed, day, 100, bk, League.myKey(me), "나");
-                for (RankCore.Row r : b.rows) if (!r.me && r.p != null) Avatar.of(League.pfOf(this, r.p), r.id);   /* 프로필·아바타도 미리 */
-            } catch (Exception e) { b.rows = new ArrayList<>(); }
-            runOnUiThread(() -> { if (key.equals(boardBusy)) boardBusy = null; board = b; if (!isFinishing()) render(); });
-        }, "league-board").start();
+        BoardCache.warm(this, me, boardAround, boardK(), true, () -> { if (!isFinishing()) render(); });
     }
-    private Board boardFor(RankCore.Me me) { Board b = board; return b != null && b.key.equals(boardKey(me)) ? b : null; }
+    private BoardCache.Board boardFor(RankCore.Me me) { return BoardCache.get(me, boardAround, boardK()); }
     private boolean boardAround = false;         /* 순위표: 위 100 / 내 주변 */
     private static final String[] TABS = { "순위표", "최근 경기", "라이벌", "규칙" };
 
@@ -305,7 +290,7 @@ public class LeagueActivity extends Activity {
             c.addView(text(me.lp + " LP · " + (star >= 5 ? "승급까지 " : "다음 ★까지 ") + Math.max(0, hi - me.lp) + (me.shield ? " · 강등 위기!" : ""), 13, me.shield ? LOSE : TXT, false));
             c.addView(bar(Math.max(0f, Math.min(1f, (me.lp - lo) / (float) Math.max(1, hi - lo))), tc));
         }
-        Board bd = boardFor(me);
+        BoardCache.Board bd = boardFor(me);
         if (bd == null && me.placementLeft == 0) boardLoad(me);
         String rk = me.placementLeft > 0 ? "배치를 마치면 순위가 나와요" : bd == null ? "전국 순위 계산 중…"
                   : String.format(java.util.Locale.KOREA, "전국 %,d위 / %,d명", bd.rank, RankCore.total());
@@ -416,7 +401,7 @@ public class LeagueActivity extends Activity {
             col.addView(text("배치 경기 " + (5 - me.placementLeft) + "/5 — 배치를 마치면 내 주변 순위가 나와요", 13, DIM, false));
             return;
         }
-        Board bd = boardFor(me);
+        BoardCache.Board bd = boardFor(me);
         if (bd == null) { boardLoad(me); col.addView(text("순위표를 불러오는 중…", 13, DIM, false)); return; }
         List<RankCore.Row> rows = bd.rows;
         LinearLayout card = card();
@@ -687,7 +672,7 @@ public class LeagueActivity extends Activity {
 
     /** 시즌을 바꾼 뒤 — 순위표 캐시(boardKey: 같은 날·같은 LP 면 다시 안 만든다)를 버리고 다시 그린다 */
     private void afterReset() {
-        board = null; boardBusy = null;
+        BoardCache.invalidate();
         render();
     }
 

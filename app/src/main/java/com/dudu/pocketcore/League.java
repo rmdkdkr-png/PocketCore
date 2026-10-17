@@ -764,6 +764,7 @@ final class League {
             if (rk) applyRanked(m, out, false); else apply(m, me, o, out);
             m.put("status", "settled");
             m.put("settled", System.currentTimeMillis());
+            if (rk && liveHub) noteSessionMem(m);           /* 157 G2 — 같은 한 번의 저장으로 */
             if (!save()) throw new IOException("save");
             ckpt(matchId).delete();
             return m;
@@ -819,6 +820,7 @@ final class League {
             if (isRanked(m)) applyRanked(m, "L", true); else apply(m, me(), oppById(m.optString("opp")), "L");
             m.put("status", "forfeit");
             m.put("settled", System.currentTimeMillis());
+            if (isRanked(m) && liveHub) noteSessionMem(m);  /* 157 G2 */
             if (!save()) throw new IOException("save");
             ckpt(matchId).delete();
             return m;
@@ -1374,6 +1376,129 @@ final class League {
     static synchronized boolean bonusLeft() {
         RankCore.Me me = rankMe();
         return me.placementLeft == 0 && !me.master && me.lastWinDay != today();
+    }
+
+    /* ── 157 리그 인게임 메뉴 자료(계약서 §11) — 모두 league.json 의 선택 칸(v 1 그대로 · 옛 판은 모르는 칸을 읽고 다시 써도 남긴다) ──
+       G2  ranked.session {start, w, l, d, lp, rank0, last} — 게임 속 리그를 켤 때(hubStart) 새로. 정산·기권이 같은 저장으로 더한다(liveHub 일 때만).
+       G10 forfeitPreview — 기권하면 무엇이 기록되나(쉼의 두 번 묻기 · askForfeit 가 같이 쓴다).
+       pref.lgm {fx, loss, auto, remember, tab} — 메뉴 설정(서랍 «설정» 탭). */
+
+    /** 이번 대전 세션(게임 속 리그를 한 번 켠 동안) — 그만할까요?·쉼 «오늘 4승 1패 +152» · 순위 ▲▼ 기준(rank0) */
+    static final class Session { long start; int w, l, d, lp; long rank0 = -1; }
+    /** 새 세션 — hubStart 에서. 저장 실패해도 메모리 값으로 쓰고 다음 저장 때 같이 들어간다 */
+    static synchronized void sessionStart() {
+        try {
+            ranked().put("session", new JSONObject().put("start", System.currentTimeMillis()).put("w", 0).put("l", 0).put("d", 0)
+                    .put("lp", 0).put("rank0", -1));
+            save();
+        } catch (Exception ignored) { }
+    }
+    /** 지금 세션(없으면 null) */
+    static synchronized Session session() {
+        JSONObject r = db().optJSONObject("ranked"), s = r != null ? r.optJSONObject("session") : null;
+        if (s == null || s.optLong("start") <= 0) return null;
+        Session x = new Session();
+        x.start = s.optLong("start"); x.w = Math.max(0, s.optInt("w")); x.l = Math.max(0, s.optInt("l")); x.d = Math.max(0, s.optInt("d"));
+        x.lp = s.optInt("lp"); x.rank0 = s.optLong("rank0", -1);
+        return x;
+    }
+    /** 끝난 랭크 경기 하나를 세션에 — 같은 경기는 한 번만(last). 배치 판 LP 는 뺀다(rankedToday 와 같게). 저장하면 true */
+    static synchronized boolean sessionNote(JSONObject m) {
+        if (!noteSessionMem(m)) return false;
+        return save();
+    }
+    /** 메모리만(정산·기권이 같은 저장으로 부른다) — 더했으면 true */
+    private static boolean noteSessionMem(JSONObject m) {
+        try {
+            JSONObject r = db().optJSONObject("ranked"), s = r != null ? r.optJSONObject("session") : null;
+            if (s == null || m == null || !isRanked(m)) return false;
+            String st = m.optString("status"), id = m.optString("id");
+            if (!("settled".equals(st) || "forfeit".equals(st)) || id.isEmpty() || id.equals(s.optString("last"))) return false;
+            String o = "forfeit".equals(st) || m.optBoolean("forfeit") ? "L" : m.optString("outcome");
+            String k = "W".equals(o) ? "w" : "L".equals(o) ? "l" : "d";
+            s.put(k, s.optInt(k) + 1);
+            if (!"배치".equals(m.optString("tier_before"))) s.put("lp", s.optInt("lp") + m.optInt("lp_delta"));
+            s.put("last", id);
+            return true;
+        } catch (Exception e) { return false; }
+    }
+    /** 세션 첫 순위(BoardCache 가 처음 알았을 때 한 번만) — 이미 있으면 그대로 */
+    static synchronized void sessionRank0(long rank) {
+        try {
+            JSONObject r = db().optJSONObject("ranked"), s = r != null ? r.optJSONObject("session") : null;
+            if (s == null || rank <= 0 || s.optLong("rank0", -1) > 0) return;
+            s.put("rank0", rank);
+            save();
+        } catch (Exception ignored) { }
+    }
+
+    /** G10 기권 미리보기 — kind LP(lpDelta < 0) · PLACEMENT(배치 1패) · NOVICE(수련생 — LP 그대로) · MASTER(무쌍 — MR) */
+    static final class ForfeitPreview {
+        static final int LP = 0, PLACEMENT = 1, NOVICE = 2, MASTER = 3;
+        int kind, lpDelta, mrDelta, brokeStreak;     /* brokeStreak = 끊길 내 연승(2 이상일 때만, 아니면 0) */
+    }
+    static synchronized ForfeitPreview forfeitPreview(JSONObject m) {
+        ForfeitPreview f = new ForfeitPreview();
+        RankCore.Me me = rankMe();
+        JSONObject s0 = m != null ? m.optJSONObject("start") : null;
+        f.brokeStreak = me.streak >= 2 ? me.streak : 0;
+        if ((s0 != null ? s0.optInt("placement_left", me.placementLeft) : me.placementLeft) > 0) { f.kind = ForfeitPreview.PLACEMENT; return f; }
+        if (me.master) {
+            int omr = s0 != null ? s0.optInt("opp_mr") : 0;
+            if (omr <= 0) omr = (int) Math.round(1500 + ((s0 != null ? s0.optDouble("opp_mmr", me.mmr) : me.mmr) - 1600) * 1.5);   /* applyRanked 와 같은 식 */
+            f.kind = ForfeitPreview.MASTER; f.mrDelta = (int) Math.round(32 * (0 - RankCore.expect(me.mr, omr)));
+            return f;
+        }
+        int[] st = RankCore.stakes(me, s0 != null ? s0.optDouble("opp_mmr", me.mmr) : me.mmr);
+        if (st == null || st[1] == 0) f.kind = ForfeitPreview.NOVICE;
+        else { f.kind = ForfeitPreview.LP; f.lpDelta = st[1]; }
+        return f;
+    }
+
+    /** 메뉴 설정 — 기본 fx 0(보통) · loss 0(설욕전) · auto 0(끔) · remember true · tab 0. 범위 밖 값은 기본으로 */
+    static synchronized MenuModel.Prefs menuPrefs() {
+        JSONObject p = db().optJSONObject("pref"), g = p != null ? p.optJSONObject("lgm") : null;
+        if (g == null) return MenuModel.Prefs.defaults();
+        int fx = g.optInt("fx", 0), loss = g.optInt("loss", 0), auto = g.optInt("auto", 0), tab = g.optInt("tab", 0);
+        return new MenuModel.Prefs(fx >= 0 && fx <= 2 ? fx : 0, loss == 1 ? 1 : 0, auto == 10 ? 10 : 0, g.optBoolean("remember", true), tab >= 0 && tab <= 2 ? tab : 0);
+    }
+    /** 바뀔 때만 저장 — 저장했거나 같으면 true */
+    static synchronized boolean setMenuPrefs(MenuModel.Prefs n) {
+        if (n == null) return false;
+        MenuModel.Prefs o = menuPrefs();
+        JSONObject p0 = db().optJSONObject("pref");
+        boolean had = p0 != null && p0.optJSONObject("lgm") != null;
+        if (had && o.fx == n.fx && o.lossCursor == n.lossCursor && o.autoNextSec == n.autoNextSec && o.rememberTab == n.rememberTab && o.lastTab == n.lastTab) return true;
+        if (!had && n.fx == 0 && n.lossCursor == 0 && n.autoNextSec == 0 && n.rememberTab && n.lastTab == 0) return true;   /* 기본값 그대로 — 칸을 만들지 않는다 */
+        try {
+            pref().put("lgm", new JSONObject().put("fx", Math.max(0, Math.min(2, n.fx))).put("loss", n.lossCursor == 1 ? 1 : 0)
+                    .put("auto", n.autoNextSec == 10 ? 10 : 0).put("remember", n.rememberTab).put("tab", Math.max(0, Math.min(2, n.lastTab))));
+            return save();
+        } catch (Exception e) { return false; }
+    }
+
+    /** 서랍 «전적» 라이벌 한 줄 — 예전 12명(전적 있음) 또는 4판 넘게 붙고 승패 차 1 이하인 상대 중 가장 최근에 만난 사람. 없으면 null */
+    static final class RivalLine { String id, nick; int w, l, d, last, broke; }
+    static synchronized RivalLine rivalLine() {
+        JSONObject ps = players();
+        RivalLine best = null; long bestAt = Long.MIN_VALUE;
+        java.util.Iterator<String> it = ps.keys();
+        while (it.hasNext()) {
+            String id = it.next(); JSONObject p = ps.optJSONObject(id);
+            if (p == null) continue;
+            int w = p.optInt("w"), l = p.optInt("l"), d = p.optInt("d");
+            boolean legacy = id.startsWith("o");
+            if (!(legacy && w + l + d > 0 || w + l >= 4 && Math.abs(w - l) <= 1)) continue;
+            long at = p.optLong("at");
+            if (best != null && at <= bestAt) continue;
+            RivalLine r = new RivalLine(); r.id = id; r.w = w; r.l = l; r.d = d; r.last = p.optInt("last"); r.broke = p.optInt("broke");
+            JSONObject pf = p.optJSONObject("pf");
+            r.nick = pf != null ? pf.optString("nick", null) : null;
+            if (r.nick == null) { JSONObject o = legacy ? oppById(id) : null; r.nick = o != null ? o.optString("nick") : null; }
+            if (r.nick == null) { RankCore.Player rp = rankPlayer(id); r.nick = rp != null ? rp.nick : id; }
+            best = r; bestAt = at;
+        }
+        return best;
     }
 
     /* ── 시즌·처음부터(148) ───────────────────────────────────────────────
