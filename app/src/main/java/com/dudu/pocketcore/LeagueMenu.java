@@ -251,8 +251,11 @@ final class LeagueMenu {
                 resetClosed(in);
                 return in & ~qHeld;
             } else { prev = in; return in; }                          /* 승리 대사 중 — 게임 그대로(B 건너뛰기) */
-        } else if ((fl & (Emu.OVF_VISIBLE | Emu.OVF_ARMED)) == 0 && v != null && v[Emu.OVS_VER] >= 1) {
-            resetClosed(in);                                          /* native 가 저절로 지웠다 */
+        } else if ((fl & (Emu.OVF_VISIBLE | Emu.OVF_ARMED)) == 0 && v != null && v[Emu.OVS_VER] >= 1
+                && (v.length <= Emu.OVS_CUE_ID || v[Emu.OVS_CUE_ID] != (cueId & 0xFFFF))) {
+            /* native 가 저절로 지웠다(대본까지 버림 — 대본 id 0). 막 START_NOW 로 건 대본은 다음 ov_tick 까지 VISIBLE 도 ARMED 도 아니다 —
+               그때는 native 가 아직 우리 대본 id 를 쥐고 있으니 지운 것이 아니다(닫힌 데서 openPause·openResultNow 한 그 vsync) */
+            resetClosed(in);
             return in & ~qHeld;
         } else if ((fl & Emu.OVF_VISIBLE) != 0 && (fl & Emu.OVF_RECT_OK) == 0) {   /* 게임 사각형을 잃음 — 안 보이는데 입력만 막힌다 */
             close();
