@@ -23,7 +23,8 @@ final class RankVs {
     static final int FLAGS = 0;
 
     /** s 를 12px 로 그린 잉크 [y][x] — y 0 = 글꼴 줄 맨 위(갈무리11 한글은 1줄부터 11줄) */
-    interface Ink { boolean[][] mask(String s); }
+    /** 157: TileCanvas.Ink 와 같은 모양(넓힘) — RankVs 는 TileCanvas 위로 옮기되 출력은 바이트까지 같게(계약서 §5.4) */
+    interface Ink extends TileCanvas.Ink { }
     static final class Side { String nick; String sty; int tier; String tierName; int stars; int lp = -1; }
     static final class Out { byte[] tiles; short[] map; int cells; }
 
