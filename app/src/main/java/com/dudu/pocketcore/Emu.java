@@ -132,4 +132,59 @@ public final class Emu {
     /** [잠김, 켜진 수, 이번 세션 경기 치트 먹음, 올카드 창 안, 보관 합, 세이브에 이미 올카드, 유가 고름, 막힌 이유(0·1 잠김·2 리그·3 연습),
      *   마지막 P1 공격 배율, 그 기준, 마지막 한 방 KO 프레임, 무한 체력 되돌림 수, 프레임, 0x57C6, 0x5726, 세이브에 남기기로 8 을 쓰는 중] (cheat.h) */
     public static native int[] nativeCheatStatus();
+
+    /* 157 덧판(ovplane.c — 계약서 docs/157_contract.md §3). 게임 화면 위 가상 오버레이 판: 코어 램·VRAM 을 안 건드리고 gl_draw 가 잔상 뒤에 합성한다.
+       nativeOvStatus 만 아무 스레드 — 나머지는 GL 스레드(LeagueMenu, gl.queueEvent)에서만. 옛 native 면 UnsatisfiedLinkError — 부르는 쪽이 받아 옛 결과 카드로.
+       타일 = NGPC 2bpp 16바이트(줄마다 16비트 LE, 왼쪽 픽셀이 높은 비트) · 맵 칸 = (팔레트<<9)|상대 타일(0..510) | 0x4000 V | 0x8000 H, 0xFFFF 빈 칸 ·
+       팔레트 = 4색 × 12비트 0x0BGR(색 0 투명) */
+    public static final int OV_W = 0, OV_L = 1, OV_BASE_LAYER = 2;
+    public static final int OV_ARM_ON_LATCH = 1, OV_START_NOW = 2, OV_SKIP_TO_END = 4, OV_CUE_ID_SHIFT = 16;
+    public static final int OV_BASE_NONE = 0, OV_BASE_DIM = 1, OV_BASE_FILL = 2, OV_BASE_FILLUP = 3, OV_BASE_FLASH = 4, OV_BASE_SHIFT = 5;
+    public static final int OV_CLR_W = 1, OV_CLR_L = 2, OV_CLR_BASE = 4, OV_CLR_CUE = 8, OV_CLR_HOLD = 16, OV_CLR_ALL = -1;
+    public static final int OV_Q_SHOW = 1, OV_Q_HFLIP = 2, OV_Q_VFLIP = 4, OV_Q_16 = 8;
+    /** nativeOvStatus 칸 */
+    public static final int OVS_VER = 0, OVS_FLAGS = 1, OVS_T = 2, OVS_END = 3, OVS_CUE_ID = 4, OVS_STARTS = 5,
+            OVS_RX = 6, OVS_RY = 7, OVS_SUB = 8, OVS_FBW = 9, OVS_FBH = 10, OVS_VX = 11, OVS_VY = 12, OVS_VW = 13, OVS_VH = 14,
+            OVS_GPAUSE = 15, OVS_LATCH = 16, OVS_COMPOSITES = 17, OVS_W1 = 18, OVS_W2 = 19, OV_NSTAT = 20;
+    public static final int OVF_VISIBLE = 1, OVF_ARMED = 2, OVF_HOLD = 4, OVF_RUNNING = 8, OVF_RECT_OK = 16, OVF_SHOWN = 32;
+    /** 층(OV_W 타일 512 · 맵 32×32 / OV_L 타일 2048 · 맵 20×128)에 올리기 — tiles(n×16, ≤511개) → tileBase.., map(cols×rows) → 칸 (col0,row0)..,
+     *  pals(npal×4) → 팔레트 palBase... 셋 다 null 가능. false = 인자 틀림(아무것도 안 씀). 보이기는 바꾸지 않는다(대본 시작이 보이게 한다) */
+    public static native boolean nativeOvLayer(int layer, byte[] tiles, int tileBase, short[] map, int cols, int rows, int col0, int row0, short[] pals, int palBase);
+    /** 맵 칸만 다시 쓰기(타일 번호 = tileBase + 칸의 하위 9비트) */
+    public static native boolean nativeOvCells(int layer, short[] cells, int col0, int row0, int cols, int rows, int tileBase);
+    /** 사각형 안 빈 칸 아닌 칸의 팔레트만 바꿈(커서 줄) */
+    public static native boolean nativeOvRecolor(int layer, int col0, int row0, int cols, int rows, int pal);
+    /** 팔레트 하나의 색 1·2·3(−1 = 그대로) */
+    public static native boolean nativeOvPal(int layer, int pal, int c1, int c2, int c3);
+    /** 쿼드 idx(0..15) — x,y 층 px · tile 층 은행 절대 번호 · flags OV_Q_* (SHOW 없으면 숨김) */
+    public static native boolean nativeOvQuad(int layer, int idx, int x, int y, int tile, int pal, int flags);
+    /** 창유리 idx(0..15) — 칸 사각형 (c0,r0)..(c1,r1)(포함)을 dx,dy px 밀어 그림 · visible false = 숨김 · c1 < c0 = 창유리 지움 */
+    public static native boolean nativeOvPane(int layer, int idx, int c0, int r0, int c1, int r1, int dx, int dy, boolean visible);
+    /** 층 스크롤(x,y px) · 자르기 화면 줄 clipY0..clipY1(포함) */
+    public static native boolean nativeOvScroll(int layer, int x, int y, int clipY0, int clipY1);
+    /** 바탕 칸 slot(0..3) — mode OV_BASE_* · 게임 줄 y0..y1 · arg · color(FILL 12비트) */
+    public static native boolean nativeOvBase(int slot, int mode, int y0, int y1, int arg, int color);
+    /** 연출 대본 — ops = op 마다 int 7개 {op, t0, dur, a, b, c, d}(Cue.build) · flags = OV_ARM_ON_LATCH|OV_START_NOW|OV_SKIP_TO_END | id<<16.
+     *  ops null + OV_SKIP_TO_END = 돌던 대본 끝 상태로 */
+    public static native boolean nativeOvCue(int[] ops, int flags);
+    /** 메뉴 멈춤 — g_paused 와 따로(바·창 닫기가 덮어쓰지 않는다). 켜 있는 동안 코어 0 프레임 */
+    public static native void nativeOvHold(boolean on);
+    /** 입력 막기 비트(게임에 안 줌) — 보이는 중·멈춤 중엔 native 가 0xFFF 를 저절로 더한다 */
+    public static native void nativeOvBlock(int bits);
+    /** 지우기 — OV_CLR_* 묶음, OV_CLR_ALL = 전부 + 숨김(멈춤·막기도 풂) */
+    public static native void nativeOvClear(int mask);
+    /** [OVS_*] — 아무 스레드. [OVS_VER] 0 = 덧판 없음(빈 껍데기) */
+    public static native int[] nativeOvStatus();
+    /* 157 post — 경기 중 HUD 이름표(체력 막대 아래 검은 줄): 메뉴 층과 따로 · 입력 안 막음 · native 가 라운드 조작 중(램)일 때만, 게임이 그 자리에 무엇을 그리면
+       비켜 줌(OV_TAG_CLEAR 20프레임 비면 다시) · 라운드 시작 2초 강조. 메뉴 닫기(nativeOvClear)는 안 지움 — 코어가 통째로 바뀌는 곳(로드·내림·리셋·허브 돌아가기·
+       상태 불러오기)에서 native 가 지운다. GL 스레드(LeagueMenu.OvPort)에서만 · 옛 native 면 UnsatisfiedLinkError(부르는 쪽이 받아 이름표 없이) */
+    public static final int OV_TAG_ME = 0, OV_TAG_OPP = 1, OV_TAG_MAXW = 64, OV_TAG_H = 8, OV_TAG_CLEAR = 20;
+    /** nativeOvTagStatus 칸 */
+    public static final int OVT_ON = 0, OVT_LIVE = 1, OVT_VIS = 2, OVT_FLASH = 3, OVT_OCC = 4, OVT_SCANS = 5, OVT_YIELDS = 6, OVT_EMPH = 7, OVT_SIG = 8, OVT_ROUNDS = 9, OV_TAG_NSTAT = 10;
+    /** 이름표 한쪽 — pix w×h(칠 0..3, 0 투명) · 게임 px (x,y) · pals 6칸 = 강조 c1..c3 · 보통 c1..c3(12비트 0x0BGR). pix null = 그 쪽 지움 */
+    public static native boolean nativeOvTag(int side, byte[] pix, int w, int h, int x, int y, short[] pals);
+    /** 이름표 켬/끔(랭크 경기 동안 켬) */
+    public static native void nativeOvTagOn(boolean on);
+    /** [OVT_*] — 아무 스레드 */
+    public static native int[] nativeOvTagStatus();
 }

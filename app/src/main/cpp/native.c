@@ -19,6 +19,7 @@
 #include "practice.h"
 #include "look.h"
 #include "cheat.h"
+#include "ovplane.h"
 #include "display_shaders.h"
 #include <math.h>
 
@@ -130,6 +131,15 @@ static uint8_t  *g_gh_out = NULL;
 static unsigned  g_gh_cap = 0, g_gh_w = 0, g_gh_h = 0;
 static int       g_gh_valid = 0;
 static GLuint    g_tex_gh = 0;
+/* 157 덧판 — 합성한 그림(ovplane.c 버퍼)을 올리는 따로 텍스처. g_tex(날것 g_fb)는 그대로 */
+static GLuint    g_tex_ov = 0;
+static unsigned  g_tex_ov_w = 0, g_tex_ov_h = 0;
+static uint32_t  g_tex_tag = 0;            /* 157 post: g_tex 의 이름표 줄에 지금 덧칠된 HUD 이름표 서명(0 = 날 그림 그대로) */
+/* 160: 프레임 패치 쪽지 × 덧판 — 덧판 합성 그림(g_tex_ov)엔 ovplane 이 같이 합성한 쪽지(g_tex_ovph: 덧판이 칠한 화소 0 · 나머지는 게임 쪽지를 같이 옮김).
+   이름표만 덧칠하는 게임 텍스처(g_tex)엔 쪽지 텍스처(g_tex_ph)의 그 줄도 이름표 화소만 0 으로(g_tph_tag = 지금 덮인 서명) */
+static GLuint    g_tex_ovph = 0;
+static unsigned  g_tovph_w = 0, g_tovph_h = 0;
+static uint32_t  g_tph_tag = 0;
 
 /* audio ring buffer (stereo int16) */
 #define ARING_FRAMES 16384
@@ -430,7 +440,8 @@ static int16_t cb_input_state(unsigned port, unsigned device, unsigned index, un
    /* 가상 리그: 메뉴 자동 진입 중엔 그 입력, 게임 속 리그가 대신 받는 버튼(리그 대전 칸·상대 고르기의 A)은 게임에 안 준다.
       연습 대전: 경기 중 Option(탭 = 메뉴 · 조합 = 리셋)·메뉴가 열린 동안의 버튼은 게임에 안 주고, 일시정지를 걸고 풀 Option·이야기 넘기는 A 는 더한다
       컬러(look.c): 고르기 화면의 OPTION(컬러)·B(2P색으로 결정)·컬러 만들기 창이 열린 동안의 모든 버튼은 게임에 안 주고, 2P색 결정의 A 는 더한다 */
-   int in = g_input, blk = league_in_block | practice_in_block | look_in_block;
+   /* 157 덧판: 메뉴가 보이거나 멈춤(ov_hold) 중이면 게임 비트 전부(0xFFF — A·B·OPTION·방향·SELECT·SP 접기 1·9·10·11)를 막는 백스톱 */
+   int in = g_input, blk = league_in_block | practice_in_block | look_in_block | ov_in_block();
    if (in & (1 << RETRO_DEVICE_ID_JOYPAD_START)) blk |= practice_opt_mask;   /* Option 과 같은 프레임의 방향·A·B(연습 경기 중) */
    return ((league_ovr_on ? league_ovr_mask : ((in & ~blk) | league_in_or | practice_in_or | look_in_or)) >> id) & 1;
 }
@@ -625,6 +636,20 @@ static void gl_setup(void)
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glGenTextures(1, &g_tex_ov);           /* 157 덧판 — 새 컨텍스트면 다음 합성 그림을 통째로 다시 올린다(덧판 상태는 ovplane 에 남음) */
+   g_tex_ov_w = g_tex_ov_h = 0;
+   glBindTexture(GL_TEXTURE_2D, g_tex_ov);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glGenTextures(1, &g_tex_ovph);         /* 160: 덧판 합성 그림의 쪽지(LUMINANCE) — 덧판이 그린 화소는 0(게임 칸 모눈), 나머지는 게임 쪽지를 같이 옮김 */
+   g_tovph_w = g_tovph_h = 0;
+   glBindTexture(GL_TEXTURE_2D, g_tex_ovph);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
    memset(g_dp, 0, sizeof(g_dp));   /* 새 컨텍스트 — 예전 프로그램은 이미 사라졌다. 쓸 때 다시 만든다 */
    g_gh_valid = 0;
    g_fb_dirty = 1;
@@ -636,6 +661,7 @@ static void gl_draw(void)
    if (!g_fb || !g_fb_w) return;
    const uint8_t *img = g_fb;
    unsigned iw = g_fb_w, ih = g_fb_h;
+   int fresh = g_fb_dirty;                /* 157: 이번 vsync 에 새 그림이 왔나 — 덧판은 새 그림·잔상일 때만 다시 합성 */
 
    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
    glBindTexture(GL_TEXTURE_2D, g_tex);
@@ -661,6 +687,9 @@ static void gl_draw(void)
          glBindTexture(GL_TEXTURE_2D, g_tex);
          g_tex_has_ph = 1;
       }
+      g_tph_tag = 0;
+      g_tex_tag = 0;
+      ov_tag_scan(img, iw, ih);           /* 157 post: 새 게임 그림 — HUD 이름표 자리에 게임이 무엇을 그렸나(날 그림으로) */
    }
 
    /* aspect-correct, integer-scaled viewport.
@@ -692,18 +721,86 @@ static void gl_draw(void)
       if (y0 < 0) y0 = 0;
       { static int ldw=-1, ldh=-1, lvw=-1; if (dw!=ldw||dh!=ldh||g_vw!=lvw) { LOGI("viewport %d x %d in %d x %d (img %u x %u, sub %d, game_w %d, int %d)", dw, dh, g_vw, g_vh, iw, ih, sub, game_w, g_integer_scale); ldw=dw; ldh=dh; lvw=g_vw; } }
       glViewport((g_vw - dw) / 2, y0, dw, dh);
+      ov_viewport((g_vw - dw) / 2, y0, dw, dh, g_vh, g_fb_w, g_fb_h);   /* 157: 게임 칸 자리(터치)·게임 사각형 판정 */
    }
 
    static const GLfloat pos[] = { -1,-1,  1,-1, -1, 1,  1, 1 };
    static const GLfloat uv[]  = {  0, 1,  1, 1,  0, 0,  1, 0 };
 
-   GLuint tex = g_tex;
-   if (g_d_ghost > 0) {           /* 잔상 — 화면에 낼 그림(중간 그림 포함)을 누적해 따로 올린다 */
-      const uint8_t *gs = ghost_apply(img, iw, ih);
+   GLuint tex = g_tex, phtex = g_tex_ph;
+   int phon = g_tex_has_ph;                       /* 셰이더에 쪽지를 줄까(덧판이 쪽지를 못 만들면 끔 — 메뉴 글자를 게임 쪽지로 밀어 읽지 않게) */
+   const uint8_t *phs = g_tex_has_ph ? g_ph : NULL;   /* 160: g_tex 그림의 쪽지(g_ph 는 g_fb 와 같이만 바뀐다) */
+   const uint8_t *shown = img, *ob = NULL;
+   int ghost = g_d_ghost > 0, ch = 0;
+   if (ghost) shown = ghost_apply(img, iw, ih);   /* 잔상 — 화면에 낼 그림(중간 그림 포함)을 누적 */
+   else g_gh_valid = 0;
+   /* 157 덧판 — 잔상 뒤(메뉴엔 잔상이 안 끼게) 따로 버퍼에 합성해 따로 텍스처로. 바뀐 그림일 때만 다시 합성·올림(4배 한 장 1.5MB).
+      업스케일러·격자·스캔라인·색 셰이더는 합성 결과에 그대로 걸린다(게임 글자처럼). 게임 사각형을 못 찾으면 NULL — 그냥 그림 */
+   if (ov_active()) ob = ov_compose_ph(shown, phs, iw, ih, fresh || ghost, &ch);
+   if (ob) {
+      glBindTexture(GL_TEXTURE_2D, g_tex_ov);
+      if (g_tex_ov_w != iw || g_tex_ov_h != ih) {
+         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, ob);
+         g_tex_ov_w = iw; g_tex_ov_h = ih;
+      } else if (ch) {           /* 바뀐 줄 범위만(쉬는 메뉴의 일렁임·까딱은 몇 줄 — 4배 한 장 1.5MB 를 vsync 마다 올리지 않게) */
+         int sy0 = 0, sy1 = (int)ih - 1;
+         ov_compose_span(&sy0, &sy1);
+         if (sy0 < 0) sy0 = 0;
+         if (sy1 > (int)ih - 1) sy1 = (int)ih - 1;
+         if (sy1 >= sy0)
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, sy0, iw, sy1 - sy0 + 1, GL_RGBA, GL_UNSIGNED_BYTE, ob + (size_t)sy0 * iw * 4);
+      }
+      tex = g_tex_ov;
+      const uint8_t *pb = phs ? ov_compose_phase() : NULL;   /* 160: 합성 쪽지 — 바뀐 줄 범위는 그림과 같다(ov_compose_span) */
+      phon = 0;
+      if (pb && g_tex_ovph) {
+         glActiveTexture(GL_TEXTURE1);
+         glBindTexture(GL_TEXTURE_2D, g_tex_ovph);
+         if (g_tovph_w != iw || g_tovph_h != ih) {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, iw, ih, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, pb);
+            g_tovph_w = iw; g_tovph_h = ih;
+         } else if (ch) {
+            int sy0 = 0, sy1 = (int)ih - 1;
+            ov_compose_span(&sy0, &sy1);
+            if (sy0 < 0) sy0 = 0;
+            if (sy1 > (int)ih - 1) sy1 = (int)ih - 1;
+            if (sy1 >= sy0)
+               glTexSubImage2D(GL_TEXTURE_2D, 0, 0, sy0, iw, sy1 - sy0 + 1, GL_LUMINANCE, GL_UNSIGNED_BYTE, pb + (size_t)sy0 * iw);
+         }
+         glActiveTexture(GL_TEXTURE0);
+         phtex = g_tex_ovph; phon = 1;
+      }
+   } else if (ghost) {            /* 잔상 그림은 따로 올린다(덧판이 그리면 그 안에 이미 들어 있어 안 올림) */
       glBindTexture(GL_TEXTURE_2D, g_tex_gh);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, gs);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, shown);
       tex = g_tex_gh;
-   } else g_gh_valid = 0;
+   }
+   if (!ob) {                     /* 157 post: HUD 이름표 — 메뉴가 안 보이면 그려 낼 게임 텍스처의 이름표 줄만 덧칠(4배 그림도 32줄) ·
+                                     잔상 텍스처는 vsync 마다 새로 올라오니 늘, 게임 텍스처는 서명이 바뀔 때만(숨길 땐 날 줄로 되돌림) */
+      uint32_t sig = ov_tag_sig();
+      int need = ghost ? sig != 0 : sig != g_tex_tag;
+      int phneed = phs && sig != g_tph_tag;        /* 160: 쪽지 텍스처의 이름표 줄 — 서명이 바뀔 때만(쪽지는 새 그림 때만 통째로 올라온다) */
+      int by = 0, bn = 0;
+      const uint8_t *pband = NULL;
+      const uint8_t *band = (need || phneed) ? ov_tag_band2(shown, phneed ? phs : NULL, iw, ih, &by, &bn, &pband) : NULL;
+      if (band && bn > 0 && by >= 0 && by + bn <= (int)ih) {
+         if (need) {
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, by, iw, bn, GL_RGBA, GL_UNSIGNED_BYTE, band);
+            if (!ghost) g_tex_tag = sig;
+         }
+         if (phneed && pband) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, g_tex_ph);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, by, iw, bn, GL_LUMINANCE, GL_UNSIGNED_BYTE, pband);
+            glActiveTexture(GL_TEXTURE0);
+            g_tph_tag = sig;
+         }
+      } else {
+         if (need && !ghost) g_tex_tag = sig;
+         if (phneed) g_tph_tag = sig;
+      }
+   }
 
    /* 업스케일러는 «원래 화소 하나 = 텍셀 하나»를 읽어야 돈다 — 1배 그림이거나, 4배 그림이면 쪽지로 화소마다 제 모눈을 알 때 */
    int up = (g_d_mix > 0 && (sub == 1 || g_tex_has_ph)) ? g_d_up : 0;
@@ -713,10 +810,10 @@ static void gl_draw(void)
       glUseProgram(d->prog);
       glUniform1i(d->u_tex, 0);
       glUniform1f(d->u_sub, (float)sub);                 /* 4배 그림이면 색은 텍셀 그대로(¼ px), 격자·스캔라인 줄만 게임 칸에 */
-      glUniform1f(d->u_phase, g_tex_has_ph ? 1.f : 0.f);
+      glUniform1f(d->u_phase, phon ? 1.f : 0.f);
       glUniform1i(d->u_ph, 1);
       glActiveTexture(GL_TEXTURE1);
-      glBindTexture(GL_TEXTURE_2D, g_tex_ph);
+      glBindTexture(GL_TEXTURE_2D, phtex);
       glUniform2f(d->u_size, (float)lw, (float)lh);      /* 격자·스캔라인·번짐은 게임 칸 기준 */
       glUniform2f(d->u_out, (float)dw, (float)dh);
       glUniform1f(d->u_mix, up ? g_d_mix / 100.f : 0.f);
@@ -847,6 +944,9 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
                         jstring jsys, jstring jsave, jstring jopts)
 {
    league_disarm();                      /* 새 게임은 무장 없이 시작 — 랭크전이면 Java 가 로드 뒤에 다시 무장한다 */
+   ov_clear(OV_CLR_ALL);                 /* 157 덧판: 코어 상태가 통째로 바뀜 — 메뉴·대본·멈춤·막기 모두(상태용 램 포인터는 올린 뒤 새로) */
+   ov_tag_clear();                       /* 157 post: HUD 이름표도(메뉴 닫기는 안 지움 — 여기 다섯 곳만) */
+   ov_game_ram(NULL, 0);
    league_hub(0, NULL, NULL);            /* 게임 속 리그도 끈 채로 — 허브로 켠 화면만 로드 뒤에 다시 켠다(앞 세션의 허브가 자유 플레이로 새지 않게) */
    practice_forget();                    /* 연습 대전도 — 일반 세션이고 확인한 롬 판이면 Java 가 로드 뒤에 연습 허브를 켠다 */
    league_practice_resume(NULL, 0);      /* 지난 판에서 기다리던 연습 경기 되돌리기는 버린다(이 판의 상태 불러오기가 다시 남긴다) */
@@ -899,6 +999,8 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
    c_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
    sram_load();
    g_loaded = 1;
+   if (c_get_memory_data && c_get_memory_size)   /* 157 덧판 상태(게임 PAUSE 0x61D4 · 라운드 승수)용 시스템 램 — 포인터만(코어가 내려갈 때 거둠) */
+      ov_game_ram((const uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM), c_get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
 
    pace_reset(&g_pace); drc_reset(&g_drc);   /* 150: 새 게임 — 박자 잠금·소리 늘림을 처음부터 */
    audio_start(g_av.timing.sample_rate > 0 ? (int)g_av.timing.sample_rate : 44100);
@@ -921,6 +1023,9 @@ JNI(jint, nativeLoad)(JNIEnv *env, jclass cls, jstring jcore, jstring jrom,
 static void unload_locked(void)
 {
    league_disarm();                      /* 코어가 내려가면 랭크전 무장은 무조건 끝 — 다음 게임으로 새지 않게 */
+   ov_clear(OV_CLR_ALL);                 /* 157 덧판 지움 · 상태용 램 포인터도 버림(코어가 내려감 — dlclose 뒤 읽지 않게) */
+   ov_tag_clear();
+   ov_game_ram(NULL, 0);
    league_hub(0, NULL, NULL);
    practice_forget();
    look_enable(0); look_forget();
@@ -985,7 +1090,8 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
       리셋(nativeLeagueHubReturn)·새 무장·코어 내림 전까지 게임을 한 프레임도 더 돌리지 않는다(다음 장·이어하기 화면으로 안 감).
       멈춤과 같게 마지막 진짜 프레임(g_fb)만 그린다 */
    /* 153: 랭크 자동 진행(찾기 겹창 뒤 고르기·이야기, autopick flags 4)은 배속(▶▶)과 같은 4배 — 소리는 league_mute 로 버린다 */
-   nsteps = pace_steps(&g_pace, t, fps, g_panel_hz_hint, g_turbo || league_ff, g_paused || !g_loaded || league_post_hold());
+   /* 157: 덧판 메뉴 멈춤(ov_hold) — g_paused 와 따로(Java 가 바·창을 닫을 때 nativeSetPaused 로 덮어써도 안 풀린다) */
+   nsteps = pace_steps(&g_pace, t, fps, g_panel_hz_hint, g_turbo || league_ff, g_paused || !g_loaded || league_post_hold() || ov_hold());
    while (steps < nsteps) {
       int stop = 0;
       CORE_LOCK();                       /* retro_run 한 번 단위 — 그 사이에 UI 스레드의 저장이 끼어들 수 있게 */
@@ -1022,6 +1128,9 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
       steps++;
       if (stop) break;                   /* 153: 이번 vsync 의 남은 스텝(따라잡기·배속·코어 합성)도 없이 — 이 프레임 그대로 */
    }
+   /* 157 덧판: 스텝 루프 뒤(스텝 0 이어도 — 걸쇠·멈춤 중에도 연출이 돈다) · gl_draw 앞. 걸쇠가 이 vsync 에 섰으면 걸어 둔 대본이 지금 t=0 으로.
+      상태용 램 포인터(ov_game_ram)는 코어가 올라갈 때 한 번 주고 내려갈 때 거둔다(코어 안 고정 배열 — vsync 마다 코어 잠금을 잡지 않게) */
+   ov_tick(t, league_post_hold());
    glClear(GL_COLOR_BUFFER_BIT);
    gl_draw();
 }
@@ -1058,7 +1167,7 @@ JNI(void, nativeAudioResume)(JNIEnv *env, jclass cls)
 
 /* 게임 속 리그: 결판 뒤 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
 JNI(void, nativeLeagueHubReturn)(JNIEnv *env, jclass cls, jint rematch)
-{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); look_forget(); cheat_forget(); CORE_UNLOCK(); }
+{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); look_forget(); cheat_forget(); ov_clear(OV_CLR_ALL); ov_tag_clear(); CORE_UNLOCK(); }
 
 JNI(void, nativeReset)(JNIEnv *env, jclass cls)
 {
@@ -1069,6 +1178,8 @@ JNI(void, nativeReset)(JNIEnv *env, jclass cls)
    league_post_clear();                          /* 153: 승리 대사 걸쇠도 푼다(리그 판은 리셋이 막혀 있어 방어용) */
    look_forget();                                /* 컬러: 경기 컬러·세로 칸을 잊는다(기억·내 색은 그대로) */
    cheat_forget();                               /* 치트: 보관한 카드는 되돌리지 않고 버린다(램이 새로 시작) */
+   ov_clear(OV_CLR_ALL);                         /* 157 덧판: 코어가 새로 시작 — 메뉴·멈춤·막기 지움 */
+   ov_tag_clear();
    CORE_UNLOCK();
 }
 
@@ -1232,6 +1343,8 @@ JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
       look_forget();                                 /* 컬러: 화면 칸은 잊고, 경기 컬러는 .look 이 맞을 때만(아니면 버림) */
       look_resume(lsn ? lside + 12 : NULL, lsn ? lsn - 12 : 0);
       cheat_forget();                                /* 치트: 램이 통째로 바뀜 — 보관한 카드는 버리고 다음 프레임부터 새로 */
+      ov_clear(OV_CLR_ALL);                          /* 157 덧판: 코어 상태가 통째로 바뀜 */
+      ov_tag_clear();
    }
    CORE_UNLOCK();
    free(buf);

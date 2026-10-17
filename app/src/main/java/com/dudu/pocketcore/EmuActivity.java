@@ -122,6 +122,8 @@ public class EmuActivity extends Activity {
                 int in = padMask | keyMask | axisMask;
                 if (rankQBlock) { qHeld = in; in = 0; }   /* 153 찾기 겹창 동안 게임엔 아무것도 안 간다 */
                 else if (qHeld != 0) { qHeld &= in; in &= ~qHeld; }
+                LeagueMenu mm = lgm;                      /* 157 리그 인게임 메뉴 — 열린 동안 게임엔 0 · 쉼 자격이면 OPTION 탭 = 쉼 */
+                if (mm != null) in = mm.feed(in, System.nanoTime());
                 Emu.nativeSetInput(in);
                 Emu.nativeFrame();
                 /* 프레임 크기가 바뀌면(기둥·띠 토글) 화면 상자를 다시 잡는다 */
@@ -183,7 +185,7 @@ public class EmuActivity extends Activity {
                 if (!loaded) return;
                 Emu.nativeSetPaused(open || (sheet != null && sheet.isShowing()) || (leagueDlg != null && leagueDlg.isShowing())
                         || (leagueId != null && leagueArmed && nativeDone() && postState() != 1)   /* 결판이 잡혀 정산을 기다리는 동안은 멈춘 채로(153: 승리 대사 중엔 닫으면 대사가 이어 돈다 — 끝은 native 걸쇠가 멈춘다) */
-                        || hubCard != null);                                     /* 게임 속 리그 결과 카드가 떠 있는 동안도 */
+                        || hubCard != null || lgmShown);                         /* 게임 속 리그 결과 카드(157 결판 메뉴)가 떠 있는 동안도 */
             }
         });
 
@@ -342,6 +344,7 @@ public class EmuActivity extends Activity {
         placeFrameMeter();                                  /* 프레임 미터가 먼저 자리를 잡고 안내 띠는 그 아래로 */
         placeHubBanner();
         rankQPlace();                                       /* 153 찾기 겹창 — 게임 그림 자리 그대로 */
+        lgmTouchPlace();                                    /* 157 메뉴 터치 — 게임 그림 자리 그대로 */
         if (hubCard != null && hubCard.getLayoutParams() instanceof FrameLayout.LayoutParams) {   /* 결과 카드 — 돌리면 새 게임 그림 위로(랭크 카드는 남는 높이만큼 — 넘치면 민다) */
             FrameLayout.LayoutParams cl = (FrameLayout.LayoutParams) hubCard.getLayoutParams();
             cl.topMargin = gameBox[1] + Math.round(8 * getResources().getDisplayMetrics().density);
@@ -501,9 +504,15 @@ public class EmuActivity extends Activity {
             return;
         }
         if (ranked() && (action == PadView.ACT_PICK || action == PadView.ACT_QUIT)) {
-            /* 메뉴 바가 닫히며 멈춤을 푸는(menuChanged) 것보다 뒤에 창을 띄운다 */
-            /* 148: 게임 속 리그에서 상대만 잡히고 첫 라운드 전(준비 기록)이면 고르기 화면 창으로 — 계속 / 타이틀로 / 내 게임으로 / 순위표 */
-            h.post(new Runnable() { @Override public void run() { if (leagueId != null && !hubPickBack()) leagueLeave(); else hubLeave(); } });
+            /* 메뉴 바가 닫히며 멈춤을 푸는(menuChanged) 것보다 뒤에 처리한다.
+               157 post(유저 «랭매 등 들어가고 나오는 거 자유롭게, 끊김 없이, '나가나요?' 같은 것 하지 않는다»): 점수가 걸린 경기 중이 아니면 묻지 않고 바로 —
+               «목록» = 게임 목록 · «종료» = 앱 종료(고르기 화면의 준비 기록은 무효로 닫고). 경기 중이면 쉼(덧판) — 쉼이 나가기 메뉴(나중에·기권) */
+            h.post(new Runnable() { @Override public void run() {
+                if (lgm != null && lgm.isOpen() && !lgmShown) return;                        /* 쉼이 이미 나가기 메뉴 */
+                if (lgmEligible(true)) { gl.queueEvent(lgm::requestPause); return; }           /* 랭크 경기 중 — 쉼 */
+                if (leagueHub && !hubMatchLive()) { hubLeaveTo(action); return; }              /* 타이틀·고르기·결판 뒤 — 바로 */
+                if (leagueId != null && !hubPickBack()) leagueLeave(); else if (leagueHub) hubLeaveTo(action);
+            } });
             return;
         }
         switch (action) {
@@ -756,11 +765,13 @@ public class EmuActivity extends Activity {
     @Override public void onBackPressed() {
         if (ask != null) { ask.cancel(); return; }            /* 확인 카드 — 뒤로 = 취소(취소 못 하는 카드면 그대로) */
         if (lookEditor != null) { lookEditorClose(); return; }   /* 컬러 만들기 창에서 뒤로 = 취소 */
+        if (lgm != null && (lgmShown || lgm.isOpen())) { gl.queueEvent(lgm::back); return; }   /* 157 메뉴 — 뒤로 = B */
         if (hubCard != null) { hubReturn(-1); return; }      /* 결과 카드에서 뒤로 = 계속 */
+        if (lgmEligible(true)) { if (pad != null && pad.isBarOpen()) pad.barClose(); gl.queueEvent(lgm::requestPause); return; }   /* 157 랭크 경기 중 뒤로 = 쉼 */
         if ((rankQ != null || rankQFading != null) && !(pad != null && pad.isBarOpen())) { rankQBack(); return; }   /* 153 찾기 겹창(사라지는 중 포함) — 그만(상대를 보였으면 잡힌 채). 바가 열려 있으면 멈춘 채 아래(hubLeave)로 */
         if (hubPickBack()) { hubReturn(-1); return; }         /* 리그 판 고르기 화면 — 확인 창 없이 바로 타이틀로(유저 「타이틀로 가는 거 메시지 없이」) */
         if (leagueId != null) { leagueLeave(); return; }
-        if (leagueHub) { hubLeave(); return; }
+        if (leagueHub) { hubLeaveTo(0); return; }            /* 157 post: 타이틀에서 뒤로 = 묻지 않고 온 곳으로(게임에서 왔으면 그 게임 · 아니면 리그 화면) */
         /* 135(접근성 검수 — 유저는 덮개 화면을 엄지로만 쓴다): 뒤로 = 멈춤 메뉴(덮개 화면에선 칸이 아래 엄지 자리), 한 번 더 = 목록.
            「메뉴」 알약은 화면 맨 위라 엄지가 안 닿았고, 십자에서 엄지가 가장자리로 밀리면 한 번에 목록으로 튕겼다.
            목록으로 나갈 때 오토세이브는 그대로라 «한 번 더»의 길은 예전과 같다. 배치 편집 중이면 편집만 끝낸다. */
@@ -1152,6 +1163,7 @@ public class EmuActivity extends Activity {
            재개는 이미 시작한 경기라 바로 «진행 중»(지난 사유는 지운다). */
         leagueStarted = fromCk;
         if (fromCk) League.setStatus(leagueId, "playing", "");
+        if (leagueHub) lgmTagsArm();                                 /* 157 post: 이어 하는 랭크 경기도 HUD 이름표(체크포인트 불러오기 뒤 — native 가 불러오며 지웠다) */
         toast(fromCk ? "리그 경기 — 멈춘 자리부터 이어 해요" : "리그 경기 — 내 캐릭터·검질·카드를 고르세요");
         h.postDelayed(leaguePoll, 250);
     }
@@ -1181,7 +1193,7 @@ public class EmuActivity extends Activity {
         return st != null && st.length > 22 ? st[22] : -1;
     }
     /** 153: 승리 대사 동안 게임을 멈춰 둘 이유 — 메뉴 바·옵션 창·확인 카드. 없으면 대사는 돈다(정산 전에 걸린 멈춤이 남지 않게 poll 이 다시 맞춘다) */
-    private boolean postPaused() { return (pad != null && pad.isBarOpen()) || (sheet != null && sheet.isShowing()) || ask != null || hubCard != null; }
+    private boolean postPaused() { return (pad != null && pad.isBarOpen()) || (sheet != null && sheet.isShowing()) || ask != null || hubCard != null || lgmShown; }
     /** 승리 대사가 도는 중이면 true — 멈춤을 맞추고 100ms 뒤 다시 본다(화면에 떠 있을 때만 — 내려가 있으면 onResume 이 다시 건다).
      *  결판 순간엔 아무 글도 안 띄운다 — 결과는 대사가 끝난 뒤 카드로만(유저 «승부 정해지고 끝나고 메시지»). B·뒤로 건너뛰기는 말없이 된다 */
     private boolean postWait() {
@@ -1227,7 +1239,9 @@ public class EmuActivity extends Activity {
     /** 결판 감시 — 진짜 프레임에서 league.c 가 잡은 결과를 가져와 한 번만 정산한다. 화면에 떠 있을 때만 리그 화면으로 넘어간다. */
     private final Runnable leaguePoll = new Runnable() { @Override public void run() {
         if (leagueId == null) return;
+        lgmEligibleSync();
         if (leagueDone) {
+            lgmOnSettle();                                     /* 157 결판 메뉴 — 정산한 판이면 한 번만 걸어 둔다(걸쇠에 맞춰 열림) */
             if (postWait()) return;                            /* 153: 승리 대사 도는 중 — 끝(걸쇠)·B·뒤로를 기다린다 */
             leagueSaveAskClose(); if (resumedNow && !leaving) leagueExit(leagueId); return;
         }
@@ -1244,6 +1258,7 @@ public class EmuActivity extends Activity {
                 return;
             }
             leagueSaveAskClose();                              /* 다시 시도가 됐다 — 카드는 저절로 닫고 이어서 */
+            lgmOnSettle();                                     /* 157: 결판 장면을 미리 그려 걸쇠에 걸어 둔다 */
             if (postWait()) return;                            /* 153: 결과는 적었다 — 승리 대사 뒤 카드 */
             if (resumedNow) leagueExit(leagueId);
             return;
@@ -1325,6 +1340,7 @@ public class EmuActivity extends Activity {
     /* ── 막힘 카드(148 설계 3.5) — 카드마다 그 자리에서 앞으로 가는 단추. 모두 취소 못 하는 확인 카드(첫 키는 고르기만 — 패드 실수 막기),
        기권은 한 번 더 묻는다(터치 실수 막기) ── */
     private static final int BLK_NOCKPT = 1, BLK_BADCKPT = 2, BLK_ROM = 3, BLK_DB = 4, BLK_WRITE = 5;
+    private String autoVoidId;                                   /* 157 post: 묻지 않고 무효로 닫아 본 경기(실패하면 카드로 — 다시 안 시도) */
 
     /** kind: 경기(NOCKPT·BADCKPT·ROM — 카드 A·B·B′, 무효 가능 여부는 League.voidKind 가 정한다) · 저장소(DB·WRITE — 카드 C). why = 막힌 사유(ROM·저장소) */
     private void leagueBlocked(final int kind, final String why) {
@@ -1353,6 +1369,12 @@ public class EmuActivity extends Activity {
             return;
         }
         final String t = title, b = body;
+        if (hub && voidKind != null && !m.optString("id").equals(autoVoidId)) {   /* 157 post: 이어 할 수 없는 경기(앱이 멈춤·자리 못 불러옴·앱 바뀜)는 묻지 않고 무효로 닫고 바로 찾기 —
+                                                                                   LP·전적 그대로(카드의 «무효로 닫고 계속»과 같은 길). 저장에 실패하면 그때만 카드(한 번만 시도) */
+            autoVoidId = m.optString("id");
+            h.post(new Runnable() { @Override public void run() { if (!leaving) leagueResolve(true, kind, why); } });
+            return;
+        }
         h.post(new Runnable() { @Override public void run() {
             if (leaving) return;
             Ask d = ask(t, b).cancelable(false);
@@ -1390,13 +1412,13 @@ public class EmuActivity extends Activity {
     /** 기권 확인 — «기권할까요?» (LP -N · 배치면 «배치 1패»). 취소·뒤로면 back(막힘 카드를 다시) */
     private void askForfeit(org.json.JSONObject m, final Runnable yes, final Runnable back) {
         String body = "이 경기는 기권패로 기록돼요.";
-        if (League.isRanked(m)) {
-            org.json.JSONObject s0 = m.optJSONObject("start");
-            RankCore.Me me = League.rankMe();
-            if ((s0 != null ? s0.optInt("placement_left", me.placementLeft) : me.placementLeft) > 0) body = "배치 1패로 기록돼요.";
-            else {
-                int[] st = RankCore.stakes(me, s0 != null ? s0.optDouble("opp_mmr", me.mmr) : me.mmr);
-                if (st != null && st[1] != 0) body = "이 경기는 기권패로 기록돼요 (LP " + RankUi.signed(st[1]) + ").";   /* 수련생은 안 깎인다 — ±0 은 빼고(리그 화면과 같게) */
+        if (League.isRanked(m)) {                              /* 157 G10 — 셈은 League.forfeitPreview(쉼의 두 번 묻기와 같은 값), 글은 그대로 */
+            League.ForfeitPreview fp = League.forfeitPreview(m);
+            if (fp.kind == League.ForfeitPreview.PLACEMENT) body = "배치 1패로 기록돼요.";
+            else if (fp.kind == League.ForfeitPreview.LP && (fp.lpDelta != 0 || fp.demoted || fp.shieldUsed)) {   /* 수련생은 안 깎인다 — ±0 은 빼고(리그 화면과 같게) */
+                body = "이 경기는 기권패로 기록돼요 (LP " + RankUi.signed(fp.lpDelta) + ").";
+                if (fp.demoted && fp.tierAfter >= 0 && fp.tierAfter < RankCore.TIER.length) body += " " + MenuModel.ro(RankCore.TIER[fp.tierAfter]) + " 강등돼요.";   /* 157: 실제 정산 그대로 — 강등·강등 위기도 */
+                else if (fp.shieldUsed) body += " 강등 위기가 돼요.";
             }
         }
         final boolean[] went = { false };
@@ -1413,7 +1435,7 @@ public class EmuActivity extends Activity {
         if (leaving) return;
         Emu.nativeSetPaused(true);
         hubStart();
-        if (!leaving && hubCard == null) Emu.nativeSetPaused(pad.isBarOpen());   /* hubReturn 과 같게 */
+        if (!leaving && hubCard == null && !lgmShown) Emu.nativeSetPaused(pad.isBarOpen());   /* hubReturn 과 같게 */
     }
 
     /** 카드 C — 리그 기록을 못 읽음·못 씀. «다시 확인» = 다시 읽고 풀렸으면 hubStart 다시(막힌 hubStart 는 native 를 부르기 전에 돌아왔다) */
@@ -1441,7 +1463,7 @@ public class EmuActivity extends Activity {
 
     /** 뒤로 가기 — 계속 / 나중에 이어하기(체크포인트) / 기권. 결판이 이미 잡혀 있으면 창 없이 정산으로. */
     private void leagueLeave() {
-        int ps = leagueDone && leagueArmed && !leaving && hubCard == null ? postState() : -1;
+        int ps = leagueDone && leagueArmed && !leaving && hubCard == null && !lgmShown ? postState() : -1;
         if (ps >= 1) { if (ps == 1) postSkip(); else leagueExit(leagueId); return; }   /* 153: 승리 대사 중(·걸쇠 뒤 카드 전) 뒤로 = 바로 결과 카드(카드가 떠 있으면 예전대로) */
         if (leagueDone || !leagueArmed) { leagueExit(null); return; }
         if (leagueSettleNow()) {                              /* 결판이 막 잡혔다(poll 전) — 153: 대사 중이면 위와 같이 건너뛰기(카드를 먼저 띄우면 poll 이 대사를 다시 돌린다) */
@@ -1493,34 +1515,16 @@ public class EmuActivity extends Activity {
                 .show();
     }
 
-    /** 첫 라운드 전(메뉴·캐릭터 고르기·이야기)에 나가기 — 아직 승부가 아무것도 정해지지 않았으니 무효로 닫는다(점수 없음). */
+    /** 첫 라운드 전(메뉴·캐릭터 고르기·이야기)에 나가기 — 아직 승부가 아무것도 정해지지 않았으니 묻지 않고 무효로 닫는다(점수 없음 · 157 post «'나가나요?' 하지 않는다»). */
     private void leagueLeaveBeforeStart() {
         leagueChoosing = false;
-        Emu.nativeSetPaused(true);
-        leagueDlg = ask("리그 경기 — 시작 전", "아직 첫 라운드가 시작되지 않았습니다. 그만두면 이 경기는 무효로 닫히고 점수는 그대로입니다.")
-                .btn("계속하기", null)
-                .btn("그만두기(무효)", new Runnable() {
-                    @Override public void run() {
-                        leagueChoosing = true;
-                        leagueSyncStarted();
-                        if (leagueStarted) {                   /* 창이 뜨는 사이 첫 라운드가 시작됐다 — 보통 나가기로 */
-                            leagueChoosing = false;
-                            h.post(new Runnable() { @Override public void run() { leagueLeave(); } });
-                            return;
-                        }
-                        if (!League.cancel(leagueId, "경기 시작 전에 사용자가 그만둠")) {
-                            leagueChoosing = false;
-                            toast("저장 실패 — 다시 시도하세요");
-                            Emu.nativeSetPaused(pad.isBarOpen());
-                            return;
-                        }
-                        leagueDone = true; Emu.nativeLeagueDisarm(); leagueExit(leagueId);
-                    } })
-                .onDismiss(new Runnable() {
-                    @Override public void run() {
-                        if (!leagueDone && !leagueChoosing && !nativeDone()) Emu.nativeSetPaused(pad.isBarOpen());
-                    } })
-                .show();
+        leagueSyncStarted();
+        if (leagueStarted) { leagueLeave(); return; }           /* 그사이 첫 라운드가 시작됐다 — 점수가 걸렸으니 보통 나가기로 */
+        if (!League.cancel(leagueId, "경기 시작 전에 사용자가 그만둠")) { toast("저장 실패 — 다시 시도하세요"); return; }
+        toast("시작 전이라 무효로 닫았어요 — LP 그대로");
+        leagueDone = true; Emu.nativeLeagueDisarm();
+        if (leagueHub) { hubReturn(-1); return; }               /* 게임 속 리그 — «무효» 결과 카드 없이 바로 타이틀(고르기 화면 뒤로와 같게 · 리그는 켠 채) */
+        leagueExit(leagueId);
     }
 
     /** 리그 화면으로 — 결과가 있으면 그 결과 창을 띄운다. 코어는 GL 스레드에서 내린다(goList 와 같은 이유, 내릴 때 native 가 무장도 푼다). */
@@ -1882,6 +1886,7 @@ public class EmuActivity extends Activity {
         hubDual = hubOn() && !"0".equals(Settings.load().get(practiceOkKey()));   /* 셋째 줄 ◀▶ — «연습 대전»을 고르면 일반 판으로(그 판에서 연습이 안 켜진다고 알면 리그만) */
         Emu.nativeHubDual(hubDual);
         hubRanked = true; Emu.nativeHubRanked(true);                     /* 랭크 매치: 셋째 줄 A = 상대 찾기(예전 «상대 선택»은 끔 — 12명은 라이벌로 나온다) */
+        lgmSetup();                                                      /* 157 리그 인게임 메뉴(덧판) · 이번 대전 세션(G2) */
         pushMain();                                                      /* 153: 내 캐릭터(pref.main) — 있으면 go 마다 native 가 대신 고른다 · 없으면 첫 판만 직접(tail) */
         org.json.JSONObject open;
         boolean resumeOpen = false;
@@ -1911,7 +1916,7 @@ public class EmuActivity extends Activity {
         int st = hs[0], hover = hs[1], picked = hs[2];
         hubDualV = Emu.nativeHubDualStatus();                            /* 둘 다 꺼져 있어도 — 메뉴 화면(v[5])으로 띠를 고른다 */
         if (hubDual && hubDualV != null && hubDualV.length >= 5 && hubDualV[2] != 0) {
-            if (hubDualV[2] == 2 && leagueId == null && hubCard == null) { switchSession(false, true); return; }   /* 셋째 줄 «연습 대전» — 일반 판으로 */
+            if (hubDualV[2] == 2 && leagueId == null && hubCard == null && !lgmShown) { switchSession(false, true); return; }   /* 셋째 줄 «연습 대전» — 일반 판으로 */
             Emu.nativeHubHandoffClear();                                 /* 지금은 못 갈아탄다(남은 경기 기록 등) — 메뉴가 멈춘 채 남지 않게 */
             toast("지금은 연습 대전으로 못 가요 — 뒤로 가기로 나간 뒤 다시");
         }
@@ -1924,12 +1929,13 @@ public class EmuActivity extends Activity {
         }
         if (hubGen < hubWaitGen) {                                      /* 결과 카드·«타이틀로» 뒤 리셋이 아직 GL 스레드에 안 닿음 — 띠는 숨긴 채(돌아가는 안내 없이) */
             if (hubBanner != null && hubCard == null) hubBanner.setVisibility(View.GONE);
+            lgmEligibleSync();
             return;
         }
         /* 상대를 골랐다 → 경기 기록(준비). 뒤로 가기 창이 떠 있으면 창이 정한 뒤에(계속하기 → 다음 확인에서 만듦, 나가기·타이틀로 → 안 만듦) */
-        if (hubRanked && st == 3 && leagueId == null && hubCard == null && !(leagueDlg != null && leagueDlg.isShowing())) {
+        if (hubRanked && st == 3 && leagueId == null && hubCard == null && !lgmShown && !(leagueDlg != null && leagueDlg.isShowing())) {
             if (!(rankQ != null && !rankQRevealed) && !rankNewMatch()) return;   /* 153: 겹창이 상대를 보인 뒤에(잡힘과 같은 때 — 보기 전에 그만두면 기록 없음) */
-        } else if (st == 3 && leagueId == null && hubCard == null && !(leagueDlg != null && leagueDlg.isShowing())) {
+        } else if (st == 3 && leagueId == null && hubCard == null && !lgmShown && !(leagueDlg != null && leagueDlg.isShowing())) {
             String oid = (picked >= 0 && picked < 15) ? hubOpp[picked] : null;
             org.json.JSONObject m = oid != null ? League.newMatch(oid) : null;
             if (m == null) {
@@ -1945,10 +1951,14 @@ public class EmuActivity extends Activity {
         }
         hubLastState = st;
         if (hubRanked) { rankTick(st); rankCapTick(st, hs); }
+        lgmEligibleSync();
+        lgmUiSync();
         /* 결과 카드가 떠 있는 동안은 카드 안내를 그대로 두고, 카드를 닫은 직후(리셋이 GL 스레드에 닿기 전 — 허브는 아직 «경기»)는 «돌아가는 중» */
         /* 이어 하는 경기(체크포인트)는 허브가 타이틀 상태인 채로 싸운다 — 띠는 경기 안내로 */
         int shown = leagueId != null && st <= 2 ? 4 : st == 4 && leagueId == null ? 5 : st;
-        if (hubBanner != null && hubCard == null) {
+        if (hubBanner != null && hubCard == null && lgmOpen) hubBanner.setVisibility(View.GONE);   /* 157 메뉴가 열린 동안 안내 띠 숨김(VS 띠 때와 같은 규칙) */
+        else if (hubBanner != null && hubCard == null && hubRanked && !hubBannerNeeded(shown)) hubBanner.setVisibility(View.GONE);   /* 157 post: 랭크 판은 아래 안내 띠 없음(정보는 인게임 메뉴) — 직접 고르는 화면만 */
+        else if (hubBanner != null && hubCard == null) {
             hubBanner.setText(rankQ != null ? rankQBanner() : hubText(shown, hover, picked, hs[4]));   /* 153 겹창 동안은 상대를 미리 안 보인다 */
             /* 경기 중 띠가 게임 그림 위로 올라가 있으면(가로 화면 — 아래 자리가 없음) 숨긴다: 체력 막대를 경기 내내 가리지 않게(연습과 같은 규칙) */
             boolean over = shown == 4 && !bannerUserPos && ((FrameLayout.LayoutParams) hubBanner.getLayoutParams()).topMargin < gameBox[3];
@@ -1960,6 +1970,14 @@ public class EmuActivity extends Activity {
             }
             hubBanner.setVisibility(over || shown == 5 ? View.GONE : View.VISIBLE);   /* 5 = 타이틀·상대 선택으로 돌아가는 중 — 안내 없이 */
         }
+    }
+
+    /** 157 post — 랭크 판의 아래 안내 띠(유저 «아래 메시지 박스는 무용» — 판·상대·LP 정보는 인게임 메뉴·VS 띠·HUD 이름표로 옮김)는
+     *  게임 고르기 화면을 직접 밟을 때만(첫 판 내 캐릭터 고르기 · 자동이 막혀 직접 고르기 — 고르기 키·«한 번만 골라요» 안내가 필요). 찾기 겹창 동안·대신 고르는 판·타이틀·경기 중엔 없음 */
+    private boolean hubBannerNeeded(int shown) {
+        if (shown != 3 || rankQ != null || rankQFading != null) return false;
+        int scr = hubDualV != null && hubDualV.length >= 6 ? hubDualV[5] : -1;
+        return scr == 2 || scr == 4 || scr == 6;
     }
 
     /** 상대 고르기 안내 네 줄 — 이름·캐릭터·난도 / 순위·점수·상대 전적 / 걸린 점수(SF6 LP 처럼 «이기면 +12 · 지면 −12»)·별칭 / 버튼.
@@ -2040,10 +2058,14 @@ public class EmuActivity extends Activity {
 
     /** 결과 카드 — 게임 위, 그 경기 직후 값(after)으로. 계속 / 재대결 / 순위표. */
     private void hubResult(final String resultId) {
-        if (hubCard != null || leaving) return;
+        if (hubCard != null || lgmShown || leaving) return;
         final org.json.JSONObject m = League.matchById(resultId);
         if (m == null) { hubReturn(-1); return; }
-        if (League.isRanked(m)) { rankResult(m); return; }
+        if (League.isRanked(m)) {
+            if (lgmResultAtLatch(m)) return;                                /* 157 결판 메뉴(덧판) — 카드 없음 */
+            if (lgm != null && lgm.isOpen()) gl.queueEvent(lgm::close);     /* 쉼에서 기권했는데 덧판 결판을 못 엶 — 옛 카드로 */
+            rankResult(m); return;
+        }
         Emu.nativeSetPaused(true);
         float dp = getResources().getDisplayMetrics().density;
         final org.json.JSONObject o = League.oppById(m.optString("opp"));
@@ -2311,7 +2333,7 @@ public class EmuActivity extends Activity {
     /** 허브 상태마다 — 찾기(6)에 닿았는데 겹창이 없으면(타이틀에서 «리그 대전» A) 상대를 정하고 겹창 */
     private void rankTick(int st) {
         if (st == 1) rankNoSearch = false;                               /* 타이틀에 섰다(로고 뒤 찾기에 못 닿음) — 남은 «그만»이 사용자의 다음 A 를 막지 않게 */
-        if (st != 6 || rankQ != null || hubCard != null || leaving) return;
+        if (st != 6 || rankQ != null || hubCard != null || lgmShown || leaving) return;
         if (rankNoSearch) { rankNoSearch = false; Emu.nativeHubSearch(false); return; }   /* 로고가 도는 동안 그만뒀다 — 찾기에 닿자마자 타이틀로 */
         if (!resumedNow || ask != null || (pad != null && pad.isBarOpen())) return;     /* 내려가 있거나 창·멈춤 바 — 닫힌 뒤에 */
         rankSearchStart();
@@ -2340,8 +2362,7 @@ public class EmuActivity extends Activity {
     private void rankRematch(org.json.JSONObject m, RankCore.Player p) {
         pushMain();
         rankPick = null;
-        org.json.JSONObject lk = m.optJSONObject("look");
-        rankPrepare(p, lk != null ? lk.optInt("stage", -1) : -1);
+        rankPrepare(p, rankStageFor(p));                                 /* 157 G9: 무대 = 고른 무대(pref.stage — ◀▶ 로 바꾼 값). 156 은 지난 경기 look.stage */
         rankQOpen(Q_RUN, true);
         rankArmNext(p);
     }
@@ -2646,7 +2667,7 @@ public class EmuActivity extends Activity {
                         .btn("기권", new Runnable() { @Override public void run() {
                             if (League.forfeit(open.optString("id")) == null) toast("저장 실패 — 다시 시도하세요"); else toast("기권으로 기록했어요"); } })
                         .btn("나중에", null)
-                        .onDismiss(new Runnable() { @Override public void run() { if (hubCard == null && !leaving) Emu.nativeSetPaused(pad.isBarOpen()); } })
+                        .onDismiss(new Runnable() { @Override public void run() { if (hubCard == null && !lgmShown && !leaving) Emu.nativeSetPaused(pad.isBarOpen()); } })
                         .show();
             } else toast("경기를 만들지 못했어요 — " + (rankOppV == null ? "상대 정보가 없어요" : "기록 저장 실패"));
             return false;
@@ -2655,6 +2676,7 @@ public class EmuActivity extends Activity {
         leagueVersionProblem(m);
         League.setLook(leagueId, hubStage, hubColor, lookTri(hubColor));
         h.removeCallbacks(leaguePoll); h.postDelayed(leaguePoll, 250);
+        lgmMatchStart();                                                 /* 157 — 이 판 전 순위(결판 «▲212») 미리 */
         return true;
     }
 
@@ -2779,6 +2801,7 @@ public class EmuActivity extends Activity {
     /** 결과 카드 닫기 → 리셋 뒤 타이틀 «리그 대전» 칸(rematch ≥ 0 이면 같은 상대로 바로 내 캐릭터 고르기까지 · −2 «다른 상대» = 바로 상대 선택). */
     private void hubReturn(final int rematch) {
         if (hubCard != null) { root.removeView(hubCard); hubCard = null; }
+        lgmReset();                                                      /* 157 결판·쉼 메뉴 — 표시 끄고(덧판은 아래 GL 에서 먼저 닫음) */
         org.json.JSONObject m = lm();                       /* 상대만 고르고 대진 전에 타이틀로 — 준비 기록은 무효로(열린 채 남지 않게) */
         if (m != null && "ready".equals(m.optString("status"))) League.cancel(leagueId, "게임 속 리그 — 대진 전에 타이틀로");
         hubWaitGen = Math.max(hubWaitGen, hubGen) + 1;     /* 153: 앞의 돌려보내기가 아직 GL 스레드에 안 닿았으면 그다음 것까지(−4 바로 뒤 그만 −1) */
@@ -2786,47 +2809,53 @@ public class EmuActivity extends Activity {
         if (rematch != -4) { rankQClose(false); rankCap = false; rankCapRefine = false; }   /* 153: −4(다음 상대·재대결)는 부른 쪽이 겹창을 먼저 띄웠다 */
         h.removeCallbacks(leaguePoll);
         Emu.nativeSetPaused(pad != null && pad.isBarOpen());
-        gl.queueEvent(new Runnable() { @Override public void run() { Emu.nativeLeagueHubReturn(rematch); } });
+        final LeagueMenu mm = lgm;
+        gl.queueEvent(new Runnable() { @Override public void run() { if (mm != null) mm.close(); Emu.nativeLeagueHubReturn(rematch); } });
     }
 
     /** 리그 판에서 뒤로 = 바로 타이틀로 갈 화면인가 — 상대 고르기, 또는 상대를 고르고 첫 라운드 전(준비 기록은 hubReturn 이 무효로 닫는다, 점수 없음).
      *  점수가 걸린 경기(첫 라운드 뒤)·타이틀에서는 예전처럼 창을 띄운다 */
     private boolean hubPickBack() {
-        if (!leagueHub || hubCard != null || leaving) return false;
+        if (!leagueHub || hubCard != null || lgmShown || leaving) return false;
         if (leagueId == null) return hubLastState == 2 || hubLastState == 3;
         leagueSyncStarted();
         org.json.JSONObject m = lm();
         return !leagueStarted && m != null && "ready".equals(m.optString("status"));
     }
 
-    /** 경기 밖(타이틀·상대 고르기 — 상대를 잡고 첫 라운드 전 포함)에서 메뉴 «목록»·«종료» — 타이틀: 계속 / 내 게임으로 / 순위표 / 목록으로 · 상대 고르기: 계속 / 타이틀로 / 내 게임으로 / 순위표.
-     *  찾는 중·상대 카드면 그대로 멈춰 있다(rankTick) — 어느 단추든 깨끗이 나간다(카드였으면 상대는 잡힌 채) */
-    private void hubLeave() {
-        if (leagueDlg != null && leagueDlg.isShowing()) return;
-        Emu.nativeSetPaused(true);
-        boolean pick = leagueId != null || hubLastState == 2 || hubLastState == 3;   /* 준비 기록(상대를 잡고 첫 라운드 전)도 고르기 화면으로 친다 */
-        Ask d = ask("리그 대전", pick ? "상대 고르기를 그만둘까요? 이 게임은 캐릭터 고르기에서 뒤로 갈 수 없어 리셋해 타이틀로 가요."
-                                    : "어디로 갈까요?")
-                .btn("계속", null);
-        if (pick) d.btn("타이틀로", new Runnable() { @Override public void run() { if (!hubLeaveStarted()) hubReturn(-1); } });
-        d.btn("내 게임으로", new Runnable() { @Override public void run() { if (!hubLeaveStarted()) hubToGame(); } });
-        d.btn("순위표", new Runnable() { @Override public void run() { if (!hubLeaveStarted()) leagueExitBoard(); } });
-        if (!pick) d.btn("목록으로", new Runnable() { @Override public void run() { leagueHub = false; goList(); } });
-        leagueDlg = d.onDismiss(new Runnable() {
-            @Override public void run() { if (hubCard == null && !leaving) Emu.nativeSetPaused(pad.isBarOpen()); } }).show();
-    }
-
-    /** 창이 뜨는 사이 첫 라운드가 시작됐다(준비 기록이 있을 때) — 점수가 걸렸으니 보통 나가기 창으로 */
-    private boolean hubLeaveStarted() {
-        if (leagueId == null) return false;
+    /** 점수가 걸린 경기가 도는 중인가(첫 라운드 뒤 · 결판 전) — 결판이 막 잡혔으면 여기서 정산(그러면 아님: 기록은 이미 적힘) */
+    private boolean hubMatchLive() {
+        if (leagueId == null || !leagueArmed || leagueDone) return false;
         leagueSyncStarted();
-        if (!leagueStarted) return false;
-        h.post(new Runnable() { @Override public void run() { leagueLeave(); } });
-        return true;
+        if (leagueSettleNow() && leagueDone) return false;          /* 결판 프레임이 이미 왔다 — 정산했다(나가도 기록은 같다) */
+        return leagueStarted;
+    }
+    /** 157 post — 경기 밖(타이틀·상대 찾기·고르기 · 결판 메뉴·결과 카드)에서 나가기: 묻지 않고 바로(유저 «'나가나요?' 같은 것 하지 않는다»).
+     *  dest = PadView.ACT_PICK(게임 목록) · ACT_QUIT(앱 종료) · 0(뒤로 — 게임에서 왔으면 그 게임, 아니면 리그 화면). 고르기 화면의 준비 기록은 무효로(점수 없음 — 각 길이 닫는다).
+     *  점수가 걸린 경기 중이면 부르지 않는다(쉼·나가기 카드가 받음) — 그래도 왔으면(경합) 경기 쪽으로 돌린다 */
+    private void hubLeaveTo(int dest) {
+        if (leaving) return;
+        if (hubMatchLive()) { if (lgmEligible(true)) gl.queueEvent(lgm::requestPause); else leagueLeave(); return; }
+        if (hubCard != null) { root.removeView(hubCard); hubCard = null; }
+        rankQClose(false);
+        if (dest == PadView.ACT_PICK) { cancelReady("게임 속 리그 — 대진 전에 목록으로"); lgmCloseNow(); leagueHub = false; goList(); }
+        else if (dest == PadView.ACT_QUIT) { cancelReady("게임 속 리그 — 대진 전에 앱 종료"); lgmCloseNow(); MainActivity.forgetLast(this); finishAffinity(); }
+        else if (fromGame()) hubToGame();
+        else leagueExitBoard();
+    }
+    /** 대진 전(준비) 기록이면 무효로(사용자가 그만둔 것 — 잡힌 상대 miss 아님) · 이 창은 그 경기를 잊는다(내려가며 onPause 가 닫은 경기의 체크포인트를 쓰지 않게) */
+    private void cancelReady(String why) {
+        org.json.JSONObject m = lm();
+        if (m == null || !"ready".equals(m.optString("status"))) return;
+        League.cancel(leagueId, why);
+        Emu.nativeLeagueDisarm();
+        leagueId = null; leagueArmed = false; leagueDone = false; leagueStarted = false;
+        h.removeCallbacks(leaguePoll);
     }
 
     /** «내 게임으로» — 대진 전 기록은 사용자가 그만둔 것으로 닫고(잡힌 상대 miss 아님) 일반 판으로. 일반 판은 오토세이브(싸우던 자리·연습 중이던 자리)부터 */
     private void hubToGame() {
+        lgmCloseNow();
         org.json.JSONObject m = lm();
         if (m != null && "ready".equals(m.optString("status"))) League.cancel(leagueId, "게임 속 리그 — 대진 전에 내 게임으로");
         switchSession(false, false);
@@ -2887,18 +2916,14 @@ public class EmuActivity extends Activity {
         h.post(new Runnable() { @Override public void run() { if (pad != null) pad.setLeagueCell(v); } });
     }
 
-    /** 칸을 눌렀다 — 못 쓰면 알림 · 오토세이브 꺼짐이면 한 번 묻기(지금 판은 안 이어진다 — 롬을 고친 판에선 타이틀인지 앱이 못 가린다) · 아니면 바로 */
+    /** 칸을 눌렀다 — 못 쓰면 알림 · 아니면 바로(157 post «들어가고 나오는 거 … '나가나요?' 같은 것 하지 않는다»: 오토세이브 꺼짐도 묻지 않고 —
+     *  목록으로 나갈 때처럼 지금 판은 안 이어진다는 것만 알림) */
     private void leagueFromGame() {
         if (ranked() || leaving || !loaded) return;
         League.db();
         if (League.dbProblem != null || League.writeProblem() != null) { toast("리그 기록을 쓸 수 없어요 — 저장소 권한을 확인해 주세요"); return; }
-        if (autoSave) { leagueGo(); return; }
-        Emu.nativeSetPaused(true);
-        ask("리그 대전으로", "자동 저장이 꺼져 있어서 지금 판은 이어지지 않아요. 갈까요?")
-                .btn("가기", new Runnable() { @Override public void run() { leagueGo(); } })
-                .btn("취소", null)
-                .onDismiss(new Runnable() { @Override public void run() { if (!leaving) Emu.nativeSetPaused(pad.isBarOpen() || (sheet != null && sheet.isShowing())); } })
-                .show();
+        if (!autoSave) toast("자동 저장이 꺼져 있어 지금 판은 이어지지 않아요");
+        leagueGo();
     }
     private void leagueGo() {
         if (hubBanner == null) addHubBanner();                          /* «리그 대전으로…» 띠 — 연습이 안 켜진 판엔 띠가 없다 */
@@ -2907,11 +2932,448 @@ public class EmuActivity extends Activity {
 
     /** 순위표(리그 화면)로 나가기 — 결과 창 없이 */
     private void leagueExitBoard() {
+        lgmCloseNow();
         org.json.JSONObject m = lm();                       /* 대진 전에 나가면 준비 기록은 무효로(열린 채 남지 않게) */
         if (m != null && "ready".equals(m.optString("status"))) League.cancel(leagueId, "게임 속 리그 — 대진 전에 순위표로");
         leagueHub = false;                                   /* leagueExit 가 결과 카드로 새지 않게 */
         leagueExit(null);
     }
+
+
+    /* ── 157 리그 인게임 메뉴(덧판 — 계약서 docs/157_contract.md §12) ─────────────────────────
+       결판(경기 끝): 정산 순간 사본(MenuModel)·장면(LgmPages, 그림 스레드)을 만들어 «걸쇠에 맞춰 시작»으로 걸어 둔다 — 승리 대사가 끝나 걸쇠가 서는
+       vsync 에 native 가 연다(Java 결과 카드 없음). 쉼(경기 중): OPTION 탭·뒤로·패드 바 «목록/종료» → 코어 멈춤(ov_hold) → 사본·장면 → 칼집.
+       메뉴(LeagueMenu)는 GL 스레드 · 동작은 여기(UI 스레드)의 기존 함수(rankNext·rankRematch·hubReturn·leagueExitBoard·hubToGame·goList·
+       leagueLeave 몸통·League.forfeit)로. 못 쓰면(설정 «끄기» · 옛 native · 게임 사각형 못 찾음 · 그림 실패) 옛 카드 그대로. */
+    private volatile LeagueMenu lgm;                 /* null = 덧판 없음(옛 native·리그 판 아님) */
+    private boolean lgmShown;                        /* 결판 메뉴가 떠 있다 — hubCard 와 같은 뜻 */
+    private boolean lgmOpen;                         /* 결판·쉼·서랍 무엇이든 열림(UI 표시 — 안내 띠 숨김·터치 뷰) */
+    private String lgmArmedId, lgmResultId;          /* 걸어 둔 경기 · 결판 메뉴에 보이는 경기 */
+    private String lgmFailedId;                      /* 정산 때 그리기에 실패한 경기 — 걸쇠 때 다시 그리지 않고 옛 카드 */
+    private MenuModel lgmModel;                      /* 지금 열린 사본(서랍 그림용) */
+    private RankCore.Me lgmMeBefore, lgmMeAfter;     /* 이 판 전·뒤 나(순위 ▲▼) */
+    private int lgmGen, lgmTries, lgmDrawerTab = -1;
+    private java.util.concurrent.ExecutorService lgmExec;
+    private LgmPages lgmPages;                       /* 그림 스레드에서만 */
+    private View lgmTouch;
+    private static final String LGM = "PocketCore";
+
+    /** hubStart — 덧판이 있으면 메뉴를 만들고 이번 대전 세션(G2)을 새로 · 세션 첫 순위 미리 */
+    private void lgmSetup() {
+        League.sessionStart();
+        if (lgm == null) {
+            int[] v = lgmStatus();
+            if (v == null || v[Emu.OVS_VER] < 1) { android.util.Log.i(LGM, "lgm fallback no_native"); return; }
+        }
+        final RankCore.Me me = League.rankMe();
+        if (me.placementLeft == 0) BoardCache.warm(this, me, true, 4, false, () -> { BoardCache.Board b = BoardCache.get(me, true, 4); if (b != null && b.rank > 0) League.sessionRank0(b.rank); });
+        if (lgm != null) return;
+        LeagueMenu.OvPort port = LeagueMenu.OvPort.emu();
+        if (port == null) return;
+        if (lgmExec == null) lgmExec = java.util.concurrent.Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "lgm-render"); t.setDaemon(true); return t; });
+        LeagueMenu mm = new LeagueMenu(port, lgmActions, h);
+        mm.setPortrait(root == null || root.getHeight() >= root.getWidth());
+        lgm = mm;
+    }
+    /** nativeOvStatus — 옛 native 면 null */
+    private static int[] lgmStatus() {
+        try { int[] v = Emu.nativeOvStatus(); return v != null && v.length >= Emu.OV_NSTAT ? v : null; }
+        catch (UnsatisfiedLinkError e) { return null; }
+    }
+    /** 랭크 경기 시작 — 이 판 전 나(결판 순위 비교) · HUD 이름표 */
+    private void lgmMatchStart() {
+        lgmMeBefore = League.rankMe();
+        if (lgm != null && lgmMeBefore.placementLeft == 0) BoardCache.warm(this, lgmMeBefore, true, 4, false, null);
+        lgmTagsArm();
+    }
+    /** 157 post — 경기 중 HUD 이름표(유저 «리그 시작하고 나서 양측 에너지바 아래에 유저 이름/계급» · «체력바 아래 (비켜 주기)»):
+     *  나(P1)·상대(P2)의 «검객★1 닉» 을 그림 스레드에서 그려 GL 에(LeagueMenu.setTags). 보이기·숨기기는 native 가 프레임마다 —
+     *  라운드 조작 중일 때만(KO·대사·걸쇠엔 숨김) · 게임이 그 자리에 무엇을 그리면(히트 수 등) 비켜 줌 · 라운드 시작 2초 강조.
+     *  경기 기록을 만들 때(rankNewMatch)·체크포인트로 이어 할 때(leagueStart). 코어가 바뀌면(허브 돌아가기·내림·리셋·불러오기) native 가 저절로 지운다 */
+    private void lgmTagsArm() {
+        final LeagueMenu mm = lgm;
+        final String id = leagueId;
+        if (mm == null || id == null || !leagueHub || !hubRanked || leaving) return;
+        final MenuModel.Side[] sd = MenuModel.tagSides(lm());
+        if (sd == null) return;
+        lgmRender(() -> {
+            LgmPages pg = lgmPages();
+            final LgmPages.HudTag a = pg.hudTag(sd[0], false), b = pg.hudTag(sd[1], true);
+            h.post(() -> {
+                if (!id.equals(leagueId) || leaving || leagueDone) return;
+                gl.queueEvent(() -> { if (!mm.setTags(a, b)) android.util.Log.i(LGM, "lgm tags off"); });
+            });
+        }, null);
+    }
+    /** 쉼 자격 — 랭크 경기(첫 라운드 뒤) · 결판 전 · 찾기 겹창·결과·카드·바 없음 */
+    private boolean lgmEligible() { return lgmEligible(false); }
+    private boolean lgmEligible(boolean ignoreBar) {
+        if (lgm == null || !leagueHub || !hubRanked || leaving || !loaded) return false;
+        if (leagueId == null || !leagueArmed || leagueDone || !leagueStarted) return false;
+        if (postState() > 0) return false;
+        if (!(hubLastState == 4 || hubLastState <= 2)) return false;           /* 경기(4) · 체크포인트 이어 하기(허브는 타이틀인 채 싸움) */
+        if (rankQ != null || rankQFading != null || lgmShown || hubCard != null || ask != null || lookEditor != null) return false;
+        if (sheet != null && sheet.isShowing()) return false;
+        return ignoreBar || !(pad != null && pad.isBarOpen());
+    }
+    private void lgmEligibleSync() { LeagueMenu mm = lgm; if (mm != null) mm.setPauseEligible(lgmEligible()); }
+    /** 메뉴 상태 ↔ UI 표시(안내 띠·터치 뷰) — hubTick 마다 */
+    private void lgmUiSync() {
+        LeagueMenu mm = lgm;
+        boolean open = mm != null && (mm.isOpen() || lgmShown);
+        if (open != lgmOpen) lgmOpenUi(open);
+    }
+    private void lgmOpenUi(boolean open) {
+        lgmOpen = open;
+        if (open) {
+            if (hubBanner != null) hubBanner.setVisibility(View.GONE);
+            lgmTouchAttach();
+        } else lgmTouchDetach();                                          /* 안내 띠는 다음 hubTick 이 글·자리·보이기를 다시 정한다 */
+    }
+    /** 결판·쉼 표시를 끈다(덧판 닫기는 부른 쪽이 GL 에서 — hubReturn 은 nativeLeagueHubReturn 앞) */
+    private void lgmReset() {
+        lgmShown = false; lgmArmedId = null; lgmResultId = null; lgmModel = null; lgmGen++; lgmDrawerTab = -1;
+        if (lgmOpen) lgmOpenUi(false);
+    }
+    /** 리그를 나가기 전 — 표시 끄고 GL 에서 덧판 닫기(코어 내리기보다 먼저 — queueEvent 순서) */
+    private void lgmCloseNow() {
+        final LeagueMenu mm = lgm;
+        lgmReset();
+        if (mm != null) gl.queueEvent(mm::close);
+    }
+
+    /** 정산을 막 했다 — 결판 장면을 미리 그려 걸쇠에 걸어 둔다(한 번만). 못 쓰면 아무것도 안 함(걸쇠 때 옛 카드) */
+    private void lgmOnSettle() {
+        final LeagueMenu mm = lgm;
+        if (mm == null || !leagueHub || !hubRanked || leagueId == null || leaving) return;
+        if (leagueId.equals(lgmArmedId)) return;
+        final org.json.JSONObject m = lm();
+        if (m == null || !League.isRanked(m) || !League.terminal(m.optString("status"))) return;
+        lgmArmedId = leagueId;                                           /* 한 번만(실패해도 다시 안 그린다 — 걸쇠 때 옛 카드) */
+        MenuModel.Prefs p = League.menuPrefs();
+        if (p.fx == MenuModel.Prefs.FX_OFF) { android.util.Log.i(LGM, "lgm fallback fx_off"); lgmArmedId = null; return; }
+        int[] v = lgmStatus();
+        if (v == null || (v[Emu.OVS_FLAGS] & Emu.OVF_RECT_OK) == 0) { android.util.Log.i(LGM, "lgm fallback rect"); lgmArmedId = null; return; }
+        final String id = leagueId;
+        lgmMeAfter = League.rankMe();
+        final RankCore.Me after = lgmMeAfter;
+        if (after.placementLeft == 0) BoardCache.warm(this, after, true, 4, false, () -> lgmRankReady(id));
+        MenuModel model = MenuModel.result(this, m, lgmCtx(p, v, true, after));
+        if (model == null) { android.util.Log.i(LGM, "lgm fallback model"); lgmArmedId = null; return; }
+        lgmModel = model; lgmResultId = id;
+        final int gen = ++lgmGen;
+        lgmRender(() -> {
+            LgmPages pg = lgmPages();
+            final LgmPages.Scene r = pg.result(model);                  /* 157 post: «그만할까요?» 장면 없음 — «그만하기» 는 바로 타이틀로 */
+            h.post(() -> {
+                if (gen != lgmGen || leaving || !id.equals(lgmArmedId)) return;
+                gl.queueEvent(() -> mm.armResult(model, r, null));
+            });
+        }, () -> {
+            if (gen != lgmGen) return;
+            android.util.Log.i(LGM, "lgm fallback render");
+            if (lgmShown && id.equals(lgmResultId)) { lgmToCard(League.matchById(id), "render"); return; }   /* 걸쇠가 먼저 섰다 — 지금 옛 카드 */
+            lgmFailedId = id; lgmArmedId = null; lgmResultId = null; lgmModel = null;                          /* 걸쇠 때 옛 카드 */
+        });
+    }
+    /** MenuModel 만들 재료 */
+    private MenuModel.Ctx lgmCtx(MenuModel.Prefs p, int[] ov, boolean started, RankCore.Me now) {
+        MenuModel.Ctx c = new MenuModel.Ctx();
+        c.rankAuto = rankAuto; c.stageSel = League.prefStage(); c.ov = ov; c.started = started; c.prefs = p;
+        c.board = now != null ? BoardCache.get(now, true, 4) : null;
+        c.boardBefore = lgmMeBefore != null ? BoardCache.get(lgmMeBefore, true, 4) : null;
+        return c;
+    }
+    /** 그림 스레드에서 — 실패(넘침·글꼴 없음·예외)면 onFail 을 UI 스레드에 */
+    private void lgmRender(final Runnable job, final Runnable onFail) {
+        java.util.concurrent.ExecutorService ex = lgmExec;
+        if (ex == null) { if (onFail != null) onFail.run(); return; }
+        try {
+            ex.execute(() -> {
+                try { job.run(); }
+                catch (Throwable t) { android.util.Log.w(LGM, "lgm render: " + t); if (onFail != null) h.post(onFail); }
+            });
+        } catch (Exception e) { if (onFail != null) onFail.run(); }
+    }
+    /** 그림 스레드 전용 — 글꼴 셋(앱 assets)을 처음 한 번 */
+    private LgmPages lgmPages() {
+        if (lgmPages == null) {
+            TileCanvas.Inks k = TileCanvas.androidInks(getAssets());
+            if (k == null) throw new IllegalStateException("글꼴 없음");
+            lgmPages = new LgmPages(k);
+        }
+        return lgmPages;
+    }
+    /** 정산 뒤 순위가 나왔다 — 결판 아래 띠 «12,483위 ▲212» 조각 */
+    private void lgmRankReady(final String id) {
+        final LeagueMenu mm = lgm;
+        if (mm == null || lgmModel == null || !id.equals(lgmResultId) || lgmMeAfter == null) return;
+        BoardCache.Board b = BoardCache.get(lgmMeAfter, true, 4);
+        if (b == null || b.rank <= 0) return;
+        BoardCache.Board bb = lgmMeBefore != null ? BoardCache.get(lgmMeBefore, true, 4) : null;
+        League.Session ss = League.session();
+        long before = bb != null && bb.rank > 0 ? bb.rank : ss != null && ss.rank0 > 0 ? ss.rank0 : -1;
+        final MenuModel nm = lgmModel.withRank(b.rank, before);
+        lgmModel = nm;
+        final int gen = lgmGen;
+        lgmRender(() -> {
+            final TileCanvas.Encoded p = lgmPages().rankPatch(nm);
+            if (p != null) h.post(() -> { if (gen == lgmGen && id.equals(lgmResultId)) gl.queueEvent(() -> mm.patch(p)); });
+        }, null);
+    }
+
+    /** 걸쇠 뒤 결과(hubResult) — 덧판 결판이면 true(카드 없음). 걸어 둔 장면이 아직이면 잠깐 기다림 · 쉼에서 기권·무효면 지금 연다 */
+    private boolean lgmResultAtLatch(final org.json.JSONObject m) {
+        final LeagueMenu mm = lgm;
+        if (mm == null || !leagueHub || !hubRanked) return false;
+        String id = m.optString("id");
+        if (id.equals(lgmArmedId)) {                                      /* 정산 때 걸어 둔 판 */
+            lgmShown = true; lgmTries = 0;
+            lgmOpenUi(true);
+            h.removeCallbacks(lgmLatchCheck); h.post(lgmLatchCheck);
+            return true;
+        }
+        if (id.equals(lgmFailedId)) return false;                         /* 정산 때 그리기 실패 — 옛 카드 */
+        /* 걸지 못한 판(쉼에서 기권·무효, 정산과 걸쇠가 한꺼번에) — 지금 연다(멈춘 그 화면 위) */
+        MenuModel.Prefs p = League.menuPrefs();
+        if (p.fx == MenuModel.Prefs.FX_OFF) { android.util.Log.i(LGM, "lgm fallback fx_off"); return false; }
+        int[] v = lgmStatus();
+        if (v == null || (v[Emu.OVS_FLAGS] & Emu.OVF_RECT_OK) == 0) { android.util.Log.i(LGM, "lgm fallback rect"); return false; }
+        final RankCore.Me after = League.rankMe();
+        lgmMeAfter = after;
+        if (after.placementLeft == 0) BoardCache.warm(this, after, true, 4, false, () -> lgmRankReady(id));
+        final MenuModel model = MenuModel.result(this, m, lgmCtx(p, v, true, after));
+        if (model == null) { android.util.Log.i(LGM, "lgm fallback model"); return false; }
+        lgmModel = model; lgmResultId = id; lgmArmedId = id;
+        lgmShown = true;
+        lgmOpenUi(true);
+        final int gen = ++lgmGen;
+        lgmRender(() -> {
+            LgmPages pg = lgmPages();
+            final LgmPages.Scene r = pg.result(model);
+            h.post(() -> { if (gen == lgmGen && !leaving) gl.queueEvent(() -> mm.openResultNow(model, r, null)); });
+        }, () -> { if (gen == lgmGen) lgmToCard(m, "render"); });
+        return true;
+    }
+    /** 걸쇠 뒤 — 덧판이 보이기를 100ms 마다(장면이 늦게 걸려도 걸쇠는 레벨이라 바로 열림). 1.5초 넘게 안 보이면 옛 카드 */
+    private final Runnable lgmLatchCheck = new Runnable() { @Override public void run() {
+        if (!lgmShown || leaving || lgmResultId == null) return;
+        int[] v = lgmStatus();
+        int fl = v != null ? v[Emu.OVS_FLAGS] : 0;
+        if ((fl & Emu.OVF_VISIBLE) != 0) return;                          /* 열렸다 */
+        if (++lgmTries <= 15) { h.postDelayed(this, 100); return; }
+        org.json.JSONObject m = League.matchById(lgmResultId);
+        lgmToCard(m, "not_shown");
+    } };
+    /** 덧판 결판을 버리고 옛 결과 카드로 */
+    private void lgmToCard(org.json.JSONObject m, String why) {
+        android.util.Log.i(LGM, "lgm fallback " + why);
+        final LeagueMenu mm = lgm;
+        lgmReset();
+        if (mm != null) gl.queueEvent(mm::close);
+        if (m != null && !leaving && hubCard == null) rankResult(m);
+    }
+
+    /** 메뉴가 고른 것(UI 스레드) — 기존 함수로 */
+    private final LeagueMenu.Actions lgmActions = new LeagueMenu.Actions() {
+        @Override public void lgmNext(boolean newChar) {
+            if (leaving) return;
+            lgmReset();
+            rankNext(newChar);                                           /* 겹창이 바로 덮고 hubReturn(−4) — 그 안에서 덧판 닫음 */
+        }
+        @Override public void lgmRematch() {
+            if (leaving) return;
+            org.json.JSONObject m = lgmResultId != null ? League.matchById(lgmResultId) : null;
+            RankCore.Player rp = m != null ? League.rankPlayer(m.optString("opp")) : null;
+            lgmReset();
+            if (m == null || rp == null || League.rematchCount(rp.id) >= 3 || !League.oppSupported(rp.ch, rp.sty)) { toast("재대결을 할 수 없어요"); rankOppV = null; hubReturn(-1); return; }
+            rankRematch(m, rp);
+        }
+        @Override public void lgmStage(int dir) {
+            final int sel = rankStageStep(dir);
+            final LeagueMenu mm = lgm;
+            if (mm != null) gl.queueEvent(() -> mm.setStage(sel));
+        }
+        @Override public void lgmQuit(int where) {
+            if (leaving) return;
+            switch (where) {
+                case MenuModel.QUIT_BOARD: leagueExitBoard(); break;
+                case MenuModel.QUIT_GAME: hubToGame(); break;
+                case MenuModel.QUIT_LIST: lgmCloseNow(); leagueHub = false; goList(); break;
+                default: rankOppV = null; hubReturn(-1); break;      /* 타이틀로 — 리그는 켠 채 */
+            }
+        }
+        @Override public void lgmResume() { lgmModel = null; lgmDrawerTab = -1; if (lgmOpen && !lgmShown) lgmOpenUi(false); }
+        @Override public void lgmLater() {
+            if (leaving || leagueDone || leagueId == null) { lgmCloseNow(); return; }
+            leagueChoosing = true;
+            if (leagueSettleNow()) { leagueChoosing = false; lgmCloseNow(); return; }   /* 결판이 막 잡혔다 — poll 이 결과로 */
+            gl.queueEvent(() -> {
+                final boolean ok = leagueSaveCkpt();
+                h.post(() -> {
+                    if (leagueDone) return;
+                    if (!ok) {
+                        leagueChoosing = false;
+                        toast("체크포인트를 저장하지 못했어요 — 경기를 계속합니다");
+                        lgmCloseNow();                                    /* 멈춤 풂 — 156 처럼 이어서 */
+                        return;
+                    }
+                    League.setStatus(leagueId, "resume", "사용자가 나중에 이어하기");
+                    leagueDone = true; Emu.nativeLeagueDisarm();
+                    lgmCloseNow();
+                    leagueExit(null);
+                });
+            });
+        }
+        @Override public void lgmForfeit() {
+            if (leaving || leagueId == null) { lgmCloseNow(); return; }
+            if (leagueDone) { lgmCloseNow(); return; }
+            leagueChoosing = true;
+            leagueSyncStarted();
+            if (leagueSettleNow()) { leagueChoosing = false; lgmCloseNow(); return; }
+            if (!leagueStarted) {                                        /* 첫 라운드 전 — «그만두기 (무효)»(leagueLeaveBeforeStart 몸통) */
+                if (!League.cancel(leagueId, "경기 시작 전에 사용자가 그만둠")) {
+                    leagueChoosing = false; toast("저장 실패 — 다시 시도하세요"); lgmCloseNow(); return;
+                }
+            } else if (League.forfeit(leagueId) == null) {
+                leagueChoosing = false; toast("저장 실패 — 다시 시도하세요"); lgmCloseNow(); return;
+            }
+            leagueDone = true; Emu.nativeLeagueDisarm();
+            leagueExit(leagueId);                                        /* → hubResult → 덧판 결판(기권패·무효)을 지금(멈춘 화면 위) */
+        }
+        @Override public void lgmWantPause() {
+            final LeagueMenu mm = lgm;
+            if (mm == null) return;
+            if (!lgmEligible(true) || (leagueSettleNow() && leagueDone)) { gl.queueEvent(mm::cancelPause); return; }
+            org.json.JSONObject m = lm();
+            int[] v = lgmStatus();
+            MenuModel.Prefs p = League.menuPrefs();
+            final MenuModel model = MenuModel.pause(EmuActivity.this, m, lgmCtx(p, v, leagueStarted, League.rankMe()));
+            if (model == null || v == null || (v[Emu.OVS_FLAGS] & Emu.OVF_RECT_OK) == 0) {
+                android.util.Log.i(LGM, "lgm fallback pause");
+                gl.queueEvent(mm::cancelPause);
+                h.post(() -> { if (!leaving && leagueId != null && !leagueDone) leagueLeave(); });   /* 옛 길 — 나가기 카드 */
+                return;
+            }
+            lgmModel = model;
+            final int gen = ++lgmGen;
+            lgmRender(() -> {
+                LgmPages pg = lgmPages();
+                final LgmPages.Scene a = pg.pause(model, false), c = pg.pause(model, true);
+                h.post(() -> {
+                    if (gen != lgmGen || leaving) { gl.queueEvent(mm::cancelPause); return; }
+                    gl.queueEvent(() -> mm.openPause(model, a, c));
+                    lgmOpenUi(true);
+                });
+            }, () -> { gl.queueEvent(mm::cancelPause); if (!leaving && leagueId != null && !leagueDone) leagueLeave(); });
+        }
+        @Override public void lgmWantDrawer(int tab) {
+            lgmDrawerTab = tab;
+            lgmDrawer(tab);
+        }
+        @Override public void lgmPrefs(MenuModel.Prefs p) {
+            MenuModel.Prefs o = League.menuPrefs();
+            League.setMenuPrefs(p);
+            if (lgmModel != null) lgmModel = lgmModel.withPrefs(p);
+            boolean shown = o.fx != p.fx || o.lossCursor != p.lossCursor || o.autoNextSec != p.autoNextSec || o.rememberTab != p.rememberTab;
+            if (shown && lgmDrawerTab == MenuModel.Prefs.TAB_SETTINGS) lgmDrawer(MenuModel.Prefs.TAB_SETTINGS);
+        }
+        @Override public void lgmFallback(int why) {
+            android.util.Log.i(LGM, "lgm fallback menu " + why);
+            boolean result = lgmShown && lgmResultId != null;
+            org.json.JSONObject m = result ? League.matchById(lgmResultId) : null;
+            lgmReset();
+            if (result && m != null && !leaving && hubCard == null) rankResult(m);
+            else if (!leaving && leagueId != null && !leagueDone) leagueLeave();   /* 쉼이던 판 — 옛 나가기 카드 */
+        }
+    };
+
+    /** 서랍 쪽 그리기 — 순위(없으면 «먹 가는 중…» 먼저, 데워지면 다시) · 전적 · 설정 */
+    private void lgmDrawer(final int tab) {
+        final LeagueMenu mm = lgm;
+        final MenuModel model = lgmModel;
+        if (mm == null || model == null) return;
+        final int gen = lgmGen;
+        if (tab == MenuModel.Prefs.TAB_SETTINGS) {
+            final MenuModel.Prefs p = League.menuPrefs();
+            lgmRender(() -> { final LgmPages.Scene sc = lgmPages().settings(p, 0); h.post(() -> lgmDrawerShow(gen, tab, sc)); }, null);
+            return;
+        }
+        if (tab == MenuModel.Prefs.TAB_RECORD) {
+            lgmRender(() -> { final LgmPages.Scene sc = lgmPages().record(model); h.post(() -> lgmDrawerShow(gen, tab, sc)); }, null);
+            return;
+        }
+        final RankCore.Me me = League.rankMe();
+        BoardCache.Board around = me.placementLeft == 0 ? BoardCache.get(me, true, 4) : null;
+        BoardCache.Board top = BoardCache.get(me, false, 100);
+        boolean wantAround = me.placementLeft == 0 && around == null, wantTop = top == null;
+        if (wantAround) BoardCache.warm(this, me, true, 4, false, () -> { if (lgmDrawerTab == MenuModel.Prefs.TAB_BOARD && gen == lgmGen) lgmDrawer(tab); });
+        if (wantTop) BoardCache.warm(this, me, false, 100, false, () -> { if (lgmDrawerTab == MenuModel.Prefs.TAB_BOARD && gen == lgmGen) lgmDrawer(tab); });
+        final BoardCache.Board a0 = around, t0 = top;
+        lgmRender(() -> {
+            BoardCache.Board a = lgmNicks(a0), t = lgmNicks(t0);          /* 단상(top3)도 같은 닉 */
+            final LgmPages.Scene sc = lgmPages().board(model, me.placementLeft == 0 ? a : null, t);
+            h.post(() -> lgmDrawerShow(gen, tab, sc));
+        }, null);
+    }
+    private void lgmDrawerShow(int gen, int tab, LgmPages.Scene sc) {
+        final LeagueMenu mm = lgm;
+        if (mm == null || gen != lgmGen || lgmDrawerTab != tab || leaving) return;
+        gl.queueEvent(() -> mm.showDrawer(tab, sc));
+    }
+    /** 순위표 줄의 닉 — 리그 화면과 같게 프로필 닉(만난 상대는 저장한 그대로). 그림 스레드에서(판은 고치지 않고 사본) */
+    private BoardCache.Board lgmNicks(BoardCache.Board b) {
+        if (b == null) return null;
+        BoardCache.Board o = new BoardCache.Board();
+        o.key = b.key; o.rank = b.rank; o.total = b.total; o.around = b.around; o.k = b.k; o.at = b.at;
+        o.rows = lgmNickRows(b.rows); o.top3 = lgmNickRows(b.top3);
+        return o;
+    }
+    private java.util.List<RankCore.Row> lgmNickRows(java.util.List<RankCore.Row> rows) {
+        if (rows == null) return null;
+        java.util.List<RankCore.Row> out = new java.util.ArrayList<>(rows.size());
+        for (RankCore.Row r : rows) {
+            RankCore.Row c = new RankCore.Row();
+            c.rank = r.rank; c.id = r.id; c.nick = r.nick; c.label = r.label; c.lp = r.lp; c.mr = r.mr; c.ch = r.ch; c.sty = r.sty; c.wr = r.wr; c.me = r.me; c.p = r.p;
+            if (!r.me && r.p != null) { try { c.nick = League.nickOf(this, r.p); } catch (Exception ignored) { } }
+            out.add(c);
+        }
+        return out;
+    }
+
+    /* 터치 — 게임 그림 자리 그대로 맨 위(패드 위). DOWN 이 메뉴 자리가 아니면 안 받는다(패드로 감) */
+    private void lgmTouchAttach() {
+        if (lgmTouch != null || root == null) return;
+        lgmTouch = new View(this);
+        lgmTouch.setOnTouchListener(lgmTouchL);
+        root.addView(lgmTouch, new FrameLayout.LayoutParams(1, 1, android.view.Gravity.TOP | android.view.Gravity.LEFT));
+        lgmTouchPlace();
+    }
+    private void lgmTouchDetach() { if (lgmTouch != null) { root.removeView(lgmTouch); lgmTouch = null; } }
+    private void lgmTouchPlace() {
+        LeagueMenu mm = lgm;
+        if (mm != null && root != null) mm.setPortrait(root.getHeight() >= root.getWidth());
+        if (lgmTouch == null || !(lgmTouch.getLayoutParams() instanceof FrameLayout.LayoutParams) || gameBox[2] <= gameBox[0]) return;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) lgmTouch.getLayoutParams();
+        lp.width = gameBox[2] - gameBox[0]; lp.height = gameBox[3] - gameBox[1]; lp.leftMargin = gameBox[0]; lp.topMargin = gameBox[1];
+        lgmTouch.setLayoutParams(lp);
+    }
+    private final View.OnTouchListener lgmTouchL = new View.OnTouchListener() {
+        @Override public boolean onTouch(View v, android.view.MotionEvent e) {
+            final LeagueMenu mm = lgm;
+            if (mm == null || (!mm.isOpen() && !lgmShown) || ask != null) return false;
+            int[] s = lgmStatus();
+            if (s == null || s[Emu.OVS_VW] <= 0 || s[Emu.OVS_VH] <= 0) return false;
+            final int gx = (int) Math.floor((e.getX() - s[Emu.OVS_VX]) * 160f / s[Emu.OVS_VW]), gy = (int) Math.floor((e.getY() - s[Emu.OVS_VY]) * 152f / s[Emu.OVS_VH]);
+            int act = e.getActionMasked();
+            final int a = act == android.view.MotionEvent.ACTION_DOWN ? LeagueMenu.TOUCH_DOWN : act == android.view.MotionEvent.ACTION_UP ? LeagueMenu.TOUCH_UP
+                    : act == android.view.MotionEvent.ACTION_MOVE ? LeagueMenu.TOUCH_MOVE : act == android.view.MotionEvent.ACTION_CANCEL ? LeagueMenu.TOUCH_CANCEL : -1;
+            if (a < 0) return true;
+            if (a == LeagueMenu.TOUCH_DOWN && !mm.hitTest(gx, gy)) return false;
+            if (a != LeagueMenu.TOUCH_MOVE) gl.queueEvent(() -> mm.onTouch(gx, gy, a));
+            return true;
+        }
+    };
 
     /* ── 치트(cheat.c · Cheats) ─────────────────────────────────────────
        일반 세션이고 사무쇼2이며 판정 주소를 확인한 롬 판(연습과 같은 판 확인 — practiceRomOk)이면 options 값을 native 에 넣는다.

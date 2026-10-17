@@ -23,19 +23,16 @@ final class RankVs {
     static final int FLAGS = 0;
 
     /** s 를 12px 로 그린 잉크 [y][x] — y 0 = 글꼴 줄 맨 위(갈무리11 한글은 1줄부터 11줄) */
-    interface Ink { boolean[][] mask(String s); }
+    /** 157: TileCanvas.Ink 와 같은 모양(넓힘) — RankVs 는 TileCanvas 위로 옮기되 출력은 바이트까지 같게(계약서 §5.4) */
+    interface Ink extends TileCanvas.Ink { }
     static final class Side { String nick; String sty; int tier; String tierName; int stars; int lp = -1; }
     static final class Out { byte[] tiles; short[] map; int cells; }
 
     private final Ink ink;
-    private final byte[][] pix = new byte[H][W];
-    private final int[][] pal = new int[ROWS][COLS];
+    /** 157: 그림은 TileCanvas(20×4 칸, 바탕 칠 3) — 팔레트는 게임 팔레트 번호를 claimPal 로(먼저 매긴 것이 이김), 인코딩 encode(0, MAXT, 뒤집기 없음) */
+    private final TileCanvas c = new TileCanvas(COLS, ROWS, 3);
 
-    private RankVs(Ink ink) {
-        this.ink = ink;
-        for (byte[] r : pix) java.util.Arrays.fill(r, (byte) 3);
-        for (int[] r : pal) java.util.Arrays.fill(r, -1);
-    }
+    private RankVs(Ink ink) { this.ink = ink; }
 
     static Out render(Ink ink, Side me, Side opp) {
         RankVs b = new RankVs(ink);
@@ -62,34 +59,14 @@ final class RankVs {
     static int snap(int x) { return (x + 7) / 8 * 8; }
     static final int NAME_W = 77;                       /* 닉네임 한 쪽 폭(줄 1, 왼쪽 2~78 · 오른쪽 80~157) */
     /** 폭 안에 들게 — 넘치면 끝을 줄이고 «…»(픽셀 글꼴에 있음) */
-    String fit(String s, int maxw) {
-        if (s == null) return "";
-        if (width(s) <= maxw) return s;
-        for (int n = s.codePointCount(0, s.length()) - 1; n > 0; n--) {
-            String t = s.substring(0, s.offsetByCodePoints(0, n)) + "\u2026";
-            if (width(t) <= maxw) return t;
-        }
-        return "\u2026";
-    }
+    String fit(String s, int maxw) { return c.fit(s, maxw, ink); }
 
     /* ── 글자 ── */
-    int width(String s) {
-        if (s == null || s.isEmpty()) return 0;
-        boolean[][] m = ink.mask(s); int w = 0;
-        for (boolean[] row : m) for (int x = row.length - 1; x >= w; x--) if (row[x]) { w = x + 1; break; }
-        return w;
-    }
+    int width(String s) { return c.textW(s, ink); }
     /** 글자(x,y = 줄 맨 위) — inkC 글자 칠, shC 그림자 칠(+1,+1, 3 = 없음), maxw 넘으면 자름. 돌려줌: 폭 */
     int text(String s, int x, int y, int p, int inkC, int shC, int maxw) {
         if (s == null || s.isEmpty()) return 0;
-        boolean[][] m = ink.mask(s);
-        int w = width(s); if (maxw > 0 && w > maxw) w = maxw;
-        for (int yy = 0; yy < m.length; yy++) for (int xx = 0; xx < Math.min(w, m[yy].length); xx++) {
-            if (!m[yy][xx]) continue;
-            int X = x + xx, Y = y + yy;
-            if (shC != 3 && X + 1 < W && Y + 1 < H && pix[Y + 1][X + 1] == 3) pix[Y + 1][X + 1] = (byte) shC;
-            if (X >= 0 && X < W && Y >= 0 && Y < H) pix[Y][X] = (byte) inkC;
-        }
+        int w = c.textTop(s, x, y, inkC, ink, shC != 3 ? shC : -1, maxw) - x;
         mark(x, y, w + (shC != 3 ? 1 : 0), 14, p);
         return w;
     }
@@ -101,64 +78,26 @@ final class RankVs {
     }
     int tierW(Side d) { return width(d.tierName) + (d.stars > 0 ? 2 + miniW("*" + d.stars) : 0); }
 
-    /* 작은 숫자 4×7 · 별 5×5 (우리 그림) */
-    private static final String[][] MINI = {
-        { ".##.", "#..#", "#..#", "#..#", "#..#", "#..#", ".##." }, { ".#..", "##..", ".#..", ".#..", ".#..", ".#..", "###." },
-        { ".##.", "#..#", "...#", "..#.", ".#..", "#...", "####" }, { ".##.", "#..#", "...#", "..#.", "...#", "#..#", ".##." },
-        { "..#.", ".##.", "#.#.", "#.#.", "####", "..#.", "..#." }, { "####", "#...", "###.", "...#", "...#", "#..#", ".##." },
-        { ".##.", "#...", "###.", "#..#", "#..#", "#..#", ".##." }, { "####", "...#", "..#.", "..#.", ".#..", ".#..", ".#.." },
-        { ".##.", "#..#", "#..#", ".##.", "#..#", "#..#", ".##." }, { ".##.", "#..#", "#..#", ".###", "...#", "...#", ".##." },
-    };
-    private static final String[] STAR = { "..#..", ".###.", "#####", ".###.", ".#.#." };
-    private static String[] glyph(char c) { return c == '*' ? STAR : MINI[c - '0']; }
-    static int miniW(String s) { int w = 0; for (int i = 0; i < s.length(); i++) w += glyph(s.charAt(i))[0].length() + 1; return s.isEmpty() ? 0 : w - 1; }
+    /* 작은 숫자 4×7 · 별 5×5 (우리 그림 — TileCanvas.mini4) */
+    static int miniW(String s) { return TileCanvas.mini4W(s); }
     int mini(String s, int x, int y, int p, int inkC, int shC) {
-        int cx = x;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i); String[] g = glyph(c); int oy = y + (c == '*' ? 1 : 0);
-            for (int yy = 0; yy < g.length; yy++) for (int xx = 0; xx < g[yy].length(); xx++) {
-                if (g[yy].charAt(xx) != '#') continue;
-                int X = cx + xx, Y = oy + yy;
-                if (shC != 3 && pix[Y + 1][X + 1] == 3) pix[Y + 1][X + 1] = (byte) shC;
-                pix[Y][X] = (byte) inkC;
-            }
-            cx += g[0].length() + 1;
-        }
-        mark(x, y, cx - x, 9, p);
-        return cx - x;
+        int w = c.mini4(s, x, y, inkC, shC != 3 ? shC : -1, TileCanvas.LEFT) - x;
+        mark(x, y, w, 9, p);
+        return w;
     }
     void box(int x, int y, int w, int h, int p) {
-        for (int yy = y; yy < y + h; yy++) for (int xx = x; xx < x + w; xx++)
-            pix[yy][xx] = (byte) ((yy == y || yy == y + h - 1 || xx == x || xx == x + w - 1) ? 3 : 2);
+        c.box(x, y, w, h, 2, 3);
         mark(x, y, w, h, p);
     }
     /** 덮는 칸에 팔레트를 매긴다 — 다른 팔레트와 겹치면 나중 것을 버린다(배치 실수 — 시험이 잡는다) */
-    void mark(int x, int y, int w, int h, int p) {
-        for (int cy = Math.max(0, y / 8); cy <= Math.min(ROWS - 1, (y + h - 1) / 8); cy++)
-            for (int cx = Math.max(0, x / 8); cx <= Math.min(COLS - 1, (x + w - 1) / 8); cx++)
-                if (pal[cy][cx] < 0) pal[cy][cx] = p;
-    }
+    void mark(int x, int y, int w, int h, int p) { c.claimPal(x, y, w, h, p); }
 
-    /** NGPC 2bpp 타일(행마다 16비트 LE, 왼쪽 픽셀이 높은 비트) + 칸표(0xFFFF 게임 칸 그대로 · (팔레트<<9)|번호). 같은 그림은 한 타일 */
+    /** NGPC 2bpp 타일(행마다 16비트 LE, 왼쪽 픽셀이 높은 비트) + 칸표(0xFFFF 게임 칸 그대로 · (팔레트<<9)|번호). 같은 그림은 한 타일 — MAXT 넘으면 null */
     Out encode() {
-        java.util.HashMap<String, Integer> idx = new java.util.HashMap<>();
-        java.io.ByteArrayOutputStream tiles = new java.io.ByteArrayOutputStream();
-        short[] map = new short[COLS * ROWS]; int cells = 0;
-        for (int cy = 0; cy < ROWS; cy++) for (int cx = 0; cx < COLS; cx++) {
-            int i = cy * COLS + cx;
-            if (pal[cy][cx] < 0) { map[i] = (short) 0xFFFF; continue; }
-            byte[] t = new byte[16];
-            for (int y = 0; y < 8; y++) {
-                int v = 0;
-                for (int x = 0; x < 8; x++) v |= (pix[cy * 8 + y][cx * 8 + x] & 3) << (14 - 2 * x);
-                t[y * 2] = (byte) v; t[y * 2 + 1] = (byte) (v >> 8);
-            }
-            String k = java.util.Arrays.toString(t);
-            Integer n = idx.get(k);
-            if (n == null) { n = idx.size(); if (n >= MAXT) return null; idx.put(k, n); tiles.write(t, 0, 16); }
-            map[i] = (short) ((pal[cy][cx] << 9) | n); cells++;
-        }
-        Out o = new Out(); o.tiles = tiles.toByteArray(); o.map = map; o.cells = cells;
+        TileCanvas.Encoded e;
+        try { e = c.encode(0, MAXT, false, false); } catch (TileCanvas.Overflow x) { return null; }
+        Out o = new Out(); o.tiles = e.tiles; o.map = e.map;
+        for (short v : e.map) if (v != (short) 0xFFFF) o.cells++;
         return o;
     }
 
