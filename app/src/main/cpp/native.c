@@ -662,27 +662,25 @@ static void gl_draw(void)
    static const GLfloat uv[]  = {  0, 1,  1, 1,  0, 0,  1, 0 };
 
    GLuint tex = g_tex;
-   const uint8_t *shown = img;
-   if (g_d_ghost > 0) {           /* 잔상 — 화면에 낼 그림(중간 그림 포함)을 누적해 따로 올린다 */
-      const uint8_t *gs = ghost_apply(img, iw, ih);
-      glBindTexture(GL_TEXTURE_2D, g_tex_gh);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, gs);
-      tex = g_tex_gh; shown = gs;
-   } else g_gh_valid = 0;
+   const uint8_t *shown = img, *ob = NULL;
+   int ghost = g_d_ghost > 0, ch = 0;
+   if (ghost) shown = ghost_apply(img, iw, ih);   /* 잔상 — 화면에 낼 그림(중간 그림 포함)을 누적 */
+   else g_gh_valid = 0;
    /* 157 덧판 — 잔상 뒤(메뉴엔 잔상이 안 끼게) 따로 버퍼에 합성해 따로 텍스처로. 바뀐 그림일 때만 다시 합성·올림(4배 한 장 1.5MB).
       업스케일러·격자·스캔라인·색 셰이더는 합성 결과에 그대로 걸린다(게임 글자처럼). 게임 사각형을 못 찾으면 NULL — 그냥 그림 */
-   if (ov_active()) {
-      int ch = 0;
-      const uint8_t *ob = ov_compose(shown, iw, ih, fresh || g_d_ghost > 0, &ch);
-      if (ob) {
-         glBindTexture(GL_TEXTURE_2D, g_tex_ov);
-         if (g_tex_ov_w != iw || g_tex_ov_h != ih) {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, ob);
-            g_tex_ov_w = iw; g_tex_ov_h = ih;
-         } else if (ch)
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, iw, ih, GL_RGBA, GL_UNSIGNED_BYTE, ob);
-         tex = g_tex_ov;
-      }
+   if (ov_active()) ob = ov_compose(shown, iw, ih, fresh || ghost, &ch);
+   if (ob) {
+      glBindTexture(GL_TEXTURE_2D, g_tex_ov);
+      if (g_tex_ov_w != iw || g_tex_ov_h != ih) {
+         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, ob);
+         g_tex_ov_w = iw; g_tex_ov_h = ih;
+      } else if (ch)
+         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, iw, ih, GL_RGBA, GL_UNSIGNED_BYTE, ob);
+      tex = g_tex_ov;
+   } else if (ghost) {            /* 잔상 그림은 따로 올린다(덧판이 그리면 그 안에 이미 들어 있어 안 올림) */
+      glBindTexture(GL_TEXTURE_2D, g_tex_gh);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, shown);
+      tex = g_tex_gh;
    }
 
    int up = (g_d_mix > 0 && sub == 1) ? g_d_up : 0;    /* 업스케일러는 도트 한 칸 = 텍셀 한 칸일 때만 — 4배 그림엔 쉰다 */
