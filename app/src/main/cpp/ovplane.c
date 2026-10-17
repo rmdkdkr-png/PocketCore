@@ -1066,9 +1066,10 @@ const uint8_t *ov_compose(const uint8_t *src, unsigned w, unsigned h, int src_ch
       g_row = nr; g_rowcap = w;
    }
    int geom = !g_out_valid || w != g_outw || h != g_outh;
-   if (src_changed || g_dirty || geom || src != g_last_src) {
+   /* 보이기 시작한 뒤 첫 합성(g_shown 0)은 그림 전체를 견줌 — 안 보이던 동안 게임 그림이 바뀌었어도 gl_draw 는 여기를 부르지 않았다 */
+   if (src_changed || g_dirty || geom || src != g_last_src || !g_shown) {
       if (geom) g_prev_ok = 0;
-      compose_locked(src, w, h, x0, y0, sub, src_changed || src != g_last_src, geom);
+      compose_locked(src, w, h, x0, y0, sub, src_changed || src != g_last_src || !g_shown, geom);
       g_outw = w; g_outh = h; g_out_valid = 1; g_dirty = 0; g_last_src = src;
       g_composites++;
       if (changed) *changed = g_span1 >= g_span0;
