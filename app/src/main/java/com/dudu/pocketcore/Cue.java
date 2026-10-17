@@ -701,13 +701,14 @@ final class Cue {
             default: break;
         }
     }
-    /** PALCYCLE 색 — 부드럽게: 삼각 섞기(니블마다) · 깜빡: 반 주기마다 A/B (계약서 §4.4) */
+    /** PALCYCLE 색 — 부드럽게: 삼각 섞기(니블마다, 0..15 로 자름) · 깜빡: 반 주기마다 A/B (계약서 §4.4) */
     static int palCycleAt(boolean toggle, int A, int B, int P, int f) {
         if (toggle) return ((f / Math.max(1, P / 2)) % 2) == 0 ? A : B;
         int p = f % P, tri = p < P / 2 ? p : P - p, w = tri * 2 * 65536 / P, out = 0;
         for (int k = 0; k < 12; k += 4) {
             int na = (A >> k) & 15, nb = (B >> k) & 15;
-            out |= (na + (int) Math.floorDiv((long) (nb - na) * w, 65536L)) << k;
+            int n = na + (int) Math.floorDiv((long) (nb - na) * w, 65536L);
+            out |= Math.max(0, Math.min(15, n)) << k;              /* 홀수 주기면 tri = (P+1)/2 라 w > 65536 — native nib_mix 처럼 니블마다 0..15 로(통합에서 정함) */
         }
         return out;
     }

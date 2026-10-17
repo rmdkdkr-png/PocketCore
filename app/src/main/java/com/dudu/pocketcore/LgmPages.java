@@ -694,7 +694,7 @@ final class LgmPages {
         String[] lab = new String[m.rows.length];
         for (int i = 0; i < lab.length; i++) lab[i] = m.rows[i] == MenuModel.ROW_VOIDQUIT ? "그만두기" : rowLabel(m, m.rows[i]);
         String[] right = m.rowRight.clone();
-        for (int i = 0; i < right.length; i++) if (m.rows[i] == MenuModel.ROW_VOIDQUIT) right[i] = "무효";
+        for (int i = 0; i < right.length; i++) if (m.rows[i] == MenuModel.ROW_VOIDQUIT) right[i] = null;   /* «그만두기»(48px)와 오른쪽 «무효»가 겹쳤다 — 무효는 아래 띠 설명이 말함 */
         cmdRows(b, m, 6, P_INK, P_WARN, P_SEL, m.rows, m.rowOn, right, lab, -1);
         int fi = m.rowIndex(MenuModel.ROW_FORFEIT);
         if (confirm) {
@@ -947,7 +947,7 @@ final class LgmPages {
                     boolean z = zebra && k % 2 == 1;
                     if (r == null) {
                         cv.cellPal(0, k, 19, k, ink0);
-                        cv.text("⋯", 80, y, 2, ink.g7, -1, TileCanvas.CENTER, 0);
+                        cv.text("…", 80, y, 2, ink.g7, -1, TileCanvas.CENTER, 0);   /* 위 100 ↔ 내 주변 사이(⋯ U+22EF 는 갈무리에 없음 — 안드로이드는 다른 글꼴로 그림) */
                         continue;
                     }
                     boolean master = r.lp >= RankCore.MASTER_LP;
