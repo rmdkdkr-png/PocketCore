@@ -233,6 +233,7 @@ final class MenuModel {
             b.ribbons = new int[rib.size()];
             for (int i = 0; i < rib.size(); i++) b.ribbons[i] = rib.get(i);
             java.util.List<Tag> tags = new java.util.ArrayList<>();
+            if (b.shieldUsed) tags.add(new Tag('위', "강등 위기", E_RISK));           /* 진 판 — 자리가 모자라면 이것부터 */
             if (win && b.streakAfter >= 2 && !rib.contains(E_STREAK)) tags.add(new Tag('연', b.streakAfter + "연승", E_STREAK));
             if (loss && b.brokeStreak >= 2) tags.add(new Tag('연', b.brokeStreak + "연승 끊김", E_BROKE));
             if (win && b.bonusRevenge > 0 && !rib.contains(E_REVENGE)) tags.add(new Tag('설', "+" + b.bonusRevenge, E_REVENGE));
@@ -242,7 +243,6 @@ final class MenuModel {
                 if (sk != null) tags.add(new Tag('설', "이기면 +" + (sk[0] + RankCore.BONUS_REVENGE), E_REVENGE));
             }
             if (win && b.bonusDaily > 0 && !rib.contains(E_FIRST_WIN)) tags.add(new Tag('첫', "+" + b.bonusDaily, E_FIRST_WIN));
-            if (b.shieldUsed) tags.add(new Tag('위', "강등 위기", E_RISK));
             if (rival && !rib.contains(E_RIVAL)) tags.add(new Tag('라', b.h2hW + "-" + b.h2hL, E_RIVAL));
             b.tags = tags.toArray(new Tag[0]);
             b.eventful = !voidM && (b.starUp || b.promoted || b.enteredMaster || win && b.bonusRevenge > 0);
@@ -261,7 +261,7 @@ final class MenuModel {
                         on = canRe;
                         r = Math.max(1, Math.min(3, played)) + "/3";
                         if (on) d = b.outcome == O_LOSS ? "같은 상대와 바로 다시" : "같은 상대와 한 판 더";
-                        else d = !supported ? "이 조합은 아직 못 해요" : "같은 상대와 3판을 다 했어요";
+                        else d = !supported ? "이 조합은 아직 못 해요" : "3판을 다 했어요";
                         break;
                     case ROW_NEWCHAR:
                         on = ctx.rankAuto == 2;
@@ -330,7 +330,7 @@ final class MenuModel {
                 switch (rows[i]) {
                     case ROW_RESUME: b.rowDesc[i] = "멈춘 곳에서 바로 이어서"; break;
                     case ROW_DRAWER: b.rowDesc[i] = "순위표와 전적 보기"; break;
-                    case ROW_LATER: b.rowDesc[i] = "지금 자리 저장하고 리그 화면으로"; b.rowRight[i] = "저장"; break;
+                    case ROW_LATER: b.rowDesc[i] = "저장하고 리그 화면으로"; b.rowRight[i] = "저장"; break;
                     case ROW_FORFEIT:
                         b.rowDesc[i] = "패배로 기록돼요";
                         b.rowRight[i] = b.forfeit.kind == Forfeit.FP_PLACEMENT ? "배치" : b.forfeit.kind == Forfeit.FP_NOVICE ? "±0"
@@ -386,7 +386,8 @@ final class MenuModel {
         b.todayW = t.w; b.todayL = t.l; b.todayD = t.d; b.todayLp = t.lpSum;
         b.bonusLeft = League.bonusLeft();
         League.Session s = League.session();
-        if (s != null) { b.sessW = s.w; b.sessL = s.l; b.sessD = s.d; b.sessLp = s.lp; } else { b.sessW = -1; }
+        if (s != null && RankCore.today(s.start) == League.today()) { b.sessW = s.w; b.sessL = s.l; b.sessD = s.d; b.sessLp = s.lp; }   /* «오늘 …» 이라 오늘 켠 세션만 */
+        else b.sessW = -1;
         /* 순위 */
         b.total = RankCore.total();
         b.rankNow = !plc && ctx.board != null && ctx.board.rank > 0 ? ctx.board.rank : -1;
