@@ -125,7 +125,7 @@ public final class Settings {
                필터는 그 위에 여러 개를 겹친다. 셰이더는 app/src/main/cpp/shaders (생성기 tools/gen_shaders.py). */
             new Item("pocketcore_upscaler", "업스케일러",
                 "도트를 키우는 방식. 끔 = 네모 칸 그대로 · 샤프 = 칸을 고르게 · Scale2x = 계단 한 단계 깎기 · xBR = 곡선을 매끈하게 · Omni = 매끈하되 가는 선을 살림."
-                + " 사무쇼2 사이 그림(서기·동작)은 업스케일러를 켜면 ¼픽셀 대신 정수 픽셀로 맞춰 같이 키웁니다.",
+                + " 사무쇼2 프레임 패치의 ¼픽셀 움직임은 업스케일러·필터를 켜도 그대로입니다.",
                 UPSCALERS, new String[]{ "끔", "샤프", "Scale2x", "xBR", "Omni" }, "none"),
             /* 114: 「업스케일러 세기」(pocketcore_upscaler_mix) 뺐다 — 유저 2026-10-11 「업스케일러는 블렌더 레벨 필요 없어」.
                늘 100%(EmuActivity.applyDisplay). options.txt 에 남은 옛 값은 안 읽는다. */
