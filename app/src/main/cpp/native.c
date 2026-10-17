@@ -49,6 +49,7 @@ static void   (*c_set_controller_port_device)(unsigned, unsigned);
 static void  *(*c_get_memory_data)(unsigned);
 static void  *c_palremap;   /* retro_ngp_palremap — 게임이 팔레트를 쓰는 순간 컬러 바꿔 넣기(가상 리그 컬러, 옛 코어엔 없음) */
 static void (*c_fg_state)(int *, int *, unsigned *);   /* retro_ngp_fg_state — 코어 2배 출력(120Hz) 중 이번 호출이 «합성»(에뮬레이션 없음)인가 */
+static const uint8_t *(*c_fg_phase)(unsigned *, unsigned *, unsigned *);   /* retro_ngp_fg_phase — 4배 그림의 화소마다 원래 모눈 어긋남(코어 zzz_fg_phase) */
 static void  *(*c_charram)(void), *(*c_scrollram)(void), *(*c_palram)(void);   /* 사무쇼2 코어의 K1GE 문자·스크롤·팔레트 램(가상 리그가 화면 글자·컬러를 바꿀 때) */
 static void  *(*c_spriteram)(void);   /* K1GE 스프라이트 램 — 연습 메뉴 창이 빌릴 타일을 고를 때(스프라이트가 가리키는 타일은 안 빌림) */
 static size_t (*c_get_memory_size)(unsigned);
@@ -70,6 +71,13 @@ static uint8_t  *g_fb = NULL;          /* RGBA8888 staging buffer      */
 static unsigned  g_fb_cap = 0;
 static unsigned  g_fb_w = 0, g_fb_h = 0;
 static int       g_fb_dirty = 0;
+/* 프레임 패치 쪽지 — 코어가 4배 그림(640×608)과 함께 넘기는 «화소마다 원래 화소의 4×4 칸이 몇 칸 비켜 시작하나»(x 0..3 | y 0..3 << 2).
+   화면 필터(업스케일러·격자·스캔라인)가 화소마다 제 모눈으로 원래 화소를 읽어 ¼ px 자리를 지킨다 — 전엔 게임 칸마다 가운데
+   한 점만 읽어(업스케일러는 1배로 줄여) ¼·½ 이 0 으로 반올림됐다(유저 2026-10-17 「필터를 켜면 그리 된다는 게 말이 되나」 → 「해봐」).
+   색 버퍼와 따로 둬서 스크린샷·잔상은 그대로 */
+static uint8_t  *g_ph = NULL;
+static unsigned  g_ph_cap = 0;
+static int       g_fb_ph = 0;          /* g_fb 의 그림에 쪽지가 있나(g_ph 에 같은 크기) */
 
 /* 151: 앱 보간(framegen.c 움직임·섞기, fg_cadence.c 박자) 폐기 — 유저 2026-10-16 「앱보간 폐기해라」.
    완성된 화면에서 움직임을 짐작해 사이 그림을 끼우던 것 — 다음 그림을 기다려 25ms 늦고, 포즈 바뀜은 못 잇고, 이동은 짐작이라
@@ -99,6 +107,9 @@ static int g_loaded = 0;
 /* GL */
 static GLuint g_prog = 0, g_tex = 0;
 static unsigned g_tex_w = 0, g_tex_h = 0;   /* g_tex 에 지금 잡힌 크기 — 같으면 glTexSubImage2D 로 덮기만 */
+static GLuint g_tex_ph = 0;                 /* 쪽지 텍스처(LUMINANCE, 0..15) — 텍스처 단위 1 */
+static unsigned g_tph_w = 0, g_tph_h = 0;
+static int g_tex_has_ph = 0;                /* 지금 g_tex 의 그림에 쪽지가 있나 */
 static GLint  a_pos, a_uv, u_tex;
 static int    g_vw = 1, g_vh = 1;
 static int    g_integer_scale = 1;
@@ -108,6 +119,7 @@ static int    g_integer_scale = 1;
 typedef struct {
    GLuint prog; int failed;
    GLint a_pos, a_uv, u_tex, u_size, u_out, u_mix, u_grid, u_scan, u_color, u_soft;
+   GLint u_sub, u_phase, u_ph;   /* 텍스처 배율(1·4) · 쪽지 있음 · 쪽지 텍스처 */
 } disp_prog;
 static disp_prog g_dp[DISP_N_UP];
 static int g_d_up = 0, g_d_mix = 100, g_d_grid = 0, g_d_scan = 0, g_d_ghost = 0, g_d_color = 0, g_d_soft = 0;
@@ -285,12 +297,20 @@ static void cb_video(const void *data, unsigned w, unsigned h, size_t pitch)
    if (!data || !w || !h) return;      /* frame dupe */
    ensure_fb(w, h);
    if (!g_fb) return;
-   /* 업스케일러를 켰으면 사무쇼2 의 4배 그림(서기·동작 사이 그림을 ¼픽셀로 그린 640×608)을 1배로 — 칸마다 가운데 한 점.
+   /* 쪽지 — 코어가 이 그림(4배)에 붙여 준 것. 크기가 안 맞으면 없는 것으로 */
+   const uint8_t *ph = NULL;
+   unsigned phw = 0, phh = 0, php = 0;
+   if (c_fg_phase && g_pixfmt == RETRO_PIXEL_FORMAT_RGB565 && w >= 320) {
+      ph = c_fg_phase(&phw, &phh, &php);
+      if (ph && (phw != w || phh != h || php < w)) ph = NULL;
+   }
+   g_fb_ph = 0;
+   /* 쪽지가 없는 코어에서 업스케일러를 켰으면 사무쇼2 의 4배 그림(서기·동작 사이 그림을 ¼픽셀로 그린 640×608)을 1배로 — 칸마다 가운데 한 점.
       업스케일러는 «도트 한 칸 = 텍셀 한 칸»이어야 돈다. 사이 그림은 ¼픽셀 대신 정수 픽셀로 반올림된다.
-      유저 2026-10-11 「업스케일러가 안 되네 — 업스케일러는 블렌더 레벨 필요 없어」 */
+      유저 2026-10-11 「업스케일러가 안 되네 — 업스케일러는 블렌더 레벨 필요 없어」. 쪽지가 있으면 4배 그대로 두고 셰이더가 화소마다 제 모눈으로 */
    unsigned ds = 1;
    /* 150: SVC 코어 보간도 4배 — 기술명 띠(최대 32줄)가 붙으면 세로가 (152+띠)·4 라 «152 의 배수»만 보면 못 알아봤다 */
-   if (g_d_up > 0 && g_pixfmt == RETRO_PIXEL_FORMAT_RGB565 && w >= 320 && w % 160 == 0 && h % (w / 160) == 0
+   if (g_d_up > 0 && !ph && g_pixfmt == RETRO_PIXEL_FORMAT_RGB565 && w >= 320 && w % 160 == 0 && h % (w / 160) == 0
        && h / (w / 160) >= 152u && h / (w / 160) <= 184u)
       ds = w / 160;
    if (ds > 1) {
@@ -348,6 +368,14 @@ static void cb_video(const void *data, unsigned w, unsigned h, size_t pitch)
             *dst++ = (uint8_t)(p & 0xff);
             *dst++ = 0xff;
          }
+      }
+   }
+   if (ph) {
+      size_t n = (size_t)w * h;
+      if (n > g_ph_cap) { free(g_ph); g_ph = (uint8_t *)malloc(n); g_ph_cap = g_ph ? (unsigned)n : 0; }
+      if (g_ph) {
+         for (unsigned y = 0; y < h; y++) memcpy(g_ph + (size_t)y * w, ph + (size_t)y * php, w);
+         g_fb_ph = 1;
       }
    }
    g_fb_dirty = 1;
@@ -527,6 +555,8 @@ static disp_prog *disp_get(int k)
    d->u_out = glGetUniformLocation(pr, "uOut");  d->u_mix = glGetUniformLocation(pr, "uUpMix");
    d->u_grid = glGetUniformLocation(pr, "uGrid"); d->u_scan = glGetUniformLocation(pr, "uScan");
    d->u_color = glGetUniformLocation(pr, "uColor"); d->u_soft = glGetUniformLocation(pr, "uSoft");
+   d->u_sub = glGetUniformLocation(pr, "uSub");   d->u_phase = glGetUniformLocation(pr, "uPhase");
+   d->u_ph = glGetUniformLocation(pr, "uPh");
    LOGI("display shader %d ready", k);
    return d;
 }
@@ -588,6 +618,13 @@ static void gl_setup(void)
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glGenTextures(1, &g_tex_ph);
+   g_tph_w = g_tph_h = 0; g_tex_has_ph = 0;
+   glBindTexture(GL_TEXTURE_2D, g_tex_ph);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
    memset(g_dp, 0, sizeof(g_dp));   /* 새 컨텍스트 — 예전 프로그램은 이미 사라졌다. 쓸 때 다시 만든다 */
    g_gh_valid = 0;
    g_fb_dirty = 1;
@@ -611,6 +648,19 @@ static void gl_draw(void)
       } else
          glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, g_fb_w, g_fb_h, GL_RGBA, GL_UNSIGNED_BYTE, g_fb);
       g_fb_dirty = 0;
+      g_tex_has_ph = 0;
+      if (g_fb_ph && g_ph && g_tex_ph) {        /* 쪽지 — 같은 크기의 한 바이트 텍스처(단위 1) */
+         glActiveTexture(GL_TEXTURE1);
+         glBindTexture(GL_TEXTURE_2D, g_tex_ph);
+         if (g_tph_w != g_fb_w || g_tph_h != g_fb_h) {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, g_fb_w, g_fb_h, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, g_ph);
+            g_tph_w = g_fb_w; g_tph_h = g_fb_h;
+         } else
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, g_fb_w, g_fb_h, GL_LUMINANCE, GL_UNSIGNED_BYTE, g_ph);
+         glActiveTexture(GL_TEXTURE0);
+         glBindTexture(GL_TEXTURE_2D, g_tex);
+         g_tex_has_ph = 1;
+      }
    }
 
    /* aspect-correct, integer-scaled viewport.
@@ -655,12 +705,18 @@ static void gl_draw(void)
       tex = g_tex_gh;
    } else g_gh_valid = 0;
 
-   int up = (g_d_mix > 0 && sub == 1) ? g_d_up : 0;    /* 업스케일러는 도트 한 칸 = 텍셀 한 칸일 때만 — 4배 그림엔 쉰다 */
+   /* 업스케일러는 «원래 화소 하나 = 텍셀 하나»를 읽어야 돈다 — 1배 그림이거나, 4배 그림이면 쪽지로 화소마다 제 모눈을 알 때 */
+   int up = (g_d_mix > 0 && (sub == 1 || g_tex_has_ph)) ? g_d_up : 0;
    disp_prog *d = (up || g_d_grid || g_d_scan || g_d_color || g_d_soft) ? disp_get(up) : NULL;
    GLint ap = a_pos, au = a_uv;
    if (d) {
       glUseProgram(d->prog);
       glUniform1i(d->u_tex, 0);
+      glUniform1f(d->u_sub, (float)sub);                 /* 4배 그림이면 색은 텍셀 그대로(¼ px), 격자·스캔라인 줄만 게임 칸에 */
+      glUniform1f(d->u_phase, g_tex_has_ph ? 1.f : 0.f);
+      glUniform1i(d->u_ph, 1);
+      glActiveTexture(GL_TEXTURE1);
+      glBindTexture(GL_TEXTURE_2D, g_tex_ph);
       glUniform2f(d->u_size, (float)lw, (float)lh);      /* 격자·스캔라인·번짐은 게임 칸 기준 */
       glUniform2f(d->u_out, (float)dw, (float)dh);
       glUniform1f(d->u_mix, up ? g_d_mix / 100.f : 0.f);
@@ -753,6 +809,7 @@ static int bind_core(void)
    *(void **)&c_spriteram       = dlsym(g_lib, "retro_ngp_spriteram");
    c_palremap                   = dlsym(g_lib, "retro_ngp_palremap");
    *(void **)&c_fg_state        = dlsym(g_lib, "retro_ngp_fg_state");
+   *(void **)&c_fg_phase        = dlsym(g_lib, "retro_ngp_fg_phase");   /* 없으면(옛 코어·다른 게임) 업스케일러는 예전처럼 1배로 줄여서 */
    return 1;
 }
 
