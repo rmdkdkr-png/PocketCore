@@ -818,7 +818,8 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
                         jstring jsys, jstring jsave, jstring jopts)
 {
    league_disarm();                      /* 새 게임은 무장 없이 시작 — 랭크전이면 Java 가 로드 뒤에 다시 무장한다 */
-   ov_clear(OV_CLR_ALL);                 /* 157 덧판: 코어 상태가 통째로 바뀜 — 메뉴·대본·멈춤·막기 모두 */
+   ov_clear(OV_CLR_ALL);                 /* 157 덧판: 코어 상태가 통째로 바뀜 — 메뉴·대본·멈춤·막기 모두(상태용 램 포인터는 올린 뒤 새로) */
+   ov_game_ram(NULL, 0);
    league_hub(0, NULL, NULL);            /* 게임 속 리그도 끈 채로 — 허브로 켠 화면만 로드 뒤에 다시 켠다(앞 세션의 허브가 자유 플레이로 새지 않게) */
    practice_forget();                    /* 연습 대전도 — 일반 세션이고 확인한 롬 판이면 Java 가 로드 뒤에 연습 허브를 켠다 */
    league_practice_resume(NULL, 0);      /* 지난 판에서 기다리던 연습 경기 되돌리기는 버린다(이 판의 상태 불러오기가 다시 남긴다) */
@@ -871,6 +872,8 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
    c_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
    sram_load();
    g_loaded = 1;
+   if (c_get_memory_data && c_get_memory_size)   /* 157 덧판 상태(게임 PAUSE 0x61D4 · 라운드 승수)용 시스템 램 — 포인터만(코어가 내려갈 때 거둠) */
+      ov_game_ram((const uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM), c_get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
 
    pace_reset(&g_pace); drc_reset(&g_drc);   /* 150: 새 게임 — 박자 잠금·소리 늘림을 처음부터 */
    audio_start(g_av.timing.sample_rate > 0 ? (int)g_av.timing.sample_rate : 44100);
@@ -997,17 +1000,9 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
       steps++;
       if (stop) break;                   /* 153: 이번 vsync 의 남은 스텝(따라잡기·배속·코어 합성)도 없이 — 이 프레임 그대로 */
    }
-   {  /* 157 덧판: 스텝 루프 뒤(스텝 0 이어도 — 걸쇠·멈춤 중에도 연출이 돈다) · gl_draw 앞. 걸쇠가 이 vsync 에 섰으면 걸어 둔 대본이 지금 t=0 으로 */
-      const uint8_t *ram = NULL; size_t ramsz = 0;
-      CORE_LOCK();
-      if (g_loaded && c_get_memory_data && c_get_memory_size) {
-         ram = (const uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM);
-         ramsz = c_get_memory_size(RETRO_MEMORY_SYSTEM_RAM);
-      }
-      ov_game_ram(ram, ramsz);           /* 상태용(게임 PAUSE 0x61D4 · 라운드 승수) — 포인터만 */
-      CORE_UNLOCK();
-      ov_tick(t, league_post_hold());
-   }
+   /* 157 덧판: 스텝 루프 뒤(스텝 0 이어도 — 걸쇠·멈춤 중에도 연출이 돈다) · gl_draw 앞. 걸쇠가 이 vsync 에 섰으면 걸어 둔 대본이 지금 t=0 으로.
+      상태용 램 포인터(ov_game_ram)는 코어가 올라갈 때 한 번 주고 내려갈 때 거둔다(코어 안 고정 배열 — vsync 마다 코어 잠금을 잡지 않게) */
+   ov_tick(t, league_post_hold());
    glClear(GL_COLOR_BUFFER_BIT);
    gl_draw();
 }
