@@ -115,7 +115,7 @@
 #define OVS_T          2        /* 대본 프레임 t(없으면 −1) */
 #define OVS_END        3        /* 대본 끝 프레임 = 유한 op 의 max(t0+dur)(없으면 −1) */
 #define OVS_CUE_ID     4        /* 돌거나 걸어 둔 대본 id(flags>>16), 없으면 0 */
-#define OVS_STARTS     5        /* 대본이 시작된 횟수(코어 올림부터) — 걸쇠 시작도 센다 */
+#define OVS_STARTS     5        /* 대본이 시작된 횟수(라이브러리 올림부터 늘기만 — 차이로 볼 것) — 걸쇠 시작도 센다 */
 #define OVS_RX         6        /* 게임 사각형 왼위(g_fb 픽셀) */
 #define OVS_RY         7
 #define OVS_SUB        8        /* 1 · 4(서기 그리기 4배) */
@@ -139,7 +139,12 @@
 #define OVF_RECT_OK   16        /* 지금 프레임 크기에서 게임 사각형을 찾음 */
 #define OVF_SHOWN     32        /* 보이기 시작한 뒤 한 번 이상 합성함 */
 
-/* ── 올리기(GL 스레드) — 1 = 받음, 0 = 인자 틀림(아무것도 안 씀) ── */
+/* ── 올리기(GL 스레드) — 1 = 받음, 0 = 인자 틀림(아무것도 안 씀) ──
+   setter 는 모두 먼저 «끝난 유한 op» 를 바탕에 굽고 대본에서 뺀다(계약서 §3.2). native 쪽 안전 규칙 둘(계약 밖 — 장면 갈아 끼우기를 덜 깨지게):
+    · 맵 쓰기(ov_layer 의 map · ov_cells)가 덮는 칸을 «이미 시작한» COUNT(dst)·GAUGE(왼위 칸)가 쥐고 있으면 그 op 를 굽지 않고 뺀다.
+      왼위 칸이 그 사각형 안인 바탕 채움(구운 GAUGE 막대)도 지운다. 아직 시작 안 한 op(걸어 둔 대본·다음 tick 에 시작할 대본)는 그대로.
+    · ov_clear 의 OV_CLR_W / OV_CLR_L / OV_CLR_BASE 는 그 대상을 쥔 op 도 굽지 않고 뺀다.
+   장면을 통째로 갈 때 옛 대본이 아직 돌면(창유리 SLIDE 등) 새 대본이 와서 끝 상태로 굽는다(§4.3) — 먼저 nativeOvCue(null, SKIP_TO_END) 를 부르면 확실하다 */
 int  ov_layer(int layer, const uint8_t *tiles, int ntiles, int tile_base,
               const uint16_t *map, int cols, int rows, int col0, int row0,
               const uint16_t *pals, int npals, int pal_base);
@@ -161,7 +166,7 @@ void ov_status(int v[OV_NSTAT]);                                                
 /* ── native.c 연결 ── */
 int  ov_hold(void);                  /* pace_steps 멈춤 조건에 || — 잠금 없이 */
 int  ov_in_block(void);              /* 입력 콜백 blk 에 | — 막기 비트 | (보임·멈춤이면 0xFFF) · 잠금 없이 */
-void ov_tick(double now_s, int latch);   /* nativeFrame: 스텝 루프 뒤 · gl_draw 앞(스텝 0 이어도). 걸기·시작·t 계산 */
+void ov_tick(double now_s, int latch);   /* nativeFrame: 스텝 루프 뒤 · gl_draw 앞(스텝 0 이어도). 걸기·시작·t 계산(t = floor((now−start)·60 + 1e−6)) */
 int  ov_active(void);                /* 보이는 중 — gl_draw 가 합성할지 */
 /* 게임 사각형(160×152) 찾기 — gl_draw 의 sub 판정과 같은 규칙. 1 = 찾음 */
 int  ov_find_rect(unsigned fbw, unsigned fbh, int *x0, int *y0, int *sub);
