@@ -559,16 +559,38 @@ final class LeagueMenu {
     private void toQuit(int c) {
         if (sQuit == null) return;
         if (st == ST_RESULT) resultCursor = cursor;
+        LgmPages.Scene old = cur; int oc = cursor;
         if (!show(sQuit, SHOW_SWAP, Emu.OV_START_NOW, clampRow(sQuit, c))) return;
+        underlay(old, oc);
         st = ST_QUIT;
         updateHit();
     }
     private void backToResult() {
         if (sResult == null) return;
         int q = rowById(sResult, MenuModel.ROW_QUIT);
+        LgmPages.Scene old = cur; int oc = cursor;
         if (!show(sResult, SHOW_SWAP, Emu.OV_START_NOW, q >= 0 ? q : clampRow(sResult, resultCursor))) return;
+        underlay(old, oc);
         st = ST_RESULT;
         updateHit();
+    }
+    /** 결판 ↔ 그만할까요? 칼 휘두름(WIPE 6f)이 게임 그림 위가 아니라 옛 칼집 위로 새 목록을 드러내게 — 옛 장면의 칼집 칸(c10–19 r4–16)을
+     *  L 층(이 두 장면은 L 을 안 씀)에 깔아 둔다(고른 줄은 고른 색 그대로). 휘두름이 끝나면 새 칼집(불투명 몸통)이 덮는다. 다음 show 가 L 을 지운다 */
+    private void underlay(LgmPages.Scene old, int oldCursor) {
+        if (old == null || old.l != null || cur == null || cur.l != null) return;
+        TileCanvas.Encoded e = old.w;
+        if (e == null || e.map == null || e.tiles == null || e.tiles.length / 16 > TileCanvas.MAX_CHUNK) return;
+        final int c0 = 10, r0 = 4, cols = 10, rows = 13;
+        LgmPages.Row cr = old.rows != null && oldCursor >= 0 && oldCursor < old.rows.length ? old.rows[oldCursor] : null;
+        short[] m = new short[cols * rows];
+        for (int r = 0; r < rows; r++) for (int c = 0; c < cols; c++) {
+            int mc = c0 + c - e.col0, mr = r0 + r - e.row0;
+            short v = mc >= 0 && mr >= 0 && mc < e.cols && mr < e.rows ? e.map[mr * e.cols + mc] : (short) 0xFFFF;
+            if (cr != null && v != (short) 0xFFFF && c0 + c >= cr.c0 && c0 + c <= cr.c1 && r0 + r >= cr.r0 && r0 + r <= cr.r1)
+                v = (short) ((v & ~0x1E00) | ((cr.palOn & 15) << 9));
+            m[r * cols + c] = v;
+        }
+        if (ov.layer(Emu.OV_L, e.tiles, e.tileBase, m, cols, rows, c0, r0, e.pals, 0)) ov.scroll(Emu.OV_L, 0, 0, 0, 151);
     }
     private void openConfirm() {
         if (sConfirm == null) { setBusy(); post(act::lgmForfeit); return; }    /* 확인 장면이 없으면(그림 실패) — 그래도 두 번째로 묻지 않고 넘기지 않게 */
