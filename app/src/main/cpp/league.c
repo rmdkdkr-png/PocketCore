@@ -65,10 +65,13 @@
 #define R_P2LV   A(0x5CF5)   /* CPU(P2) 실시간 단계 — 전투 로드 때 0x5814 에서, 라운드 시작마다 max(0, 0x5814 + 상대 승수 − 자기 승수), 약 600프레임마다 0~상한에서 다시 */
 #define R_CCARD1 A(0x57E6)   /* CPU(P2) 카드 1 · 2 — 0xFF 없음 */
 #define R_CCARD2 A(0x57E7)
-/* 157: 랭크 CPU 카드 문턱 — 무장 때 시작 단계(k_lv)로 가른다. RankCore.CARD_ONE_LV · CARD_TWO_LV · CARD_STRONG_LV 와 같아야 */
-#define CC_ONE_LV    4       /* 4~7  약한 카드 한 장(수라 k1★ · 나찰 k0★ — 다른 칸 0xFF) */
-#define CC_TWO_LV    8       /* 8~11 약한 카드 두 장(k0·k1) */
-#define CC_STRONG_LV 12      /* 12~  센 카드 두 장(k2·k3 — ★★★ 포함). 0~3 은 없음 */
+/* 157b: 랭크 CPU 카드 문턱 — 무장 때 시작 단계(k_lv)로 가른다. RankCore.CARD_ONE_LV · CARD_STRONG_LV 와 같아야 */
+#define CC_ONE_LV    8       /* 8~9 약한 카드 한 장(수라 k1★ · 나찰 k0★ — 다른 칸 0xFF). 0~7 은 없음 */
+#define CC_STRONG_LV 10      /* 10~ 센 카드 두 장(k2·k3 — ★★★ 포함) */
+/* 카드 한 장의 능력치 몫(카드 번호 아래 두 비트 k) — 게임이 전투 준비 때 CPU 배율에 더하는 값(157 실측). RankCore.CARD_DATK · CARD_DDFN 과 같아야 */
+static const int16_t cc_datk[4] = { 0x33, -0x0C, 0, 0 };   /* 공격 배율 0x57E2 */
+static const int16_t cc_ddfn[4] = { 0x0C, -0x33, 0, 0 };   /* 받는 피해 배율 0x57E4 */
+static int clampi(int v, int lo, int hi);
 #define R_MCUR   A(0x624B)   /* 타이틀 메뉴 커서: 0 1인 대전 · 1 무한 대전 · 2 2인 대전(VS) · 3 카드 모음집 · 4 게임 설정 */
 #define R_HOVER  A(0x4E3C)   /* 캐릭터 고르기 커서 = 캐릭터 id × 4 (가운데 무작위 칸 = 15 × 4) */
 #define R_RSCR   A(0x5825)   /* «결과 화면» 코드 — 이긴 쪽 이름판·승리 대사가 사라진 바로 뒤 프레임에 C0(P1)/A0(P2)/90(무승부)로 선다(149 실측: 결판 + 320~650).
@@ -1348,18 +1351,22 @@ void league_tick_hub(uint8_t *ram, size_t n, int input)
 
    ram[R_OPP] = (uint8_t)L.opp;
    ram[R_STY] = (uint8_t)L.sty;
+   int cda = 0, cdd = 0;                              /* 157b: CPU 카드 몫(공격·받는 피해 배율) — 랭크 손잡이 배율에 더함 */
    if (L.allcards) {                                  /* 리그 상대는 자기 캐릭터·검질 카드를 끼고 나온다. 게임이 전투 준비 때 이 칸으로 0x5D56/57 을 만든다.
-                                                         157 랭크(손잡이 있음): 티어 따라 — 시작 단계 0~3 없음 · 4~7 약한 한 장 · 8~11 약한 두 장(k0·k1) · 12~ 센 두 장(k2·k3).
-                                                         배율을 매 프레임 1.0 으로 쓰므로(유저 «데미지 배율 없이») 게임이 전투 준비 때 k0/k1 몫으로 더한 배율은 지워진다.
+                                                         157b 랭크(손잡이 있음): 티어 따라 — 시작 단계 0~7 없음 · 8~9 약한 한 장 · 10~ 센 두 장(k2·k3).
+                                                         카드의 능력치 몫은 아래 배율 쓰기에서 바탕 손잡이에 더한다(유저 «카드 배율까지 반영»).
                                                          손잡이 없는 예전 리그는 155 그대로: «어려움»이면 k2·k3, 아니면 k0·k1(원작 무한 대전 13~25 연승 k0/k1 · 26~ k2/k3 나눔).
                                                          L 에 칸을 늘리지 않는다(.prac 덩어리 크기) — 무장 값에서 셈 */
       int base = (L.opp << 4) | (L.sty << 3), c1, c2;
       if (L.k_lv < 0) { int k = L.diff >= 2 ? 2 : 0; c1 = base | k; c2 = base | (k + 1); }
       else if (L.k_lv >= CC_STRONG_LV) { c1 = base | 2; c2 = base | 3; }
-      else if (L.k_lv >= CC_TWO_LV) { c1 = base; c2 = base | 1; }
       else if (L.k_lv >= CC_ONE_LV) { c1 = base | (L.sty ? 0 : 1); c2 = 0xFF; }   /* ★ 하나 붙은 쪽: 수라 k1 · 나찰 k0 */
       else { c1 = 0xFF; c2 = 0xFF; }
       ram[R_CCARD1] = (uint8_t)c1; ram[R_CCARD2] = (uint8_t)c2;
+      if (L.k_lv >= 0) {                              /* 랭크: 고른 카드의 몫 — 게임이 전투 준비 때 더한 값은 아래 손잡이 쓰기가 덮으므로 여기서 다시 더한다 */
+         if (c1 != 0xFF) { cda += cc_datk[c1 & 3]; cdd += cc_ddfn[c1 & 3]; }
+         if (c2 != 0xFF) { cda += cc_datk[c2 & 3]; cdd += cc_ddfn[c2 & 3]; }
+      }
    } else { ram[R_CCARD1] = 0xFF; ram[R_CCARD2] = 0xFF; }   /* 연습 더미·옛 한 판 경기는 카드 없음 */
    if (L.cards_off) { ram[R_CARD1] = 0xFF; ram[R_CARD2] = 0xFF; }
    if (L.diff   >= 0) ram[R_OPT + 0] = (uint8_t)L.diff;
@@ -1370,11 +1377,12 @@ void league_tick_hub(uint8_t *ram, size_t n, int input)
    if (L.stage >= 0) ram[R_BOUT] = (uint8_t)L.stage;     /* 배경 — 판이 뜨기 전부터 끝까지 */
    /* CPU 세기 손잡이 — 게임은 상대를 뽑는 프레임에 난도(R_OPT)로 이 값들을 정하고, 단계는 라운드마다·약 600프레임마다, 배율은 맞을 때마다 읽는다.
       무장부터 결판까지 매 프레임 쓰면 그 값으로 싸운다(실측 E2: 무장부터 쓰기 = 첫 라운드 상태에서 바로 쓰기, 피해 기록이 프레임까지 같음).
-      157: 랭크는 배율 둘 다 0x0100(1.0)을 넘긴다(유저 «데미지 배율 없이») — 게임의 난도별 값과 전투 준비 때의 카드 덧셈을 매 프레임 덮는다 */
+      157b: 랭크 배율 = 바탕(원작 1인 대전 표를 MMR 에 붙인 값) + 고른 카드의 몫(k0 +0x33/+0x0C · k1 −0x0C/−0x33 · k2·k3 0), 0x80~0x180.
+      게임의 난도별 값은 덮고, 전투 준비 때 게임이 더하는 카드 몫은 같은 값으로 다시 선다. RankCore.effAtk · effDfn 과 같은 셈 */
    if (L.k_lv  >= 0) ram[R_CPULV] = (uint8_t)L.k_lv;
    if (L.k_cap >= 0) ram[R_CPUCAP] = (uint8_t)L.k_cap;
-   if (L.k_atk >= 0) { ram[R_CPUMUL] = (uint8_t)L.k_atk; ram[R_CPUMUL + 1] = (uint8_t)(L.k_atk >> 8); }
-   if (L.k_dfn >= 0) { ram[R_CPUMUL + 2] = (uint8_t)L.k_dfn; ram[R_CPUMUL + 3] = (uint8_t)(L.k_dfn >> 8); }
+   if (L.k_atk >= 0) { int v = clampi(L.k_atk + cda, 0x80, 0x180); ram[R_CPUMUL] = (uint8_t)v; ram[R_CPUMUL + 1] = (uint8_t)(v >> 8); }
+   if (L.k_dfn >= 0) { int v = clampi(L.k_dfn + cdd, 0x80, 0x180); ram[R_CPUMUL + 2] = (uint8_t)v; ram[R_CPUMUL + 3] = (uint8_t)(v >> 8); }
    if (L.k_floor > 0 && (L.fight_seen || L.from_ckpt) && ram[R_MODE] == 241 && ram[R_P2LV] < L.k_floor) ram[R_P2LV] = (uint8_t)L.k_floor;   /* 실측 E6 */
 
    /* 메뉴 자동 진입: 무장 뒤 20·60 프레임에 A(4프레임씩, 사이는 뗀다). 캐릭터 고르기(MODE 240 · SCR 2)가
