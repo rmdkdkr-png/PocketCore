@@ -31,7 +31,7 @@ final class TileCanvas {
         Inks(Ink g11, Ink g11b, Ink g7) { this.g11 = g11; this.g11b = g11b; this.g7 = g7; }
     }
     /** 칸 예산·팔레트 넘침·팔레트 없는 칸에 잉크(strict) — 부르는 쪽(LgmPages)이 받아 옛 카드로 돌아간다 */
-    static final class Overflow extends RuntimeException { Overflow(String m) { super(m); } }
+    static final class Overflow extends RuntimeException { private static final long serialVersionUID = 1L; Overflow(String m) { super(m); } }
     /** 인코딩 결과 — map 은 cols×rows(줄 먼저), 칸 (col0 + i % cols, row0 + i / cols) 자리 · tiles 의 번호는 tileBase 기준 상대 */
     static final class Encoded {
         byte[] tiles;        // ntiles × 16
