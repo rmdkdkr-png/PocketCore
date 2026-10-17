@@ -2945,6 +2945,7 @@ public class EmuActivity extends Activity {
     private boolean lgmShown;                        /* 결판 메뉴가 떠 있다 — hubCard 와 같은 뜻 */
     private boolean lgmOpen;                         /* 결판·쉼·서랍 무엇이든 열림(UI 표시 — 안내 띠 숨김·터치 뷰) */
     private String lgmArmedId, lgmResultId;          /* 걸어 둔 경기 · 결판 메뉴에 보이는 경기 */
+    private String lgmFailedId;                      /* 정산 때 그리기에 실패한 경기 — 걸쇠 때 다시 그리지 않고 옛 카드 */
     private MenuModel lgmModel;                      /* 지금 열린 사본(서랍 그림용) */
     private RankCore.Me lgmMeBefore, lgmMeAfter;     /* 이 판 전·뒤 나(순위 ▲▼) */
     private int lgmGen, lgmTries, lgmDrawerTab = -1;
@@ -3044,7 +3045,12 @@ public class EmuActivity extends Activity {
                 if (gen != lgmGen || leaving || !id.equals(lgmArmedId)) return;
                 gl.queueEvent(() -> mm.armResult(model, r, q));
             });
-        }, () -> { if (gen == lgmGen) { android.util.Log.i(LGM, "lgm fallback render"); lgmArmedId = null; lgmResultId = null; lgmModel = null; } });
+        }, () -> {
+            if (gen != lgmGen) return;
+            android.util.Log.i(LGM, "lgm fallback render");
+            if (lgmShown && id.equals(lgmResultId)) { lgmToCard(League.matchById(id), "render"); return; }   /* 걸쇠가 먼저 섰다 — 지금 옛 카드 */
+            lgmFailedId = id; lgmArmedId = null; lgmResultId = null; lgmModel = null;                          /* 걸쇠 때 옛 카드 */
+        });
     }
     /** MenuModel 만들 재료 */
     private MenuModel.Ctx lgmCtx(MenuModel.Prefs p, int[] ov, boolean started, RankCore.Me now) {
@@ -3103,6 +3109,7 @@ public class EmuActivity extends Activity {
             h.removeCallbacks(lgmLatchCheck); h.post(lgmLatchCheck);
             return true;
         }
+        if (id.equals(lgmFailedId)) return false;                         /* 정산 때 그리기 실패 — 옛 카드 */
         /* 걸지 못한 판(쉼에서 기권·무효, 정산과 걸쇠가 한꺼번에) — 지금 연다(멈춘 그 화면 위) */
         MenuModel.Prefs p = League.menuPrefs();
         if (p.fx == MenuModel.Prefs.FX_OFF) { android.util.Log.i(LGM, "lgm fallback fx_off"); return false; }
