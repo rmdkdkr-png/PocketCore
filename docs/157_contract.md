@@ -49,11 +49,7 @@
 - 랭크 판의 저장·로드·리셋·설정 막힘 그대로(메뉴의 «설정» 탭은 메뉴 pref 만).
 - 사용자에게 보이는 글은 한국어, 짧고 쉬운 말(«~해요» 체, 기존 카드 말투).
 - 롬·상태 파일·롬에서 나온 그림을 저장소·산출물에 넣지 않는다. 미리보기·목업은 우리 자산(앱 글꼴·우리 픽셀)으로만. 하네스 결과 그림도 scratch 밖으로 안 냄.
-- 커밋·코드에 모델 이름을 쓰지 않는다. 커밋은 이정표마다(컨테이너가 재시작되면 안 한 일은 사라짐). 끝줄:
-  ```
-  Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-  Claude-Session: https://claude.ai/code/session_01GDwDYMfa1F3dPZy4FHQ2Nc
-  ```
+- 커밋·코드에 모델 이름을 쓰지 않는다. 커밋은 이정표마다(컨테이너가 재시작되면 안 한 일은 사라짐). 끝줄은 작업 지시가 준 두 줄(Co-Authored-By · 세션 링크) 그대로.
 - 푸시 안 함 · `feat/framegen-art` 안 건드림 · versionCode 안 올림(통합 담당).
 - 경고 0: 호스트 `-Wall -Wextra`(u153/impl-nat/build.sh) · NDK 3갈래(ndk_build.sh) · `gradle :app:compileDebugJavaWithJavac --offline`.
 
@@ -598,3 +594,25 @@ Emu.nativeSetInput(in); Emu.nativeFrame(); …
 - 병합 순서 native → render → menu. 겹치는 파일 없음(Emu.java·RankVs.Ink 는 이 기준에서 이미 계약대로). menu 는 TileCanvas·Cue 가 채워지기 전엔 LgmPages 를 JVM 에서 못 돌리므로 MenuModel·LeagueMenu(가짜 OvPort)·League·BoardCache 부터.
 - 계약 변경 요청은 보고서에 «무엇·왜·누가 영향» 으로.
 - 위험: 4배 합성 비용(실기에서 잼 — 바뀐 프레임만 합성) · 입력 샘(쥔 키 무시·readyT·qHeld·백스톱 0xFFF) · 스레드 경합(불변 사본·GL 전용·queueEvent·post) · 띠 위치 가정(위 — 앱 설정에 남은 건 기술명 띠뿐) · 갈무리7 부분집합 밖 닉(g11 대신) · 156 흐름 회귀(동작은 기존 함수만 부름, 찾기 겹창은 Java 그대로).
+
+---
+
+## §17 통합에서 정한 것(w157-int)
+
+세 갈래를 합친 뒤 진짜 JVM 에서 앱 native.c 통째(+ 진짜 코어·롬)를 진짜 JNI 로 부르는 끝에서 끝 시험으로 찾은 것과 정한 것.
+
+| 무엇 | 정함 | 왜 |
+|---|---|---|
+| §7.1 «저절로 지움» 판정 | VISIBLE·ARMED 둘 다 없고 **상태의 대본 id 가 마지막으로 보낸 우리 id 가 아닐 때만** 닫힘으로 맞춘다 | `nativeOvCue(START_NOW)` 는 다음 `ov_tick` 까지 VISIBLE 도 ARMED 도 아니다. queueEvent(openPause) 뒤 같은 vsync 의 feed 가 이것을 «지움»으로 보고 닫아, 쉼이 늘 안 열리고 코어만 ov_hold 로 멈췄다. native 가 지우면 대본도 버려 id 0 |
+| 결판 ↔ 그만할까요? 칼 휘두름 | 옛 장면의 칼집 칸(c10–19 r4–16, 고른 줄 색 그대로)을 L 층에 깔고 W 에서 새 장면을 WIPE | 안 깔면 휘두름 6f 동안 아직 안 드러난 칼집 자리에 무대가 보인다(그림 담당 장면 규칙 3). 두 장면은 L 을 안 쓴다 |
+| FLASH(일섬) 흰 섞기·베기 줄 | native 그대로 **게임 152줄 전부** | 걸쇠 때 위·아래 띠는 검정이라 f4–5 두 프레임만 회색으로 번쩍 — 일섬답다. 목업은 32..135 |
+| PALCYCLE 홀수 주기 | Java `Cue.palCycleAt` 도 니블마다 0..15 로 자름(native `nib_mix` 와 같게) | 계약 셈은 tri ≤ (P+1)/2 라 w > 65536. 메뉴는 짝수 주기만 쓰지만 평가기·미리보기를 native 와 같게 |
+| 시계 ε | 1e-6(native 보고 그대로) | 몇 주 켜 둔 단조 시계에서 1e-9 는 반올림에 진다 |
+| 순위 «위 100 ↔ 내 주변» 사이 줄 | «…»(U+2026) | U+22EF 는 갈무리 셋에 없다(안드로이드는 다른 글꼴로 그림) |
+| 첫 라운드 전 쉼 «그만두기» 줄 | 오른쪽 «무효» 뺌 | 48px 글자와 겹침 — 아래 띠 설명이 «무효로 닫아요 · LP 그대로» |
+
+시험(scratch `u157/impl/merge/e2e/`): `run_all.sh` = libnhj(앱 native.c 통째 + 시험 받침, 진짜 JVM 이 System.load) · 장면 6
+(결판 보통 app 60Hz · 짧게 진 판 plain 120Hz · 쉼 plain 120Hz · 쉼 app 60Hz · 결판 JUE · 저절로 지움) + `check_e2e.py`
+(덧판 부름 로그를 참조 모형 ovref 에 다시 해 스냅마다 native 가 그린 텍스처와 픽셀 대조) · `run_shots.sh` = 미리보기(진짜 ov_compose,
+자리표시 무대) · `check_glyphs.py`. 실기 확인 목록은 §15 그대로.
+
