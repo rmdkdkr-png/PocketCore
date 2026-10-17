@@ -147,6 +147,7 @@ final class TileCanvas {
     int text(String s, int x, int y, int ci, Ink ink) { return text(s, x, y, ci, ink, -1, LEFT, 0); }
     /** shadowCi ≥ 0 이면 (+1,+1)에 그림자 — 그 자리가 0 또는 3 일 때만(목업·RankVs 규칙) · align LEFT/RIGHT/CENTER(x 기준) · maxW > 0 이면 자름 */
     int text(String s, int x, int y, int ci, Ink ink, int shadowCi, int align, int maxW) {
+        s = dash(ink, s);
         if (s == null || s.isEmpty()) return alignX(x, 0, align);
         boolean[][] m = ink.mask(s);
         int tw = maskW(m);
@@ -183,12 +184,24 @@ final class TileCanvas {
         return tw;
     }
     int textW(String s, Ink ink) {
+        s = dash(ink, s);
         if (s == null || s.isEmpty()) return 0;
         return maskW(ink.mask(s));
+    }
+    /** 잉크에 없는 빼기 글자(− U+2212 · – · —)는 '-' 로(갈무리11 에는 U+2212 가 없다 — 시스템 글꼴로 새지 않게) */
+    static String dash(Ink ink, String s) {
+        if (s == null || (s.indexOf('\u2212') < 0 && s.indexOf('\u2013') < 0 && s.indexOf('\u2014') < 0)) return s;
+        StringBuilder b = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            b.append((c == '\u2212' || c == '\u2013' || c == '\u2014') && !ink.has(c) ? '-' : c);
+        }
+        return b.toString();
     }
     /** 폭 안에 들게 — 넘치면 끝을 줄이고 «…»(RankVs.fit 와 같음) */
     String fit(String s, int maxW, Ink ink) {
         if (s == null) return "";
+        s = dash(ink, s);
         if (textW(s, ink) <= maxW) return s;
         for (int n = s.codePointCount(0, s.length()) - 1; n > 0; n--) {
             String t = s.substring(0, s.offsetByCodePoints(0, n)) + "…";
@@ -221,12 +234,12 @@ final class TileCanvas {
     };
     private static final String[] STAR = { "..#..", ".###.", "#####", ".###.", ".#.#." };
 
-    /** 3×5 작은 숫자 — 0-9 / + - , (글자 사이 1px, 모르는 글자는 2px 띄움 — 목업 mini3) · y = 맨 위 줄. 돌려줌: 끝 x(마지막 글자 뒤 1px 포함) */
+    /** 3×5 작은 숫자 — 0-9 / + - ,(− – — 도 -) (글자 사이 1px, 모르는 글자는 2px 띄움 — 목업 mini3) · y = 맨 위 줄. 돌려줌: 끝 x(마지막 글자 뒤 1px 포함) */
     int mini3(String s, int x, int y, int ci, int align) {
         if (s == null) return x;
         x = alignX(x, mini3W(s), align);
         for (int i = 0; i < s.length(); i++) {
-            int k = MINI3_CH.indexOf(s.charAt(i));
+            int k = MINI3_CH.indexOf(mini3Ch(s.charAt(i)));
             if (k < 0) { x += 2; continue; }
             String[] g = MINI3[k];
             for (int yy = 0; yy < 5; yy++) for (int xx = 0; xx < 3; xx++) if (g[yy].charAt(xx) == '1') px(x + xx, y + yy, ci);
@@ -237,9 +250,10 @@ final class TileCanvas {
     static int mini3W(String s) {
         if (s == null || s.isEmpty()) return 0;
         int n = 0;
-        for (int i = 0; i < s.length(); i++) n += MINI3_CH.indexOf(s.charAt(i)) >= 0 ? 4 : 2;
+        for (int i = 0; i < s.length(); i++) n += MINI3_CH.indexOf(mini3Ch(s.charAt(i))) >= 0 ? 4 : 2;
         return n - 1;
     }
+    private static char mini3Ch(char c) { return c == '\u2212' || c == '\u2013' || c == '\u2014' ? '-' : c; }
     /** 4×7 작은 숫자 · '*' = 별 5×5(한 줄 아래) — RankVs 그림 그대로 · shadowCi ≥ 0 이면 (+1,+1) 그림자(0·3 자리만).
      *  모르는 글자는 건너뜀(폭 0). 돌려줌: 끝 x(마지막 글자 뒤 1px 포함 — RankVs.mini 의 cx) */
     int mini4(String s, int x, int y, int ci, int shadowCi, int align) {
@@ -270,12 +284,14 @@ final class TileCanvas {
         return k == 0 ? 0 : n - 1;
     }
     /** OvArt 그림 — 그림의 칠 1·2·3 을 ci1·ci2·ci3 으로(0 = 안 그림), hflip = 좌우 뒤집기 */
-    void art(int id, int x, int y, int ci1, int ci2, int ci3, boolean hflip) {
+    void art(int id, int x, int y, int ci1, int ci2, int ci3, boolean hflip) { art(id, x, y, ci1, ci2, ci3, hflip, false); }
+    /** opaque = 그림 사각형을 통째로 덮음 — 그림의 칠 0(빠진 곳·귀)도 0(투명)으로 뚫음(목업 seal·seal8·seal16 이 아래를 지우는 것과 같음) */
+    void art(int id, int x, int y, int ci1, int ci2, int ci3, boolean hflip, boolean opaque) {
         int aw = OvArt.w(id), ah = OvArt.h(id);
         for (int yy = 0; yy < ah; yy++) for (int xx = 0; xx < aw; xx++) {
             int v = OvArt.px(id, hflip ? aw - 1 - xx : xx, yy);
             int ci = v == 1 ? ci1 : v == 2 ? ci2 : v == 3 ? ci3 : 0;
-            if (ci != 0) px(x + xx, y + yy, ci);
+            if (ci != 0 || (opaque && v == 0)) px(x + xx, y + yy, ci);
         }
     }
 
