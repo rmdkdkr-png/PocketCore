@@ -11,9 +11,11 @@ import java.util.Set;
  * League.java 가 league.json 의 "ranked" 칸과 이 클래스 사이를 옮긴다.
  *
  *  1) 상대 풀   — 씨앗(world seed) 하나로 4만 명 남짓을 «필요할 때» 만든다. id = 칸(MMR 10 폭) + 칸 안 번호. 같은 씨앗·같은 id = 늘 같은 사람.
- *  2) 세기 손잡이 — MMR → CPU 시작 단계·상한·바닥(0x5814·0x5815·0x5CF5)·공격 배율 0x57E2·받는 피해 배율 0x57E4.
- *                  게임 자신의 장별 배율 표(T = C0 CC D9 E6 F3 100 10C 119 · U = 140 133 126 119 10C 100 F3 E6)를 한 칸 = MMR 100 으로 펴고 양끝을 늘였다.
- *                  실측(E4·E5): 배율은 피해에 그대로 곱해지고 CPU 움직임은 안 바뀜 · 단계는 0→15 에서 CPU 가 주는 피해 +34% · 같은 봇이 사다리 한 칸마다 승률이 Elo 400 척도대로 떨어짐.
+ *  2) 세기 손잡이 — MMR → CPU 시작 단계·상한·바닥(0x5814·0x5815·0x5CF5) · 공격 배율 0x57E2 · 받는 피해 배율 0x57E4 + CPU 카드(league.c 가 시작 단계로 가름).
+ *                  157b: 유저 «배율은 원작대로 · 카드 배율까지 반영» — 바탕 배율은 원작 1인 대전 표(ROM 0x2385E0, 하 s0 C0/140 … 상 s6~9 119/E6)를
+ *                  MMR 에 붙이고(낮은 티어 = 하 s0 보다 쉽지 않게 · 맨 위 = 원작 가장 센 119/E6 보다 세지 않게), league.c 가 그 위에 CPU 가 낀 카드의
+ *                  능력치 몫(k0 +0x33/+0x0C · k1 −0x0C/−0x33 · k2·k3 0)을 매 프레임 더한다. 실측(157): ×1.0 에선 단계 0~15 가 DI 1.69~1.93 으로 거의 평평 —
+ *                  세기는 배율이 정하고, 단계가 바꾸는 건 템포(CPU 가 주는 피해 +19% · P1 이 죽는 시간 47초 → 39초)다.
  *  3) 등급     — 숨은 MMR(Elo) + 보이는 LP·티어(수련생 … 검성 ★1~5, 무쌍 = MR).
  *  4) 매칭     — 내 MMR 근처, 최근 상대 빼기, 라이벌·설욕전 가끔, 연승·연패 기울기, 잡힌 상대는 붙을 때까지 남김(도망 막기).
  *  5) 순위표   — 위 100명 + 내 주변, 날마다 조금씩 바뀜.
@@ -73,34 +75,80 @@ final class RankCore {
     }
 
     /* ── CPU 세기 손잡이 ─────────────────────────────────────────────────── */
+    /** 배율 1.0(0x0100) — 원작 표의 상 s2~3 · 중 s6~9 값. 157(af75fe7)은 늘 이 값이었다 */
+    static final int MUL_ONE = 0x0100;
+    /** league.c 가 쓰는 배율 범위(무장 때 손잡이도, 카드 몫을 더한 값도 이 안으로) */
+    static final int MUL_MIN = 0x0080, MUL_MAX = 0x0180;
     static final class Knobs {
-        int diff, lv, cap, floor, atk, dfn;
-        double strength() { return (atk / (double) dfn) * Math.exp(0.026 * floor); }   // 실측 근사: 피해 경주 배수 × 단계 효과
-        @Override public String toString() { return String.format("diff%d lv%d cap%d floor%d atk%04X dfn%04X", diff, lv, cap, floor, atk, dfn); }
+        int diff, lv, cap, floor, atk = MUL_ONE, dfn = MUL_ONE;
+        /** 대략의 세기(DI = CPU 가 준 피해 ÷ 받은 피해 근사): 실측 ×1.0 모형 exp(0.523 + 0.0074·단계 + 0.0014·바닥) × (카드 몫까지 더한 공격 ÷ 받는 피해).
+         *  ★ 카드(검질 따라 k0 이나 k1)는 두 검질 평균으로 */
+        double strength() {
+            double ea = (effAtk(0) + effAtk(1)) / 2.0, ed = (effDfn(0) + effDfn(1)) / 2.0;
+            return (ea / ed) * Math.exp(0.523 + 0.0074 * lv + 0.0014 * floor);
+        }
+        /** 이 손잡이로 CPU 가 끼는 카드(league.c 와 같은 규칙) — CARD_NONE · CARD_WEAK1 · CARD_STAR3 */
+        int cards() { return cpuCards(lv); }
+        /** 경기 중 램에 실제로 서는 배율(바탕 + 카드 몫) — sty 0 수라 · 1 나찰 */
+        int effAtk(int sty) { return RankCore.effAtk(atk, lv, sty); }
+        int effDfn(int sty) { return RankCore.effDfn(dfn, lv, sty); }
+        @Override public String toString() { return String.format("diff%d lv%d cap%d floor%d atk%04X dfn%04X cards%d", diff, lv, cap, floor, atk, dfn, cards()); }
     }
-    /** 기준점(MMR, 시작 단계, 상한, 공격 배율, 받는 피해 배율) — 800·1000·1200 = 게임 난도 하·중·상 첫 경기 값(0단계 실측). 나머지는 게임 장별 표를 한 칸 = 100 으로 */
+    /** 기준점(MMR, 시작 단계, 상한, 바닥 간격 — −1 = 바닥 없음 · g = 단계 − g 가 바닥, 공격 배율, 받는 피해 배율). 사이는 직선으로.
+     *  배율 = 원작 1인 대전 표(ROM 0x2385E0, 공격/받는 피해 · 난도 × 장):
+     *    하 s0~1 C0/140 · s2~3 CC/133 · s4~5 D9/126 · s6~9 E6/119 │ 중 D9/126 · E6/119 · F3/10C · 100/100 │ 상 F3/10C · 100/100 · 10C/F3 · 119/E6
+     *  500~650 = 하 s0(원작보다 쉽게는 안 감) · 800 ≈ 하 s0~3 · 1000 = 중 s0~1 · 1200 = 상 s0(= 중 s4~5) · 1300 = 1.0 · 1400 = 10C/F3 ·
+     *  1500 부터 = 119/E6(원작에서 가장 센 값 — 그 위로는 안 감). 단계도 원작 첫 경기처럼: 800 ≈ 1/3(하) · 1000 ≈ 4/6(중) · 1200 ≈ 7/9(상), 맨 위 15/15.
+     *  바닥은 1500 아래 없음 · 1500 부터 단계 − 2 · 1800 = 단계(그대로) */
     static final int[][] KNOB_ANCHOR = {
-        { 500, 0, 1, 0x00A0, 0x0160 }, { 650, 0, 2, 0x00B0, 0x0150 }, { 800, 1, 3, 0x00C0, 0x0140 }, { 900, 2, 4, 0x00CC, 0x0133 },
-        { 1000, 4, 6, 0x00D9, 0x0126 }, { 1100, 5, 7, 0x00E6, 0x0119 }, { 1200, 7, 9, 0x00F3, 0x010C }, { 1300, 8, 11, 0x0100, 0x0100 },
-        { 1400, 10, 13, 0x010C, 0x00F3 }, { 1500, 11, 14, 0x0119, 0x00E6 }, { 1650, 13, 15, 0x0126, 0x00E0 }, { 1800, 15, 15, 0x0134, 0x00E0 } };
-    /** 성향: 0 균형 · 1 공격(단계↑ 배율 조금↓) · 2 한방(주고받는 피해 둘 다↑) · 3 끈기(둘 다↓) */
+        { 500, 0, 1, -1, 0x00C0, 0x0140 }, { 650, 0, 2, -1, 0x00C0, 0x0140 }, { 800, 1, 3, -1, 0x00C6, 0x013A }, { 900, 2, 4, -1, 0x00D0, 0x0130 },
+        { 1000, 4, 6, -1, 0x00D9, 0x0126 }, { 1100, 5, 7, -1, 0x00E6, 0x0119 }, { 1200, 7, 9, -1, 0x00F3, 0x010C }, { 1300, 8, 10, -1, 0x0100, 0x0100 },
+        { 1400, 10, 12, -1, 0x010C, 0x00F3 }, { 1500, 11, 13, 2, 0x0119, 0x00E6 }, { 1650, 13, 15, 2, 0x0119, 0x00E6 }, { 1800, 15, 15, 0, 0x0119, 0x00E6 } };
+    /** CPU 카드 — league.c 가 무장 때의 시작 단계(k_lv)로 가른다(이 문턱과 같아야 · JNI·.prac 덩어리 그대로):
+     *  단계 0~7 없음 · 8~11 ★ 카드 한 장(수라 k1 · 나찰 k0) · 12~ 그 ★ 카드 + ★★★ 카드 한 장(수라 k2 · 나찰 k3). 균형 상대면 대략 MMR 1250 · 1538 에서.
+     *  카드 몫(게임이 전투 준비 때 배율에 더하는 값 — 157b 부터 league.c 가 매 프레임 바탕 + 이 몫을 쓴다): k0 공격 +0x33 · 받는 피해 +0x0C ·
+     *  k1 −0x0C · −0x33 · k2·k3 0. 157c(검토 지적 — 157b 는 단계 10 에서 ★ 한 장 → k2·k3 두 장으로 바뀌며 1375 에서 약 15% 꺼짐):
+     *  ① 위 칸도 ★ 카드를 그대로 낀다 — ★ 카드 몫과 효과가 1250 위로 끝까지 이어진다(세기 모형이 한 칸씩 줄지 않음).
+     *  ② ★★★ 는 단계 12 부터 — ★★★ 카드 자체(기술 스크립트 바꿈)가 단계 10~11 에선 CPU 를 약하게 했다(실측 ★ + ★★★: 1374 ★ 2.15 → 1375 1.84,
+     *     1500(단계 11·바닥 9) 에선 2.68 로 오히려 셈). 약한 두 장(k0·k1 = +0x27/−0x27)은 랭크에서 안 쓴다. CARD_WEAK2 는 손잡이 없는 예전 리그(k0·k1)용 */
+    static final int CARD_NONE = 0, CARD_WEAK1 = 1, CARD_WEAK2 = 2, CARD_STAR3 = 3;
+    static final int CARD_ONE_LV = 8, CARD_STRONG_LV = 12;
+    static int cpuCards(int lv) { return lv >= CARD_STRONG_LV ? CARD_STAR3 : lv >= CARD_ONE_LV ? CARD_WEAK1 : CARD_NONE; }
+    /** 카드 한 장의 능력치 몫(k = 카드 번호 아래 두 비트) — 공격 배율 · 받는 피해 배율 */
+    static final int[] CARD_DATK = { 0x33, -0x0C, 0, 0 }, CARD_DDFN = { 0x0C, -0x33, 0, 0 };
+    /** 카드 묶음 → 몫 합(★ 카드 = 수라 k1 · 나찰 k0 — ★ 한 장과 ★ + ★★★ 는 몫이 같다: ★★★(k2·k3)는 0) */
+    static int cardDAtk(int cards, int sty) {
+        return cards == CARD_WEAK1 || cards == CARD_STAR3 ? CARD_DATK[sty != 0 ? 0 : 1] : cards == CARD_WEAK2 ? CARD_DATK[0] + CARD_DATK[1] : 0;
+    }
+    static int cardDDfn(int cards, int sty) {
+        return cards == CARD_WEAK1 || cards == CARD_STAR3 ? CARD_DDFN[sty != 0 ? 0 : 1] : cards == CARD_WEAK2 ? CARD_DDFN[0] + CARD_DDFN[1] : 0;
+    }
+    /** league.c 와 같은 셈: clamp(clamp(바탕) + 몫(단계 → 카드)) — 정산 확인·기록이 이 값을 쓴다(156·157 이 연 경기도 이어 하면 이 값으로 싸운다) */
+    static int effAtk(int atk, int lv, int sty) { return clamp(clamp(atk, MUL_MIN, MUL_MAX) + cardDAtk(cpuCards(clamp(lv, 0, 15)), sty), MUL_MIN, MUL_MAX); }
+    static int effDfn(int dfn, int lv, int sty) { return clamp(clamp(dfn, MUL_MIN, MUL_MAX) + cardDDfn(cpuCards(clamp(lv, 0, 15)), sty), MUL_MIN, MUL_MAX); }
+    /** 이 단계가 든 카드 칸의 맨 위 단계 — 공격형의 단계 +2 가 카드 칸을 넘지 않게(성향이 카드 = 배율을 바꾸지 않게) */
+    static int cardBandTop(int lv) { return lv >= CARD_STRONG_LV ? 15 : lv >= CARD_ONE_LV ? CARD_STRONG_LV - 1 : CARD_ONE_LV - 1; }
+    /** 성향 — 단계 모양만 다르고 배율·카드는 균형과 같다(157 실측: ×1.0 에서 세기 차이 ±0.2 ln 안 — 느낌만 다름):
+     *  0 균형 · 1 공격형(시작 단계 +2(카드 칸 안에서) · 상한 +1 — 라운드 처음에 몰아붙임) · 2 한방형(상한 +3 · 바닥 −2 — 막기만 하는 사람에게 크게 오름) ·
+     *  3 끈기형(상한 = 단계 + 1 · 바닥이 있는 곳(1500~)에선 바닥 = 단계 — 맞아도 안 무너짐) */
     static final String[] PERSONA = { "균형", "공격형", "한방형", "끈기형" };
     static Knobs knobs(double mmr, int persona) {
         int[][] A = KNOB_ANCHOR; double m = Math.max(A[0][0], Math.min(A[A.length - 1][0], mmr));
         int i = 1; while (i < A.length - 1 && m > A[i][0]) i++;
         double f = (m - A[i - 1][0]) / (double) (A[i][0] - A[i - 1][0]);
+        int lv = clamp((int) Math.round(A[i - 1][1] + f * (A[i][1] - A[i - 1][1])), 0, 15);
+        int cap = clamp((int) Math.round(A[i - 1][2] + f * (A[i][2] - A[i - 1][2])), lv, 15);
+        int gL = A[i - 1][3], gR = A[i][3];          /* 바닥은 아래 기준점에 있을 때만(기준점 바로 위에서 켜짐) — 1500 은 1500 기준점 값 */
+        int floor = f >= 1 ? (gR < 0 ? 0 : lv - gR) : gL < 0 ? 0 : lv - (int) Math.round(gL + f * (gR - gL));
+        int atk = (int) Math.round(A[i - 1][4] + f * (A[i][4] - A[i - 1][4])), dfn = (int) Math.round(A[i - 1][5] + f * (A[i][5] - A[i - 1][5]));
+        if (persona == 1) { int l2 = Math.min(cardBandTop(lv), lv + 2); cap = Math.min(15, Math.max(l2, cap + 1)); lv = Math.max(lv, l2); }
+        else if (persona == 2) { cap = Math.min(15, cap + 3); floor = floor - 2; }
+        else if (persona == 3) { cap = Math.min(15, lv + 1); floor = floor > 0 ? lv : 0; }
         Knobs k = new Knobs();
-        double lv = A[i - 1][1] + f * (A[i][1] - A[i - 1][1]), cap = A[i - 1][2] + f * (A[i][2] - A[i - 1][2]);
-        double atk = A[i - 1][3] + f * (A[i][3] - A[i - 1][3]), dfn = A[i - 1][4] + f * (A[i][4] - A[i - 1][4]);
-        if (persona == 1) { lv += 2; cap += 1; atk *= 0.95; dfn *= 1.05; }
-        else if (persona == 2) { atk *= 1.08; dfn *= 1.08; }
-        else if (persona == 3) { atk *= 0.93; dfn *= 0.93; }
-        k.lv = clamp((int) Math.round(lv), 0, 15);
-        k.cap = clamp((int) Math.round(cap), k.lv, 15);
-        k.floor = Math.max(0, k.lv - 2);               // 실시간 단계 바닥 — 맞을수록 내려가는 게임 적응은 두되 너무 물러지지 않게
-        k.atk = clamp((int) Math.round(atk), 0x00A0, 0x0134);
-        k.dfn = clamp((int) Math.round(dfn), 0x00E0, 0x0160);
-        k.diff = mmr < 900 ? 0 : mmr < 1100 ? 1 : 2;   // 옵션 난도(R_OPT) — 손잡이가 덮지만 0x57F5 사본 등 나머지가 가까운 난도와 같게
+        k.lv = lv; k.cap = clamp(cap, lv, 15);
+        k.floor = clamp(floor, 0, lv);               /* 실시간 단계 바닥(0 = 없음) — 맞을수록 내려가는 게임 적응을 이 아래로는 안 둠 */
+        k.atk = clamp(atk, 0x00C0, 0x0119); k.dfn = clamp(dfn, 0x00E6, 0x0140);   /* 바탕 = 원작 표 범위(하 s0 ~ 상 s6~9) — 카드 몫은 league.c 가 더한다 */
+        k.diff = mmr < 900 ? 0 : mmr < 1100 ? 1 : 2;   /* 옵션 난도(R_OPT) — 손잡이가 덮지만 0x57F5 사본 등 나머지가 가까운 난도와 같게 */
         return k;
     }
     static int clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }

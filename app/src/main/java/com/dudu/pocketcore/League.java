@@ -1167,7 +1167,8 @@ final class League {
             RankCore.Knobs k = RankCore.knobs(pk.mmr, pk.p.personaIdx);
             r.put("pending", new JSONObject().put("id", pk.p.id).put("at", System.currentTimeMillis())
                     .put("mmr", Math.round(pk.mmr * 10) / 10.0).put("stage", pk.p.stage).put("miss", 0)
-                    .put("knobs", new JSONObject().put("diff", k.diff).put("lv", k.lv).put("cap", k.cap).put("floor", k.floor).put("atk", k.atk).put("dfn", k.dfn)));
+                    .put("knobs", new JSONObject().put("diff", k.diff).put("lv", k.lv).put("cap", k.cap).put("floor", k.floor).put("atk", k.atk).put("dfn", k.dfn)
+                            .put("cards", k.cards()).put("eatk", k.effAtk(pk.p.sty)).put("edfn", k.effDfn(pk.p.sty))));
             return save();
         } catch (Exception e) { return false; }
     }
@@ -1202,7 +1203,9 @@ final class League {
             JSONObject rule = new JSONObject();
             rule.put("char", p.ch); rule.put("style", p.sty); rule.put("diff", k.diff);
             rule.put("points", POINTS); rule.put("time", TIME); rule.put("cards", "all");
-            rule.put("cpu", new JSONObject().put("lv", k.lv).put("cap", k.cap).put("floor", k.floor).put("atk", k.atk).put("dfn", k.dfn));
+            /* atk/dfn = 바탕 손잡이(이어 하기가 native 에 그대로 넘긴다 — league.c 가 카드 몫을 더함) · eatk/edfn = 경기 중 실제 배율(바탕 + 카드 몫, 157b) */
+            rule.put("cpu", new JSONObject().put("lv", k.lv).put("cap", k.cap).put("floor", k.floor).put("atk", k.atk).put("dfn", k.dfn)
+                    .put("cards", k.cards()).put("eatk", k.effAtk(p.sty)).put("edfn", k.effDfn(p.sty)));
             m.put("rule", rule);
             m.put("start", new JSONObject().put("mmr", Math.round(me.mmr * 10) / 10.0).put("lp", me.lp).put("mr", me.mr).put("master", me.master)
                     .put("opp_mmr", Math.round(v.mmr * 10) / 10.0).put("opp_lp", v.lp).put("opp_mr", v.mr)
@@ -1289,13 +1292,17 @@ final class League {
                 .put("h2h_w", pr.optInt("w")).put("h2h_l", pr.optInt("l")).put("h2h_d", pr.optInt("d")));
     }
 
-    /** 랭크 경기 정산의 확인(대진·규칙은 settle 이 본다) — CPU 손잡이가 실제로 먹었나: 첫 라운드 단계·배율, 결판 때 상한 */
+    /** 랭크 경기 정산의 확인(대진·규칙은 settle 이 본다) — CPU 손잡이가 실제로 먹었나: 첫 라운드 단계·배율, 결판 때 상한.
+     *  배율은 바탕 + 카드 몫(157b — league.c 가 단계로 고른 카드의 몫을 매 프레임 더한다). 몫은 적힌 eatk 가 아니라 단계·검질로 다시 센다:
+     *  156·157(af75fe7)이 연 경기도 이어 하면 지금 league.c 가 그 단계의 카드와 몫으로 싸우기 때문 */
     private static String rankedKnobWhy(JSONObject rule, int[] st) {
         JSONObject k = rule.optJSONObject("cpu");
         if (k == null || st.length <= 20) return null;
-        if (st[18] != k.optInt("lv") || st[19] != k.optInt("atk") || st[20] != k.optInt("dfn") || (st.length > 21 && st[21] != k.optInt("cap")))
+        int lv = k.optInt("lv"), sty = rule.optInt("style") & 1;
+        int ea = RankCore.effAtk(k.optInt("atk"), lv, sty), ed = RankCore.effDfn(k.optInt("dfn"), lv, sty);
+        if (st[18] != lv || st[19] != ea || st[20] != ed || (st.length > 21 && st[21] != k.optInt("cap")))
             return String.format("난도 불일치: CPU 단계 %d·상한 %d·배율 %04X/%04X (요청 %d·%d·%04X/%04X)", st[18], st.length > 21 ? st[21] : -1, st[19], st[20],
-                    k.optInt("lv"), k.optInt("cap"), k.optInt("atk"), k.optInt("dfn"));
+                    lv, k.optInt("cap"), ea, ed);
         return null;
     }
 
