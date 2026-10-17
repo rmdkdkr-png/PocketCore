@@ -81,6 +81,11 @@ final class TileCanvas {
         for (int s = 0; s < MAX_PALS; s++) if (!palSet[s] && !slotInUse(s)) { setPal(s, c1, c2, c3); return s; }
         throw new Overflow("팔레트 16칸 넘음(" + Integer.toHexString(c1) + "," + Integer.toHexString(c2) + "," + Integer.toHexString(c3) + ")");
     }
+    /** 같은 색이 있어도 새 칸 — 대본이 번쩍·회색으로 바꿀 팔레트(낙관·막대·진 쪽 글자)는 이것으로(다른 글자와 안 나누게) · 16 넘으면 Overflow */
+    int palNew(int c1, int c2, int c3) {
+        for (int s = 0; s < MAX_PALS; s++) if (!palSet[s] && !slotInUse(s)) { setPal(s, c1, c2, c3); return s; }
+        throw new Overflow("팔레트 16칸 넘음(새 칸 " + Integer.toHexString(c1 & 0xFFF) + "," + Integer.toHexString(c2 & 0xFFF) + "," + Integer.toHexString(c3 & 0xFFF) + ")");
+    }
     /** 칸 표에 바깥 팔레트 번호(색 없음)로 이미 쓰인 칸 — pal() 이 새 색을 거기 주지 않게 */
     private boolean slotInUse(int s) {
         for (byte p : cpal) if (p == s) return true;

@@ -344,7 +344,7 @@ final class Cue {
     }
     /** 결판 대본 재료 — 창유리·팔레트·칸 번호는 장면이 정함(−1 = 그 op 안 넣음). 기본값 = 계약서 §10.4 권장 박자·자리.
      *  장면 규칙(미리보기에서 확인): ① 대본이 번쩍·회색으로 바꾸는 팔레트(palSeal·gaugePal/gaugeFlashPal·loserPals·palCrest)는 그것만 쓰는 칸 —
-     *  같은 색의 다른 글자와 나누면 같이 번쩍인다(TileCanvas.pal 은 같은 색을 한 칸으로 합치니 setPal 로 따로). ② 어떤 판에서만 나오는 창유리
+     *  같은 색의 다른 글자와 나누면 같이 번쩍인다(TileCanvas.pal 은 같은 색을 한 칸으로 합치니 palNew 로 따로). ② 어떤 판에서만 나오는 창유리
      *  (호명 띠 둘·승급 문장)는 바탕 상태에서 숨김(SHOW 가 드러냄) — 대본이 안 건드리면 바탕이 끝 상태다. */
     static final class ResultSpec extends Ambient {
         int fx = FX_NORMAL;              // FX_NORMAL «보통» · FX_SHORT «짧게»
