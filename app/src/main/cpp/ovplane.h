@@ -41,7 +41,7 @@
 #define OV_L_ROWS 128
 #define OV_PALS 16
 #define OV_QUADS 16             /* 층마다 */
-#define OV_PANES 8              /* 층마다 — 칸 사각형 묶음(밀기·보이기) */
+#define OV_PANES 16             /* 층마다 — 칸 사각형 묶음(밀기·보이기) */
 #define OV_FILLS 8              /* 층마다 — 채움 사각형(GAUGE) */
 #define OV_BASE_SLOTS 4
 #define OV_MAX_OPS 64

@@ -69,6 +69,8 @@ final class LeagueMenu {
     void openPause(MenuModel m, LgmPages.Scene pause, LgmPages.Scene confirm) { throw todo(); }
     /** 쉼을 못 엶(결판이 이미 남 등) — 멈춤만 풂 */
     void cancelPause() { throw todo(); }
+    /** 결판이 열린 채 패드 바 «목록/종료» — 칼집 안을 «그만할까요?»로(쉼이면 쉼 그대로) */
+    void openQuit() { throw todo(); }
     /** 서랍 쪽(순위·전적·설정)이 준비됨 — 지금 서랍이면 바꿔 끼움 */
     void showDrawer(int tab, LgmPages.Scene page) { throw todo(); }
     /** ◀▶ 뒤 새 무대 값 */
@@ -79,6 +81,8 @@ final class LeagueMenu {
     int feed(int in, long frameNanos) { throw todo(); }
     /** 게임 픽셀 좌표(0..159 × 0..151 — 칸 = >>3). EmuActivity 가 OVS_VX.. 로 뷰 좌표를 바꿔 넘긴다 */
     void onTouch(int x, int y, int action) { throw todo(); }
+    /** UI 스레드 — 게임 px 가 메뉴가 받을 자리인가(줄·탭·칼집·무대 줄, 세로 화면 쉼은 칼집 밖도). 장면이 바뀔 때 GL 스레드가 고친 불변 스냅숏을 읽는다 */
+    boolean hitTest(int x, int y) { throw todo(); }
     /** 안드로이드 뒤로 = B */
     void back() { throw todo(); }
     boolean isOpen() { throw todo(); }

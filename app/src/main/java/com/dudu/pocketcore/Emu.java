@@ -158,7 +158,7 @@ public final class Emu {
     public static native boolean nativeOvPal(int layer, int pal, int c1, int c2, int c3);
     /** 쿼드 idx(0..15) — x,y 층 px · tile 층 은행 절대 번호 · flags OV_Q_* (SHOW 없으면 숨김) */
     public static native boolean nativeOvQuad(int layer, int idx, int x, int y, int tile, int pal, int flags);
-    /** 창유리 idx(0..7) — 칸 사각형 (c0,r0)..(c1,r1)(포함)을 dx,dy px 밀어 그림 · visible false = 숨김 · c1 < c0 = 창유리 지움 */
+    /** 창유리 idx(0..15) — 칸 사각형 (c0,r0)..(c1,r1)(포함)을 dx,dy px 밀어 그림 · visible false = 숨김 · c1 < c0 = 창유리 지움 */
     public static native boolean nativeOvPane(int layer, int idx, int c0, int r0, int c1, int r1, int dx, int dy, boolean visible);
     /** 층 스크롤(x,y px) · 자르기 화면 줄 clipY0..clipY1(포함) */
     public static native boolean nativeOvScroll(int layer, int x, int y, int clipY0, int clipY1);
