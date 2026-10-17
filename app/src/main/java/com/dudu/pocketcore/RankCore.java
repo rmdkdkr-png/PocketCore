@@ -82,12 +82,12 @@ final class RankCore {
     static final class Knobs {
         int diff, lv, cap, floor, atk = MUL_ONE, dfn = MUL_ONE;
         /** 대략의 세기(DI = CPU 가 준 피해 ÷ 받은 피해 근사): 실측 ×1.0 모형 exp(0.523 + 0.0074·단계 + 0.0014·바닥) × (카드 몫까지 더한 공격 ÷ 받는 피해).
-         *  한 장(검질 따라 k0 이나 k1)은 두 검질 평균으로 */
+         *  ★ 카드(검질 따라 k0 이나 k1)는 두 검질 평균으로 */
         double strength() {
             double ea = (effAtk(0) + effAtk(1)) / 2.0, ed = (effDfn(0) + effDfn(1)) / 2.0;
             return (ea / ed) * Math.exp(0.523 + 0.0074 * lv + 0.0014 * floor);
         }
-        /** 이 손잡이로 CPU 가 끼는 카드(league.c 와 같은 규칙) — CARD_NONE · CARD_WEAK1 · CARD_STRONG2 */
+        /** 이 손잡이로 CPU 가 끼는 카드(league.c 와 같은 규칙) — CARD_NONE · CARD_WEAK1 · CARD_STAR3 */
         int cards() { return cpuCards(lv); }
         /** 경기 중 램에 실제로 서는 배율(바탕 + 카드 몫) — sty 0 수라 · 1 나찰 */
         int effAtk(int sty) { return RankCore.effAtk(atk, lv, sty); }
@@ -105,21 +105,23 @@ final class RankCore {
         { 1000, 4, 6, -1, 0x00D9, 0x0126 }, { 1100, 5, 7, -1, 0x00E6, 0x0119 }, { 1200, 7, 9, -1, 0x00F3, 0x010C }, { 1300, 8, 10, -1, 0x0100, 0x0100 },
         { 1400, 10, 12, -1, 0x010C, 0x00F3 }, { 1500, 11, 13, 2, 0x0119, 0x00E6 }, { 1650, 13, 15, 2, 0x0119, 0x00E6 }, { 1800, 15, 15, 0, 0x0119, 0x00E6 } };
     /** CPU 카드 — league.c 가 무장 때의 시작 단계(k_lv)로 가른다(이 문턱과 같아야 · JNI·.prac 덩어리 그대로):
-     *  단계 0~7 없음 · 8~9 약한 카드 한 장(수라 k1★ · 나찰 k0★) · 10~ 센 카드 두 장(k2·k3 — ★★★ 포함). 균형 상대면 대략 MMR 1250 · 1375 에서.
+     *  단계 0~7 없음 · 8~11 ★ 카드 한 장(수라 k1 · 나찰 k0) · 12~ 그 ★ 카드 + ★★★ 카드 한 장(수라 k2 · 나찰 k3). 균형 상대면 대략 MMR 1250 · 1538 에서.
      *  카드 몫(게임이 전투 준비 때 배율에 더하는 값 — 157b 부터 league.c 가 매 프레임 바탕 + 이 몫을 쓴다): k0 공격 +0x33 · 받는 피해 +0x0C ·
-     *  k1 −0x0C · −0x33 · k2·k3 0. 약한 카드 두 장(k0·k1 = +0x27/−0x27, 실측 DI ×1.4 안팎)은 랭크에서 안 쓴다 — 그 뒤 센 카드(몫 0)로 넘어가면
-     *  더 높은 티어가 오히려 약해지기 때문(실측 단계 14: 약한 두 장+몫 2.93 · 센 두 장 1.88). CARD_WEAK2 는 손잡이 없는 예전 리그(k0·k1)용 */
-    static final int CARD_NONE = 0, CARD_WEAK1 = 1, CARD_WEAK2 = 2, CARD_STRONG2 = 3;
-    static final int CARD_ONE_LV = 8, CARD_STRONG_LV = 10;
-    static int cpuCards(int lv) { return lv >= CARD_STRONG_LV ? CARD_STRONG2 : lv >= CARD_ONE_LV ? CARD_WEAK1 : CARD_NONE; }
+     *  k1 −0x0C · −0x33 · k2·k3 0. 157c(검토 지적 — 157b 는 단계 10 에서 ★ 한 장 → k2·k3 두 장으로 바뀌며 1375 에서 약 15% 꺼짐):
+     *  ① 위 칸도 ★ 카드를 그대로 낀다 — ★ 카드 몫과 효과가 1250 위로 끝까지 이어진다(세기 모형이 한 칸씩 줄지 않음).
+     *  ② ★★★ 는 단계 12 부터 — ★★★ 카드 자체(기술 스크립트 바꿈)가 단계 10~11 에선 CPU 를 약하게 했다(실측 ★ + ★★★: 1374 ★ 2.15 → 1375 1.84,
+     *     1500(단계 11·바닥 9) 에선 2.68 로 오히려 셈). 약한 두 장(k0·k1 = +0x27/−0x27)은 랭크에서 안 쓴다. CARD_WEAK2 는 손잡이 없는 예전 리그(k0·k1)용 */
+    static final int CARD_NONE = 0, CARD_WEAK1 = 1, CARD_WEAK2 = 2, CARD_STAR3 = 3;
+    static final int CARD_ONE_LV = 8, CARD_STRONG_LV = 12;
+    static int cpuCards(int lv) { return lv >= CARD_STRONG_LV ? CARD_STAR3 : lv >= CARD_ONE_LV ? CARD_WEAK1 : CARD_NONE; }
     /** 카드 한 장의 능력치 몫(k = 카드 번호 아래 두 비트) — 공격 배율 · 받는 피해 배율 */
     static final int[] CARD_DATK = { 0x33, -0x0C, 0, 0 }, CARD_DDFN = { 0x0C, -0x33, 0, 0 };
-    /** 카드 묶음 → 몫 합(한 장 = 수라 k1 · 나찰 k0) */
+    /** 카드 묶음 → 몫 합(★ 카드 = 수라 k1 · 나찰 k0 — ★ 한 장과 ★ + ★★★ 는 몫이 같다: ★★★(k2·k3)는 0) */
     static int cardDAtk(int cards, int sty) {
-        return cards == CARD_WEAK1 ? CARD_DATK[sty != 0 ? 0 : 1] : cards == CARD_WEAK2 ? CARD_DATK[0] + CARD_DATK[1] : 0;
+        return cards == CARD_WEAK1 || cards == CARD_STAR3 ? CARD_DATK[sty != 0 ? 0 : 1] : cards == CARD_WEAK2 ? CARD_DATK[0] + CARD_DATK[1] : 0;
     }
     static int cardDDfn(int cards, int sty) {
-        return cards == CARD_WEAK1 ? CARD_DDFN[sty != 0 ? 0 : 1] : cards == CARD_WEAK2 ? CARD_DDFN[0] + CARD_DDFN[1] : 0;
+        return cards == CARD_WEAK1 || cards == CARD_STAR3 ? CARD_DDFN[sty != 0 ? 0 : 1] : cards == CARD_WEAK2 ? CARD_DDFN[0] + CARD_DDFN[1] : 0;
     }
     /** league.c 와 같은 셈: clamp(clamp(바탕) + 몫(단계 → 카드)) — 정산 확인·기록이 이 값을 쓴다(156·157 이 연 경기도 이어 하면 이 값으로 싸운다) */
     static int effAtk(int atk, int lv, int sty) { return clamp(clamp(atk, MUL_MIN, MUL_MAX) + cardDAtk(cpuCards(clamp(lv, 0, 15)), sty), MUL_MIN, MUL_MAX); }

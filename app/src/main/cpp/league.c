@@ -66,8 +66,8 @@
 #define R_CCARD1 A(0x57E6)   /* CPU(P2) 카드 1 · 2 — 0xFF 없음 */
 #define R_CCARD2 A(0x57E7)
 /* 157b: 랭크 CPU 카드 문턱 — 무장 때 시작 단계(k_lv)로 가른다. RankCore.CARD_ONE_LV · CARD_STRONG_LV 와 같아야 */
-#define CC_ONE_LV    8       /* 8~9 약한 카드 한 장(수라 k1★ · 나찰 k0★ — 다른 칸 0xFF). 0~7 은 없음 */
-#define CC_STRONG_LV 10      /* 10~ 센 카드 두 장(k2·k3 — ★★★ 포함) */
+#define CC_ONE_LV    8       /* 8~11 ★ 카드 한 장(수라 k1 · 나찰 k0 — 다른 칸 0xFF). 0~7 은 없음 */
+#define CC_STRONG_LV 12      /* 12~ 그 ★ 카드 + ★★★ 한 장(수라 k2 · 나찰 k3). 157c: ★ 카드(몫·효과)가 위 칸에도 이어지게 · ★★★ 는 단계 10~11 에선 CPU 를 약하게 해서 12 부터(157b 10~ k2·k3 두 장은 1375 에서 세기가 꺼짐) */
 /* 카드 한 장의 능력치 몫(카드 번호 아래 두 비트 k) — 게임이 전투 준비 때 CPU 배율에 더하는 값(157 실측). RankCore.CARD_DATK · CARD_DDFN 과 같아야 */
 static const int16_t cc_datk[4] = { 0x33, -0x0C, 0, 0 };   /* 공격 배율 0x57E2 */
 static const int16_t cc_ddfn[4] = { 0x0C, -0x33, 0, 0 };   /* 받는 피해 배율 0x57E4 */
@@ -1353,13 +1353,13 @@ void league_tick_hub(uint8_t *ram, size_t n, int input)
    ram[R_STY] = (uint8_t)L.sty;
    int cda = 0, cdd = 0;                              /* 157b: CPU 카드 몫(공격·받는 피해 배율) — 랭크 손잡이 배율에 더함 */
    if (L.allcards) {                                  /* 리그 상대는 자기 캐릭터·검질 카드를 끼고 나온다. 게임이 전투 준비 때 이 칸으로 0x5D56/57 을 만든다.
-                                                         157b 랭크(손잡이 있음): 티어 따라 — 시작 단계 0~7 없음 · 8~9 약한 한 장 · 10~ 센 두 장(k2·k3).
+                                                         157b 랭크(손잡이 있음): 티어 따라 — 시작 단계 0~7 없음 · 8~11 ★ 한 장 · 12~ ★ + ★★★(157c).
                                                          카드의 능력치 몫은 아래 배율 쓰기에서 바탕 손잡이에 더한다(유저 «카드 배율까지 반영»).
                                                          손잡이 없는 예전 리그는 155 그대로: «어려움»이면 k2·k3, 아니면 k0·k1(원작 무한 대전 13~25 연승 k0/k1 · 26~ k2/k3 나눔).
                                                          L 에 칸을 늘리지 않는다(.prac 덩어리 크기) — 무장 값에서 셈 */
       int base = (L.opp << 4) | (L.sty << 3), c1, c2;
       if (L.k_lv < 0) { int k = L.diff >= 2 ? 2 : 0; c1 = base | k; c2 = base | (k + 1); }
-      else if (L.k_lv >= CC_STRONG_LV) { c1 = base | 2; c2 = base | 3; }
+      else if (L.k_lv >= CC_STRONG_LV) { c1 = base | (L.sty ? 0 : 1); c2 = base | (L.sty ? 3 : 2); }   /* ★ + ★★★: 수라 k1·k2 · 나찰 k0·k3 */
       else if (L.k_lv >= CC_ONE_LV) { c1 = base | (L.sty ? 0 : 1); c2 = 0xFF; }   /* ★ 하나 붙은 쪽: 수라 k1 · 나찰 k0 */
       else { c1 = 0xFF; c2 = 0xFF; }
       ram[R_CCARD1] = (uint8_t)c1; ram[R_CCARD2] = (uint8_t)c2;
