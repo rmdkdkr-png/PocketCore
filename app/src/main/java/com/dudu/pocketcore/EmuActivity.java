@@ -1522,7 +1522,9 @@ public class EmuActivity extends Activity {
         if (leagueStarted) { leagueLeave(); return; }           /* 그사이 첫 라운드가 시작됐다 — 점수가 걸렸으니 보통 나가기로 */
         if (!League.cancel(leagueId, "경기 시작 전에 사용자가 그만둠")) { toast("저장 실패 — 다시 시도하세요"); return; }
         toast("시작 전이라 무효로 닫았어요 — LP 그대로");
-        leagueDone = true; Emu.nativeLeagueDisarm(); leagueExit(leagueId);
+        leagueDone = true; Emu.nativeLeagueDisarm();
+        if (leagueHub) { hubReturn(-1); return; }               /* 게임 속 리그 — «무효» 결과 카드 없이 바로 타이틀(고르기 화면 뒤로와 같게 · 리그는 켠 채) */
+        leagueExit(leagueId);
     }
 
     /** 리그 화면으로 — 결과가 있으면 그 결과 창을 띄운다. 코어는 GL 스레드에서 내린다(goList 와 같은 이유, 내릴 때 native 가 무장도 푼다). */
@@ -2914,18 +2916,14 @@ public class EmuActivity extends Activity {
         h.post(new Runnable() { @Override public void run() { if (pad != null) pad.setLeagueCell(v); } });
     }
 
-    /** 칸을 눌렀다 — 못 쓰면 알림 · 오토세이브 꺼짐이면 한 번 묻기(지금 판은 안 이어진다 — 롬을 고친 판에선 타이틀인지 앱이 못 가린다) · 아니면 바로 */
+    /** 칸을 눌렀다 — 못 쓰면 알림 · 아니면 바로(157 post «들어가고 나오는 거 … '나가나요?' 같은 것 하지 않는다»: 오토세이브 꺼짐도 묻지 않고 —
+     *  목록으로 나갈 때처럼 지금 판은 안 이어진다는 것만 알림) */
     private void leagueFromGame() {
         if (ranked() || leaving || !loaded) return;
         League.db();
         if (League.dbProblem != null || League.writeProblem() != null) { toast("리그 기록을 쓸 수 없어요 — 저장소 권한을 확인해 주세요"); return; }
-        if (autoSave) { leagueGo(); return; }
-        Emu.nativeSetPaused(true);
-        ask("리그 대전으로", "자동 저장이 꺼져 있어서 지금 판은 이어지지 않아요. 갈까요?")
-                .btn("가기", new Runnable() { @Override public void run() { leagueGo(); } })
-                .btn("취소", null)
-                .onDismiss(new Runnable() { @Override public void run() { if (!leaving) Emu.nativeSetPaused(pad.isBarOpen() || (sheet != null && sheet.isShowing())); } })
-                .show();
+        if (!autoSave) toast("자동 저장이 꺼져 있어 지금 판은 이어지지 않아요");
+        leagueGo();
     }
     private void leagueGo() {
         if (hubBanner == null) addHubBanner();                          /* «리그 대전으로…» 띠 — 연습이 안 켜진 판엔 띠가 없다 */

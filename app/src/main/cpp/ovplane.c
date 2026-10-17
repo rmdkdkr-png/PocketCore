@@ -845,7 +845,7 @@ static void tag_eval_locked(double now)
    if (!live) g_tag_live = 0;
    else if (!g_tag_live) {                               /* 라운드 첫 조작 프레임(또는 경기 중에 켬) — 강조·펼침 처음부터, 지난 비켜 주기 잊음 */
       g_tag_live = 1; g_tag_t0 = now; g_tag_flash = 0; g_tag_rounds++;
-      for (int i = 0; i < OV_TAG_SIDES; i++) g_tag[i].last_occ = -1e9;
+      for (int i = 0; i < OV_TAG_SIDES; i++) { g_tag[i].last_occ = -1e9; g_tag[i].occ = 0; }
    }
    int f = g_tag_live ? (int)floor((now - g_tag_t0) * 60.0 + 1e-6) : 0;
    if (f < 0) f = 0;
@@ -854,7 +854,8 @@ static void tag_eval_locked(double now)
    for (int i = 0; i < OV_TAG_SIDES; i++) {
       ovtag_t *T = &g_tag[i];
       int was = T->vis;
-      T->vis = T->on && g_tag_live && !g_tag_flash && (now - T->last_occ) * 60.0 >= OV_TAG_CLEAR_F - 1e-6;
+      /* !occ — 지금 화면의 게임 그림(마지막 살핌)에 그 자리가 비었다: 멈춘 그림(쉼 · 새 그림 없음)에 히트 수가 남아 있으면 시간이 지나도 안 덮는다 */
+      T->vis = T->on && g_tag_live && !g_tag_flash && !T->occ && (now - T->last_occ) * 60.0 >= OV_TAG_CLEAR_F - 1e-6;
       if (was && !T->vis && T->occ && !g_tag_flash) g_tag_yields++;
       T->reveal = f >= OV_TAG_REVEAL_F - 1 ? T->w : T->w * (f + 1) / OV_TAG_REVEAL_F;
       for (int k = 0; k < 3; k++) {
