@@ -342,7 +342,10 @@ final class Cue {
         int palSel = -1, selIdx = 2, selA = 0x7DF, selB = 0x5BE;   // SEL 칠 2(금 단도 7DF ↔ 금 5BE) · 주기 12
         int quadCursor = -1;                                      // 단도 쿼드(W)
     }
-    /** 결판 대본 재료 — 창유리·팔레트·칸 번호는 장면이 정함(−1 = 그 op 안 넣음). 기본값 = 계약서 §10.4 권장 박자·자리 */
+    /** 결판 대본 재료 — 창유리·팔레트·칸 번호는 장면이 정함(−1 = 그 op 안 넣음). 기본값 = 계약서 §10.4 권장 박자·자리.
+     *  장면 규칙(미리보기에서 확인): ① 대본이 번쩍·회색으로 바꾸는 팔레트(palSeal·gaugePal/gaugeFlashPal·loserPals·palCrest)는 그것만 쓰는 칸 —
+     *  같은 색의 다른 글자와 나누면 같이 번쩍인다(TileCanvas.pal 은 같은 색을 한 칸으로 합치니 setPal 로 따로). ② 어떤 판에서만 나오는 창유리
+     *  (호명 띠 둘·승급 문장)는 바탕 상태에서 숨김(SHOW 가 드러냄) — 대본이 안 건드리면 바탕이 끝 상태다. */
     static final class ResultSpec extends Ambient {
         int fx = FX_NORMAL;              // FX_NORMAL «보통» · FX_SHORT «짧게»
         boolean eventful;                // 일섬(★ 올라감·승급·무쌍 달성·설욕) — «보통»에서만
@@ -357,8 +360,10 @@ final class Cue {
         int[][] loserBright = null;      // 그 팔레트의 처음 색 {c1,c2,c3}(null = 바탕 팔레트 그대로 두고 회색만)
         int[] loserDim = { 0x888, 0x444, 0x000 };                   // B_DIM
         int paneSheath = -1, sheathFrom = 72;
+        int[] paneBottom = {};           // 아래 띠(r17–18, 도장 빼고 — 사각형 여럿) — 칼집과 같이 보임(목업 스토리보드 ④)
         int countFrames = 0, countDstC, countDstR, countW, countH, countSrcC, countSrcR, countStepC, countStepR;   // LP 숫자(창고 칸 프레임)
         int gaugeSlot = -1, gaugePal, gaugeColor = 2, gaugeX, gaugeY, gaugeH = 4, gaugeFrom, gaugeTo, gaugeFull;  // 막대(층 px)
+        int gaugeHiSlot = -1, gaugeHiColor = 1;                     // 막대 윗빛 줄(목업 gauge 의 찬 몫 첫 줄 = 칠 1) — 같은 폭으로 1px 높이
         int gaugeFlashPal = -1, gaugeFlashIdx = 2, gaugeFlashA = 0x5BE, gaugeFlashB = 0xFFF;                   // ★ 문턱 번쩍
         int tailSlot = -1, tailPal, tailColor = 1;                  // 진 판 꼬리 — 막대 x+gaugeTo 에서 폭 gaugeFrom−gaugeTo → 0
         int[] paneTags = {};             // 아래 띠 도장(왼→오)
@@ -387,25 +392,26 @@ final class Cue {
         }
         int tK = nm ? e + 6 : 2, dK = nm ? SHEATH_IN : SHEATH_IN_SHORT;
         if (s.paneSheath >= 0) q.sheathIn(tK, dK, W, s.paneSheath, s.sheathFrom);
+        for (int p : s.paneBottom) if (p >= 0) q.show(tK, W, p, true);
         int ready = tK + dK;
         // LP: 숫자(COUNT) · 막대(GAUGE) · ★ 문턱 · 진 판 꼬리
         int tL = nm ? e + 10 : 6, dL = nm ? LP_COUNT : LP_COUNT_SHORT, lpEnd = tL + dL;
         if (s.gaugeSlot >= 0) {
             if (s.starUp) {
                 int d1 = dL / 2, d2 = dL - d1, fl = nm && s.gaugeFlashPal >= 0 ? STAR_FLASH : 0;
-                q.gauge(tL, d1, W, s.gaugeSlot, s.gaugePal, s.gaugeColor, s.gaugeX, s.gaugeY, s.gaugeH, s.gaugeFrom, s.gaugeFull, EASE_LINEAR);
+                q.lpGauge(s, tL, d1, s.gaugeFrom, s.gaugeFull, true);
                 if (fl > 0) q.palCycle(tL + d1, fl, W, s.gaugeFlashPal, s.gaugeFlashIdx, s.gaugeFlashA, s.gaugeFlashB, STAR_FLASH_PERIOD, true);
-                q.gauge(tL + d1 + fl, d2, W, s.gaugeSlot, s.gaugePal, s.gaugeColor, s.gaugeX, s.gaugeY, s.gaugeH, 0, s.gaugeTo, EASE_LINEAR);
+                q.lpGauge(s, tL + d1 + fl, d2, 0, s.gaugeTo, true);
                 lpEnd = tL + d1 + fl + d2;
             } else if (s.loss) {
-                q.gauge(tL, 0, W, s.gaugeSlot, s.gaugePal, s.gaugeColor, s.gaugeX, s.gaugeY, s.gaugeH, s.gaugeTo, s.gaugeTo, EASE_LINEAR);
+                q.lpGauge(s, tL, 0, s.gaugeTo, s.gaugeTo, false);
                 if (s.tailSlot >= 0 && s.gaugeFrom > s.gaugeTo) {
                     int tt = tL + (nm ? TAIL_HOLD : 6), dt = nm ? TAIL_SHRINK : 4;
                     q.gauge(tt, dt, W, s.tailSlot, s.tailPal, s.tailColor, s.gaugeX + s.gaugeTo, s.gaugeY, s.gaugeH, s.gaugeFrom - s.gaugeTo, 0, EASE_IN);
                     lpEnd = Math.max(lpEnd, tt + dt);
                 }
             } else {
-                q.gauge(tL, dL, W, s.gaugeSlot, s.gaugePal, s.gaugeColor, s.gaugeX, s.gaugeY, s.gaugeH, s.gaugeFrom, s.gaugeTo, EASE_LINEAR);
+                q.lpGauge(s, tL, dL, s.gaugeFrom, s.gaugeTo, true);
             }
         }
         if (s.countFrames > 0)
@@ -423,6 +429,12 @@ final class Cue {
         }
         q.ambient(ready, s.palSel, s.selIdx, s.selA, s.selB, s.quadCursor);
         return new Plan(q, ready);
+    }
+    /** 막대 한 몫(본 채움 + 윗빛 줄) — 진 판은 윗빛 없음(목업 gauge tail_to: 찬 몫 첫 줄도 금) */
+    private Cue lpGauge(ResultSpec s, int t0, int dur, int wFrom, int wTo, boolean hi) {
+        gauge(t0, dur, W, s.gaugeSlot, s.gaugePal, s.gaugeColor, s.gaugeX, s.gaugeY, s.gaugeH, wFrom, wTo, EASE_LINEAR);
+        if (hi && s.gaugeHiSlot >= 0) gauge(t0, dur, W, s.gaugeHiSlot, s.gaugePal, s.gaugeHiColor, s.gaugeX, s.gaugeY, 1, wFrom, wTo, EASE_LINEAR);
+        return this;
     }
     /** 쉼 재료 */
     static final class PauseSpec extends Ambient {

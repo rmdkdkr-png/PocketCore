@@ -295,6 +295,19 @@ final class TileCanvas {
         }
     }
 
+    /** 다른 캔버스의 칸 사각형(c0,r0..c1,r1 포함)을 칸 (dc,dr) 자리로 — 칠·칸 팔레트·그 칸들이 쓰는 팔레트 색(같은 번호로 덮어씀).
+     *  쓰임: 결판↔그만할까요? 칼 휘두름 밑에 옛 칼집을 L 층으로 깔기 · 창고 칸(COUNT 프레임) 만들기 */
+    void copyFrom(TileCanvas src, int c0, int r0, int c1, int r1, int dc, int dr) {
+        for (int r = r0; r <= r1; r++) for (int c = c0; c <= c1; c++) {
+            int tc = dc + c - c0, tr = dr + r - r0;
+            if (tc < 0 || tr < 0 || tc >= cols || tr >= rows) continue;
+            for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) px(tc * 8 + x, tr * 8 + y, src.get(c * 8 + x, r * 8 + y));
+            int p = src.cellPalAt(c, r);
+            cpal[tr * cols + tc] = (byte) p;
+            if (p >= 0 && src.palSet[p]) setPal(p, src.palC[p * 3], src.palC[p * 3 + 1], src.palC[p * 3 + 2]);
+        }
+    }
+
     /* ── 인코딩 ── */
     /** 캔버스 전체 — flipDedupe = H/V/HV 뒤집기로 같은 타일을 하나로(RankVs 는 false) · strict = 팔레트 없는 칸에 0 아닌(바탕 칠과 다른) 픽셀이면 Overflow ·
      *  maxTiles ≤ 511(덧판 한 묶음) · 팔레트 없는 칸 = 0xFFFF */
