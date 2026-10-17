@@ -115,7 +115,7 @@ final class LeagueMenu {
     /* OPTION 탭 */
     private boolean optDown, optPass, optCombo; private long optT0;
     /* 기다림 */
-    private long pendT0, busyT0; private boolean busy;
+    private long pendT0, busyT0; private boolean busy, pendFresh;
     /* 닫기 연출 뒤 할 일 */
     private long closeAt; private Runnable afterClose;
     /* 연속 대전 */
@@ -174,6 +174,14 @@ final class LeagueMenu {
         st = ST_PAUSE; capture = true;
         updateHit();
     }
+    /** 뒤로·패드 바 «목록/종료»(랭크 경기 중) — OPTION 탭과 같은 길: 이 vsync 부터 코어를 멈추고 UI 에 쉼 사본을 청함 */
+    void requestPause() {
+        if (st != ST_CLOSED) return;
+        ov.hold(true);
+        st = ST_PAUSE_PENDING; pendFresh = true; optDown = false;
+        updateHit();
+        post(act::lgmWantPause);
+    }
     /** 쉼을 못 엶(결판이 이미 남 등) — 멈춤만 풂 */
     void cancelPause() {
         if (st != ST_PAUSE_PENDING) return;
@@ -230,6 +238,7 @@ final class LeagueMenu {
         }
         if (s == ST_PAUSE_PENDING) {
             prev = in;
+            if (pendFresh) { pendT0 = now; pendFresh = false; }
             if (now - pendT0 > PENDING_MAX) cancelPause();
             return 0;
         }
@@ -373,7 +382,7 @@ final class LeagueMenu {
             optDown = false;
             if (!optPass && !optCombo && now - optT0 <= OPT_TAP_MAX) {
                 ov.hold(true);                                         /* 이 vsync 부터 코어 0 프레임 */
-                st = ST_PAUSE_PENDING; pendT0 = now;
+                st = ST_PAUSE_PENDING; pendT0 = now; pendFresh = false;
                 updateHit();
                 post(act::lgmWantPause);
                 return 0;
