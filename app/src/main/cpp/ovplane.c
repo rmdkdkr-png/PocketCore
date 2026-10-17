@@ -926,7 +926,7 @@ static inline uint32_t mix_white(uint32_t c, int k)    /* c + ((255−c)·k)/16 
 /* 줄마다 «바탕 처리» 사본(줄 밀기·바탕 칸·흰 번쩍) — 지난 합성과 같고 층 그림 줄(g_ovl)도 같으면 그 줄은 다시 만들지도 올리지도 않는다.
    쉬는 메뉴(고른 줄 일렁임·단도 까딱만 도는 결판·쉼·서랍)에서 바뀐 줄만 합성하고, gl_draw 는 그 줄 범위(ov_compose_span)만 올린다 */
 typedef struct { int dx, white, n; int m[OV_BASE_SLOTS], k[OV_BASE_SLOTS]; uint32_t c[OV_BASE_SLOTS]; } ovrow_t;
-static ovrow_t   g_rd[OV_GAME_H], g_prd[OV_GAME_H];
+static ovrow_t   g_rowd[OV_GAME_H], g_prowd[OV_GAME_H];
 static uint32_t  g_povl[OV_GAME_H][OV_GAME_W];  /* 지난 합성의 층 그림 */
 static int       g_prev_ok, g_prev_shake;
 static uint32_t *g_row;                         /* 한 줄 만들 자리(w 픽셀) */
@@ -943,7 +943,7 @@ static void build_row(uint32_t *dst, const uint32_t *S, unsigned w, int oy, int 
    uint32_t *g = dst + x0;
    if (py < 0 || py >= H) { for (int i = 0; i < GW; i++) g[i] = BLACK; return; }
    const uint32_t *sr = S + (size_t)(y0 + py) * w + (size_t)x0;
-   const ovrow_t *r = &g_rd[py / sub];
+   const ovrow_t *r = &g_rowd[py / sub];
    /* 1. 바탕 줄 밀기 */
    if (r->dx) {
       int DX = r->dx * sub;
@@ -1011,7 +1011,7 @@ static void compose_locked(const uint8_t *src, unsigned w, unsigned h, int x0, i
       if (m == OV_BASE_FILL || m == OV_BASE_FILLUP) { fc[k] = ov_rgb(b->color); kk[k] = 0; }
    }
    for (int gy = 0; gy < OV_GAME_H; gy++) {
-      ovrow_t *r = &g_rd[gy];
+      ovrow_t *r = &g_rowd[gy];
       memset(r, 0, sizeof *r);
       int dx = E.s.bgx[gy];
       for (int k = 0; k < OV_BASE_SLOTS; k++) {
@@ -1033,12 +1033,12 @@ static void compose_locked(const uint8_t *src, unsigned w, unsigned h, int x0, i
       for (int oy = 0; oy < (int)h; oy++) ROW(oy);
    } else {
       for (int gy = 0; gy < OV_GAME_H; gy++) {
-         if (!memcmp(&g_rd[gy], &g_prd[gy], sizeof(ovrow_t)) && !memcmp(g_ovl[gy], g_povl[gy], sizeof g_ovl[gy])) continue;
+         if (!memcmp(&g_rowd[gy], &g_prowd[gy], sizeof(ovrow_t)) && !memcmp(g_ovl[gy], g_povl[gy], sizeof g_ovl[gy])) continue;
          for (int j = 0; j < sub; j++) ROW(y0 + gy * sub + j);
       }
    }
 #undef ROW
-   memcpy(g_prd, g_rd, sizeof g_rd);
+   memcpy(g_prowd, g_rowd, sizeof g_rowd);
    memcpy(g_povl, g_ovl, sizeof g_ovl);
    g_prev_shake = E.shake; g_prev_ok = 1;
    g_span0 = hi >= 0 ? lo : 0; g_span1 = hi;
