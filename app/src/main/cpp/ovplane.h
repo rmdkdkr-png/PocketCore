@@ -166,14 +166,18 @@ void ov_status(int v[OV_NSTAT]);                                                
 /* ── native.c 연결 ── */
 int  ov_hold(void);                  /* pace_steps 멈춤 조건에 || — 잠금 없이 */
 int  ov_in_block(void);              /* 입력 콜백 blk 에 | — 막기 비트 | (보임·멈춤이면 0xFFF) · 잠금 없이 */
-void ov_tick(double now_s, int latch);   /* nativeFrame: 스텝 루프 뒤 · gl_draw 앞(스텝 0 이어도). 걸기·시작·t 계산(t = floor((now−start)·60 + 1e−6)) */
+void ov_tick(double now_s, int latch);   /* nativeFrame: 스텝 루프 뒤 · gl_draw 앞(스텝 0 이어도). 걸기·시작·t 계산(t = floor((now−start)·60 + 1e−6)).
+                                            지난 tick 과 0.25초 넘게 벌어지면(앱이 내려가 있었음) 그 틈만큼 시작 시각을 미뤄 t 는 멈춘 데서 이어진다 */
 int  ov_active(void);                /* 보이는 중 — gl_draw 가 합성할지 */
 /* 게임 사각형(160×152) 찾기 — gl_draw 의 sub 판정과 같은 규칙. 1 = 찾음 */
 int  ov_find_rect(unsigned fbw, unsigned fbh, int *x0, int *y0, int *sub);
 /* src(RGBA8888, w×h — 잔상 뒤 그림)에 덧판을 합성한 버퍼(같은 크기, ovplane 소유)를 돌려준다.
    src_changed = src 내용이 지난번과 다를 수 있음(g_fb 새 프레임·잔상 켬) — 0 이고 덧판도 그대로면 다시 합성하지 않는다.
-   *changed = 지난번에 돌려준 것과 다르면 1(올려야 함). NULL = 합성 안 함(사각형 실패 등 — 그때는 src 를 그대로 그린다) */
+   *changed = 지난번에 돌려준 것과 픽셀이 다르면 1(올려야 함 — 다른 줄 범위는 ov_compose_span). NULL = 합성 안 함(사각형 실패 등 — 그때는 src 를 그대로 그린다) */
 const uint8_t *ov_compose(const uint8_t *src, unsigned w, unsigned h, int src_changed, int *changed);
+/* 마지막 ov_compose 가 바꾼 그림 줄 범위(포함 · 그림 픽셀 줄) — gl_draw 는 이 줄만 다시 올린다(glTexSubImage2D yoffset).
+   바뀐 줄을 줄마다 견주므로 쉬는 메뉴(일렁임·까딱)는 몇 줄만, 같은 그림이면 *changed 0. 바뀐 것이 없으면 *y1 < *y0 */
+void ov_compose_span(int *y0, int *y1);
 /* gl_draw 가 정한 뷰포트(glViewport 값, 아래 원점)·뷰 높이·그림 크기 — 상태의 OVS_VX.. 계산 */
 void ov_viewport(int vp_x, int vp_y, int vp_w, int vp_h, int view_h, unsigned fbw, unsigned fbh);
 /* 상태용 게임 램(시스템 램 16KB, CPU 0x4000~) — nativeFrame 이 포인터만(NULL = 모름) */

@@ -674,8 +674,14 @@ static void gl_draw(void)
       if (g_tex_ov_w != iw || g_tex_ov_h != ih) {
          glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, ob);
          g_tex_ov_w = iw; g_tex_ov_h = ih;
-      } else if (ch)
-         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, iw, ih, GL_RGBA, GL_UNSIGNED_BYTE, ob);
+      } else if (ch) {           /* 바뀐 줄 범위만(쉬는 메뉴의 일렁임·까딱은 몇 줄 — 4배 한 장 1.5MB 를 vsync 마다 올리지 않게) */
+         int sy0 = 0, sy1 = (int)ih - 1;
+         ov_compose_span(&sy0, &sy1);
+         if (sy0 < 0) sy0 = 0;
+         if (sy1 > (int)ih - 1) sy1 = (int)ih - 1;
+         if (sy1 >= sy0)
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, sy0, iw, sy1 - sy0 + 1, GL_RGBA, GL_UNSIGNED_BYTE, ob + (size_t)sy0 * iw * 4);
+      }
       tex = g_tex_ov;
    } else if (ghost) {            /* 잔상 그림은 따로 올린다(덧판이 그리면 그 안에 이미 들어 있어 안 올림) */
       glBindTexture(GL_TEXTURE_2D, g_tex_gh);

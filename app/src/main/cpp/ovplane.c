@@ -120,6 +120,8 @@ static int       g_cue_end = -1, g_cue_id;
 static int       g_visible, g_shown, g_dirty = 1;
 static volatile int g_hold, g_block, g_inblk;
 static int       g_starts, g_composites, g_latch;
+static double    g_last_now = -1.0;            /* 지난 ov_tick 시각 — 긴 틈(앱이 내려감)이면 대본 시계를 멈춘다 */
+#define OV_GAP_S 0.25                          /* pace_steps 의 «긴 틈»과 같은 문턱 */
 static int       g_rect_ok, g_rx, g_ry, g_sub = 1, g_fbw, g_fbh, g_vx, g_vy, g_vw, g_vh;
 static const uint8_t *g_ram;
 static size_t    g_ramn;
@@ -331,6 +333,31 @@ static int nib_mix(int A, int B, int64_t w)
    return out;
 }
 
+/* 잠깐 op 의 값(f = t − t0 ≥ 0) — 합성(apply_transient)과 «다시 합성할까»(cue_changes)가 같은 셈을 쓴다 */
+static int palcycle_col(const ovop_t *o, int f)
+{
+   int P = o->d, A = o->b & 0xFFF, B = o->c & 0xFFF;
+   if ((o->a >> 12) & 1) return ((f / (P / 2 > 1 ? P / 2 : 1)) % 2 == 0) ? A : B;
+   int p = f % P, tri = p < P / 2 ? p : P - p;
+   return nib_mix(A, B, (int64_t)tri * 2 * 65536 / P);
+}
+static int bob_v(const ovop_t *o, int f)
+{
+   int half = o->c / 2 > 1 ? o->c / 2 : 1;
+   return ((f / half) % 2) ? o->b : 0;
+}
+/* 늘 도는(dur < 0) 잠깐 op 가 f 에 그리는 것의 열쇠 — 열쇠가 같으면 그림도 같다(쉬는 메뉴가 vsync 마다 다시 합성·1.5MB 올림을 안 하게) */
+static int ambient_key(const ovop_t *o, int f)
+{
+   switch (o->op) {
+   case OV_OP_PALCYCLE: return palcycle_col(o, f);
+   case OV_OP_BOB:      return bob_v(o, f);
+   case OV_OP_STAMP:    return (f < o->b ? 1 : 0) | ((o->c && (f & 1)) ? 2 : 0);   /* 번쩍 · 흔들림 방향 */
+   case OV_OP_FLASH:    return f < 10 ? f : 10;                                       /* f ≥ 10 은 아무것도 안 그림 */
+   default:             return 0;
+   }
+}
+
 static void apply_transient(oveff_t *E, const ovop_t *o, int t)
 {
    int a = o->a, ly = a & 15, f = t - o->t0;
@@ -339,19 +366,12 @@ static void apply_transient(oveff_t *E, const ovop_t *o, int t)
       if (f < o->b) { uint16_t *p = E->s.l[ly].pal[(a >> 4) & 15]; p[1] = p[2] = p[3] = (uint16_t)(o->d & 0xFFF); }
       if (o->dur < 0 || f < o->dur) E->shake = (f & 1) ? -o->c : o->c;
       break;
-   case OV_OP_PALCYCLE: {
-      int P = o->d, A = o->b & 0xFFF, B = o->c & 0xFFF, col;
-      if ((a >> 12) & 1) col = ((f / (P / 2 > 1 ? P / 2 : 1)) % 2 == 0) ? A : B;
-      else {
-         int p = f % P, tri = p < P / 2 ? p : P - p;
-         col = nib_mix(A, B, (int64_t)tri * 2 * 65536 / P);
-      }
-      E->s.l[ly].pal[(a >> 4) & 15][(a >> 10) & 3] = (uint16_t)col;
+   case OV_OP_PALCYCLE:
+      E->s.l[ly].pal[(a >> 4) & 15][(a >> 10) & 3] = (uint16_t)palcycle_col(o, f);
       break;
-   }
    case OV_OP_FLASH: E->ff = f; E->fy = o->b; E->fc = o->c & 0xFFF; E->fd = o->d & 0xFFF; break;
    case OV_OP_BOB: {
-      int half = o->c / 2 > 1 ? o->c / 2 : 1, v = ((f / half) % 2) ? o->b : 0, q = (a >> 4) & 15;
+      int v = bob_v(o, f), q = (a >> 4) & 15;
       if ((a >> 10) & 1) E->qdy[ly][q] = v; else E->qdx[ly][q] = v;
       break;
    }
@@ -444,16 +464,21 @@ static void map_write_guard_locked(int ly, int c0, int r0, int c1, int r1)
       if (f->w > 0 && cx >= c0 && cx <= c1 && cy >= r0 && cy <= r1) f->w = 0;
    }
 }
-/* 시각 t_prev → t 사이에 유효 상태가 바뀌었을 수 있나(다시 합성할지) */
+/* 시각 tp → t 사이에 유효 상태가 바뀌었나(다시 합성할지). 늘 도는 잠깐 op(고른 줄 일렁임·단도 까딱)는 값이 실제로 바뀔 때만 —
+   예전엔 늘 도는 op 가 있으면 t 가 바뀔 때마다 «바뀜»이라 쉬는 메뉴가 60Hz 로 4배 그림 전체를 다시 합성·올렸다.
+   물결 줄 밀기(ROWSHIFT 모양 2)는 위상이 t 로 돌므로(폭이 0 이 아니면) 늘 바뀜으로 본다 */
 static int cue_changes(int tp, int t)
 {
    for (int i = 0; i < g_nops; i++) {
       const ovop_t *o = &g_ops[i];
-      int lo = o->t0, hi;
+      if (o->op == OV_OP_ROWSHIFT && ((o->a >> 10) & 3) == 2 && (o->c || o->d)) return 1;
       if (o->dur < 0) {
-         hi = (op_transient(o->op) || (o->op == OV_OP_ROWSHIFT && ((o->a >> 10) & 3) == 2)) ? 0x7FFFFFFF : o->t0;
-      } else hi = op_stop(o);
-      if (lo <= t && hi > tp) return 1;
+         if (t < o->t0) continue;                                  /* 아직 시작 전(앞 단계 값 그대로) */
+         if (tp < o->t0) return 1;                                  /* 이번에 시작 */
+         if (op_transient(o->op) && ambient_key(o, tp - o->t0) != ambient_key(o, t - o->t0)) return 1;
+         continue;
+      }
+      if (o->t0 <= t && op_stop(o) > tp) return 1;
    }
    return 0;
 }
@@ -720,6 +745,8 @@ void ov_tick(double now_s, int latch)
 {
    LOCK();
    ensure_init();
+   double gap = g_last_now >= 0.0 ? now_s - g_last_now : 0.0;
+   g_last_now = now_s;
    g_latch = latch;
    if (g_cue_on) {
       if (g_pending || (g_armed && latch)) {               /* 시작 — 걸어 둔 것은 걸쇠 레벨(이미 서 있어도) */
@@ -729,6 +756,9 @@ void ov_tick(double now_s, int latch)
          g_visible = 1; g_shown = 0; g_starts++; g_dirty = 1;
          update_inblk();
       } else if (g_started) {
+         /* 앱이 내려가 있던 동안(nativeFrame 이 안 불림 — 단조 시계는 그래도 감) 대본 시계는 멈춘다: 돌아온 첫 tick 은 멈춘 데서 이어서.
+            (안 그러면 «연속 대전» 10초가 밖에 나가 있던 동안 다 타서, 돌아오자마자 다음 상대로 넘어갔다 — 153 찾기 겹창 시계도 선다) */
+         if (gap > OV_GAP_S) g_t0s += gap;
          int raw = (int)floor((now_s - g_t0s) * 60.0 + TEPS), t = raw + g_toff;
          if (g_skip_pending) {                                /* 건너뛰기: 이 vsync 의 t 를 끝으로 — 그 뒤는 끝부터 이어서 */
             if (t < g_cue_end) { g_toff += g_cue_end - t; t = g_cue_end; }
@@ -893,65 +923,65 @@ static inline uint32_t mix_white(uint32_t c, int k)    /* c + ((255−c)·k)/16 
    return BLACK | (b << 16) | (g << 8) | r;
 }
 
-static void compose_locked(const uint8_t *src, unsigned w, unsigned h, int x0, int y0, int sub)
+/* 줄마다 «바탕 처리» 사본(줄 밀기·바탕 칸·흰 번쩍) — 지난 합성과 같고 층 그림 줄(g_ovl)도 같으면 그 줄은 다시 만들지도 올리지도 않는다.
+   쉬는 메뉴(고른 줄 일렁임·단도 까딱만 도는 결판·쉼·서랍)에서 바뀐 줄만 합성하고, gl_draw 는 그 줄 범위(ov_compose_span)만 올린다 */
+typedef struct { int dx, white, n; int m[OV_BASE_SLOTS], k[OV_BASE_SLOTS]; uint32_t c[OV_BASE_SLOTS]; } ovrow_t;
+static ovrow_t   g_rd[OV_GAME_H], g_prd[OV_GAME_H];
+static uint32_t  g_povl[OV_GAME_H][OV_GAME_W];  /* 지난 합성의 층 그림 */
+static int       g_prev_ok, g_prev_shake;
+static uint32_t *g_row;                         /* 한 줄 만들 자리(w 픽셀) */
+static size_t    g_rowcap;
+static int       g_span0 = 0, g_span1 = -1;     /* 마지막 합성이 바꾼 그림 줄(포함) — 없으면 span1 < span0 */
+
+/* 그림 줄 oy 하나를 dst(w 픽셀)에 — 흔들림(shake)은 게임 사각형 안 줄을 옮겨 오고, 빈 줄은 검정 */
+static void build_row(uint32_t *dst, const uint32_t *S, unsigned w, int oy, int x0, int y0, int sub, int shake)
+{
+   memcpy(dst, S + (size_t)oy * w, (size_t)w * 4);
+   int GW = OV_GAME_W * sub, H = OV_GAME_H * sub, y = oy - y0;
+   if (y < 0 || y >= H) return;                          /* 게임 사각형 밖(위 띠) — 그림 그대로 */
+   int py = y - shake * sub;
+   uint32_t *g = dst + x0;
+   if (py < 0 || py >= H) { for (int i = 0; i < GW; i++) g[i] = BLACK; return; }
+   const uint32_t *sr = S + (size_t)(y0 + py) * w + (size_t)x0;
+   const ovrow_t *r = &g_rd[py / sub];
+   /* 1. 바탕 줄 밀기 */
+   if (r->dx) {
+      int DX = r->dx * sub;
+      for (int i = 0; i < GW; i++) { int si = i - DX; g[i] = (si >= 0 && si < GW) ? sr[si] : BLACK; }
+   } else if (py != y) memcpy(g, sr, (size_t)GW * 4);
+   /* 2. 바탕 칸 0→3 · 일섬 흰 번쩍 */
+   for (int n = 0; n < r->n; n++) {
+      int m = r->m[n], kk = r->k[n];
+      if (m == OV_BASE_DIM) {
+         const uint8_t *d5 = g_dim5[kk], *d6 = g_dim6[kk];
+         for (int i = 0; i < GW; i++) {
+            uint32_t c = g[i];
+            g[i] = BLACK | ((uint32_t)d5[(c >> 16) & 0xFF] << 16) | ((uint32_t)d6[(c >> 8) & 0xFF] << 8) | d5[c & 0xFF];
+         }
+      } else if (m == OV_BASE_FLASH) {
+         for (int i = 0; i < GW; i++) g[i] = mix_white(g[i], kk);
+      } else { uint32_t fc = r->c[n]; for (int i = 0; i < GW; i++) g[i] = fc; }
+   }
+   if (r->white) for (int i = 0; i < GW; i++) g[i] = mix_white(g[i], 9);
+   /* 3·4·5. 층 그림 */
+   const uint32_t *ol = g_ovl[py / sub];
+   for (int gx = 0; gx < OV_GAME_W; gx++) {
+      uint32_t c = ol[gx];
+      if (!c) continue;
+      for (int i = 0; i < sub; i++) g[gx * sub + i] = c;
+   }
+}
+
+/* full = 그림(src)이 바뀌었을 수 있음 — 모든 줄을 다시 만들고 지난 결과와 견줌. fresh = g_out 이 아직 쓸모없음(처음·크기 바뀜) — 견주지 않고 다 바뀜 */
+static void compose_locked(const uint8_t *src, unsigned w, unsigned h, int x0, int y0, int sub, int full, int fresh)
 {
    static oveff_t E;
    eval_locked(&E);
    const uint32_t *S = (const uint32_t *)src;
    uint32_t *O = g_out;
-   int GW = OV_GAME_W * sub;
-   memcpy(O, src, (size_t)w * h * 4);
+   size_t rowb = (size_t)w * 4;
 
-   /* 1. 바탕 줄 밀기 — 나중 것이 이김: 줄 표(ROWSHIFT 바탕) → 바탕 칸 SHIFT → 일섬 베기 */
-   for (int gy = 0; gy < OV_GAME_H; gy++) {
-      int dx = E.s.bgx[gy];
-      for (int k = 0; k < OV_BASE_SLOTS; k++) {
-         const ovbslot_t *b = &E.s.base[k];
-         if (b->mode == OV_BASE_SHIFT && gy >= b->y0 && gy <= b->y1) dx = b->arg;
-      }
-      if (E.ff >= 6 && E.ff <= 9) dx = gy < E.fy ? -4 : 4;
-      if (!dx) continue;
-      int DX = dx * sub;
-      for (int j = 0; j < sub; j++) {
-         size_t row = (size_t)(y0 + gy * sub + j) * w + (size_t)x0;
-         const uint32_t *sr = S + row;
-         uint32_t *orow = O + row;
-         for (int i = 0; i < GW; i++) { int si = i - DX; orow[i] = (si >= 0 && si < GW) ? sr[si] : BLACK; }
-      }
-   }
-   /* 2. 바탕 칸 0→3 · 일섬 흰 번쩍 */
-   for (int k = 0; k < OV_BASE_SLOTS; k++) {
-      const ovbslot_t *b = &E.s.base[k];
-      int m = b->mode;
-      if (m != OV_BASE_DIM && m != OV_BASE_FILL && m != OV_BASE_FILLUP && m != OV_BASE_FLASH) continue;
-      int ya = b->y0 < 0 ? 0 : b->y0, yb = b->y1 > OV_GAME_H - 1 ? OV_GAME_H - 1 : b->y1;
-      if (m == OV_BASE_FILL) { int e = b->y0 + b->arg - 1; if (yb > e) yb = e; }
-      if (m == OV_BASE_FILLUP) { int s0 = b->y1 - b->arg + 1; if (ya < s0) ya = s0; }
-      if (ya > yb) continue;
-      int kk = b->arg;
-      if (m == OV_BASE_DIM) { if (kk < 0) kk = 0; if (kk > 4) kk = 4; }
-      if (m == OV_BASE_FLASH) { if (kk < 0) kk = 0; if (kk > 16) kk = 16; }
-      uint32_t fc = ov_rgb(b->color);
-      for (int gy = ya; gy <= yb; gy++)
-         for (int j = 0; j < sub; j++) {
-            uint32_t *orow = O + (size_t)(y0 + gy * sub + j) * w + (size_t)x0;
-            if (m == OV_BASE_DIM) {
-               const uint8_t *d5 = g_dim5[kk], *d6 = g_dim6[kk];
-               for (int i = 0; i < GW; i++) {
-                  uint32_t c = orow[i];
-                  orow[i] = BLACK | ((uint32_t)d5[(c >> 16) & 0xFF] << 16) | ((uint32_t)d6[(c >> 8) & 0xFF] << 8) | d5[c & 0xFF];
-               }
-            } else if (m == OV_BASE_FLASH) {
-               for (int i = 0; i < GW; i++) orow[i] = mix_white(orow[i], kk);
-            } else for (int i = 0; i < GW; i++) orow[i] = fc;
-         }
-   }
-   if (E.ff >= 4 && E.ff <= 5)
-      for (int y = 0; y < OV_GAME_H * sub; y++) {
-         uint32_t *orow = O + (size_t)(y0 + y) * w + (size_t)x0;
-         for (int i = 0; i < GW; i++) orow[i] = mix_white(orow[i], 9);
-      }
-   /* 3·4. 층 L → W  · 5. 일섬 칼선 */
+   /* 층 그림(게임 좌표) — L → W → 일섬 칼선 */
    memset(g_ovl, 0, sizeof g_ovl);
    draw_layer(&E, OV_L);
    draw_layer(&E, OV_W);
@@ -965,32 +995,53 @@ static void compose_locked(const uint8_t *src, unsigned w, unsigned h, int x0, i
          for (int x = 0; x < xe; x++) put(x, y, dy ? cd : cc);
       }
    }
-   for (int gy = 0; gy < OV_GAME_H; gy++)
-      for (int gx = 0; gx < OV_GAME_W; gx++) {
-         uint32_t c = g_ovl[gy][gx];
-         if (!c) continue;
-         for (int j = 0; j < sub; j++) {
-            uint32_t *p = O + (size_t)(y0 + gy * sub + j) * w + (size_t)(x0 + gx * sub);
-            for (int i = 0; i < sub; i++) p[i] = c;
-         }
-      }
-   /* 6. 흔들림 — 게임 사각형 안 줄을 dy 만큼(빈 줄 검정) */
-   if (E.shake) {
-      int DY = E.shake * sub, H = OV_GAME_H * sub;
-      size_t seg = (size_t)GW * 4;
-      if (DY > 0)
-         for (int y = H - 1; y >= 0; y--) {
-            uint32_t *d = O + (size_t)(y0 + y) * w + (size_t)x0;
-            if (y - DY >= 0) memcpy(d, O + (size_t)(y0 + y - DY) * w + (size_t)x0, seg);
-            else for (int i = 0; i < GW; i++) d[i] = BLACK;
-         }
-      else
-         for (int y = 0; y < H; y++) {
-            uint32_t *d = O + (size_t)(y0 + y) * w + (size_t)x0;
-            if (y - DY < H) memcpy(d, O + (size_t)(y0 + y - DY) * w + (size_t)x0, seg);
-            else for (int i = 0; i < GW; i++) d[i] = BLACK;
-         }
+   /* 줄 사본 — 바탕 칸 범위(FILL 은 위에서부터 arg 줄 · FILLUP 은 아래에서부터) · 줄 밀기는 나중 것이 이김(줄 표 → 바탕 칸 SHIFT → 일섬 베기) */
+   int ya[OV_BASE_SLOTS], yb[OV_BASE_SLOTS], kk[OV_BASE_SLOTS];
+   uint32_t fc[OV_BASE_SLOTS];
+   for (int k = 0; k < OV_BASE_SLOTS; k++) {
+      const ovbslot_t *b = &E.s.base[k];
+      int m = b->mode;
+      ya[k] = 1; yb[k] = 0; kk[k] = b->arg; fc[k] = 0;
+      if (m != OV_BASE_DIM && m != OV_BASE_FILL && m != OV_BASE_FILLUP && m != OV_BASE_FLASH) continue;
+      ya[k] = b->y0 < 0 ? 0 : b->y0; yb[k] = b->y1 > OV_GAME_H - 1 ? OV_GAME_H - 1 : b->y1;
+      if (m == OV_BASE_FILL) { int e = b->y0 + b->arg - 1; if (yb[k] > e) yb[k] = e; }
+      if (m == OV_BASE_FILLUP) { int s0 = b->y1 - b->arg + 1; if (ya[k] < s0) ya[k] = s0; }
+      if (m == OV_BASE_DIM) { if (kk[k] < 0) kk[k] = 0; if (kk[k] > 4) kk[k] = 4; }
+      if (m == OV_BASE_FLASH) { if (kk[k] < 0) kk[k] = 0; if (kk[k] > 16) kk[k] = 16; }
+      if (m == OV_BASE_FILL || m == OV_BASE_FILLUP) { fc[k] = ov_rgb(b->color); kk[k] = 0; }
    }
+   for (int gy = 0; gy < OV_GAME_H; gy++) {
+      ovrow_t *r = &g_rd[gy];
+      memset(r, 0, sizeof *r);
+      int dx = E.s.bgx[gy];
+      for (int k = 0; k < OV_BASE_SLOTS; k++) {
+         const ovbslot_t *b = &E.s.base[k];
+         if (b->mode == OV_BASE_SHIFT && gy >= b->y0 && gy <= b->y1) dx = b->arg;
+      }
+      if (E.ff >= 6 && E.ff <= 9) dx = gy < E.fy ? -4 : 4;
+      r->dx = dx; r->white = E.ff >= 4 && E.ff <= 5;
+      for (int k = 0; k < OV_BASE_SLOTS; k++)
+         if (gy >= ya[k] && gy <= yb[k]) { r->m[r->n] = E.s.base[k].mode; r->k[r->n] = kk[k]; r->c[r->n] = fc[k]; r->n++; }
+   }
+   int lo = 0x7FFFFFFF, hi = -1;
+#define ROW(oy) do { \
+      uint32_t *d_ = O + (size_t)(oy) * w; \
+      build_row(g_row, S, w, (oy), x0, y0, sub, E.shake); \
+      if (fresh || memcmp(g_row, d_, rowb)) { memcpy(d_, g_row, rowb); if ((oy) < lo) lo = (oy); if ((oy) > hi) hi = (oy); } \
+   } while (0)
+   if (full || fresh || !g_prev_ok || E.shake || g_prev_shake) {
+      for (int oy = 0; oy < (int)h; oy++) ROW(oy);
+   } else {
+      for (int gy = 0; gy < OV_GAME_H; gy++) {
+         if (!memcmp(&g_rd[gy], &g_prd[gy], sizeof(ovrow_t)) && !memcmp(g_ovl[gy], g_povl[gy], sizeof g_ovl[gy])) continue;
+         for (int j = 0; j < sub; j++) ROW(y0 + gy * sub + j);
+      }
+   }
+#undef ROW
+   memcpy(g_prd, g_rd, sizeof g_rd);
+   memcpy(g_povl, g_ovl, sizeof g_ovl);
+   g_prev_shake = E.shake; g_prev_ok = 1;
+   g_span0 = hi >= 0 ? lo : 0; g_span1 = hi;
 }
 
 const uint8_t *ov_compose(const uint8_t *src, unsigned w, unsigned h, int src_changed, int *changed)
@@ -999,6 +1050,7 @@ const uint8_t *ov_compose(const uint8_t *src, unsigned w, unsigned h, int src_ch
    if (changed) *changed = 0;
    LOCK();
    ensure_init();
+   g_span0 = 0; g_span1 = -1;
    if (!src || !w || !h || !ov_find_rect(w, h, &x0, &y0, &sub)) { g_rect_ok = 0; UNLOCK(); return NULL; }
    g_rect_ok = 1; g_rx = x0; g_ry = y0; g_sub = sub; g_fbw = (int)w; g_fbh = (int)h;
    if (!g_visible) { UNLOCK(); return NULL; }
@@ -1008,15 +1060,30 @@ const uint8_t *ov_compose(const uint8_t *src, unsigned w, unsigned h, int src_ch
       if (!nb) { UNLOCK(); return NULL; }
       g_out = nb; g_outcap = need; g_out_valid = 0;
    }
-   if (src_changed || g_dirty || !g_out_valid || w != g_outw || h != g_outh || src != g_last_src) {
-      compose_locked(src, w, h, x0, y0, sub);
+   if ((size_t)w > g_rowcap) {
+      uint32_t *nr = (uint32_t *)realloc(g_row, (size_t)w * 4);
+      if (!nr) { UNLOCK(); return NULL; }
+      g_row = nr; g_rowcap = w;
+   }
+   int geom = !g_out_valid || w != g_outw || h != g_outh;
+   if (src_changed || g_dirty || geom || src != g_last_src) {
+      if (geom) g_prev_ok = 0;
+      compose_locked(src, w, h, x0, y0, sub, src_changed || src != g_last_src, geom);
       g_outw = w; g_outh = h; g_out_valid = 1; g_dirty = 0; g_last_src = src;
       g_composites++;
-      if (changed) *changed = 1;
+      if (changed) *changed = g_span1 >= g_span0;
    }
    g_shown = 1;
    UNLOCK();
    return (const uint8_t *)g_out;
+}
+
+void ov_compose_span(int *y0, int *y1)
+{
+   LOCK();
+   if (y0) *y0 = g_span0;
+   if (y1) *y1 = g_span1;
+   UNLOCK();
 }
 
 /* ── JNI(Emu.java) — 모양이 계약. 배열은 길이를 보고 GetXxxArrayRegion 으로 복사한다 ───────────── */
