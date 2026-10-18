@@ -2965,21 +2965,11 @@ public class EmuActivity extends Activity {
     private boolean lgmRendering;                    /* 결판 장면을 그림 스레드가 그리는 중(정산 → armResult) */
     private long lgmRenderT0, lgmLatchAt;            /* 그리기 시작 · 걸쇠 뒤 기다리기 시작(uptime ms) */
     private volatile String lgmRenderErr;            /* 그림 스레드의 마지막 예외(까닭 글) */
-    private final java.util.HashSet<String> lgmWhySeen = new java.util.HashSet<>();
-    private Boolean lgmDebug;
     static final long LGM_LATCH_WAIT = 1500, LGM_RENDER_WAIT = 10000;
-    /** 덧판을 못 써 옛 길로 가는 까닭 — logcat «lgm fallback <key> · <detail>» 늘 · 디버그 판이면 까닭마다 한 번 짧은 토스트(기기 제보가 스스로 설명되게) */
+    /** 덧판을 못 써 옛 길로 가는 까닭 — logcat «lgm fallback <key> · <detail>» 만(토스트 없음 — 기기 제보는 logcat 으로) */
     private void lgmWhy(String key, String detail) {
+        /* logcat 에만 — 시험판(fgtest)도 디버그 판이라 토스트를 띄우면 유저에게 보인다(유저: 안내 글을 보고 싶지 않음) */
         android.util.Log.w(LGM, "lgm fallback " + key + (detail != null && !detail.isEmpty() ? " · " + detail : ""));
-        if (lgmDebug == null) {
-            boolean d = false;
-            try { d = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0; } catch (Throwable ignored) { }
-            lgmDebug = d;
-        }
-        if (lgmDebug && lgmWhySeen.add(key)) {
-            String s = "덧판 대신 옛 길: " + key + (detail != null && !detail.isEmpty() ? " · " + detail : "");
-            toast(s.length() > 120 ? s.substring(0, 120) + "…" : s);
-        }
     }
     /** 덧판·이름표 상태 한 줄(까닭 글에 붙임) */
     private String lgmState() {
