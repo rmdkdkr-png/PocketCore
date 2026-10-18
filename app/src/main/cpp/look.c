@@ -80,7 +80,7 @@ static struct {
    int cur;                           /* 고르기 화면에 보이는 컬러 0·2~17 */
    int sel, sel_ch;                   /* 경기 컬러(−1 없음) · 그때 캐릭터(−1 = 0x57D5 로) */
    int fx, fx_sel, fx_p2;             /* 내 베기 색(0~6, 하나로 기억) · 경기 베기 색(고르기 화면에서 fx 를 따라감) · 상대 베기 색(나중 — 늘 0) */
-   int prev_in, owned, inj, inj_f, inj_bit;
+   int prev_in, owned, inj, inj_f, inj_bit, last_scr;
    int g_st, g_first, g_scr0; unsigned g_f0;   /* A·B·A+B 가르기 — 상태 · 먼저 누른 단추 · 그때 화면 · 그때 프레임 */
    int hold;                          /* 결정·A+B 뒤 뗄 때까지 막는 단추(A·B·A+B) — 쥠이 풀려도 */
    int conf_pend, conf_n;             /* HOLD: 허브가 가져갈 결정 · 결정 횟수 */
@@ -96,7 +96,7 @@ static struct {
    const uint8_t *ram;
    int mem_gen, sel_gen, edit_req, fx_gen;    /* Java 가 보는 바뀜 셈 */
    unsigned f;
-} K = { .sel = -1, .sel_ch = -1, .sty_seen = -1, .prow = -1 };
+} K = { .sel = -1, .sel_ch = -1, .sty_seen = -1, .prow = -1, .last_scr = -1 };
 
 void look_vram(void *chr, void *scr, void *pal) { vpanel_vram(chr, scr); vpanel_pal(pal); g_pal = (uint8_t *)pal; }
 void look_palremap_fn(void *fn) { if ((void *)g_remap != fn) rm_init = 0; *(void **)&g_remap = fn; }
@@ -304,6 +304,8 @@ void look_tick(uint8_t *ram, size_t n, int input, int ctx)
       if (ctx != LOOK_CTX_HOLD) K.conf_pend = 0;
       if (slot >= 0 && row >= 0) {
          int sty_now = scr == 4 ? (ram[R_STYC] & 1) : -1;
+         if (scr == 2 && K.last_scr == 4) K.rand_pin = 0;            /* 검질 고르기에서 뒤로 — 무작위 칸에서 뽑혔던 캐릭터 고정 풀림(다시 고르면 직접 고른 것) */
+         K.last_scr = scr;
          if (K.edit) { block = IN_ALL; gate_reset(); }                /* 컬러 만들기 창 — 게임에 아무것도 안 준다(고르기 화면엔 시간 제한이 없다, 실측) */
          else {
             block |= IN_OPT | IN_A | IN_B | IN_ABFOLD;                /* 게임은 고르기 화면에서 OPTION 을 안 쓴다(실측) · A·B·A+B 는 가르기가 받는다 */
@@ -553,7 +555,7 @@ void look_forget(void)
 {
    pthread_mutex_lock(&K_mu);
    K.sel = -1; K.sel_ch = -1; K.cur = 0; K.fx_sel = 0; K.edit = 0; K.owned = 0; K.inj = 0; K.hold = 0; K.prow = -1; K.opt_own = 0; K.pv_has = 0;
-   K.rand_pin = 0; K.toast_f = (int)K.f; K.vp_lab = NULL; gate_reset();
+   K.rand_pin = 0; K.toast_f = (int)K.f; K.vp_lab = NULL; K.last_scr = -1; gate_reset();
    slash_clear(&SW);
    rm_init = 0; vpanel_forget();
    look_in_block = 0; look_in_or = 0;
