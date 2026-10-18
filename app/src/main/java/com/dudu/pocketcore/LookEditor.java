@@ -50,6 +50,7 @@ final class LookEditor extends LinearLayout {
         this.host = host; this.font = font; this.tri = tri;
         dp = c.getResources().getDisplayMetrics().density;
         for (int i = 0; i < Look.NIDX; i++) usable[i] = i < Look.NPRE || (cus != null && cus[i - Look.NPRE] != null);
+        usable[1] = false;                                        /* 165: 옛 2P색은 시작 색으로도 안 보인다(플레이어가 안 고르는 번호) */
         start = startIdx >= 0 && startIdx < Look.NIDX && usable[startIdx] ? startIdx : 0;
         setOrientation(VERTICAL);
         GradientDrawable g = new GradientDrawable();

@@ -38,11 +38,12 @@ void league_spr(void *spr);   /* 153 — 스프라이트 램(VS 띠 겹침 검�
 void league_hub_vs_status(int v[LEAGUE_NVS]);   /* [단계|0x10 얹힘|0x20 겹침 포기, 대사 단계 프레임, hold] */
 /* 다음 league_arm 의 CPU 손잡이(시작 단계 0x5814 · 상한 0x5815 · 공격 배율 0x57E2 · 받는 피해 배율 0x57E4 · 경기 중 실시간 단계 바닥 0x5CF5, −1 그대로) — 한 번 쓰면 비움 */
 void league_cpu(int lv, int cap, int atk, int dfn, int floor);
-/* 153 랭크 자동 진행 — 내 캐릭터(칸 0~13 · 15 무작위)·검질·2P색·카드 칸 두 개(−1 없음)로 go 부터 무대 인트로까지 입력 없이(league.c 설명).
-   flags 2 = tail(on 0: 직접 고른 판도 이야기부터 자동 · 내 고르기 기록) · 4 = 단계 1~5 동안 4배속·소리 끔. 다음 go 부터. 1 = 받음 */
+/* 153 랭크 자동 진행 — 내 캐릭터(칸 0~13 · 15 무작위)·검질·카드 칸 두 개(−1 없음)로 go 부터 무대 인트로까지 입력 없이(league.c 설명).
+   flags 2 = tail(on 0: 직접 고른 판도 이야기부터 자동 · 내 고르기 기록) · 4 = 단계 1~5 동안 4배속·소리 끔. 다음 go 부터. 1 = 받음.
+   b2p 는 안 씀(165 — 플레이어 2P색 없음, 서명은 그대로) */
 int  league_hub_autopick(int on, int cell, int sty, int b2p, int k1, int k2, int flags);
 #define LEAGUE_NMYPICK 8
-void league_hub_mypick(int v[LEAGUE_NMYPICK]);     /* [있음, 칸, 캐릭터, 검질, 2P색, 카드 1, 2, 경기 컬러] */
+void league_hub_mypick(int v[LEAGUE_NMYPICK]);     /* [있음, 칸, 캐릭터, 검질, 늘 0(옛 2P색), 카드 1, 2, 경기 컬러] */
 #define LEAGUE_NAUTO 5
 void league_hub_autostatus(int v[LEAGUE_NAUTO]);   /* [단계 0~8(6 무대 인트로 · 8 막힘), go 뒤 프레임, go→장면, go→첫 라운드, 막힌 단계] */
 /* 153: native.c 가 프레임마다(잠금 없이) — 1 = 코어 4배속(pace 배속) · 1 = 게임 소리를 버린다(자동 진행 단계 1~5 · −4 리셋부터, autopick flags 4) */

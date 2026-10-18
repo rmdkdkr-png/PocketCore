@@ -315,14 +315,14 @@ public class LeagueActivity extends Activity {
     }
 
     /** 153 내 캐릭터 줄 — «내 캐릭터 · 샬럿 나찰 · 다홍 [바꾸기]». 랭크에 처음 들어와 게임 고르기 화면에서 한 번 고른 것(League.main) —
-     *  다음 판부터 앱이 대신 고른다. [바꾸기] = 지우기(다음 판에 다시 직접 고르고 그걸 남긴다). 컬러는 지금 보일 것(2P색 · 캐릭터별 컬러 기억) */
+     *  다음 판부터 앱이 대신 고른다. [바꾸기] = 지우기(다음 판에 다시 직접 고르고 그걸 남긴다). 컬러는 지금 보일 것(캐릭터별 컬러 기억) · 베기 색이 있으면 «· 베기 청염» */
     private View mainRow() {
         LinearLayout r = new LinearLayout(this);
         r.setOrientation(LinearLayout.HORIZONTAL);
         r.setGravity(Gravity.CENTER_VERTICAL);
         r.setPadding(dp(4), dp(10), 0, 0);
         League.Main mn = League.main();
-        TextView t = text(mn == null ? "내 캐릭터 · 첫 판에서 한 번 골라요" : "내 캐릭터 · " + League.mainLabel(mn, mainColour(mn)), 13, mn == null ? DIM : TXT, mn != null);
+        TextView t = text(mn == null ? "내 캐릭터 · 첫 판에서 한 번 골라요" : "내 캐릭터 · " + League.mainLabel(mn, mainColour(mn)) + mainFx(), 13, mn == null ? DIM : TXT, mn != null);
         r.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         if (mn != null) {
             TextView b = pill("바꾸기", BTN2, TXT);
@@ -337,15 +337,22 @@ public class LeagueActivity extends Activity {
         }
         return r;
     }
-    /** 지금 보일 컬러 번호 — 2P색이면 1, 아니면 컬러 기억(캐릭터 칸 · 무작위 칸 15). 컬러 고르기 끔이면 기본 */
-    private static int mainColour(League.Main mn) {
-        if (mn.b2p) return 1;
+    /** 지금 보일 컬러 번호 — 컬러 기억(캐릭터 칸 · 무작위 칸 15). 컬러 고르기 끔이면 기본 · 옛 1(2P색)도 기본 */
+    static int mainColour(League.Main mn) {
         try {
             if (!Look.on()) return 0;
             byte[] m = Look.loadMem();
             int i = mn.cell == 15 ? 15 : mn.cell;
-            return m != null && i < m.length ? m[i] : mn.colour;
-        } catch (Exception e) { return mn.colour; }
+            int c = m != null && i < m.length ? m[i] : mn.colour;
+            return c == 1 ? 0 : c;
+        } catch (Exception e) { return mn.colour == 1 ? 0 : mn.colour; }
+    }
+    /** « · 베기 청염» — 베기 색이 원래 색이 아니고 컬러 고르기가 켜져 있을 때만 */
+    private static String mainFx() {
+        try {
+            int fx = Look.on() ? Look.loadFx() : 0;
+            return fx > 0 ? " · 베기 " + Look.fxName(fx) : "";
+        } catch (Exception e) { return ""; }
     }
 
     /** 잡힌 상대 한 줄 — «기다리는 상대 · 칼끝노인 (검호 ★1) — 내일 21:04 까지»(잡은 때 + 24시간, 한국 시각 — League.today 와 같은 기준). 없으면 null */

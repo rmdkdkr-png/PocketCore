@@ -9,13 +9,15 @@ import java.util.Iterator;
 /**
  * 사무쇼2 모든 모드 컬러(native look.c)의 앱 쪽 — 이름 · 캐릭터마다 기억한 컬러 · 내 색(캐릭터마다 2칸) 저장, native 에 넣기.
  *
- * 1인 대전·무한 대전·연습 대전·리그 대전 어디서나 캐릭터·검질 고르기에서 OPTION = 다음 컬러(길게 = 컬러 만들기), B = 2P색으로 결정.
+ * 1인 대전·무한 대전·연습 대전·리그 대전 어디서나 캐릭터·검질 고르기에서 OPTION = 다음 몸 컬러(길게 = 컬러 만들기), A+B = 내 베기 색 다음 것,
+ * A·B = 결정(보통 색 — 165 부터 플레이어 2P색은 없다).
  * 값은 앱 설정(options.txt — 리그 세이브와 따로)에 남는다:
  *   pocketcore_ss2_look      enabled / disabled (설정 «컬러 고르기», 기본 켬)
- *   pocketcore_ss2_look_mem  16개 정수 "0,1,0,9,…" — 칸 0~13 캐릭터 · 14 안 씀(유가) · 15 가운데 무작위 칸, 값 0~17
+ *   pocketcore_ss2_look_mem  16개 정수 "0,2,0,9,…" — 칸 0~13 캐릭터 · 14 안 씀(유가) · 15 가운데 무작위 칸, 값 0·2~17(옛 1 = 2P색은 0 으로 읽음)
  *   pocketcore_ss2_look_cus  JSON {"v":1,"c":{"11":[[3039,744,65],null], …}} — 캐릭터 → [내 색 1, 내 색 2], 각 [밝은 색, 옷 색, 테 색] 12비트 0x0BGR 또는 null
- * 번호(기록·기억에 남는 값) = NAMES 순서 = native look_tab.h LOOK_NAME = 세로 칸 글자 LOOK_VLAB 순서.
- * 캐릭터마다 기억하는 것은 스파6·길티기어식 — 16가지면 캐릭터마다 어울리는 색이 다르다. B(2P색)는 그 판만(기억 안 바꿈).
+ *   pocketcore_ss2_slash     "0"~"6" — 베기 색(칼 궤적·필살 이펙트·내가 벤 섬광, native slash.c) 하나로 기억(캐릭터마다 아님). 그 밖·없음 = 0(원래 색)
+ * 번호(기록·기억에 남는 값) = NAMES 순서 = native look_tab.h LOOK_NAME = 세로 칸 글자 LOOK_VLAB 순서. 베기 색 번호 = FX_NAMES = slash.h SLASH_NAME.
+ * 몸 컬러를 캐릭터마다 기억하는 것은 스파6·길티기어식 — 16가지면 캐릭터마다 어울리는 색이 다르다. 베기 색은 밝기 순서로 맞춰 넣어 어느 캐릭터나 같은 «내 색»이라 하나.
  */
 final class Look {
     private Look() { }
@@ -25,6 +27,10 @@ final class Look {
     static final String[] OLD = { "기본", "2P색", "컬러 3", "컬러 4" };
     static final int NPRE = 16, NIDX = 18, NSLOT = 16, NCH = 14;
     static final String K_ON = "pocketcore_ss2_look", K_MEM = "pocketcore_ss2_look_mem", K_CUS = "pocketcore_ss2_look_cus";
+    /** 베기 색 — 0 원래 색 · 1 청염 · 2 핏빛 · 3 비취 · 4 벚꽃 · 5 흑염 · 6 서리 (저장 값 = A+B 로 돌리는 순서 = native slash.h SLASH_NAME) */
+    static final String K_FX = "pocketcore_ss2_slash";
+    static final String[] FX_NAMES = { "원래 색", "청염", "핏빛", "비취", "벚꽃", "흑염", "서리" };
+    static final int NFX = 7;
 
     /** 기록에 남은 컬러 번호의 이름 — cv(기록 판) 2 부터 16가지, 그 전(없음)은 옛 4가지 */
     static String name(int idx, int cv) {
@@ -34,14 +40,14 @@ final class Look {
 
     /* ── 글자 ↔ 값(앱 설정 없이도 — JVM 시험이 바로 본다) ─────────────── */
 
-    /** "0,1,0,9,…" 16개 → 기억 칸. 개수가 모자라거나 깨졌으면 null(처음 = 옛 리그 값에서 옮긴다) */
+    /** "0,2,0,9,…" 16개 → 기억 칸. 개수가 모자라거나 깨졌으면 null(처음 = 옛 리그 값에서 옮긴다). 옛 1(2P색 — 165 부터 안 고름)은 0 */
     static byte[] parseMem(String s) {
         if (s == null) return null;
         String[] a = s.split(",");
         if (a.length < NSLOT) return null;
         byte[] m = new byte[NSLOT];
         try {
-            for (int i = 0; i < NSLOT; i++) { int v = Integer.parseInt(a[i].trim()); m[i] = (byte) (v >= 0 && v < NIDX ? v : 0); }
+            for (int i = 0; i < NSLOT; i++) { int v = Integer.parseInt(a[i].trim()); m[i] = (byte) (v >= 0 && v < NIDX && v != 1 ? v : 0); }
         } catch (NumberFormatException e) { return null; }
         return m;
     }
@@ -50,12 +56,18 @@ final class Look {
         for (int i = 0; i < NSLOT; i++) { if (i > 0) sb.append(','); sb.append(m != null && i < m.length && m[i] >= 0 && m[i] < NIDX ? m[i] : 0); }
         return sb.toString();
     }
-    /** 옛 리그 «내 컬러» 하나(0~3) → 16칸 모두 그 값(2·3 은 같은 번호 = 쪽빛·비취로 넘어간다) */
+    /** 옛 리그 «내 컬러» 하나(0~3) → 16칸 모두 그 값(2·3 은 같은 번호 = 쪽빛·비취로 넘어간다 · 1 2P색은 기본) */
     static byte[] memFromOld(int prefColor) {
         byte[] m = new byte[NSLOT];
-        java.util.Arrays.fill(m, (byte) (prefColor >= 0 && prefColor < OLD.length ? prefColor : 0));
+        java.util.Arrays.fill(m, (byte) (prefColor >= 0 && prefColor < OLD.length && prefColor != 1 ? prefColor : 0));
         return m;
     }
+    /** 베기 색 글자 → 0~6(그 밖·깨짐·없음 = 0) */
+    static int parseFx(String s) {
+        if (s == null) return 0;
+        try { int v = Integer.parseInt(s.trim()); return v >= 0 && v < NFX ? v : 0; } catch (NumberFormatException e) { return 0; }
+    }
+    static String fxName(int fx) { return FX_NAMES[fx >= 0 && fx < NFX ? fx : 0]; }
     /** 내 색 JSON → [14][2] 세 색(없는 칸 null) */
     static int[][][] parseCus(String s) {
         int[][][] c = new int[NCH][2][];
@@ -107,6 +119,12 @@ final class Look {
         if (!s.equals(Settings.load().get(K_MEM))) Settings.put(K_MEM, s);
     }
     static int[][][] loadCustom() { return parseCus(Settings.load().get(K_CUS)); }
+    static int loadFx() { return parseFx(Settings.load().get(K_FX)); }
+    /** A+B 로 바꾼 베기 색 — 범위 밖은 0. 같으면 파일을 안 건드린다 */
+    static void saveFx(int fx) {
+        String s = String.valueOf(fx >= 0 && fx < NFX ? fx : 0);
+        if (!s.equals(Settings.load().get(K_FX))) Settings.put(K_FX, s);
+    }
     /** 내 색 k(0·1) 저장 — c3 null = 지움 */
     static void saveCustom(int ch, int k, int[] c3) {
         if (ch < 0 || ch >= NCH || k < 0 || k > 1) return;
@@ -126,7 +144,7 @@ final class Look {
         return m;
     }
 
-    /** native 에 기억·내 색을 모두 넣는다(판을 올릴 때 — 내 색은 두 검질 같이) */
+    /** native 에 기억·내 색·베기 색을 모두 넣는다(판을 올릴 때 — 내 색은 두 검질 같이) */
     static void push() {
         Emu.nativeLookSetMem(loadMem());
         int[][][] c = loadCustom();
@@ -135,6 +153,7 @@ final class Look {
                 int[] t = c[ch][k];
                 Emu.nativeLookSetCustom(ch, k, t != null ? t[0] : -1, t != null ? t[1] : 0, t != null ? t[2] : 0);
             }
+        try { Emu.nativeLookSetFx(loadFx()); } catch (UnsatisfiedLinkError ignored) { }   /* 옛 native(베기 색 없음) — 몸 컬러만 */
     }
 
     /** 12비트 0x0BGR → 안드로이드 색(0xAARRGGBB) — 채널 0~15 를 0~255 로(×17) */

@@ -35,7 +35,7 @@ final class League {
     static final String[] DIFF  = { "쉬움", "보통", "어려움" };
     /** 배경(스테이지) 0~7 — 1인 대전에서 배경은 «몇 번째 판»(0x5827)을 따른다(league.c R_BOUT). 실측한 여덟 개 */
     static final String[] STAGES = { "후지산 마을", "숲속 호숫가", "산 위 신사", "화염 사원", "폐허 사원", "불꽃 동굴", "마계 제단", "수정 신전" };
-    /** 컬러 이름 — 0 게임 기본 · 1 2P색(같은 캐릭터 미러전에서 게임이 P2 에 쓰는 색) · 2~15 프리셋 · 16·17 내 색(Look — 모든 모드 컬러).
+    /** 컬러 이름 — 0 게임 기본 · 1 2P색(옛 기록 이름 — 165 부터 플레이어는 안 고름) · 2~15 프리셋 · 16·17 내 색(Look — 모든 모드 컬러).
      *  옛 기록(cv 없음)의 2·3 은 «컬러 3·4» — 이름은 Look.name(idx, cv) */
     static final String[] COLORS = Look.NAMES;
     /** 가상 상대마다 기본 배경(«상대 기본» 일 때) — 명단(ROSTER)과 따로 둬서 옛 기록을 안 고친다 */
@@ -343,9 +343,10 @@ final class League {
         } catch (Exception ignored) { }
     }
     /* ── 153 랭크 «내 캐릭터»(pref.main) — 랭크에 처음 들어와 게임 고르기 화면에서 한 번 고른 것(nativeHubMyPick).
-       {v:1, cell 0~13 · 15 가운데 무작위 칸, ch 실제 캐릭터(무작위면 마지막에 뽑힌 것), sty, b2p, k1, k2(카드 칸 0~3 · −1 없음), colour 0~17(Look.NAMES), at}.
+       {v:1, cell 0~13 · 15 가운데 무작위 칸, ch 실제 캐릭터(무작위면 마지막에 뽑힌 것), sty, b2p(165 부터 늘 false · 읽을 때 무시 — 옛 판이 읽어도 깨지지 않게 칸만),
+        k1, k2(카드 칸 0~3 · −1 없음), colour 0~17(Look.NAMES), at}. 베기 색은 여기 없다(Look 전역 값 하나가 출처).
        pref 칸에 더한다 — league.json v 1 그대로(147/148/152 는 모르는 칸을 읽고 다시 써도 남긴다). 다음 판부터 native 가 이걸로 대신 고른다 ── */
-    static final class Main { int cell, ch, sty, k1 = -1, k2 = -1, colour; boolean b2p; long at; }
+    static final class Main { int cell, ch, sty, k1 = -1, k2 = -1, colour; long at; }
     /** 저장된 내 캐릭터 — 없거나 값이 깨졌으면 null(첫 판처럼 직접 고른다) */
     static synchronized Main main() {
         JSONObject p = db().optJSONObject("pref"), j = p != null ? p.optJSONObject("main") : null;
@@ -354,26 +355,28 @@ final class League {
     static Main mainOf(JSONObject j) {
         if (j == null || j.optInt("v") != 1) return null;
         Main m = new Main();
-        m.cell = j.optInt("cell", -1); m.ch = j.optInt("ch", -1); m.sty = j.optInt("sty", -1); m.b2p = j.optBoolean("b2p");
+        m.cell = j.optInt("cell", -1); m.ch = j.optInt("ch", -1); m.sty = j.optInt("sty", -1);   /* b2p 는 안 읽는다(옛 true = 보통 색) */
         m.k1 = j.optInt("k1", -1); m.k2 = j.optInt("k2", -1); m.colour = j.optInt("colour", 0); m.at = j.optLong("at");
         if (!(m.cell >= 0 && m.cell <= 13 || m.cell == 15) || (m.sty != 0 && m.sty != 1)) return null;
         if (m.cell == 15) { if (m.ch < 0 || m.ch > 14) m.ch = -1; }        /* 무작위 칸 — 뽑힌 캐릭터는 아직 모를 수 있다(1라운드에 다시) */
         else if (m.ch != m.cell) return null;
         if (m.k1 < -1 || m.k1 > 3 || m.k2 < -1 || m.k2 > 3) { m.k1 = -1; m.k2 = -1; }
-        if (m.colour < 0 || m.colour >= Look.NIDX) m.colour = 0;
+        if (m.colour < 0 || m.colour >= Look.NIDX || m.colour == 1) m.colour = 0;
         return m;
     }
-    /** nativeHubMyPick [있음, 칸, 캐릭터, 검질, 2P색, 카드 1, 2, 컬러] → pref.main. 같으면 파일을 안 건드린다. 저장 실패면 false(메모리 값은 남아 다음 저장 때 같이) */
+    /** nativeHubMyPick [있음, 칸, 캐릭터, 검질, (늘 0), 카드 1, 2, 컬러] → pref.main(b2p 는 늘 false). 같으면 파일을 안 건드린다. 저장 실패면 false(메모리 값은 남아 다음 저장 때 같이) */
     static synchronized boolean setMain(int[] mp) {
         if (mp == null || mp.length < 8 || mp[0] != 1) return false;
         try {
-            JSONObject j = new JSONObject().put("v", 1).put("cell", mp[1]).put("ch", mp[2]).put("sty", mp[3]).put("b2p", mp[4] != 0)
+            JSONObject j = new JSONObject().put("v", 1).put("cell", mp[1]).put("ch", mp[2]).put("sty", mp[3])
                     .put("k1", mp[5]).put("k2", mp[6]).put("colour", mp[7]);
             Main m = mainOf(j);
             if (m == null) return false;
             Main old = main();
-            if (old != null && old.cell == m.cell && old.ch == m.ch && old.sty == m.sty && old.b2p == m.b2p && old.k1 == m.k1 && old.k2 == m.k2 && old.colour == m.colour) return true;
-            pref().put("main", new JSONObject().put("v", 1).put("cell", m.cell).put("ch", m.ch).put("sty", m.sty).put("b2p", m.b2p)
+            JSONObject oj = pref().optJSONObject("main");
+            if (old != null && old.cell == m.cell && old.ch == m.ch && old.sty == m.sty && old.k1 == m.k1 && old.k2 == m.k2 && old.colour == m.colour
+                    && oj != null && !oj.optBoolean("b2p")) return true;   /* 옛 b2p true 가 남아 있으면 한 번 false 로 고쳐 쓴다 */
+            pref().put("main", new JSONObject().put("v", 1).put("cell", m.cell).put("ch", m.ch).put("sty", m.sty).put("b2p", false)
                     .put("k1", m.k1).put("k2", m.k2).put("colour", m.colour).put("at", System.currentTimeMillis()));   /* 고른 값(범위 밖은 없음·기본으로) */
             return save();
         } catch (Exception e) { return false; }
@@ -385,7 +388,7 @@ final class League {
         p.remove("main");
         return save();
     }
-    /** «샬럿 나찰 · 다홍» — colour 는 지금 보일 컬러(Look 캐릭터 기억 · 2P색), 모르면 −1(빼고) */
+    /** «샬럿 나찰 · 다홍» — colour 는 지금 보일 컬러(Look 캐릭터 기억), 모르면 −1(빼고) */
     static String mainLabel(Main m, int colour) {
         if (m == null) return "";
         String s = m.cell == 15 ? "무작위 칸" : CHAR[m.ch] + " " + STYLE[m.sty];

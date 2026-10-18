@@ -2278,7 +2278,7 @@ public class EmuActivity extends Activity {
     /* 겹창 — Q_SEARCH = 허브 찾기(6)에서 go 를 기다림(로고·메뉴가 도는 동안 포함) · Q_RUN = go 보냄(−4 포함): 인트로(대신 고름)·고르기 화면(직접)을 기다림 */
     private static final int Q_SEARCH = 1, Q_RUN = 2;
     private static final long Q_FLASH = 500, Q_GO_LOST = 2500, Q_TAIL_MAX = 6000, Q_AUTO_HARD = 60000;   /* 자동이 6·8 어느 쪽에도 안 닿는 마지막 안전망 */
-    private static final long Q_FLASH_TAIL = 1100;  /* 직접 고르는 판 — «상대 발견! · B 그만두기»를 읽을 틈(내려가면 B 는 게임의 2P색 고르기) */
+    private static final long Q_FLASH_TAIL = 1100;  /* 직접 고르는 판 — «상대 발견! · B 그만두기»를 읽을 틈(내려가면 B 는 고르기 화면의 결정 — 겹창 B 는 뗄 때까지 막음) */
     private RankUi.Quick rankQ;
     private RankUi.Quick rankQFading;               /* 내려가며 사라지는 겹창(160ms) — 그동안도 입력 0 · B = 그만(아직 «B 그만두기»가 보인다) */
     private int rankQMode;
@@ -2326,7 +2326,7 @@ public class EmuActivity extends Activity {
         }
         if (!natAuto || !loaded) { rankAuto = 0; return; }
         League.Main mn = League.main();
-        if (mn != null && autoPick(true, mn.cell, mn.sty, mn.b2p, mn.k1, mn.k2, Emu.AUTO_FF)) { rankAuto = 2; return; }
+        if (mn != null && autoPick(true, mn.cell, mn.sty, false, mn.k1, mn.k2, Emu.AUTO_FF)) { rankAuto = 2; return; }   /* 165: 2P색 없음(옛 b2p 는 무시) */
         rankAuto = autoPick(false, 0, 0, false, -1, -1, Emu.AUTO_TAIL) ? 1 : 0;
     }
 
@@ -3531,11 +3531,11 @@ public class EmuActivity extends Activity {
 
     /** 띠 안내 — 버튼만(허브 상태 7 내 캐릭터 먼저 · 2 상대 선택 · 3 내 캐릭터 확정 뒤 · 4 경기). 타이틀은 셋째 줄에 커서가 있을 때만(◀▶ 고르기), 그 밖·돌아가는 중엔 숨긴다.
      *  버튼 이름은 패드 글자 그대로(A · B · OPTION) — 레퍼런스: 철권8 «[BACK]+[←] 벽을 등지고», KOF XV «왼쪽 = 화면 왼쪽 끝» 처럼 방향마다 결과를 적는다 */
-    /** 내 캐릭터 쪽 버튼 안내 — 화면마다(캐릭터: B = 2P색으로 결정 · 검질: B 는 게임의 «뒤로» · 카드: 게임 그대로). 그 밖(이야기·라운드 연출)은 빈 줄/숨김 */
-    private static String myPickKeys(int scr, boolean league) {
-        if (!lookKeys && (scr == 2 || scr == 4)) return "A 결정";      /* 설정 «컬러 고르기» 끔 — OPTION·B 는 게임 그대로(아무 일 없음) */
-        if (scr == 2) return "A 결정  ·  B 2P색  ·  OPTION 컬러";
-        if (scr == 4) return "A 결정  ·  OPTION 컬러";
+    /** 내 캐릭터 쪽 버튼 안내 — 화면마다(캐릭터·검질: A 결정 · OPTION 몸 컬러 · A+B 베기 색 — B 도 결정(검질은 «뒤로»)이지만 안내엔 안 씀 · 카드: 게임 그대로).
+     *  그 밖(이야기·라운드 연출)은 빈 줄/숨김 */
+    static String myPickKeys(int scr, boolean league) {
+        if (!lookKeys && (scr == 2 || scr == 4)) return "A 결정";      /* 설정 «컬러 고르기» 끔 — OPTION·B·A+B 는 게임 그대로(아무 일 없음) */
+        if (scr == 2 || scr == 4) return "A 결정  ·  OPTION 컬러  ·  A+B 베기 색";
         if (scr == 6) return league ? "카드 고르기 (전부 열림)" : "카드 고르기";
         return league ? "곧 시작" : null;
     }
@@ -3547,7 +3547,7 @@ public class EmuActivity extends Activity {
                 return "◀▶ 연습 대전 / 리그 대전  ·  A 시작" + (dv[1] == 0 ? "\n리그는 따로 세이브 판에서 해요" : "");
             return null;
         case 2: return "A 수라 · B 나찰 · OPTION 스테이지";   /* 고르는 캐릭터 = 더미(검질은 A·B) — 머리말이 이미 «상대 선택». «상대 ·» 를 붙이면 세로 화면에서 두 줄로 꺾인다(153 에뮬 확인) */
-        case 7:   /* 내 캐릭터 먼저(캐릭터 선택 — A 결정 · B 2P색 · OPTION 컬러), 그다음 상대(2) */
+        case 7:   /* 내 캐릭터 먼저(캐릭터 선택 — A 결정 · OPTION 컬러 · A+B 베기 색), 그다음 상대(2) */
         case 3: return myPickKeys(dv != null && dv.length >= 6 ? dv[5] : 2, false);
         case 4:   /* 좁은 띠(버튼 사이)에서도 줄이 접히지 않게 두 줄로 */
             if (ps.length > 1 && ps[1] != 0) return "↑↓ 고르기 · ←→ 바꾸기\nA 실행 · B 닫기";
@@ -3558,12 +3558,12 @@ public class EmuActivity extends Activity {
 
     /* ── 모든 모드 컬러(look.c) ─────────────────────────────────────────
        사무쇼2 확인한 판(일반 판 practiceRomOk · 리그 판 hubVersionProblem 없음)이고 설정 «컬러 고르기»가 켬이면 1인·무한·연습·리그 어디서나
-       캐릭터·검질 고르기에서 OPTION = 다음 컬러(길게 = 컬러 만들기) · B = 2P색으로 결정. 기억(캐릭터마다)·내 색은 앱 설정(Look) —
-       native 가 바꾼 기억은 폴(200ms)이 받아 남긴다. 띠 안내는 허브 띠가 없는 화면(일반 1인·무한 대전)의 고르기 화면에서만. */
+       캐릭터·검질 고르기에서 OPTION = 다음 컬러(길게 = 컬러 만들기) · A+B = 베기 색 다음 것 · A·B = 결정(보통 색). 기억(캐릭터마다)·내 색·베기 색은
+       앱 설정(Look) — native 가 바꾼 기억·베기 색은 폴(200ms)이 받아 남긴다. 띠 안내는 허브 띠가 없는 화면(일반 1인·무한 대전)의 고르기 화면에서만. */
     private boolean lookOn = false;
-    private static volatile boolean lookKeys = true;   /* 띠의 «B 2P색 · OPTION 컬러» 안내를 보일지(컬러가 켜진 판) — 연습·리그 띠(myPickKeys)도 본다 */
+    private static volatile boolean lookKeys = true;   /* 띠의 «OPTION 컬러 · A+B 베기 색» 안내를 보일지(컬러가 켜진 판) — 연습·리그 띠(myPickKeys)도 본다 */
     private int[] lookV;                         /* 마지막 nativeLookStatus */
-    private int lookMemGen = 0, lookEditReq = 0, lookLost = 0, lookRecColor = -9;
+    private int lookMemGen = 0, lookEditReq = 0, lookLost = 0, lookRecColor = -9, lookFxGen = 0;
     private int[][][] lookCus = new int[Look.NCH][2][];
     private android.view.View lookEditor;        /* 컬러 만들기 창(스크롤 틀) — 떠 있으면 게임 입력은 look 이 모두 막는다 */
 
@@ -3578,6 +3578,7 @@ public class EmuActivity extends Activity {
             lookCus = Look.loadCustom();
             int[] v = Emu.nativeLookStatus();                            /* native 셈은 프로세스 내내 이어진다 — 지난 판의 요청·바뀜으로 창이 뜨지 않게 지금 값부터 */
             if (v != null && v.length >= 14) { lookMemGen = v[2]; lookEditReq = v[7]; }
+            if (v != null && v.length >= 18) lookFxGen = v[15];             /* 165 베기 색 — A+B 로 바뀐 횟수(옛 native 는 14칸) */
         }
         h.post(new Runnable() { @Override public void run() {
             h.removeCallbacks(lookPoll);
@@ -3606,6 +3607,7 @@ public class EmuActivity extends Activity {
     private void lookTick(int[] v) {
         lookV = v;
         if (v[2] != lookMemGen) lookSaveMem();                           /* OPTION 으로 바꾼 컬러 — 캐릭터마다 기억(다음에도 그 색) */
+        if (v.length >= 18 && v[15] != lookFxGen) { lookFxGen = v[15]; Look.saveFx(v[14]); }   /* A+B 로 바꾼 베기 색 — 하나로 기억 */
         if (v[7] != lookEditReq) {                                       /* OPTION 길게 — 컬러 만들기 */
             lookEditReq = v[7];
             if (v[1] == 1) openLookEditor(v[12], v[13]);
@@ -3631,7 +3633,7 @@ public class EmuActivity extends Activity {
         }
     }
 
-    /** 일반 1인·무한 대전 고르기 화면의 띠 — 캐릭터: «A 결정 · B 2P색 · OPTION 컬러» / «OPTION 길게 = 컬러 만들기», 검질: «A 결정 · OPTION 컬러». 그 밖 null */
+    /** 일반 1인·무한 대전 고르기 화면의 띠 — 캐릭터: «A 결정 · OPTION 컬러 · A+B 베기 색» / «OPTION 길게 = 컬러 만들기», 검질: 첫 줄만. 그 밖 null */
     private String lookHint() {
         int[] v = lookV;
         if (!lookOn || v == null || v.length < 14 || v[1] != 1 || lookEditor != null) return null;

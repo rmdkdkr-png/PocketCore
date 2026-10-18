@@ -77,11 +77,11 @@ public final class Emu {
     /* 153 랭크 «내 캐릭터 한 번만»·VS 띠(league.c · vsband.c) — 옛 native 엔 없다: 부르는 쪽이 UnsatisfiedLinkError 를 받아 152 흐름(매 판 직접 고르기·띠 없음)으로.
        league_hub_status(15칸)는 늘리지 않는다 — 고정 크기로 받는 곳이 있어 상태는 따로 */
     public static final int AUTO_TAIL = 2, AUTO_FF = 4;
-    /** 내 캐릭터 대신 고르기 — cell 0~13 · 15 가운데 무작위 칸, sty 0 수라 · 1 나찰, b2p 2P색, k −1..3 카드 칸.
+    /** 내 캐릭터 대신 고르기 — cell 0~13 · 15 가운데 무작위 칸, sty 0 수라 · 1 나찰, b2p 안 씀(165 — 옛 2P색 자리, 늘 false), k −1..3 카드 칸.
      *  flags AUTO_TAIL = 직접 고르는 판(이야기부터 자동 · 고른 것은 nativeHubMyPick) · AUTO_FF = 자동 단계 1~5 동안 4배속·소리 끔.
      *  다음 go(hub_go_fixed)부터. on false 이고 TAIL 아니면 예전처럼 손으로 */
     public static native boolean nativeHubAutoPick(boolean on, int cell, int sty, boolean b2p, int k1, int k2, int flags);
-    /** [있음, 칸, 캐릭터, 검질, 2P색, 카드 1, 2, 컬러 0~17] — 직접 고른 판의 이야기가 시작되면 있음(무작위 칸은 1라운드에 뽑힌 캐릭터로 다시) */
+    /** [있음, 칸, 캐릭터, 검질, 늘 0(옛 2P색), 카드 1, 2, 컬러 0·2~17] — 직접 고른 판의 이야기가 시작되면 있음(무작위 칸은 1라운드에 뽑힌 캐릭터로 다시) */
     public static native int[] nativeHubMyPick();
     /** [단계 0 꺼짐·1 부팅·2 캐릭터·3 검질·4 카드·5 이야기·6 무대 인트로(겹창을 내릴 때)·7 라운드·8 막힘, go 뒤 프레임, go→인트로, go→라운드, 막힌 단계].
      *  돌려보내기(nativeLeagueHubReturn)가 코어에 닿기 전(허브 상태 v[8] 가 늘기 전)엔 지난 판 값 */
@@ -108,19 +108,22 @@ public final class Emu {
     /** 연습 대전 프레임 미터 — cells[160](나 80칸 · 상대 80칸) · sum[40](practice.h PRACTICE_FD_NSUM). 돌려줌: 바뀔 때마다 오르는 판 번호 */
     public static native int nativePracticeFrames(byte[] cells, int[] sum);
 
-    /* 모든 모드 컬러(look.c) — 사무쇼2 확인한 판에서 캐릭터·검질 고르기 OPTION = 다음 컬러(길게 = 만들기 요청) · B = 2P색으로 결정.
-       번호 0 기본 · 1 2P색 · 2~15 프리셋 · 16·17 내 색 1·2(Look.NAMES). 기억 칸 16개 = 캐릭터 0~13 · 14 안 씀 · 15 무작위 칸 */
+    /* 모든 모드 컬러(look.c) — 사무쇼2 확인한 판에서 캐릭터·검질 고르기 OPTION = 다음 컬러(길게 = 만들기 요청) · A+B = 베기 색 다음 것 · A·B = 결정(보통 색).
+       번호 0 기본 · 1 (옛 2P색 — 안 고름, 옛 기록 이름용) · 2~15 프리셋 · 16·17 내 색 1·2(Look.NAMES). 기억 칸 16개 = 캐릭터 0~13 · 14 안 씀 · 15 무작위 칸 */
     public static native void   nativeLookEnable(boolean on);
     public static native void   nativeLookSetMem(byte[] mem16);
     public static native byte[] nativeLookGetMem();
     /** 내 색 k(0·1) — 캐릭터마다, 두 검질 같이. c1 < 0 = 지움. 12비트 0x0BGR */
     public static native void   nativeLookSetCustom(int ch, int k, int c1, int c2, int c3);
-    /** 이 경기 컬러(리그 체크포인트 이어 하기) — −1·0 = 정하지 않음(고르기 화면에서 정함) */
+    /** 베기 색 0~6(Look.FX_NAMES — 하나로 기억). 경기 베기 색은 고르기 화면에서 이 값을 따라간다(165 — 옛 native 엔 없다) */
+    public static native void   nativeLookSetFx(int fx);
+    /** 이 경기 컬러(리그 체크포인트 이어 하기) — 2~17 만, 그 밖(−1·0·1) = 정하지 않음(고르기 화면에서 정함) */
     public static native void   nativeLookSetMatch(int idx);
     /** 컬러 만들기 창 — 고르기 화면 미리보기를 이 세 색으로(off = 끝). 열린 동안 게임 입력은 모두 막는다 */
     public static native void   nativeLookEdit(boolean on, int c1, int c2, int c3);
-    /** [켜짐, 고르기 화면을 쥠, 기억 바뀐 횟수, 보이는 컬러, 경기 컬러(−1), 경기 캐릭터(−1), 2P색 결정 중, 만들기 요청 횟수,
-     *   검질 고르기 검질(−1 = 캐릭터 고르기), 경기 컬러 바뀐 횟수, 만드는 중, 프레임, 만들 캐릭터(−1 = 안 됨), 미리보기 검질] (look.h) */
+    /** [켜짐, 고르기 화면을 쥠, 기억 바뀐 횟수, 보이는 컬러, 경기 컬러(−1), 경기 캐릭터(−1), 늘 0(옛 2P색), 만들기 요청 횟수,
+     *   검질 고르기 검질(−1 = 캐릭터 고르기), 경기 컬러 바뀐 횟수, 만드는 중, 프레임, 만들 캐릭터(−1 = 안 됨), 미리보기 검질,
+     *   베기 색 0~6, A+B 로 바뀐 횟수, 결정 횟수, 경기 베기 색] (look.h — 165 부터 18칸, 옛 native 는 14칸) */
     public static native int[]  nativeLookStatus();
     /** 컬러 만들기 창의 시작 색 — 그 캐릭터·검질의 18색 × 세 색(없는 내 색 = 기본) */
     public static native int[]  nativeLookTriples(int ch, int sty);
