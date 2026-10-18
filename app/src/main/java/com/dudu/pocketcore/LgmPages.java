@@ -883,19 +883,12 @@ final class LgmPages {
         tabRow(s, MenuModel.Prefs.TAB_BOARD);
         java.util.List<RankCore.Row> top3 = b != null && b.top3 != null ? b.top3 : top != null && top.rows != null ? top.rows.subList(0, Math.min(3, top.rows.size())) : null;
         if (top3 != null && top3.size() >= 3) podium(cv, top3, m);
-        /* 열 머리(r6) */
-        cv.cellPal(0, 6, 19, 6, D_INK);
-        cv.text("순위", 6, 49, 2, ink.g7);
-        cv.text("이름", 42, 49, 2, ink.g7);
-        cv.text("티어", 100, 49, 2, ink.g7);
-        cv.text("LP", 155, 49, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
         /* 목록(L 층) */
         java.util.List<RankCore.Row> rows = new java.util.ArrayList<>();
         int meIdx = -1;
         if (m.me.placement) {
             if (top != null && top.rows != null) for (RankCore.Row r : top.rows) if (!r.me) rows.add(r);
         } else if (b != null && b.rows != null && !b.rows.isEmpty()) {
-            long myRank = b.rank;
             if (top != null && top.rows != null && !top.rows.isEmpty()) {
                 for (RankCore.Row r : top.rows) rows.add(r);
                 boolean meIn = false;
@@ -907,10 +900,30 @@ final class LgmPages {
                     for (RankCore.Row r : b.rows) if (r.rank > last) rows.add(r);
                 }
             } else rows.addAll(b.rows);
+        }
+        /* 165: 무쌍은 MR(다른 점수)로 매겨 늘 모든 LP 티어 위 — 유저 «내가 엘피가 높은데 고순위보다»(98~100위 무쌍의 MR 1652~1655 가 «LP» 열에 있어
+           7570 LP 보다 낮아 보였다). 무쌍 줄은 값 칸에 «MR» 표 · 무쌍 → LP 경계에 나눔 줄 · 열 머리 «LP·MR» · 아래 줄 설명 */
+        boolean anyMaster = false;
+        for (RankCore.Row r : rows) if (r != null && r != DIVIDER && r.lp >= RankCore.MASTER_LP) anyMaster = true;
+        for (int i = 0; anyMaster && i < rows.size(); i++) {
+            RankCore.Row r = rows.get(i);
+            if (r == null || r.lp >= RankCore.MASTER_LP) continue;              /* 첫 LP 줄 — 그 앞(«…» 건너) 줄이 무쌍이면 나눔 줄 */
+            RankCore.Row q = null;
+            for (int j = i - 1; j >= 0 && q == null; j--) q = rows.get(j);
+            if (q != null && q.lp >= RankCore.MASTER_LP) rows.add(i, DIVIDER);
+            break;
+        }
+        if (b != null) {
             for (int i = 0; i < rows.size(); i++) if (rows.get(i) != null && rows.get(i).me) meIdx = i;
-            if (meIdx < 0) for (int i = 0; i < rows.size(); i++) if (rows.get(i) != null && rows.get(i).rank == myRank) meIdx = i;
+            if (meIdx < 0) for (int i = 0; i < rows.size(); i++) if (rows.get(i) != null && rows.get(i) != DIVIDER && rows.get(i).rank == b.rank) meIdx = i;
         }
         if (rows.size() > 128) rows = rows.subList(0, 128);
+        /* 열 머리(r6) — 무쌍이 있으면 «LP·MR» */
+        cv.cellPal(0, 6, 19, 6, D_INK);
+        cv.text("순위", 6, 49, 2, ink.g7);
+        cv.text("이름", 42, 49, 2, ink.g7);
+        cv.text("티어", 100, 49, 2, ink.g7);
+        cv.text(anyMaster ? "LP·MR" : "LP", 155, 49, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
         Scene sc;
         if (b == null && !m.me.placement) {
             cv.cellPal(4, 11, 15, 11, D_LOAD);
@@ -941,7 +954,7 @@ final class LgmPages {
             }
         }
         cv.cellPal(0, 18, 19, 18, D_INK);
-        cv.text("▲▼ 넘기기  ◀▶ 탭  B 뒤로", 80, 145, 2, ink.g7, -1, TileCanvas.CENTER, 0);
+        cv.text(boardHint(cv, anyMaster), 80, 145, 2, ink.g7, -1, TileCanvas.CENTER, 0);
         s.base(B_FILL, Emu.OV_BASE_FILL, 0, 151, 152, 0x012);
         sc = s.finish(TileCanvas.RIGHT);
         if (!rows.isEmpty()) {
@@ -961,6 +974,17 @@ final class LgmPages {
         if (vis != null) sc.revealCue = concat(snap(sc.cue), new Cue().wipe(0, SWING, Cue.L, vis[0], vis[1], vis[2], vis[3], 2, false, 0, 0, Cue.EASE_LINEAR).build());
         sc.tab = MenuModel.Prefs.TAB_BOARD;
         return sc;
+    }
+    /** 순위 목록의 무쌍 → LP 나눔 줄(자리표 — 줄 그림은 listLayer) */
+    static final RankCore.Row DIVIDER = new RankCore.Row();
+    static final String HINT_BOARD = "▲▼ 넘기기  ◀▶ 탭  B 뒤로";
+    static final String[] HINT_MASTER = { "무쌍은 MR 순 · 늘 LP 위  ▲▼ ◀▶ B", "무쌍=MR 순·LP 위  ▲▼ ◀▶ B" };
+    static final String[] DIVIDER_TEXT = { "▲ 무쌍 · MR 순   ▼ LP 순", "▲무쌍 MR ▼LP" };
+    /** 서랍 순위 아래 줄 — 무쌍이 보이면 «무쌍은 MR 순 · 늘 LP 위» 를 앞에(폭 156 안 — 못 들면 짧은 글) */
+    private String boardHint(TileCanvas cv, boolean master) {
+        if (!master) return HINT_BOARD;
+        for (String h : HINT_MASTER) if (cv.textW(h, ink.g7) <= 156) return h;
+        return HINT_MASTER[HINT_MASTER.length - 1];
     }
     /** 단상 3장(r3–5): 2위 c0–5 · 1위 c6–13(금 + 왕관) · 3위 c14–19 */
     private void podium(TileCanvas cv, java.util.List<RankCore.Row> top3, MenuModel m) {
@@ -998,9 +1022,25 @@ final class LgmPages {
                     RankCore.Row r = rows.get(k);
                     int y = k * 8;
                     boolean z = zebra && k % 2 == 1;
-                    if (r == null) {
+                    if (r == DIVIDER) {                                            /* 165: 무쌍 → LP 경계 */
+                        int gp = cv.pal(C_GOLD[0], C_GOLD[1], z ? C_INKZ[2] : C_INK[2]);
+                        cv.cellPal(0, k, 19, k, gp);
+                        if (z) cv.fill(0, y, 159, y + 7, 3);
+                        String t = DIVIDER_TEXT[0];
+                        for (String d : DIVIDER_TEXT) { t = d; if (cv.textW(d, ink.g7) <= 120) break; }
+                        int tw = cv.textW(t, ink.g7);
+                        cv.text(t, 80, y, 1, ink.g7, -1, TileCanvas.CENTER, 0);
+                        cv.fill(4, y + 4, Math.max(4, 80 - tw / 2 - 4), y + 4, 2);
+                        cv.fill(Math.min(155, 80 + tw / 2 + 4), y + 4, 155, y + 4, 2);
+                        continue;
+                    }
+                    if (r == null) {                                               /* 위 100 ↔ 내 주변 사이 — 건너뛴 순위를 적는다(«… 101~916위 …») */
                         cv.cellPal(0, k, 19, k, ink0);
-                        cv.text("…", 80, y, 2, ink.g7, -1, TileCanvas.CENTER, 0);   /* 위 100 ↔ 내 주변 사이(⋯ U+22EF 는 갈무리에 없음 — 안드로이드는 다른 글꼴로 그림) */
+                        long a = -1, bb = -1;
+                        for (int j = k - 1; j >= 0 && a < 0; j--) { RankCore.Row q = rows.get(j); if (q != null && q != DIVIDER) a = q.rank; }
+                        for (int j = k + 1; j < rows.size() && bb < 0; j++) { RankCore.Row q = rows.get(j); if (q != null && q != DIVIDER) bb = q.rank; }
+                        String gt = a > 0 && bb > a + 1 ? (bb == a + 2 ? String.format(java.util.Locale.US, "… %,d위 …", a + 1) : String.format(java.util.Locale.US, "… %,d~%,d위 …", a + 1, bb - 1)) : "…";
+                        cv.text(fit(gt, 150, ink.g7), 80, y, 2, ink.g7, -1, TileCanvas.CENTER, 0);   /* ⋯ U+22EF 는 갈무리에 없음 — «…» */
                         continue;
                     }
                     boolean master = r.lp >= RankCore.MASTER_LP;
@@ -1019,11 +1059,12 @@ final class LgmPages {
                         int x = cv.text(tier, 100, y, 1, ink.g7);
                         if (!master) { cv.art(OvArt.STAR5, x + 1, y + 1, 2, 0, 0, false); cv.text(String.valueOf(RankCore.starOf(r.lp)), x + 7, y, 1, ink.g7); }
                         cv.mini3(lp, 155, y + 1, 1, TileCanvas.RIGHT);
+                        if (master) cv.text("MR", 155 - TileCanvas.mini3W(lp) - 2, y, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
                         continue;
                     }
                     int base = z ? cv.pal(C_INKZ[0], C_INKZ[1], C_INKZ[2]) : ink0;
                     cv.cellPal(0, k, 11, k, base);
-                    cv.cellPal(16, k, 19, k, base);
+                    cv.cellPal(16, k, 19, k, base);                                 /* 무쌍이면 아래에서 티어 빛으로(«MR» 표) */
                     if (z) cv.fill(0, y, 159, y + 7, 3);
                     cv.mini3(rk, 29, y + 1, 2, TileCanvas.RIGHT);
                     if (r.p != null && r.p.legacy) {
@@ -1033,10 +1074,11 @@ final class LgmPages {
                     }
                     cv.text(fit(cover7(nick), 54, ink.g7), 42, y, 1, ink.g7);       /* 54px — 42..95(c5–11). c12 부터는 티어 팔레트 */
                     int tp = cv.pal(TIER_C[t][0], TIER_C[t][1], z ? 0x123 : 0x012);
-                    cv.cellPal(12, k, 15, k, tp);
+                    cv.cellPal(12, k, master ? 19 : 15, k, tp);
                     int x = cv.text(tier, 100, y, 1, ink.g7);
                     if (!master) { cv.art(OvArt.STAR5, x + 1, y + 1, 1, 0, 0, false); cv.text(String.valueOf(RankCore.starOf(r.lp)), x + 7, y, 1, ink.g7); }
                     cv.mini3(lp, 155, y + 1, 1, TileCanvas.RIGHT);
+                    if (master) cv.text("MR", 155 - TileCanvas.mini3W(lp) - 2, y, 2, ink.g7, -1, TileCanvas.RIGHT, 0);   /* 무쌍 = MR(빨강 «MR» · 흰 숫자) — LP 와 다른 점수 */
                 }
                 return cv.encodeBands(0, TileCanvas.MAX_CHUNK, 2048);
             } catch (TileCanvas.Overflow o) {

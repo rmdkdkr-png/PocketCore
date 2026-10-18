@@ -717,3 +717,33 @@ vsync 마다 그린 텍스처의 이름표 줄 = 날 그림 + 자바로 따로 �
 
 시험(scratch `u160/h`): `native/tests/t_ov_phase.py`(ov.so·libnh.so — 무작위 장면·대본 1배·4배·띠 붙은 4배에서 합성 쪽지 = 파이썬 참조(ovref 장면 평가 + 쪽지 규칙) · 색은 쪽지 없이와 같음 · 줄 범위만 올린 텍스처 흉내 = 참조 · 이름표 화소 0) ·
 `native/tests/t_ov_phase_nh.py`(앱 native.c 통째 + 쪽지 코어 — 단위 1 에 묶인 텍스처·uPhase·두 쪽지 텍스처 내용).
+
+## §21 165 — 기기 163 에서 결판이 옛 카드로 · 이름표 안 보임 · 순위표 무쌍 MR 헷갈림(w165-ship)
+
+유저(163 실기): «유저 이름 게임 화면 안에 안 들어가네?» · 랭크 승리 뒤 옛 Java 카드(«승리!» · 다음 상대/재대결/그만 · ◀ 상대 기본 ▶ · 캐릭터 바꾸기 + 아래 띠 «결과를 기록했어요») 화면에
+«이게 인게임 화면이냐??» · 순위표 서랍에서 «내가 엘피가 높은데 고순위보다»(98~100위 무쌍의 MR 1652~1655 가 «LP» 열에 있어 7570 LP 보다 낮아 보임).
+
+### 21.1 찾은 것(scratch `u165/NOTES.md`)
+
+| 무엇 | 결과 |
+|---|---|
+| 기기 흉내(`u165/sim`) — 진짜 EmuActivity 바이트코드 + 진짜 native.c JNI(libnhj) + 164 코어(1cb33c9 + 패치 전부 = ad4f023) + 진짜 League · 가상 시계 Handler·GL 줄 받침 | 163 코드로 체크포인트 이어 하기 · 쉼→서랍→이어하기 · 대사 B 건너뛰기 · 허브 156 자동 고르기 · 첫 판 직접 고르기 · 다음 상대 · 재대결 · 60/120Hz · 잔상 60 · 사람 입력(조작 10418 프레임 이름표 99%) · 롬 JUE/KO 동봉/h1+KO 동봉/h1+KO101 — 모두 덧판 결판·이름표 보임 |
+| 옛 카드가 나는 유일한 길 | 정산 뒤 그림 스레드의 결판 장면이 «걸쇠 + 1.5초» 보다 늦게 옴(첫 판 · 디버그 판(fgtest)은 글자 마스크를 Bitmap 으로 처음 다 만듦) + 승리 대사를 B 로 넘김 → `lgmLatchCheck` «not_shown» → `rankResult`. sim: 그림 3.3초 + 대사 건너뛰기 = 유저 화면 그대로 |
+| 유저 뒤 스크린샷(서랍 LP 7435/7570 «▲92»/«▲89» — 판 전 대비 순위 = 결판 서랍) | 같은 기기에서 뒤의 판은 덧판 결판이 뜸 → 늘 깨진 것이 아니라 가끔(차가운 첫 그림 × 대사 건너뛰기) |
+| 이름표 native(tagdiag · 164 코어 · 기기 기본 옵션 · 60/120Hz) | 조작 중 98.4%/95.5% 보임 · 그린 텍스처에 이름표 화소 있음 — 4배 640×608 · 쪽지 · 번쩍임 줄이기에서도 비켜 주기 규칙 그대로 |
+| 결판 장면 데이터(LgmFuzz 20000 판 · AWT 잉크) | 예외 0 · 팔레트 최대 14/16 · 타일 357/496 |
+
+### 21.2 고친 것
+
+| 어디 | 정함 |
+|---|---|
+| 걸쇠 뒤 기다림(`lgmLatchCheck`) | 덧판 결판이 안 보이면: 그림 스레드가 아직 그리는 중(`lgmRendering`)이거나 메뉴가 ARMED 면 `LGM_RENDER_WAIT`(10초)까지 걸쇠 화면 그대로 기다림 · 그 밖은 `LGM_LATCH_WAIT`(1.5초) 뒤 **한 번** 지금 다시 그려 열기(`lgmOpenNow` → `openResultNow`) → 그래도 안 보이면 옛 카드. 앱이 내려가 있는 동안은 시계를 세움 |
+| 정산 때 그림 실패 | 걸쇠 때 지금 열기로 한 번 더(예전: 바로 옛 카드) · 걸쇠 뒤에 실패를 알면 그 자리에서 한 번 더 |
+| 덧판이 올리기 실패(`lgmFallback` FB_RENDER·FB_RECT) | 결판이면 한 번 다시 그려 열기 → 옛 카드 |
+| 정산 한 번 | `lgmOnSettle` 은 판마다 한 번(`lgmSettleId`) — 설정 끄기·사각형·사본 실패면 까닭만 남기고 걸쇠 때 `lgmOpenNow` 가 다시 판단 |
+| 미리 데우기 | 허브를 켤 때 글꼴 셋(`lgmPages`) · 경기 기록을 만들 때(이름표 일 뒤) 그 경기를 «이김 2:1 +50» 으로 끝난 것처럼 결판 장면을 한 번 그려 버림 — 정산 때 그림이 빨라짐 |
+| 까닭 남기기(`lgmWhy`) | logcat «lgm fallback <까닭> · <자세히>» 늘 · 디버그 판이면 까닭마다 한 번 짧은 토스트. 까닭: no_native · no_menu · fx_off · rect · model · render · not_shown · upload · rect_lost · pause · pause_render · drawer_render · tags_model · tags_render · tags_off · tags_cleared · tags_hidden. LeagueMenu 는 올리기 실패 자리(`failWhy()` — W 층·L 층·창유리·쿼드·바탕·대본)와 armResult 건너뜀을 로그 |
+| 이름표 살핌(`lgmTagsWatch`, leaguePoll) | 경기 중 이름표가 꺼져 있으면(그림이 native 에 간 뒤 2초) 한 번 다시 걺 · 조작 중인데 15초 넘게 안 보이면 occ·flash·scans·yields 를 남김. 비켜 주기(native)는 그대로 |
+| 서랍 순위표 무쌍 | 무쌍은 MR(다른 점수)로 매겨 늘 모든 LP 티어 위(RankCore.key — 그대로, 시험으로 확인). 무쌍 줄 값 칸 = 빨강 «MR» + 흰 숫자(칸 c12–19 티어 빛) · 내 줄도 · 무쌍 → LP 첫 경계에 금줄 나눔 줄 «▲ 무쌍 · MR 순 ▼ LP 순»(«…» 건너 있으면 그 뒤) · «…» 줄 = 건너뛴 순위 «… 101~916위 …» · 열 머리 «LP·MR»(무쌍이 있을 때) · 아래 줄 «무쌍은 MR 순 · 늘 LP 위 ▲▼ ◀▶ B» |
+
+시험: `u165/sim/run_sim.sh`(장면 ckpt · pausedrawer · skip · hub · hubfirst · settledrop — JOPTS 로 그림 지연·버림·실패·잔상·사람 입력·롬) · `u165/fuzz/BoardMrTest.java`(무쌍 줄 «MR»·나눔 줄·«…» 순위·열 머리·RankCore 순서) · `u165/fuzz/LgmFuzz.java` · `u165/tools/tagdiag.py`.

@@ -1248,6 +1248,7 @@ public class EmuActivity extends Activity {
         if (!loaded || leaving) return;
         if (lm() == null) { leagueVanished(); return; }    /* 경기 기록이 사라졌다(다시 읽기 등 — 있을 수 없는 일) */
         leagueSyncStarted();
+        lgmTagsWatch();                                    /* 165: 이름표가 꺼졌으면 다시 걸고 · 오래 안 보이면 까닭을 남김 */
         if (nativeDone()) {
             if (leagueDlg != null && leagueDlg.isShowing()) leagueDlg.dismiss();
             if (!leagueSettleNow() || !leagueDone) {           /* 저장 실패 — 결과는 코어 쪽에 그대로 있으니 다시(1초마다 — 카드 D 가 떠 있어도) */
@@ -2949,7 +2950,7 @@ public class EmuActivity extends Activity {
     private boolean lgmShown;                        /* 결판 메뉴가 떠 있다 — hubCard 와 같은 뜻 */
     private boolean lgmOpen;                         /* 결판·쉼·서랍 무엇이든 열림(UI 표시 — 안내 띠 숨김·터치 뷰) */
     private String lgmArmedId, lgmResultId;          /* 걸어 둔 경기 · 결판 메뉴에 보이는 경기 */
-    private String lgmFailedId;                      /* 정산 때 그리기에 실패한 경기 — 걸쇠 때 다시 그리지 않고 옛 카드 */
+    private String lgmFailedId;                      /* 정산 때 그리기에 실패한 경기 — 걸쇠 때 한 번 더 그려 보고(지금 열기), 또 실패하면 옛 카드 */
     private MenuModel lgmModel;                      /* 지금 열린 사본(서랍 그림용) */
     private RankCore.Me lgmMeBefore, lgmMeAfter;     /* 이 판 전·뒤 나(순위 ▲▼) */
     private int lgmGen, lgmTries, lgmDrawerTab = -1;
@@ -2957,13 +2958,43 @@ public class EmuActivity extends Activity {
     private LgmPages lgmPages;                       /* 그림 스레드에서만 */
     private View lgmTouch;
     private static final String LGM = "PocketCore";
+    /* 165: 기기 163 에서 결판이 옛 카드로 간 까닭 — 정산 뒤 그림 스레드가 결판 장면을 다 그리기 전에(첫 판·디버그 판은 글꼴·JIT 가 차가워 몇 초)
+       승리 대사를 B 로 넘겨 걸쇠가 먼저 서면, 걸쇠 뒤 1.5초 기다림이 끝나 «not_shown» → 옛 카드였다(sim 재현: 그림 3.3초 + 대사 건너뛰기).
+       이제 그림이 아직이면 걸쇠 화면 그대로 기다리고(LGM_RENDER_WAIT 까지), 걸어 둔 장면이 끝내 안 보이거나 정산 때 그림이 실패했으면 한 번 지금 다시 그려 연다.
+       그래도 못 쓰면 옛 카드 — 그 까닭을 lgmWhy 로 남긴다(logcat · 디버그 판은 짧은 토스트, 까닭마다 한 번) */
+    private boolean lgmRendering;                    /* 결판 장면을 그림 스레드가 그리는 중(정산 → armResult) */
+    private long lgmRenderT0, lgmLatchAt;            /* 그리기 시작 · 걸쇠 뒤 기다리기 시작(uptime ms) */
+    private volatile String lgmRenderErr;            /* 그림 스레드의 마지막 예외(까닭 글) */
+    private final java.util.HashSet<String> lgmWhySeen = new java.util.HashSet<>();
+    private Boolean lgmDebug;
+    static final long LGM_LATCH_WAIT = 1500, LGM_RENDER_WAIT = 10000;
+    /** 덧판을 못 써 옛 길로 가는 까닭 — logcat «lgm fallback <key> · <detail>» 늘 · 디버그 판이면 까닭마다 한 번 짧은 토스트(기기 제보가 스스로 설명되게) */
+    private void lgmWhy(String key, String detail) {
+        android.util.Log.w(LGM, "lgm fallback " + key + (detail != null && !detail.isEmpty() ? " · " + detail : ""));
+        if (lgmDebug == null) {
+            boolean d = false;
+            try { d = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0; } catch (Throwable ignored) { }
+            lgmDebug = d;
+        }
+        if (lgmDebug && lgmWhySeen.add(key)) {
+            String s = "덧판 대신 옛 길: " + key + (detail != null && !detail.isEmpty() ? " · " + detail : "");
+            toast(s.length() > 120 ? s.substring(0, 120) + "…" : s);
+        }
+    }
+    /** 덧판·이름표 상태 한 줄(까닭 글에 붙임) */
+    private String lgmState() {
+        int[] v = lgmStatus();
+        LeagueMenu mm = lgm;
+        return "lgm " + (mm != null ? mm.state() : -1) + " · ov 0x" + (v != null ? Integer.toHexString(v[Emu.OVS_FLAGS]) : "-")
+                + (v != null ? " fb " + v[Emu.OVS_FBW] + "x" + v[Emu.OVS_FBH] : "") + " · post " + postState();
+    }
 
     /** hubStart — 덧판이 있으면 메뉴를 만들고 이번 대전 세션(G2)을 새로 · 세션 첫 순위 미리 */
     private void lgmSetup() {
         League.sessionStart();
         if (lgm == null) {
             int[] v = lgmStatus();
-            if (v == null || v[Emu.OVS_VER] < 1) { android.util.Log.i(LGM, "lgm fallback no_native"); return; }
+            if (v == null || v[Emu.OVS_VER] < 1) { lgmWhy("no_native", v == null ? "nativeOvStatus 없음" : "VER " + v[Emu.OVS_VER]); return; }
         }
         final RankCore.Me me = League.rankMe();
         if (me.placementLeft == 0) BoardCache.warm(this, me, true, 4, false, () -> { BoardCache.Board b = BoardCache.get(me, true, 4); if (b != null && b.rank > 0) League.sessionRank0(b.rank); });
@@ -2974,6 +3005,7 @@ public class EmuActivity extends Activity {
         LeagueMenu mm = new LeagueMenu(port, lgmActions, h);
         mm.setPortrait(root == null || root.getHeight() >= root.getWidth());
         lgm = mm;
+        lgmRender(this::lgmPages, null);                                  /* 165: 글꼴 셋은 허브를 켤 때 미리(첫 결판 그림이 늦어 걸쇠를 놓치지 않게) */
     }
     /** nativeOvStatus — 옛 native 면 null */
     private static int[] lgmStatus() {
@@ -2994,16 +3026,56 @@ public class EmuActivity extends Activity {
         final LeagueMenu mm = lgm;
         final String id = leagueId;
         if (mm == null || id == null || !leagueHub || !hubRanked || leaving) return;
-        final MenuModel.Side[] sd = MenuModel.tagSides(lm());
-        if (sd == null) return;
+        final org.json.JSONObject m = lm();
+        final MenuModel.Side[] sd = MenuModel.tagSides(m);
+        if (sd == null) { lgmWhy("tags_model", "tagSides null"); return; }
+        lgmTagsId = id; lgmTagsAt = android.os.SystemClock.uptimeMillis(); lgmTagsHidden = 0; lgmTagsRearm = 0; lgmTagsPending = true;
+        final MenuModel warm = lgmWarmModel(m);                         /* 165: 결판 장면을 한 번 미리(버림) — 정산 때 그림이 빨라 걸쇠를 안 놓치게 */
         lgmRender(() -> {
             LgmPages pg = lgmPages();
             final LgmPages.HudTag a = pg.hudTag(sd[0], false), b = pg.hudTag(sd[1], true);
             h.post(() -> {
+                if (id.equals(lgmTagsId)) { lgmTagsPending = false; lgmTagsAt = android.os.SystemClock.uptimeMillis(); }
                 if (!id.equals(leagueId) || leaving || leagueDone) return;
-                gl.queueEvent(() -> { if (!mm.setTags(a, b)) android.util.Log.i(LGM, "lgm tags off"); });
+                gl.queueEvent(() -> { if (!mm.setTags(a, b)) h.post(() -> lgmWhy("tags_off", "setTags 실패(" + (a == null ? "나 없음 " : "") + (b == null ? "상대 없음" : "") + ")")); });
             });
-        }, null);
+            if (warm != null) {
+                long t0 = android.os.SystemClock.uptimeMillis();
+                try { pg.result(warm); } catch (Throwable t) { android.util.Log.w(LGM, "lgm warm: " + t); }
+                long ms = android.os.SystemClock.uptimeMillis() - t0;
+                if (ms > 300) android.util.Log.i(LGM, "lgm warm result " + ms + "ms");
+            }
+        }, () -> { if (id.equals(lgmTagsId)) lgmTagsPending = false; lgmWhy("tags_render", lgmRenderErr); });
+    }
+    private String lgmTagsId;                        /* 이름표를 건 경기 */
+    private long lgmTagsAt;                          /* 건 시각(uptime) */
+    private int lgmTagsHidden, lgmTagsRearm;         /* 조작 중인데 안 보인 연속 폴 수 · 다시 건 횟수 */
+    private boolean lgmTagsPending;                  /* 이름표를 그림 스레드가 그리는 중(아직 native 에 안 감) */
+    /** 결판 미리 그리기용 사본 — 이 경기를 «이김 2:1 · +50» 으로 끝난 것처럼(그림만 데우고 버림). 못 만들면 null */
+    private MenuModel lgmWarmModel(org.json.JSONObject m) {
+        try {
+            if (m == null || m.optJSONObject("start") == null) return null;
+            org.json.JSONObject f = new org.json.JSONObject(m.toString());
+            int lp = f.getJSONObject("start").optInt("lp");
+            f.put("status", "settled").put("outcome", "W").put("result", new org.json.JSONObject().put("w1", 2).put("w2", 1))
+             .put("lp_before", lp).put("lp_after", Math.min(RankCore.MASTER_LP - 1, lp + 50)).put("lp_delta", 50);
+            return MenuModel.result(null, f, lgmCtx(League.menuPrefs(), lgmStatus(), true, null));
+        } catch (Exception e) { return null; }
+    }
+    /** 165 — 경기 중 이름표 살핌(leaguePoll 마다): native 가 이름표를 지웠으면(코어 바뀜 등) 한 번 다시 걸고, 조작 중인데 15초 넘게 안 보이면 까닭(비킴·번쩍)을 남긴다 */
+    private void lgmTagsWatch() {
+        if (lgm == null || leagueId == null || !leagueId.equals(lgmTagsId) || leagueDone || !leagueStarted || leaving) return;
+        int[] t;
+        try { t = Emu.nativeOvTagStatus(); } catch (UnsatisfiedLinkError e) { return; }
+        if (t == null || t.length < Emu.OV_TAG_NSTAT) return;
+        long now = android.os.SystemClock.uptimeMillis();
+        if (t[Emu.OVT_ON] == 0 && !lgmTagsPending && now - lgmTagsAt > 2000) {   /* 걸어 보냈는데 꺼져 있다(GL 이 받을 틈 2초) */
+            if (lgmTagsRearm++ == 0) { lgmWhy("tags_cleared", "이름표가 꺼져 있어 다시 걺 · " + lgmState()); lgmTagsArm(); lgmTagsRearm = 1; }
+            return;
+        }
+        if (t[Emu.OVT_ON] == 1 && t[Emu.OVT_LIVE] == 1 && (t[Emu.OVT_VIS] & 3) == 0) {
+            if (++lgmTagsHidden == 60) lgmWhy("tags_hidden", "조작 중 15초 안 보임 · occ " + t[Emu.OVT_OCC] + " flash " + t[Emu.OVT_FLASH] + " scans " + t[Emu.OVT_SCANS] + " yields " + t[Emu.OVT_YIELDS]);
+        } else lgmTagsHidden = 0;
     }
     /** 쉼 자격 — 랭크 경기(첫 라운드 뒤) · 결판 전 · 찾기 겹창·결과·카드·바 없음 */
     private boolean lgmEligible() { return lgmEligible(false); }
@@ -3032,7 +3104,7 @@ public class EmuActivity extends Activity {
     }
     /** 결판·쉼 표시를 끈다(덧판 닫기는 부른 쪽이 GL 에서 — hubReturn 은 nativeLeagueHubReturn 앞) */
     private void lgmReset() {
-        lgmShown = false; lgmArmedId = null; lgmResultId = null; lgmModel = null; lgmGen++; lgmDrawerTab = -1;
+        lgmShown = false; lgmArmedId = null; lgmResultId = null; lgmModel = null; lgmGen++; lgmDrawerTab = -1; lgmRendering = false;
         if (lgmOpen) lgmOpenUi(false);
     }
     /** 리그를 나가기 전 — 표시 끄고 GL 에서 덧판 닫기(코어 내리기보다 먼저 — queueEvent 순서) */
@@ -3042,40 +3114,48 @@ public class EmuActivity extends Activity {
         if (mm != null) gl.queueEvent(mm::close);
     }
 
-    /** 정산을 막 했다 — 결판 장면을 미리 그려 걸쇠에 걸어 둔다(한 번만). 못 쓰면 아무것도 안 함(걸쇠 때 옛 카드) */
+    /** 정산을 막 했다 — 결판 장면을 미리 그려 걸쇠에 걸어 둔다(판마다 한 번 — 폴마다 다시 안 함). 못 쓰면 까닭을 남기고 걸쇠 때 지금 열기로 한 번 더 */
     private void lgmOnSettle() {
         final LeagueMenu mm = lgm;
         if (mm == null || !leagueHub || !hubRanked || leagueId == null || leaving) return;
-        if (leagueId.equals(lgmArmedId)) return;
+        if (leagueId.equals(lgmSettleId)) return;
         final org.json.JSONObject m = lm();
         if (m == null || !League.isRanked(m) || !League.terminal(m.optString("status"))) return;
-        lgmArmedId = leagueId;                                           /* 한 번만(실패해도 다시 안 그린다 — 걸쇠 때 옛 카드) */
+        lgmSettleId = leagueId; lgmReopenId = null; lgmFailedId = null;
         MenuModel.Prefs p = League.menuPrefs();
-        if (p.fx == MenuModel.Prefs.FX_OFF) { android.util.Log.i(LGM, "lgm fallback fx_off"); lgmArmedId = null; return; }
+        if (p.fx == MenuModel.Prefs.FX_OFF) { lgmWhy("fx_off", "설정 «결판 연출» 끄기 — 옛 카드"); return; }
         int[] v = lgmStatus();
-        if (v == null || (v[Emu.OVS_FLAGS] & Emu.OVF_RECT_OK) == 0) { android.util.Log.i(LGM, "lgm fallback rect"); lgmArmedId = null; return; }
+        if (v == null || (v[Emu.OVS_FLAGS] & Emu.OVF_RECT_OK) == 0) { lgmWhy("rect", "정산 때 게임 사각형 못 찾음(걸쇠 때 다시) · " + lgmState()); return; }
         final String id = leagueId;
         lgmMeAfter = League.rankMe();
         final RankCore.Me after = lgmMeAfter;
         if (after.placementLeft == 0) BoardCache.warm(this, after, true, 4, false, () -> lgmRankReady(id));
-        MenuModel model = MenuModel.result(this, m, lgmCtx(p, v, true, after));
-        if (model == null) { android.util.Log.i(LGM, "lgm fallback model"); lgmArmedId = null; return; }
-        lgmModel = model; lgmResultId = id;
+        final MenuModel model = MenuModel.result(this, m, lgmCtx(p, v, true, after));
+        if (model == null) { lgmWhy("model", "MenuModel.result null · status " + m.optString("status") + " · outcome " + m.optString("outcome")); return; }
+        lgmArmedId = id; lgmModel = model; lgmResultId = id;
         final int gen = ++lgmGen;
+        lgmRendering = true; lgmRenderT0 = android.os.SystemClock.uptimeMillis();
         lgmRender(() -> {
             LgmPages pg = lgmPages();
             final LgmPages.Scene r = pg.result(model);                  /* 157 post: «그만할까요?» 장면 없음 — «그만하기» 는 바로 타이틀로 */
             h.post(() -> {
-                if (gen != lgmGen || leaving || !id.equals(lgmArmedId)) return;
+                if (gen != lgmGen) return;
+                lgmRendering = false;
+                long now = android.os.SystemClock.uptimeMillis();
+                if (now - lgmRenderT0 > 1000) android.util.Log.i(LGM, "lgm result render " + (now - lgmRenderT0) + "ms" + (lgmShown ? " — 걸쇠 뒤 " + (now - lgmLatchAt) + "ms" : ""));
+                if (leaving || !id.equals(lgmArmedId)) return;
                 gl.queueEvent(() -> mm.armResult(model, r, null));
             });
         }, () -> {
             if (gen != lgmGen) return;
-            android.util.Log.i(LGM, "lgm fallback render");
-            if (lgmShown && id.equals(lgmResultId)) { lgmToCard(League.matchById(id), "render"); return; }   /* 걸쇠가 먼저 섰다 — 지금 옛 카드 */
-            lgmFailedId = id; lgmArmedId = null; lgmResultId = null; lgmModel = null;                          /* 걸쇠 때 옛 카드 */
+            lgmRendering = false;
+            lgmWhy("render", "정산 때 결판 그림 실패 · " + lgmRenderErr);
+            lgmFailedId = id;
+            if (lgmShown && id.equals(lgmResultId)) { lgmReopenNow(League.matchById(id), "render"); return; }   /* 걸쇠가 먼저 섰다 — 지금 한 번 더 */
+            lgmArmedId = null; lgmResultId = null; lgmModel = null;                                             /* 걸쇠 때 지금 열기로 한 번 더 */
         });
     }
+    private String lgmSettleId, lgmReopenId;          /* 정산 뒤 걸기를 해 본 경기 · 지금 다시 그려 열기를 해 본 경기(판마다 한 번) */
     /** MenuModel 만들 재료 */
     private MenuModel.Ctx lgmCtx(MenuModel.Prefs p, int[] ov, boolean started, RankCore.Me now) {
         MenuModel.Ctx c = new MenuModel.Ctx();
@@ -3091,7 +3171,12 @@ public class EmuActivity extends Activity {
         try {
             ex.execute(() -> {
                 try { job.run(); }
-                catch (Throwable t) { android.util.Log.w(LGM, "lgm render: " + t); if (onFail != null) h.post(onFail); }
+                catch (Throwable t) {
+                    StackTraceElement[] st = t.getStackTrace();
+                    lgmRenderErr = t + (st.length > 0 ? " @" + st[0].getFileName() + ":" + st[0].getLineNumber() : "");
+                    android.util.Log.w(LGM, "lgm render: " + lgmRenderErr);
+                    if (onFail != null) h.post(onFail);
+                }
             });
         } catch (Exception e) { if (onFail != null) onFail.run(); }
     }
@@ -3122,52 +3207,84 @@ public class EmuActivity extends Activity {
         }, null);
     }
 
-    /** 걸쇠 뒤 결과(hubResult) — 덧판 결판이면 true(카드 없음). 걸어 둔 장면이 아직이면 잠깐 기다림 · 쉼에서 기권·무효면 지금 연다 */
+    /** 걸쇠 뒤 결과(hubResult) — 덧판 결판이면 true(카드 없음). 걸어 둔 장면이 아직이면 걸쇠 화면 그대로 기다림 · 걸지 못한 판(쉼에서 기권·무효,
+     *  정산 때 그림 실패·사각형 못 찾음)이면 지금 그려 연다 */
     private boolean lgmResultAtLatch(final org.json.JSONObject m) {
         final LeagueMenu mm = lgm;
-        if (mm == null || !leagueHub || !hubRanked) return false;
+        if (mm == null || !leagueHub || !hubRanked) { if (leagueHub && hubRanked) lgmWhy("no_menu", "덧판 메뉴 없음(옛 native?)"); return false; }
         String id = m.optString("id");
-        if (id.equals(lgmArmedId)) {                                      /* 정산 때 걸어 둔 판 */
+        lgmLatchAt = android.os.SystemClock.uptimeMillis();
+        if (id.equals(lgmArmedId)) {                                      /* 정산 때 걸어 둔 판(그림이 아직일 수도) */
             lgmShown = true; lgmTries = 0;
             lgmOpenUi(true);
             h.removeCallbacks(lgmLatchCheck); h.post(lgmLatchCheck);
             return true;
         }
-        if (id.equals(lgmFailedId)) return false;                         /* 정산 때 그리기 실패 — 옛 카드 */
-        /* 걸지 못한 판(쉼에서 기권·무효, 정산과 걸쇠가 한꺼번에) — 지금 연다(멈춘 그 화면 위) */
+        return lgmOpenNow(m, id.equals(lgmFailedId) ? "render" : null);
+    }
+    /** 결판을 지금(걸쇠·멈춘 화면 위) 그려 연다 — 판마다 한 번. 못 쓰면 까닭을 남기고 false(부른 쪽이 옛 카드) */
+    private boolean lgmOpenNow(final org.json.JSONObject m, String retryOf) {
+        final LeagueMenu mm = lgm;
+        if (mm == null || m == null) return false;
+        final String id = m.optString("id");
+        if (id.equals(lgmReopenId)) return false;                         /* 이 판은 이미 한 번 지금 열기를 해 봤다 */
+        lgmReopenId = id;
         MenuModel.Prefs p = League.menuPrefs();
-        if (p.fx == MenuModel.Prefs.FX_OFF) { android.util.Log.i(LGM, "lgm fallback fx_off"); return false; }
+        if (p.fx == MenuModel.Prefs.FX_OFF) { lgmWhy("fx_off", "설정 «결판 연출» 끄기 — 옛 카드"); return false; }
         int[] v = lgmStatus();
-        if (v == null || (v[Emu.OVS_FLAGS] & Emu.OVF_RECT_OK) == 0) { android.util.Log.i(LGM, "lgm fallback rect"); return false; }
+        if (v == null || (v[Emu.OVS_FLAGS] & Emu.OVF_RECT_OK) == 0) { lgmWhy("rect", "게임 사각형 못 찾음 · " + lgmState()); return false; }
         final RankCore.Me after = League.rankMe();
         lgmMeAfter = after;
         if (after.placementLeft == 0) BoardCache.warm(this, after, true, 4, false, () -> lgmRankReady(id));
         final MenuModel model = MenuModel.result(this, m, lgmCtx(p, v, true, after));
-        if (model == null) { android.util.Log.i(LGM, "lgm fallback model"); return false; }
-        lgmModel = model; lgmResultId = id; lgmArmedId = id;
+        if (model == null) { lgmWhy("model", "MenuModel.result null · status " + m.optString("status")); return false; }
+        if (retryOf != null) android.util.Log.i(LGM, "lgm result reopen (" + retryOf + ")");
+        lgmModel = model; lgmResultId = id; lgmArmedId = id; lgmFailedId = null;
         lgmShown = true;
         lgmOpenUi(true);
         final int gen = ++lgmGen;
+        lgmRendering = true; lgmRenderT0 = lgmLatchAt = android.os.SystemClock.uptimeMillis();
         lgmRender(() -> {
             LgmPages pg = lgmPages();
             final LgmPages.Scene r = pg.result(model);
-            h.post(() -> { if (gen == lgmGen && !leaving) gl.queueEvent(() -> mm.openResultNow(model, r, null)); });
-        }, () -> { if (gen == lgmGen) lgmToCard(m, "render"); });
+            h.post(() -> {
+                if (gen != lgmGen) return;
+                lgmRendering = false;
+                if (!leaving) gl.queueEvent(() -> mm.openResultNow(model, r, null));
+            });
+        }, () -> { if (gen == lgmGen) { lgmRendering = false; lgmWhy("render", "결판 그림 실패 · " + lgmRenderErr); lgmToCard(m, "render"); } });
+        h.removeCallbacks(lgmLatchCheck); h.postDelayed(lgmLatchCheck, 100);
         return true;
     }
-    /** 걸쇠 뒤 — 덧판이 보이기를 100ms 마다(장면이 늦게 걸려도 걸쇠는 레벨이라 바로 열림). 1.5초 넘게 안 보이면 옛 카드 */
+    /** 지금 다시 그려 열기 — 못 하면 옛 카드 */
+    private void lgmReopenNow(org.json.JSONObject m, String why) {
+        if (!lgmOpenNow(m, why)) lgmToCard(m, why);
+    }
+    /** 걸쇠 뒤 — 덧판이 보이기를 100ms 마다(걸쇠는 레벨이라 장면이 늦게 걸려도 바로 열림). 그림 스레드가 아직 그리는 중이거나 걸어 둔 채면
+     *  LGM_RENDER_WAIT 까지 걸쇠 화면 그대로 기다리고, 그 밖은 LGM_LATCH_WAIT 뒤 한 번 지금 다시 그려 열기 → 그래도 안 보이면 옛 카드 */
     private final Runnable lgmLatchCheck = new Runnable() { @Override public void run() {
         if (!lgmShown || leaving || lgmResultId == null) return;
         int[] v = lgmStatus();
         int fl = v != null ? v[Emu.OVS_FLAGS] : 0;
-        if ((fl & Emu.OVF_VISIBLE) != 0) return;                          /* 열렸다 */
-        if (++lgmTries <= 15) { h.postDelayed(this, 100); return; }
+        long now = android.os.SystemClock.uptimeMillis();
+        if (!resumedNow) { lgmLatchAt += 100; h.postDelayed(this, 100); return; }   /* 내려가 있는 동안(GL 멈춤)은 기다림 시계를 세운다 */
+        long waited = now - lgmLatchAt;
+        if ((fl & Emu.OVF_VISIBLE) != 0) {                                /* 열렸다 */
+            if (waited > LGM_LATCH_WAIT) android.util.Log.i(LGM, "lgm result shown " + waited + "ms after latch");
+            return;
+        }
+        LeagueMenu mm = lgm;
+        boolean armed = mm != null && mm.state() == LeagueMenu.ST_ARMED;
+        lgmTries++;
+        if ((lgmRendering || armed) && waited < LGM_RENDER_WAIT) { h.postDelayed(this, 100); return; }   /* 그리는 중 · 걸어 둔 채 — 기다림 */
+        if (waited < LGM_LATCH_WAIT) { h.postDelayed(this, 100); return; }
         org.json.JSONObject m = League.matchById(lgmResultId);
-        lgmToCard(m, "not_shown");
+        lgmWhy("not_shown", (lgmRendering ? "그림 " + (now - lgmRenderT0) + "ms 넘음" : armed ? "걸어 둔 채 안 열림" : "걸린 장면 없음") + " · 걸쇠 뒤 " + waited + "ms · " + lgmState());
+        lgmReopenNow(m, "not_shown");
     } };
-    /** 덧판 결판을 버리고 옛 결과 카드로 */
+    /** 덧판 결판을 버리고 옛 결과 카드로(까닭은 부른 쪽이 lgmWhy 로) */
     private void lgmToCard(org.json.JSONObject m, String why) {
-        android.util.Log.i(LGM, "lgm fallback " + why);
+        android.util.Log.i(LGM, "lgm fallback card · " + why);
         final LeagueMenu mm = lgm;
         lgmReset();
         if (mm != null) gl.queueEvent(mm::close);
@@ -3250,7 +3367,7 @@ public class EmuActivity extends Activity {
             MenuModel.Prefs p = League.menuPrefs();
             final MenuModel model = MenuModel.pause(EmuActivity.this, m, lgmCtx(p, v, leagueStarted, League.rankMe()));
             if (model == null || v == null || (v[Emu.OVS_FLAGS] & Emu.OVF_RECT_OK) == 0) {
-                android.util.Log.i(LGM, "lgm fallback pause");
+                lgmWhy("pause", (model == null ? "MenuModel.pause null" : "게임 사각형 못 찾음") + " · " + lgmState());
                 gl.queueEvent(mm::cancelPause);
                 h.post(() -> { if (!leaving && leagueId != null && !leagueDone) leagueLeave(); });   /* 옛 길 — 나가기 카드 */
                 return;
@@ -3265,7 +3382,7 @@ public class EmuActivity extends Activity {
                     gl.queueEvent(() -> mm.openPause(model, a, c));
                     lgmOpenUi(true);
                 });
-            }, () -> { gl.queueEvent(mm::cancelPause); if (!leaving && leagueId != null && !leagueDone) leagueLeave(); });
+            }, () -> { lgmWhy("pause_render", lgmRenderErr); gl.queueEvent(mm::cancelPause); if (!leaving && leagueId != null && !leagueDone) leagueLeave(); });
         }
         @Override public void lgmWantDrawer(int tab) {
             lgmDrawerTab = tab;
@@ -3279,11 +3396,14 @@ public class EmuActivity extends Activity {
             if (shown && lgmDrawerTab == MenuModel.Prefs.TAB_SETTINGS) lgmDrawer(MenuModel.Prefs.TAB_SETTINGS);
         }
         @Override public void lgmFallback(int why) {
-            android.util.Log.i(LGM, "lgm fallback menu " + why);
             boolean result = lgmShown && lgmResultId != null;
             org.json.JSONObject m = result ? League.matchById(lgmResultId) : null;
+            LeagueMenu mm = lgm;
+            String w = why == LeagueMenu.FB_RECT ? "rect_lost" : why == LeagueMenu.FB_RENDER ? "upload" : why == LeagueMenu.FB_NOT_SHOWN ? "menu_not_shown" : "menu_" + why;
+            lgmWhy(w, (result ? "결판" : lgmArmedId != null ? "걸어 둔 결판" : "쉼") + " · " + (mm != null && mm.failWhy() != null ? mm.failWhy() + " · " : "") + lgmState());
             lgmReset();
-            if (result && m != null && !leaving && hubCard == null) rankResult(m);
+            if (result && m != null && !leaving && hubCard == null) lgmReopenNow(m, w);   /* 165: 한 번 지금 다시 그려 열기 → 그래도 못 쓰면 옛 카드 */
+            else if (!result && leagueDone) { /* 걸쇠 전 결판 걸기 실패 — 걸쇠 때 지금 열기로(lgmResultAtLatch) */ }
             else if (!leaving && leagueId != null && !leagueDone) leagueLeave();   /* 쉼이던 판 — 옛 나가기 카드 */
         }
     };
@@ -3296,11 +3416,11 @@ public class EmuActivity extends Activity {
         final int gen = lgmGen;
         if (tab == MenuModel.Prefs.TAB_SETTINGS) {
             final MenuModel.Prefs p = League.menuPrefs();
-            lgmRender(() -> { final LgmPages.Scene sc = lgmPages().settings(p, 0); h.post(() -> lgmDrawerShow(gen, tab, sc)); }, null);
+            lgmRender(() -> { final LgmPages.Scene sc = lgmPages().settings(p, 0); h.post(() -> lgmDrawerShow(gen, tab, sc)); }, () -> lgmWhy("drawer_render", lgmRenderErr));
             return;
         }
         if (tab == MenuModel.Prefs.TAB_RECORD) {
-            lgmRender(() -> { final LgmPages.Scene sc = lgmPages().record(model); h.post(() -> lgmDrawerShow(gen, tab, sc)); }, null);
+            lgmRender(() -> { final LgmPages.Scene sc = lgmPages().record(model); h.post(() -> lgmDrawerShow(gen, tab, sc)); }, () -> lgmWhy("drawer_render", lgmRenderErr));
             return;
         }
         final RankCore.Me me = League.rankMe();
@@ -3314,7 +3434,7 @@ public class EmuActivity extends Activity {
             BoardCache.Board a = lgmNicks(a0), t = lgmNicks(t0);          /* 단상(top3)도 같은 닉 */
             final LgmPages.Scene sc = lgmPages().board(model, me.placementLeft == 0 ? a : null, t);
             h.post(() -> lgmDrawerShow(gen, tab, sc));
-        }, null);
+        }, () -> lgmWhy("drawer_render", lgmRenderErr));
     }
     private void lgmDrawerShow(int gen, int tab, LgmPages.Scene sc) {
         final LeagueMenu mm = lgm;

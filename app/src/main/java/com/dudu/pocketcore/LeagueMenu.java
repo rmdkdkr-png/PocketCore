@@ -173,7 +173,10 @@ final class LeagueMenu {
     void armResult(MenuModel m, LgmPages.Scene result, LgmPages.Scene quit) {
         if (m == null || result == null) return;
         if (st == ST_PAUSE_PENDING) ov.hold(false);
-        if (st == ST_RESULT || st == ST_QUIT || st == ST_DRAWER || st == ST_CLOSING) return;   /* 이미 결판이 열림 */
+        if (st == ST_RESULT || st == ST_QUIT || st == ST_DRAWER || st == ST_CLOSING) {   /* 이미 결판이 열림 */
+            android.util.Log.i("PocketCore", "lgm armResult skipped · st " + st);
+            return;
+        }
         if (st == ST_PAUSE || st == ST_CONFIRM) { ov.clear(Emu.OV_CLR_ALL); st = ST_CLOSED; }
         model = m; sResult = result; sQuit = quit; sPause = sConfirm = sDrawer = null; drawerTab = -1;
         lastPatch = null; stageSel = result.stageSel; busy = false; afterClose = null;
@@ -484,11 +487,13 @@ final class LeagueMenu {
         if (ok && (sc == sResult || sc == sQuit) && lastPatch != null) applyPatch(lastPatch);
         int[] ops = how == SHOW_FULL ? sc.cue : how == SHOW_REVEAL && sc.revealCue != null ? sc.revealCue : sc.swapCue;
         int flags = startFlag | (++cueId << Emu.OV_CUE_ID_SHIFT) | (how == SHOW_END || (how == SHOW_REVEAL && sc.revealCue == null) ? Emu.OV_SKIP_TO_END : 0);
-        if (ok) ok = ov.cue(ops != null ? ops : new int[0], flags);
+        boolean cueOk = true;
+        if (ok) ok = cueOk = ov.cue(ops != null ? ops : new int[0], flags);
         curReadyT = how == SHOW_FULL ? sc.readyT : 0;
         if (how != SHOW_FULL && sc.fusePane >= 0) fuseOff(sc);           /* 돌아온 결판 — 연속 대전은 이미 꺼짐 */
+        if (ok && !cueOk) failWhy = "cue";
         if (!ok) {
-            android.util.Log.i("PocketCore", "lgm fallback upload");
+            android.util.Log.i("PocketCore", "lgm fallback upload · " + failWhy);
             ov.clear(Emu.OV_CLR_ALL);
             resetClosed(prev);
             post(() -> act.lgmFallback(FB_RENDER));
@@ -498,20 +503,28 @@ final class LeagueMenu {
 
     private boolean upload(LgmPages.Scene sc) {
         boolean ok = true;
+        failWhy = null;
         if (sc.w != null) ok = uploadEnc(Emu.OV_W, sc.w);
-        if (ok && sc.l != null) for (TileCanvas.Encoded e : sc.l) if (e != null && !uploadEnc(Emu.OV_L, e)) { ok = false; break; }
-        if (ok && sc.l != null) ok = ov.scroll(Emu.OV_L, 0, sc.lScrollY, sc.lClipY0, sc.lClipY1);
+        if (!ok) { failWhy = "W 층(타일 " + (sc.w.tiles != null ? sc.w.tiles.length / 16 : 0) + ")"; return false; }
+        if (ok && sc.l != null) for (TileCanvas.Encoded e : sc.l) if (e != null && !uploadEnc(Emu.OV_L, e)) { ok = false; failWhy = "L 층"; break; }
+        if (ok && sc.l != null) { ok = ov.scroll(Emu.OV_L, 0, sc.lScrollY, sc.lClipY0, sc.lClipY1); if (!ok) failWhy = "L 스크롤"; }
         if (ok && sc.panes != null)
             for (int i = 0; i + 8 < sc.panes.length; i += 9)
                 ok &= ov.pane(sc.panes[i], sc.panes[i + 1], sc.panes[i + 2], sc.panes[i + 3], sc.panes[i + 4], sc.panes[i + 5], sc.panes[i + 6], sc.panes[i + 7], sc.panes[i + 8] != 0);
+        if (!ok && failWhy == null) failWhy = "창유리";
         if (ok && sc.quads != null)
             for (int i = 0; i + 6 < sc.quads.length; i += 7)
                 ok &= ov.quad(sc.quads[i], sc.quads[i + 1], sc.quads[i + 2], sc.quads[i + 3], sc.quads[i + 4], sc.quads[i + 5], sc.quads[i + 6]);
+        if (!ok && failWhy == null) failWhy = "쿼드";
         if (ok && sc.base != null)
             for (int i = 0; i + 5 < sc.base.length; i += 6)
                 ok &= ov.base(sc.base[i], sc.base[i + 1], sc.base[i + 2], sc.base[i + 3], sc.base[i + 4], sc.base[i + 5]);
+        if (!ok && failWhy == null) failWhy = "바탕";
         return ok;
     }
+    /** 165: 마지막으로 장면 올리기에 실패한 곳(까닭 글) — 아무 스레드(값만) */
+    private volatile String failWhy;
+    String failWhy() { return failWhy; }
     /** 한 묶음 올리기 — 타일이 511 을 넘으면 나눠서(맵은 마지막에 한 번) */
     private boolean uploadEnc(int layer, TileCanvas.Encoded e) {
         int n = e.tiles != null ? e.tiles.length / 16 : 0;
