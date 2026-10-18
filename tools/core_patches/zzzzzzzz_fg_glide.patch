@@ -1,0 +1,137 @@
+앱 방 코어 패치 zzzzzzzz_fg_glide — 한 포즈 걸음 그림(유저 10-19 「다시 그리는 방법이 있나」·「어떻게 덜 어색하게 하는 방법이라도」).
+사무쇼2 는 많은 캐릭터가 걸을 때 다리 그림이 아예 없다 — 서기 자세 한 장이 그대로 땅 위를 밀려간다(봇 35판: 한 번에 리무루루 87px · 샬럿 72 ·
+겐쥬로 60 · 나코루루 53 · 주베이 47). 158~167 의 위치·박자 고침으로는 안 없어지는 «미끄러져 다가옴»의 뿌리.
+캐시에 «같은 포즈 → 같은 포즈»(P, P) 항목(그 포즈의 다리 세 장)이 있으면, 몸이 그 포즈로 땅 위(서서 조작 가능·대시)를 간 거리로 돌려 그린다:
+8px 마다 ① → ② → ③ → ④ → ①(첫 바꿈은 4px), 상대에게서 멀어지면 거꾸로. 멈추고 6 프레임 뒤 ①. 곧 다른 포즈가 보이면 하던 대로 바뀜 사이 그림.
+(P, P) 는 옛 코어가 찾지 않아 팩에 넣어도 옛 판엔 영향 없음. 그림은 지금 자동 다리(허리 아래만 기울여 내딛고 끌어옴, 17차 팩) → GPT 손 그림이 오면 바꿈.
+호스트: 16차(자기 쌍 없음) 10판 출력 해시 167 과 같음. 임시 그림 8판: 걸음 장 ①②③ 이 거리대로, 움직이지 않을 때·공중·다른 포즈에 나온 것 0. ASan 4판 깨끗.
+
+diff --git a/src/libretro.c b/src/libretro.c
+index 6624793..e07772d 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -1395,6 +1395,7 @@ void retro_init(void)
+    struct retro_log_callback log;
+    char *dir = NULL;
+    if (getenv("SS2_WALKSTEP")) walkstep_mode = atoi(getenv("SS2_WALKSTEP"));   /* zzzzzz_fg_walkstep: 호스트 시험용 */
++   if (getenv("SS2_GLIDE")) ss2fg_set_glide(atoi(getenv("SS2_GLIDE")));       /* zzzzzzzz_fg_glide: 호스트 시험용 */
+ 
+    {  /* 링크 케이블 — 여기서 잡아 둔다. 한 프로세스에 코어 두 벌을 올리는 하네스가
+          인스턴스마다 다른 파이프를 주려면, 각자 초기화하는 그 순간의 환경변수를 봐야 한다. */
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index 438481d..b6e8251 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -2285,6 +2285,77 @@ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+    return 1;
+ }
+ 
++/* zzzzzzzz_fg_glide: 한 포즈 걸음 그림 — 사무쇼2 는 걷기·뒷걸음·대시의 상당수가 «포즈 하나로 땅을 감»이다(서기 자세 그대로 다가옴:
++   샬럿 72px · 리무루루 87px · 나코루루 53px 등, 대시는 거의 모두 한 포즈로 22px — 봇 35판). 120Hz 로 몸을 옮기든 원작처럼 디디든
++   다리가 안 움직여 미끄러져 다가온다(유저 10-19 「나에게 다가올 때 문제」·「나코루루 시키 등」·「다시 그리는 방법이 있나」).
++   캐시에 «같은 포즈 → 같은 포즈»(P, P) 항목이 있으면 그 세 장(새로 그린 걸음 그림)을 간 거리로 돌려 그린다:
++   P → ① → ② → ③ → P … 한 장에 GL_STEP px. 포즈가 바뀔 게 보이면(미리 돌린 D+1·D+2) 바뀜 사이 그림(mc_plan)에 맡긴다.
++   세 장은 «앞으로(상대 쪽으로) 걷는» 차례로 그린다 — 상대에게서 멀어지면(뒷걸음) 거꾸로(P → ③ → ② → ① …) 돌려 뒤로 걷게.
++   첫 걸음은 반 장(GL_STEP/2) 만에 — 짧게 다가와도(샬럿 한 번에 15px 등) 다리가 한 번은 움직이게.
++   (P, P) 항목이 없으면 아무 일도 안 한다 */
++#define GL_STEP 8
++static int      gl_mode = 1;                 /* 0 끔 · 1 켬(호스트 시험 SS2_GLIDE) */
++static uint64_t gl_sig[2];                   /* 거리를 재는 포즈 */
++static int      gl_dist[2];                  /* 그 포즈로 땅 위에서 간 거리(px) — 상대 쪽 +, 멀어지는 쪽 − */
++static unsigned gl_mv[2];                    /* 마지막으로 움직인 실제 프레임 */
++static uint8_t  gl_wx[2], gl_ct[2];
++static int      gl_stats[4];                 /* 장마다 그린 수(0 = 원래 포즈) */
++void ss2fg_set_glide(int m) { gl_mode = m; }
++void ss2fg_glide_stats(int *o4) { int i; for (i = 0; i < 4; i++) o4[i] = gl_stats[i]; }
++static int gl_ctok(uint8_t ct) { return ct == 0 || ct == 4 || ct == 6; }
++static void gl_observe(const ss2fg_frame *f, int p, uint64_t sg, unsigned realn)
++{
++   int d;
++   if (!sg || !f->fight || (f->st[p] & 0xE0) != 0x20 || !gl_ctok(f->ct[p]) || sg != gl_sig[p] || f->ct[p] != gl_ct[p])
++   { gl_sig[p] = sg; gl_ct[p] = f->ct[p]; gl_dist[p] = 0; gl_mv[p] = 0; gl_wx[p] = f->wx[p]; return; }
++   d = (int8_t)(uint8_t)(f->wx[p] - gl_wx[p]);
++   if (d && d >= -12 && d <= 12)
++   {
++      int to = (int8_t)(uint8_t)(f->wx[1 - p] - f->wx[p]);    /* 상대가 있는 쪽 */
++      gl_dist[p] += (to && (d > 0) != (to > 0)) ? -(d < 0 ? -d : d) : (d < 0 ? -d : d);
++      gl_mv[p] = realn;
++   }
++   gl_wx[p] = f->wx[p];
++}
++/* 반환: 1 = 걸음 그림을 계획함 · -1 = 걷는 중이지만 이번 장은 원래 포즈(다른 사이 그림도 안 씀) · 0 = 해당 없음 */
++static int gl_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_frame *f2, unsigned realn, int slot, int p)
++{
++   uint8_t mm[64];
++   int k, ph, moving = 0, ax0, ay0;
++   mc_ent *e;
++   id_pose *A;
++   id_req_t *rq = &id_rq[slot][p];
++   if (!gl_mode || !mc_on || !mc_f || !id_cur[p] || !f0->fight || f0->pick || gl_sig[p] != id_cur[p]) return 0;
++   if ((f0->st[p] & 0xE0) != 0x20 || !gl_ctok(f0->ct[p]) || f0->ct[p] != gl_ct[p]) return 0;
++   if (!mc_has(id_cur[p], id_cur[p])) return 0;
++   for (k = 1; k <= 2; k++)
++   {
++      const ss2fg_frame *g = k == 1 ? f1 : f2;
++      if (!g || !g->valid || g->mono || !g->body_ok || !body_mask(g, p, mm)) break;
++      if (body_sig(g, mm) != id_cur[p]) return 0;             /* 곧 다른 포즈 — 바뀜 사이 그림으로 */
++      if (g->wx[p] != f0->wx[p] && (g->st[p] & 0xE0) == 0x20) moving = 1;
++   }
++   if (gl_mv[p] && realn - gl_mv[p] <= 6u) moving = 1;      /* 걸음 사이 쉼(4 프레임)도 걷는 중 */
++   if (!moving) return 0;
++   {
++      int q = gl_dist[p] + GL_STEP / 2;
++      ph = (q >= 0 ? q / GL_STEP : -((-q + GL_STEP - 1) / GL_STEP)) & 3;   /* 내림 나눗셈 — 뒷걸음은 ③ ② ① */
++   }
++   if (!ph) { if (slot == 0) gl_stats[0]++; return -1; }
++   if (!(e = mc_get(id_cur[p], id_cur[p]))) return 0;
++   A = id_find_pose(p, id_cur[p]);
++   if (!A || A->w != e->aw || A->h != e->ah || A->w != e->bw || A->h != e->bh || e->bdx || e->bdy) { mc_stats[3]++; return 0; }
++   if (!mc_top_left(f0, p, &ax0, &ay0)) { ax0 = A->ox; ay0 = A->oy; }
++   rq->on = 1; rq->kind = 1; rq->pr = 0; rq->t256 = 64 * ph;
++   rq->e = e; rq->ti = ph - 1; rq->A = A; rq->B = A;
++   rq->gx = ax0 + e->cx; rq->gy = ay0 + e->cy; rq->sx4 = rq->sy4 = 0;
++   rq->ax = f0->ob_x[p]; rq->ay = f0->ob_y[p];
++   rq->gw = e->w; rq->gh = e->h;
++   rq->depth = A->depth; rq->first = A->first;
++   if (slot == 0) gl_stats[ph]++;
++   return 1;
++}
++
+ /* 99v: 멀리 미리 보기 */
+ static void probe_stop(void) { pb.run = 0; pb.w[0].on = pb.w[0].found = pb.w[1].on = pb.w[1].found = 0; }
+ static void probe_clear(void) { probe_stop(); pb.done_from[0] = pb.done_from[1] = 0; }
+@@ -2519,8 +2590,9 @@ void ss2fg_idle_observe(const ss2fg_frame *f, unsigned realn)
+       uint64_t sg;
+       int ax, ay;
+       int sw, chg = 0;
+-      if (!body_mask(f, p, m)) { id_cur[p] = id_prev[p] = 0; continue; }
++      if (!body_mask(f, p, m)) { id_cur[p] = id_prev[p] = 0; gl_sig[p] = 0; continue; }
+       sg = body_sig(f, m);
++      gl_observe(f, p, sg, realn);                       /* zzzzzzzz_fg_glide */
+       ax = f->ob_x[p]; ay = f->ob_y[p];
+       if (!id_find_pose(p, sg)) id_capture(f, p, m, sg);
+       else id_realign(f, p, sg);
+@@ -2767,7 +2839,9 @@ int ss2fg_idle_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fr
+    if (!id_on || !f0 || !f0->body_ok) { fx_reset_slot(slot); return 0; }
+    for (p = 0; p < 2; p++)
+    {
+-      if (id_plan_learned(f0, f1, f2, realn, h, slot, p) || mc_plan(f0, f1, f2, realn, h, slot, p)) any = 1;
++      int g = gl_plan(f0, f1, f2, realn, slot, p);       /* zzzzzzzz_fg_glide: 한 포즈로 땅을 가는 몸의 걸음 그림 */
++      if (g > 0) any = 1;
++      else if (!g && (id_plan_learned(f0, f1, f2, realn, h, slot, p) || mc_plan(f0, f1, f2, realn, h, slot, p))) any = 1;
+    }
+    if (fx_plan(f0, f1, f2, realn, h, slot)) any = 1;   /* 99w */
+    return any;
+diff --git a/src/ss2fg.h b/src/ss2fg.h
+index 7ee530c..cc82b78 100644
+--- a/src/ss2fg.h
++++ b/src/ss2fg.h
+@@ -145,6 +145,8 @@ int  ss2fg_motion_open(const char *path);
+ void ss2fg_motion_close(void);
+ int  ss2fg_motion_count(void);
+ void ss2fg_set_motion(int on);
++void ss2fg_set_glide(int m);              /* zzzzzzzz_fg_glide: 한 포즈 걸음 그림 0 끔 · 1 켬 */
++void ss2fg_glide_stats(int *o4);
+ void ss2fg_motion_stats(int *out4);
+ 
+ int ss2fg_render2(const ss2fg_frame *base, const ss2fg_frame *to_spr, int t_spr,
