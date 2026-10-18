@@ -315,6 +315,8 @@ void look_tick(uint8_t *ram, size_t n, int input, int ctx)
             }
             if ((input & IN_OPT) && K.opt_own && (int)K.f - K.opt_f == LONG_F && slot < 14) K.edit_req++;   /* 길게: 컬러 만들기(Java 가 창을 연다 ·
                                                                          쿠로코 칸·무작위로 고른 검질 고르기 제외 — 내 색은 캐릭터마다라 기억 칸이 그 캐릭터일 때만) */
+            if (!K.owned) a_dn = b_dn = ab_dn = 0;                    /* 쥔 첫 프레임의 누름은 앞 주인(허브의 상대 선택 A 등 — 같은 프레임에 BUSY → FREE)의 것 —
+                                                                         새 누름으로 안 본다(쥔 단추는 가장자리가 없어 그 뒤에도 안 잡힘 · 게임엔 막음) */
             gate_step(input, a_dn, b_dn, ab_dn, scr, ctx);
             if (K.g_st == G_WAIT) block |= IN_DPAD;                   /* 결정 전에 커서가 옮겨 가지 않게 */
          }
