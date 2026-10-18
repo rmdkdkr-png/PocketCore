@@ -1,0 +1,174 @@
+앱 방 코어 패치 zzzzzz_fg_walkstep — 걷는 상대 몸은 원작처럼 «디딤»(유저 10-18 「겐쥬로 미끄러져 오는데」·「쥬베이도」·「상대방 말야」·「ㅈㄴ 미끄러지는데」).
+사무쇼2 걷기는 한 포즈(12 프레임 안팎) 동안 그림 전체가 그대로 10~14px 를 간다 — 겐쥬로 걷기 포즈 6장을 세계 자리에 놓아 보면 발이 땅을 딛는 그림이 없다.
+원작은 2 프레임마다 3px 씩 툭툭 옮겨 종종걸음으로 읽히는데, 120Hz 로 몸을 매끄럽게 옮기면(99i ¼ px) 발이 얼음 위를 미는 것처럼 보였다.
+이제 상대 몸(1)이 걸을 때(서서 조작 가능 0x59C9·0x59CE, 세계 x 가 감)는 세계 자리를 게임이 옮길 때만 옮기고, 그 사이 장은 카메라(배경) 몫만 따라간다
+(화면 옮김 dx − 세계 옮김 dw). 몸과 같이 움직이는 발밑 그림자도 같이 디딘다. 다리 사이 그림(캐시)·배경·카메라·다른 동작·내 몸은 그대로 120Hz.
+호스트(겐쥬로 판): 상대 x 가 4장 동안 카메라만큼(+1) 가다 3px(4배 12) 디딤, 그림자도 같은 박자 · 내 몸 출력 0 장 다름 ·
+봇 20판 떨림 판정(상대) 563 → 1,613(디딤을 고르지 않음으로 셈 — 의도), 그 밖 판정·내 몸 같음 · ASan 2판(흔든 입력) 깨끗.
+SS2_WALKSTEP=0/1/2(끔·상대만·두 몸) 은 호스트 시험용 환경 변수(앱은 안 씀 = 1).
+
+diff --git a/src/libretro.c b/src/libretro.c
+index 21bc5e0..dfbdf1d 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -1,4 +1,5 @@
+ #include <libretro.h>
++#include <stdlib.h>
+ #include <string.h>
+ #include <string/stdstring.h>
+ #include <streams/file_stream.h>
+@@ -748,6 +749,22 @@ static int body_pos_differs(const ss2fg_frame *a, const ss2fg_frame *b, int p)
+    return a->ob_x[p] != b->ob_x[p] || a->ob_y[p] != b->ob_y[p];
+ }
+ static int fg_no_next = 0;                       /* 60Hz 사이 그림 — τ=D 만 그리고 τ=D+½(fg_next)는 건너뛴다 */
++/* zzzzzz_fg_walkstep: 걷는 몸은 원작처럼 «디딤» — 세계 자리는 게임이 옮길 때(2 프레임마다 2~3px)만 옮기고, 그 사이는 카메라(배경)만 따라간다.
++   사무쇼2 걷기는 한 포즈(12 프레임 안팎) 동안 그림 전체가 그대로 10~14px 를 간다(겐쥬로 실측 — 발이 땅을 딛는 그림이 없다). 원작은 3px 씩 툭툭
++   움직여 종종걸음으로 읽히는데, 120Hz 로 몸을 매끄럽게 옮기면 발이 얼음 위를 미는 것처럼 보였다(유저 10-18 「겐쥬로 미끄러져 오는데」·「쥬베이도」·
++   「상대방 말야」·「ㅈㄴ 미끄러지는데」). 사이 그림(다리 포즈)·배경·카메라·다른 동작은 그대로 120Hz.
++   1 = 상대 몸(1)만(유저 「난 되는데 상대방만」) · 2 = 두 몸 · 0 = 끔. 호스트 시험은 환경 변수 SS2_WALKSTEP */
++static int walkstep_mode = 1;
++static int fg_walkstep(const ss2fg_frame *a, const ss2fg_frame *b, int p)
++{
++   int dw;
++   if (!walkstep_mode || (walkstep_mode == 1 && p != 1)) return 0;
++   if (!a || !b || !a->fight || !a->body_ok || !b->body_ok) return 0;
++   if ((a->st[p] & 0xE0) != 0x20 || a->ct[p] != 0 || (b->st[p] & 0xE0) != 0x20 || b->ct[p] != 0) return 0;   /* 서서 조작 가능(걷기) — 대시·맞음·가드 밀림은 아님 */
++   if (a->ob_y[p] != b->ob_y[p]) return 0;
++   dw = (int8_t)(uint8_t)(b->wx[p] - a->wx[p]);
++   return dw != 0 && dw >= -8 && dw <= 8;
++}
+ /* 서기 사이 그림(코어 패치 100) — 켜면 화면을 4배(640×608)로 내보낸다. idle_out_slot = 이번 출력의 사이 그림 칸(0 τD · 1 τD+½ · -1 없음) */
+ static int idle_opt = 0, idle_out_slot = -1;
+ /* 99l: 번쩍임 줄이기 — 사무쇼2 는 큰 타격 때 창을 접어 화면 전체를 1 프레임 하얗게(또는 까맣게) 칠한다. 그 프레임은 바로 앞 화면 위에
+@@ -912,7 +929,7 @@ static int fg_predict4(int ra)
+ {
+    int k, mp0, m01, m12, Ks, Ls, Kb, Lb, rel, extra = 0, p;
+    int ts0, ts1, tb0, tb1;
+-   int ov[2] = { 0, 0 }, ovx0[2], ovy0[2], ovx1[2], ovy1[2], id0 = 0, id1 = 0, spm = 0;
++   int ov[2] = { 0, 0 }, ws[2] = { 0, 0 }, ovx0[2], ovy0[2], ovx1[2], ovy1[2], id0 = 0, id1 = 0, spm = 0;
+    const ss2fg_frame *f0, *f1, *f2, *fp, *tos, *tob, *fk[5], *fx3 = 0, *fx4 = 0;
+ 
+    if (!ss2fg_hist(0)) return 0;
+@@ -985,9 +1002,17 @@ static int fg_predict4(int ra)
+       /* L: 지난 바뀜이 K-4..K-3 이면 느린 박자가 이어지는 중 — 그 간격 그대로. 아니면(쉬다가 움직임) 전체와 같은 K-2 */
+       Lp = (lrel >= Kp - 4 && lrel <= Kp - 3) ? lrel : (lrel > Kp - 2 ? lrel : Kp - 2);
+       if (Lp > 0) continue;                               /* 미끄러짐이 아직 시작 전(쉬던 몸이 D+3 이후에 움직임) — 지금은 제자리 */
+-      if (Kp == Ks && Lp == Ls) continue;                 /* 전체 박자와 같으면 하던 대로 */
+       dx = (int8_t)(uint8_t)(fk[Kp]->ob_x[p] - f0->ob_x[p]);
+       dy = (int8_t)(uint8_t)(fk[Kp]->ob_y[p] - f0->ob_y[p]);
++      if (fg_walkstep(f0, fk[Kp], p) && dx <= 24 && dx >= -24)
++      {  /* zzzzzz_fg_walkstep: 화면 옮김 dx = 세계 옮김 dw − 카메라 옮김 → 사이 장은 카메라 몫(dx − dw)만 t 만큼, 세계 몫은 Kp 프레임에 한 번에 */
++         int dw = (int8_t)(uint8_t)(fk[Kp]->wx[p] - f0->wx[p]), cxm = dx - dw;
++         ov[p] = 1; ws[p] = 1;
++         ovx0[p] = cxm * fg_tpos(Kp, Lp, 0); ovy0[p] = 0;
++         ovx1[p] = cxm * fg_tpos(Kp, Lp, 1); ovy1[p] = 0;
++         continue;
++      }
++      if (Kp == Ks && Lp == Ls) continue;                 /* 전체 박자와 같으면 하던 대로 */
+       if (dx > 24 || dx < -24 || dy > 24 || dy < -24) continue;
+       ov[p] = 1;
+       ovx0[p] = dx * fg_tpos(Kp, Lp, 0); ovy0[p] = dy * fg_tpos(Kp, Lp, 0);
+@@ -995,17 +1020,18 @@ static int fg_predict4(int ra)
+    }
+ 
+    /* τ=D — 둘 다 0 이면 실제 D 그대로 (fg_real = D 의 그림) */
+-   for (p = 0; p < 2; p++) if (ov[p]) ss2fg_body_override(p, 1, ovx0[p], ovy0[p]);
++   for (p = 0; p < 2; p++) if (ov[p]) { ss2fg_body_override(p, 1, ovx0[p], ovy0[p]); ss2fg_body_walkstep(p, ws[p]); }
+    ss2fg_idle_slot(idle_opt ? 0 : -1);                 /* 99i: 사이 그림이 없어도 — 움직이는 몸을 ¼ px 자리로 그리는 조각 */
+    if (!(ts0 || tb0 || ov[0] || ov[1] || id0 || (spm & 1)) || !f0 || !ss2fg_render2(f0, tos, ts0, tob, tb0, surf->pixels, FB_WIDTH, 2, NGPGfx->ColorMap))
+       memcpy(surf->pixels, fg_real, sizeof fg_real);
+    /* τ=D+½ */
+-   for (p = 0; p < 2 && !fg_no_next; p++) if (ov[p]) ss2fg_body_override(p, 1, ovx1[p], ovy1[p]);
++   for (p = 0; p < 2 && !fg_no_next; p++) if (ov[p]) { ss2fg_body_override(p, 1, ovx1[p], ovy1[p]); ss2fg_body_walkstep(p, ws[p]); }
+    ss2fg_idle_slot(idle_opt ? 1 : -1);
+    if (!fg_no_next && (!(ts1 || tb1 || ov[0] || ov[1] || id1 || (spm & 2)) || !f0 || !ss2fg_render2(f0, tos, ts1, tob, tb1, fg_next, FB_WIDTH, 2, NGPGfx->ColorMap)))
+       memcpy(fg_next, fg_real, sizeof fg_real);
+    ss2fg_idle_slot(-1);
+    ss2fg_body_override(0, 0, 0, 0); ss2fg_body_override(1, 0, 0, 0);
++   ss2fg_body_walkstep(0, 0); ss2fg_body_walkstep(1, 0);
+    idle_out_slot = 0;                                  /* 이번 실제 호출은 τD(조각 칸 0) */
+ 
+    if (idle_opt && ss2comm_rom_is_ss2()) fg_probe_step(f0, f1, f2, extra);   /* 99v */
+@@ -1337,6 +1363,7 @@ void retro_init(void)
+ {
+    struct retro_log_callback log;
+    char *dir = NULL;
++   if (getenv("SS2_WALKSTEP")) walkstep_mode = atoi(getenv("SS2_WALKSTEP"));   /* zzzzzz_fg_walkstep: 호스트 시험용 */
+ 
+    {  /* 링크 케이블 — 여기서 잡아 둔다. 한 프로세스에 코어 두 벌을 올리는 하네스가
+          인스턴스마다 다른 파이프를 주려면, 각자 초기화하는 그 순간의 환경변수를 봐야 한다. */
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index 236a7b4..48eda0d 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -523,6 +523,12 @@ void ss2fg_body_override(int p, int on, int x256, int y256)
+    if (p < 0 || p > 1) return;
+    fg_ov_on[p] = on; fg_ov_x[p] = x256; fg_ov_y[p] = y256;
+ }
++static int fg_ws_on[2];   /* zzzzzz_fg_walkstep */
++void ss2fg_body_walkstep(int p, int on)
++{
++   if (p < 0 || p > 1) return;
++   fg_ws_on[p] = on;
++}
+ static int body_vec(const ss2fg_frame *base, const ss2fg_frame *to, int gstart, int g, int *vx, int *vy)
+ {
+    const ss2fg_regs *rb = &base->line[0];
+@@ -3772,6 +3778,37 @@ int ss2fg_render2(const ss2fg_frame *base, const ss2fg_frame *to_spr, int t_spr,
+             { fg_ex_x[p3] = mv[k3].dx * t_spr; fg_ex_y[p3] = mv[k3].dy * t_spr; fg_ex_on[p3] = 1; break; }
+       }
+    }
++   {  /* zzzzzz_fg_walkstep: 디디는 몸(libretro.c — 세계 자리는 게임이 옮길 때만)의 그림자도 같이 디딘다. 그림자는 몸 팔레트가 아니라
++         몸 덮어쓰기(fg_ov)를 안 받아 매끄럽게 미끄러지며 발밑에서 1~2px 씩 앞뒤로 흔들렸다. 이 칸 옮김이 몸과 똑같고 발밑(몸 자리 ±40·
++         위 8 ~ 아래 12)이며 다른 몸보다 이 몸에 가까운 조각만 */
++      int p4, k4;
++      for (p4 = 0; p4 < 2; p4++)
++      {
++         int bdx, bdy, ox, oy;
++         if (!fg_ws_on[p4] || !fg_ov_on[p4] || !to_spr || !(base->ob_act & to_spr->ob_act & (1u << p4))) continue;
++         bdx = (int8_t)(uint8_t)(to_spr->ob_x[p4] - base->ob_x[p4]);
++         bdy = (int8_t)(uint8_t)(to_spr->ob_y[p4] - base->ob_y[p4]);
++         ox = fg_ov_x[p4] >= 0 ? (fg_ov_x[p4] + 128) >> 8 : -((-fg_ov_x[p4] + 127) >> 8);
++         oy = fg_ov_y[p4] >= 0 ? (fg_ov_y[p4] + 128) >> 8 : -((-fg_ov_y[p4] + 127) >> 8);
++         for (k4 = 0; k4 < 64; k4++)
++         {
++            int sx, sy;
++            if (fg_body_of[k4] >= 0 || !mv[k4].has || mv[k4].dx != bdx || mv[k4].dy != bdy) continue;
++            if (!(ld16(base->spr + k4 * 4) & 0x1800)) continue;
++            sx = (int8_t)(uint8_t)(base->ax[k4] + base->line[0].spx - base->ob_x[p4]);
++            sy = (int8_t)(uint8_t)(base->ay[k4] + base->line[0].spy - base->ob_y[p4]);
++            if (sx < -40 || sx > 40 || sy < -8 || sy > 12) continue;
++            if (base->ob_act & (1u << (1 - p4)))
++            {
++               int so = (int8_t)(uint8_t)(base->ax[k4] + base->line[0].spx - base->ob_x[1 - p4]);
++               if (abs(so) < abs(sx)) continue;
++            }
++            offx[k4] = (int16_t)ox; offy[k4] = (int16_t)oy;
++            fg_spe_x[k4] = fg_ov_x[p4]; fg_spe_y[k4] = fg_ov_y[p4];
++            have_off = 1;
++         }
++      }
++   }
+    if (to_spr && fx_mode == 2)
+    {
+       /* 나타날 to 이펙트 = 몸·그림자 팔레트가 아니고, base 의 «정해진(옮겨 그려지는)» 이펙트 조각이 도착할 자리(8px)에
+@@ -3940,6 +3977,7 @@ int ss2fg_render2(const ss2fg_frame *base, const ss2fg_frame *to_spr, int t_spr,
+    }
+    if (bpp == 2) id_build(base, to_scr, t_scr, have_off ? offx : 0, offy, colormap);   /* 서기 사이 그림 조각(패치 100) */
+    fg_ov_on[0] = fg_ov_on[1] = 0;                              /* 몸 따로 박자는 한 번 그리기용 */
++   fg_ws_on[0] = fg_ws_on[1] = 0;                              /* zzzzzz_fg_walkstep */
+    pp_on = 0;
+    return 1;
+ }
+diff --git a/src/ss2fg.h b/src/ss2fg.h
+index eba6b2c..7ee530c 100644
+--- a/src/ss2fg.h
++++ b/src/ss2fg.h
+@@ -106,6 +106,7 @@ void ss2fg_set_pose(int on);
+ void ss2fg_pose_stats(int *out4);  /* 시험용 계기 */
+ /* 몸 p(0·1)를 이번 합성에서 x256/256, y256/256 px 옮긴다(on=0 이면 끔). 몸 박자가 다른 조각과 어긋날 때 libretro.c 가 넣는다 */
+ void ss2fg_body_override(int p, int on, int x256, int y256);
++void ss2fg_body_walkstep(int p, int on);   /* zzzzzz_fg_walkstep: 이 몸은 «디딤» 중 — 몸과 같이 움직이는 그림자도 같은 자리로 */
+ /* 서기 사이 그림(코어 패치 100) — 서 있는 몸의 앞뒤 포즈 사이를 ¼픽셀 격자(4배)로 옮겨 그린다 */
+ void ss2fg_set_idle(int on);
+ int  ss2fg_idle_on(void);
