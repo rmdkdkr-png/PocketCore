@@ -93,13 +93,20 @@ final class Cheats {
     }
     /** 켜진(먹는) 치트 수 — 고리 글 «치트 · 3개 켬». 마스터 끔이면 0 */
     static int count(Map<String, String> m) { int n = 0; for (int x : values(m)) if (x != 0) n++; return n; }
-    static boolean any(Map<String, String> m) { return count(m) > 0; }
+    /** 게임을 바꾸는 치트가 켜졌나 — 런처 한 낱말 «치트» · 모르는 롬 알림(176: 보기 «프레임 표시»·«대미지 미터»는 안 셈) */
+    static boolean any(Map<String, String> m) { return activeMask(m, false) != 0; }
     /** 168 고침 — 먹는 치트 비트(1 << 번호). league = 리그 판: 올카드는 빼고(리그는 늘 카드 전부 열림 · pushCheats 가 0 을 넣는다).
      *  176: 보기(프레임 표시·대미지 미터)는 게임을 안 바꾸니 안 든다(«치트 ON»·리그 첫 라운드 한 줄 없음) */
     static int activeMask(Map<String, String> m, boolean league) {
         int[] v = values(m); int b = 0;
         for (int i = 0; i < FD; i++) if (v[i] != 0 && !(league && i == CARDS)) b |= 1 << i;
         return b;
+    }
+    /** 176 검토 — 게임 치트 값(보기 뺌 · league 면 올카드 0 — pushCheats 가 리그 판에 넣는 것과 같게). 창을 닫을 때 «치트 적용»은 이게 바뀐 때만 */
+    static int[] gameVals(Map<String, String> m, boolean league) {
+        int[] g = java.util.Arrays.copyOf(values(m), FD);
+        if (league) g[CARDS] = 0;
+        return g;
     }
     /** 176 — 보기 비트: 1 프레임 표시 · 2 대미지 미터(마스터 끔이면 0 — values 가 이미) */
     static int views(Map<String, String> m) { int[] v = values(m); return (v[FD] != 0 ? 1 : 0) | (v[DMG] != 0 ? 2 : 0); }

@@ -169,6 +169,7 @@ public class PadView extends View {
     private boolean leagueCell = false;
     /* 176 「치트」 — 맨 끝 칸. «치트» 알약을 쓸 수 있는 판이면(사무쇼2 · 확인한 롬 — 리그 판도) 늘 보인다(알약을 배치에서 숨겨도). 누르면 알약과 같은 ACT_CHEAT */
     static final int UTIL_CHEAT = 10;
+    private boolean cheatCellOff = false;    /* 176 검토: 지금은 치트 창을 못 엶(결판 덧판·확인 카드·컬러 만들기 창) — 칸을 잠시 숨김 */
     private boolean hasCoreFg = false;
     /* 168 — 리그 판(랭크) 바: 저장·로드·슬롯 칸 없음(숨김 — 눌러도 아무 일 없게) · 리셋 아래 줄 «저장 후 타이틀» · 메뉴 알약 길게 누르기(빠른 저장) 없음 */
     private boolean rankedBar = false;
@@ -366,7 +367,7 @@ public class PadView extends View {
     }
 
     /** 상단바 i번 칸이 이 게임에 존재하는가 — 「컬러 만들기」(고르기 화면)·「리그 대전」(사무쇼2 일반 판)만 그때그때, 나머지는 모든 게임에 있다(게임별 칸은 설정으로 옮겼다). */
-    private boolean utilVisible(int i) { return i >= 0 && i < util.length && utilShown(i, lookCell, leagueCell, cheatPill, rankedBar); }
+    private boolean utilVisible(int i) { return i >= 0 && i < util.length && utilShown(i, lookCell, leagueCell, cheatPill && !cheatCellOff, rankedBar); }
     /** 칸 i 가 보이나(정적 — 시험) · 168(3b): 리그 판엔 슬롯·저장·로드 칸이 없다 · 176: 치트 칸은 알약을 쓸 수 있는 판이면 */
     static boolean utilShown(int i, boolean look, boolean league, boolean cheat, boolean ranked) {
         return (i != UTIL_LOOK || look) && (i != UTIL_LEAGUE || league) && (i != UTIL_CHEAT || cheat)
@@ -400,6 +401,14 @@ public class PadView extends View {
         if (!on && barSel == UTIL_CHEAT) barSel = -1;
         updateExclusion();
         if (getWidth() > 0) layoutBar(getWidth(), getHeight());   /* 176: 바 «치트» 칸도 같이 */
+        invalidate();
+    }
+    /** 176 검토 — 바 «치트» 칸을 잠시 숨김(EmuActivity.cheatCellSync — 바를 열 때·덧판 상태가 바뀔 때). 전엔 눌러도 바만 접히고 창이 안 떴다 */
+    public void setCheatCellOff(boolean off) {
+        if (cheatCellOff == off) return;
+        cheatCellOff = off;
+        if (off && barSel == UTIL_CHEAT) barSel = -1;
+        if (getWidth() > 0) layoutBar(getWidth(), getHeight());
         invalidate();
     }
     /** 「컬러 만들기」 칸을 보일지 — 사무쇼2 고르기 화면을 컬러 쪽이 쥐었을 때만(바가 열린 채 바뀌면 칸 자리를 다시 잡는다) */
