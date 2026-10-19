@@ -98,7 +98,9 @@ final class LgmPages {
             PN_TAG0 = 10, PN_FUSE = 13;
     static final int MAX_TAGS = 3;
     /* ── 쉼 팔레트·창유리 ── */
-    static final int P_INK = 0, P_GOLD = 1, P_SEL = 2, P_WARN = 3, P_TIER = 4, P_RIB = 5, P_PULSE = 6;
+    static final int P_INK = 0, P_GOLD = 1, P_SEL = 2, P_WARN = 3, P_TIER = 4, P_RIB = 5, P_PULSE = 6, P_OPPCOL = 7;   /* 177 P_OPPCOL = 상대 컬러 견본 */
+    /** 177 쉼 정보 패 상대 컬러 견본 자리 — r6 오른쪽 c8–9(x64–79) · r6 글(티어★ LP)이 이 x 를 넘지 않아야(LgmPages 시험이 모든 티어로 잰다) */
+    static final int SWATCH_C0 = 8, SWATCH_R = 6, SWATCH_TEXT_MAX = 62;
     static final int PP_SHEATH = 0, PP_INFO = 1, PP_BOTTOM = 2;
     /* ── 서랍 팔레트 ── */
     static final int D_INK = 0, D_GOLD = 1, D_SEL = 2, D_SEAL = 3, D_PLATE1 = 4, D_PLATEM = 5, D_TIER = 6, D_WOOD = 7, D_CLOTH = 8, D_CLOTHK = 9, D_CLOTHR = 10,
@@ -834,22 +836,37 @@ final class LgmPages {
         cv.fill(px, r1 * 8 + 5, px + 6, r1 * 8 + 7, 2);
         cv.fill(px + 1, r0 * 8, 159, r0 * 8, 2);
     }
-    /** 판 정보 패(c0–9 × r4–9) — vs 닉 · 티어★ LP · [꼬리표] 나와 n-m · 이기면/지면(목업 info_plate) */
+    /** 판 정보 패 r6 «티어★ LP»(무쌍은 «무쌍 MR 1234») — 돌려줌: 글 끝 x */
+    int infoR6(TileCanvas cv, MenuModel.Side o) {
+        int x = cv.text(RankCore.TIER[Math.max(0, Math.min(7, o.tier))], 4, 49, 2, ink.g7);
+        if (o.master) {
+            x = cv.text("MR", x + 3, 49, 2, ink.g7);
+            return cv.mini3(String.valueOf(o.lp), x + 4, 50, 1, TileCanvas.LEFT);
+        }
+        cv.art(OvArt.STAR5, x + 1, 50, 2, 0, 0, false);
+        x = cv.text(String.valueOf(o.stars), x + 7, 49, 2, ink.g7);
+        return cv.mini3(String.valueOf(o.lp), x + 6, 50, 1, TileCanvas.LEFT);
+    }
+    /** 177 상대 컬러 견본(쉼 정보 패 r6 c8–9 · 타일 2개) — 3색 막대: 옷(색 2) 5px · 밝은색(색 1) 5px · 테(색 3) 5px, 둘레 1px 투명.
+     *  팔레트 P_OPPCOL = 상대가 지금 보이는 세 색(거울 대신 색이면 그 색 — MenuModel.oppSwatch) */
+    void oppSwatch(TileCanvas cv, int[] t) {
+        int x0 = SWATCH_C0 * 8, y0 = SWATCH_R * 8;
+        cv.setPal(P_OPPCOL, t[0] & 0xFFF, t[1] & 0xFFF, t[2] & 0xFFF);
+        cv.cellPal(SWATCH_C0, SWATCH_R, SWATCH_C0 + 1, SWATCH_R, P_OPPCOL);
+        cv.fill(x0, y0, x0 + 15, y0 + 7, 0);
+        cv.fill(x0 + 1, y0 + 1, x0 + 5, y0 + 6, 2);
+        cv.fill(x0 + 6, y0 + 1, x0 + 10, y0 + 6, 1);
+        cv.fill(x0 + 11, y0 + 1, x0 + 15, y0 + 6, 3);
+    }
+    /** 판 정보 패(c0–9 × r4–9) — vs 닉 · 티어★ LP(+ 177 상대 컬러 견본) · [꼬리표] 나와 n-m · 이기면/지면(목업 info_plate) */
     private void infoPlate(TileCanvas cv, MenuModel m) {
         cv.fill(0, 32, 79, 71, 3);
         cv.cellPal(0, 4, 9, 5, P_INK);
         cv.text("vs", 4, 36, 2, ink.g7);
         cv.text(fit(cover7or11(m.opp.nick), 62, ink.g11), 16, 34, 1, ink.g11);
         cv.cellPal(0, 6, 9, 6, P_TIER);
-        int x = cv.text(RankCore.TIER[Math.max(0, Math.min(7, m.opp.tier))], 4, 49, 2, ink.g7);
-        if (m.opp.master) {
-            x = cv.text("MR", x + 3, 49, 2, ink.g7);
-            cv.mini3(String.valueOf(m.opp.lp), x + 4, 50, 1, TileCanvas.LEFT);
-        } else {
-            cv.art(OvArt.STAR5, x + 1, 50, 2, 0, 0, false);
-            x = cv.text(String.valueOf(m.opp.stars), x + 7, 49, 2, ink.g7);
-            cv.mini3(String.valueOf(m.opp.lp), x + 6, 50, 1, TileCanvas.LEFT);
-        }
+        int r6 = infoR6(cv, m.opp);
+        if (m.oppSwatch != null && m.oppSwatch.length == 3 && r6 <= SWATCH_TEXT_MAX) oppSwatch(cv, m.oppSwatch);   /* 177 — 글이 자리를 넘으면(시험상 없음) 견본을 빼서 글 색이 안 바뀌게 */
         /* 꼬리표 + 나와 전적 */
         String tag = m.oppTag;
         char seal = tag == null ? 0 : tag.equals("라이벌") ? '라' : tag.equals("설욕전") ? '설' : tag.equals("첫 대전") ? '첫' : tag.equals("천적") ? '천' : '끊';

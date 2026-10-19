@@ -76,6 +76,7 @@ final class RankUi {
     static final class Side {
         android.graphics.Bitmap av; int frame = STROKE2;
         String nick = "", tier = "", ch = ""; int tierColor = BODY;
+        String chCol;                                                    /* 177 상대 컬러 이름(«상대 발견!» 캐릭터 줄 뒤 — 들 때만) · null 없음 */
     }
     static final class Quick {
         android.widget.FrameLayout root;
@@ -122,7 +123,13 @@ final class RankUi {
             oppAv.set(o.av, o.frame); oppAv.setDim(0);
             oppNick.setTextColor(BODY); set(oppNick, o.nick);
             oppTier.setTextColor(o.tierColor); set(oppTier, o.tier);
-            set(oppCh, o.ch);
+            String chs = o.ch;
+            if (o.chCol != null) {                                       /* 177: «하오마루 수라 · 남빛» — 한 줄에 다 들 때만(좁은 화면에서 잘리면 캐릭터만) */
+                String full = o.ch + " · " + o.chCol;
+                int avail = oppCh.getWidth() - oppCh.getPaddingLeft() - oppCh.getPaddingRight();
+                if (avail > 0 && oppCh.getPaint().measureText(full) <= avail) chs = full;
+            }
+            set(oppCh, chs);
             set(title, t);
             if (subLine != null) { sub.setTextColor(subColor); set(sub, subLine); sub.setVisibility(View.VISIBLE); }
             if (hintLine != null) set(hint, hintLine);

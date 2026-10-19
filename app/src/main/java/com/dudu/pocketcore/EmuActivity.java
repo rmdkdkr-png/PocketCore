@@ -2853,6 +2853,12 @@ public class EmuActivity extends Activity {
         o.nick = pf.optString("nick", p.nick);
         o.tier = v.master ? v.label : v.label + " · " + String.format(Locale.KOREA, "%,d", v.lp) + " LP";
         o.ch = League.CHAR[p.ch] + " " + League.STYLE[p.sty];
+        {   /* 177 상대 컬러 이름(D6 — 새 알림 글 아님, 이미 있는 카드 줄 뒤에 · 들 때만): 프리셋·고유 색만(기본·2P색은 안 붙임) ·
+               저장한 내 캐릭터로 대신 고르는 판이고 그 캐릭터가 상대와 다를 때만(같으면 거울 대신 색을 아직 모름 · 직접 고르는 판은 내 캐릭터를 모름) */
+            OppLook.Col col = League.colOf(this, p);
+            League.Main mm = League.main();
+            if (col != null && col.custom() && !rankQTail && mm != null && mm.cell != 15 && mm.ch >= 0 && mm.ch != p.ch) o.chCol = col.name;
+        }
         RankCore.Me me = League.rankMe();
         int[] stakes = RankCore.stakes(me, v.mmr);
         String sub = me.placementLeft > 0 ? "배치 경기 " + (6 - me.placementLeft) + "/5" : stakes != null ? "이기면 +" + stakes[0] + " · 지면 " + RankUi.signed(stakes[1]) + " LP" : "무쌍 — MR 승부";
@@ -3510,6 +3516,7 @@ public class EmuActivity extends Activity {
     private MenuModel.Ctx lgmCtx(MenuModel.Prefs p, int[] ov, boolean started, RankCore.Me now) {
         MenuModel.Ctx c = new MenuModel.Ctx();
         c.rankAuto = rankAuto; c.stageSel = League.prefStage(); c.ov = ov; c.started = started; c.prefs = p;
+        try { c.look = Emu.nativeLookStatus(); } catch (UnsatisfiedLinkError e) { c.look = null; }   /* 177 쉼 상대 컬러 견본([18]·[19]) */
         c.board = now != null ? BoardCache.get(now, true, 4) : null;
         c.boardBefore = lgmMeBefore != null ? BoardCache.get(lgmMeBefore, true, 4) : null;
         return c;

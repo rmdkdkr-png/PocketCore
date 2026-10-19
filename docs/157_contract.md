@@ -424,6 +424,9 @@ UI 스레드에서 `MenuModel.result(ctx, m, Ctx)` / `pause(...)` 로 한 번 �
 - 쉼 줄: started → RESUME · DRAWER · LATER(오른쪽 «저장») · FORFEIT(오른쪽 «−18» = stakes 진 값, 배치면 «배치», 수련생 «±0») / 첫 라운드 전 → RESUME · DRAWER · VOIDQUIT.
 - rowDesc(r18 짧은 설명) 예: 다음 상대 «새 상대와 바로 한 판» · 재대결 «같은 상대와 한 판 더» · 설욕전 «같은 상대와 바로 다시» · 새 캐릭터 «이번 판만 직접 골라요» · 순위·전적 «순위표와 전적 보기» · 그만하기 «리그는 켠 채 쉬어요» · 이어하기 «멈춘 곳에서 바로 이어서» · 나중에 «지금 자리 저장하고 리그 화면으로» · 기권 «패배로 기록돼요».
 - 쉼 머리: «쉼 · n라운드 a:b»(OVS_W1/W2 — 모르면 «쉼»만) · 판 정보 패: vs 닉 · 티어★ LP · 꼬리표 «[설] 나와 4-6 · 설욕전» · «이기면 +31 · 지면 −18»(stakes, 없으면 배치·무쌍 줄).
+- 177 상대 컬러 견본: 판 정보 패 r6 오른쪽 c8–9(x64–79, 타일 2개) · 쉼 장면 팔레트 7(`P_OPPCOL` — 쉼은 0~7 만 씀) · 3색 막대(옷 색 2 5px · 밝은색 색 1 5px · 테 색 3 5px, 둘레 1px 투명).
+  색 = `MenuModel.oppSwatch` = `Ctx.look`(nativeLookStatus) [18] 0 → 없음 · 1 → `opp_snap.col.t` · 2 → `LookTab.TAB[상대 줄][검질][19]`(거울 대신 색). r6 글(티어★ LP · 무쌍 MR)은 x ≤ 62 —
+  넘으면 견본을 빼서 글 색이 안 바뀌게(LgmPages 시험이 모든 티어·별·LP 로 잰다). 결판 띠·VS 띠·순위표에는 안 넣는다(설계 177 §8).
 - 아래 띠 순위: rankNow(BoardCache 지금) · ▲▼ = rankBefore − rankNow(rankBefore = 이 판 전 판, 없으면 세션 rank0 — G1 은 157-B). 둘 다 모르면 칸을 비워 두고 나중에 patch.
 
 ---
