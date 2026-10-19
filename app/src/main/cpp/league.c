@@ -418,8 +418,9 @@ static const uint16_t HDR_RED[3] = { 0x22F, 0xFFF, 0x000 }, HDR_BLANK[3] = { 0x0
 static uint16_t hdr_ent_orig[20];
 static int hdr_red_n, hdr_red_pal = -1;
 static unsigned hdr_csel_f;
+static unsigned hdr_blink_f0;                       /* 깜빡임 셈의 시작 — 이번에 들어와 빨강을 처음 그린 프레임(f). 0 = 아직(f 는 늘 20 이상) */
 static uint8_t *hdr_cell(int i) { return g_scr + 0x800 + ((i < 10 ? 0 : 32) + 5 + i % 10) * 2; }
-static void hdr_red_off(void)
+static void hdr_red_restore(void)                   /* 칸만 원래대로(깜빡임 셈은 그대로 — 저장 직전·팔레트 바뀜 뒤 다음 프레임에 이어 그림) */
 {
    if (hdr_red_n && g_scr)
       for (int i = 0; i < hdr_red_n; i++) {
@@ -429,13 +430,17 @@ static void hdr_red_off(void)
    hdr_red_n = 0; hdr_red_pal = -1;
    vpanel_hdr_mark(0);
 }
+static void hdr_red_off(void) { hdr_red_restore(); hdr_blink_f0 = 0; }   /* 화면을 떠남·상대를 고름·그릴 수 없음 — 다음에 그릴 때 깜빡임을 처음부터 */
 static void hdr_red(int kind, unsigned f)
 {
-   int blink = f < 56 && ((f - 20) / 6) % 2 == 1;
+   if (!hdr_blink_f0 || f < hdr_blink_f0) hdr_blink_f0 = f ? f : 1;   /* 177 리뷰: 화면에 든 프레임(csel_f)이 아니라 처음 그린 프레임부터 36프레임 —
+                                                         «상대 고르기»·두 번째 ①②③ 은 지난 더미 칸으로 옮기는(nav) 동안 안 그려 첫 모습이 빈칸 · 2번만 깜빡였다 */
+   unsigned g = f - hdr_blink_f0;
+   int blink = g < 36 && (g / 6) % 2 == 1;
    if (!g_scr || !vpanel_icon_put(HUB_SEAL_SANGDAE, blink ? HDR_BLANK : HDR_RED)) { hdr_red_off(); return; }
    int p = vpanel_icon_pal();
    if (p < 0) { hdr_red_off(); return; }
-   if (hdr_red_n && p != hdr_red_pal) hdr_red_off();
+   if (hdr_red_n && p != hdr_red_pal) hdr_red_restore();
    vpanel_hdr_mark(1);                              /* vpanel 이 머리말 칸을 «게임이 그 팔레트를 씀»으로 안 보게 */
    int n = kind == 2 ? 20 : 19;
    for (int i = 0; i < n; i++) {
@@ -445,7 +450,7 @@ static void hdr_red(int kind, unsigned f)
    hdr_red_n = n; hdr_red_pal = p;
 }
 /* 내 캐릭터 고르기 화면(연습 H_PICK_ME1·검질 가기 전 STY1 · 랭크 H_PICK_SOLO · H_PICK_ME 직접·자동 고르기) — 머리말 «내 캐릭터» */
-static void hdr_mine(void) { int hk = hdr_csel_f >= 20 ? hdr_layout() : 0; if (hk) { if (hdr_red_n) hdr_red_off(); hdr_put(hk, 2); } }
+static void hdr_mine(void) { int hk = hdr_csel_f >= 20 ? hdr_layout() : 0; if (hk) { if (hdr_red_n) hdr_red_off(); hdr_blink_f0 = 0; hdr_put(hk, 2); } }
 
 /* 캐릭터 고르기 오른쪽 세로 이름 칸 — 둘째 판 3~11줄 × 17·18칸(위아래 테: 2줄 0x16C · 12줄 0x16E, 검질 고르기는 0x19C · 0x19E).
    원래는 왼쪽 칸과 같은 커서 캐릭터 이름(전용 타일 0x1E8 빈칸 ~ 0x1F9). 상대 고르기에서는 배경 이름(여기), 내 캐릭터 고르기에서는 컬러 이름(look.c)을
@@ -768,6 +773,7 @@ static void hub_tick(uint8_t *ram, int input)
    int csel = ram[R_MODE] == 240 && ram[R_SCR] == 2;
    int block = 0;
    hdr_csel_f = csel ? hdr_csel_f + 1 : 0;           /* 177 §10-8: 고르기 화면이 이어진 프레임(머리말은 자리 잡은 뒤에) */
+   if (!csel) hdr_blink_f0 = 0;                      /* 고르기 화면 밖 — 다음에 들어와 빨강을 그리면 깜빡임을 처음부터(저장 직전 칸만 되돌린 채 떠나도) */
    if (H.hold_a && !(input & IN_A)) H.hold_a = 0;
    if (H.hold_b && !(input & IN_B)) H.hold_b = 0;
 
@@ -1258,7 +1264,7 @@ void league_practice_title(void)
 void league_hub_before_save(void)
 {
    pthread_mutex_lock(&L_mu);
-   hdr_red_off();                                   /* 177 §10-8 빨간 머리말 칸 — 도장(아이콘)은 아래 vp_restore 가 */
+   hdr_red_restore();                               /* 177 §10-8 빨간 머리말 칸 — 도장(아이콘)은 아래 vp_restore 가 · 깜빡임 셈은 그대로(다음 프레임에 이어서) */
    if (H.hdr_saved && hdr_layout()) hdr_put(0, 0);
    if (hub_ram && H.nav == 4 && hub_ram[R_MODE] == 240 && hub_ram[R_SCR] == 2) {   /* 커서 옮기는 중(이웃 칸을 써 두고 톡이 아직)이면 진짜 커서를 보이는 칸으로 —
                                                        저장된 상태를 불러와 A 를 누르면 보이는 캐릭터가 골라지게. 살아 있는 nav 는 d==10 확인에서 다시 한다 */
