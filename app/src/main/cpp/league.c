@@ -1722,6 +1722,16 @@ JNI(jintArray, nativeLeagueStatus)(JNIEnv *env, jclass cls)
    return a;
 }
 
+/* 177: 상대 컬러를 칠해도 되는 때(native.c 가 look_tick 바로 앞에 look_set_opp_live 로) — 랭크·리그 경기 무장 또는 결판 뒤 승리 대사·걸쇠
+   (정산이 대사 전에 무장을 풀어서 PQ 를 같이 본다). 연습 허브(종류 1)는 무장해도 빼다(더미는 프로필이 아님 · 게임 거울 2P색 그대로) */
+int league_opp_live(void)
+{
+   pthread_mutex_lock(&L_mu);
+   int prac = H.st != H_OFF && H.kind == 1;
+   int v = !prac && (L.armed || PQ.on || PQ.hold);
+   pthread_mutex_unlock(&L_mu);
+   return v;
+}
 /* 허브가 고르기 화면 입력을 쓰는 중인가 — 상대 선택(OPTION 스테이지·A/B 고르기)·대신 누르기 동안 1(look 은 컬러를 안 만진다) */
 int league_hub_owns_select(void)
 {

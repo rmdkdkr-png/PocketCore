@@ -7,7 +7,7 @@
 #include <stdint.h>
 #define LOOK_NIDX   18      /* 0 기본 · 1 (옛 2P색 — 안 고름, 옛 기록 이름용) · 2~15 프리셋 · 16·17 내 색 1·2(캐릭터마다 — 두 검질 같이) */
 #define LOOK_NSLOT  16      /* 기억 칸: 0~13 캐릭터 · 14 안 씀(유가) · 15 가운데 무작위 칸 */
-#define LOOK_NSTAT  18
+#define LOOK_NSTAT  20      /* 177: [18]·[19] 상대 컬러 — 아래 look_status */
 /* A·B·A+B 가르기(look.c gate) — A 나 B 를 누른 프레임부터 LOOK_AB_WIN 프레임 안에 다른 쪽이 눌리면 A+B(베기 색), 아니면 창 끝에 결정.
    결정은 그다음 프레임부터 LOOK_INJ_N 프레임 대신 누른다(게임 결정 = 누르고 4프레임 ≈ 67 ms 뒤). 실기에서 두 손가락 A+B 가 자주 빗나가면 5로(한 줄) */
 #define LOOK_AB_WIN   4
@@ -37,7 +37,8 @@ void look_edit(int on, int c1, int c2, int c3);         /* 컬러 만들기 창:
 int  look_take_confirm(void);                           /* HOLD(연습 «내 캐릭터 먼저»): 가르기가 낸 결정(A·B)을 가져가며 비운다 — 1 = 결정 */
 /* [0 켜짐, 1 고르기 화면을 쥠, 2 기억 바뀐 횟수, 3 보이는 컬러, 4 경기 컬러(−1), 5 경기 캐릭터(−1 = 0x57D5 로), 6 늘 0(옛 2P색 자리), 7 만들기 요청 횟수,
     8 검질 고르기 검질(−1), 9 경기 컬러 바뀐 횟수, 10 만드는 중, 11 프레임, 12 만들 수 있는 캐릭터(쥔 고르기 화면의 캐릭터 0~13 — 쿠로코·무작위면 −1), 13 미리보기 검질,
-    14 베기 색(0~6), 15 A+B 로 바뀐 횟수, 16 결정 횟수(가르기), 17 경기 베기 색] */
+    14 베기 색(0~6), 15 A+B 로 바뀐 횟수, 16 결정 횟수(가르기), 17 경기 베기 색,
+    18 상대 컬러 상태(177 — 0 칠하지 않음 · 1 주 색 · 2 거울 겹침이라 대신 색), 19 대신 색 번호(−1 · 0~15 = look_tab 프리셋 번호)] */
 void look_status(int v[LOOK_NSTAT]);
 int  look_cur(void);                                    /* 고르기 화면에 보이는 컬러(허브 상태 v[10] · 리그 기록) */
 void look_triples(int ch, int sty, int out[LOOK_NIDX * 3]);   /* 그 캐릭터·검질의 18색 × 세 색(없는 내 색 = 기본) — 만들기 창의 시작 색 */
@@ -47,5 +48,17 @@ size_t look_blob(void *buf, size_t cap);                /* 상태 옆 .look(16�
 void look_resume(const void *buf, size_t n);            /* 불러온 뒤 — NULL = 없음(경기 컬러·베기 색을 잊는다) */
 void look_after_load(const uint8_t *ram, size_t n);     /* look_resume 바로 뒤 — 불러온 램으로 바꿔 쓰기 표를 새로 넣고 지금 팔레트도 고친다(첫 프레임부터 우리 색) */
 void look_forget(void);                                 /* 코어를 새로 올림·리셋·상태 불러오기 — 경기 컬러·화면 칸을 잊는다(기억·내 색·베기 색은 그대로) */
+/* 177 상대 컬러(리그 랭크 경기만) — 스프라이트 팔레트 5(P2 몸) 자리 0 = 그 검질 기본 → 상대 색 · 자리 1 = 2P색(게임이 거울전 CPU 에 칠하는 색) → 상대 색.
+   ch 0~14(14 = 유가 — look_tab 줄 15) · sty · 주 색 세 색(12비트, c1 < 0 = 끔) · 상대 베기 색 0~6(P2 효과 팔레트 6~9·P2 가 벤 섬광 10).
+   같은 캐릭터 거울전에서 P1 이 보이는 세 색과 채널 차 합 ≤ OPP_CLASH 면 대신 색(OPP_FB 차례로 내 색·주 색 둘 다와 ≥ OPP_FAR 인 첫 것)을
+   native 가 표에서 고른다 — 게임 짝 예외: 같은 검질 {기본, 2P색} 은 겹침으로 안 보고, 내 색이 그 검질 기본이면 2P색 후보는 FAR 와 상관없이 받는다.
+   칠하는 때: 켜짐 · P2 블록(0x5D51) 캐릭터 == ch · P1·P2 블록 둘 중 하나는 0 아님(리셋 직후 부팅 프레임) · 타이틀·고르기·검질·카드(MODE 240 SCR 0·2·4·6) 아님 ·
+   live(native.c 가 look_tick 바로 앞에 league_opp_live 로 — 랭크 경기 무장·승리 대사·걸쇠, 연습 제외) 또는 불러온 뒤 OPP_GRACE 프레임.
+   내 «컬러 고르기»가 꺼져 있어도 칠한다(상대 정체성 — 코어를 올리고 내릴 때 끈다). look_forget 은 끄지 않는다(−4 돌려보내기·리셋·불러오기마다 불림) */
+#define OPP_CLASH 9
+#define OPP_FAR   13
+#define OPP_GRACE 120
+void look_set_opp(int ch, int sty, int c1, int c2, int c3, int fx);
+void look_set_opp_live(int live);                       /* native.c — 코어 잠금 안, look_tick 바로 앞(L_mu 를 풀고 난 뒤 K_mu) */
 /* 입력 콜백: (사용자 입력 & ~(… | look_in_block)) | … | look_in_or  (다음 프레임) */
 extern volatile int look_in_block, look_in_or;

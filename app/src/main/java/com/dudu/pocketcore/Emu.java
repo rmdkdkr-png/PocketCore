@@ -130,8 +130,12 @@ public final class Emu {
     public static native void   nativeLookEdit(boolean on, int c1, int c2, int c3);
     /** [켜짐, 고르기 화면을 쥠, 기억 바뀐 횟수, 보이는 컬러, 경기 컬러(−1), 경기 캐릭터(−1), 늘 0(옛 2P색), 만들기 요청 횟수,
      *   검질 고르기 검질(−1 = 캐릭터 고르기), 경기 컬러 바뀐 횟수, 만드는 중, 프레임, 만들 캐릭터(−1 = 안 됨), 미리보기 검질,
-     *   베기 색 0~6, A+B 로 바뀐 횟수, 결정 횟수, 경기 베기 색] (look.h — 165 부터 18칸, 옛 native 는 14칸) */
+     *   베기 색 0~6, A+B 로 바뀐 횟수, 결정 횟수, 경기 베기 색,
+     *   상대 컬러 상태(0 칠하지 않음 · 1 주 색 · 2 거울 겹침이라 대신 색), 대신 색 번호(−1 · 0~15 LookTab 프리셋)] (look.h — 177 부터 20칸 · 165 18칸 · 옛 native 14칸 — length 를 볼 것) */
     public static native int[]  nativeLookStatus();
+    /** 177 리그 상대 컬러 — ch 0~14 · sty · 주 색 세 색(12비트 0x0BGR, c1 < 0 = 끔) · 상대 베기 색 0~6. 거울전 대신 색은 native 가 표에서 고른다.
+     *  랭크 경기 무장·승리 대사·걸쇠 동안만 칠하고(연습 빼고) 코어를 올리고 내릴 때 native 가 끈다. 옛 native 엔 없다(UnsatisfiedLinkError) */
+    public static native void   nativeLookOpp(int ch, int sty, int c1, int c2, int c3, int fx);
     /** 컬러 만들기 창의 시작 색 — 그 캐릭터·검질의 18색 × 세 색(없는 내 색 = 기본) */
     public static native int[]  nativeLookTriples(int ch, int sty);
     /* 치트(cheat.c) — 사무쇼2 일반 세션. key = Cheats.KEYS 순서(CH_*), value 0..n — 다음 진짜 프레임부터 먹는다(코어를 다시 올리지 않음).

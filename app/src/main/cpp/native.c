@@ -965,6 +965,7 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
    practice_forget();                    /* 연습 대전도 — 일반 세션이고 확인한 롬 판이면 Java 가 로드 뒤에 연습 허브를 켠다 */
    league_practice_resume(NULL, 0);      /* 지난 판에서 기다리던 연습 경기 되돌리기는 버린다(이 판의 상태 불러오기가 다시 남긴다) */
    look_enable(0); look_forget();        /* 컬러도 끈 채로 — 사쇼2 확인한 판이면 Java 가 로드 뒤에 켠다(다른 게임 램·팔레트에 손대지 않게) */
+   look_set_opp(-1, 0, -1, 0, 0, 0);     /* 177: 리그 상대 컬러도 — 리그 판이면 Java 가 경기마다 다시 넣는다(다른 게임·일반 판으로 새지 않게) */
    cheat_reset_all();                    /* 치트도 모두 끈 채로 — 일반 세션이고 확인한 롬 판이면 Java 가 로드 뒤에 값을 넣는다(리그 판은 잠근다) */
    char core[512], opts[600];
    jstr(env, jcore, core, sizeof(core));
@@ -1044,6 +1045,7 @@ static void unload_locked(void)
    league_hub(0, NULL, NULL);
    practice_forget();
    look_enable(0); look_forget();
+   look_set_opp(-1, 0, -1, 0, 0, 0);     /* 177: 리그 상대 컬러도 */
    cheat_reset_all();                    /* 앞 세션의 치트 값·보관한 카드가 다음 게임으로 새지 않게 */
    core_ptrs(0);                         /* 165 고침: dlclose 뒤 내린 코어의 바꿔 쓰기 함수·풀린 화면 램을 아무도 안 부르게(다음 코어를 올리기 전 불러오기·저장 포함) */
    if (!g_loaded) return;
@@ -1130,6 +1132,7 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             /* 컬러(모든 모드) — 허브가 고르기 화면 입력을 쓰는 동안(상대 선택·대신 누르기)엔 «바쁨»: 컬러는 손대지 않는다. 연습 «내 캐릭터 먼저»는
                «쥠»(HOLD — 컬러·베기 색·A·B 가르기는 look, 결정은 허브). 허브 잠금은 league_hub_look_ctx 안에서 풀린 뒤 look 잠금을 잡는다(겹치지 않음).
                베기 색(look → slash.c)도 여기 — 코어 바꿔 쓰기 표 + 프레임 뒤 보정. 합성 호출엔 안 돈다(표는 코어 안·상태 밖이라 런어헤드·숨은 프레임에도 그대로) */
+            look_set_opp_live(league_opp_live());   /* 177: 상대 컬러 게이트(랭크 경기 무장·승리 대사·걸쇠) — 리그 잠금을 풀고 난 뒤 look 잠금(겹치지 않음) */
             look_tick(ram, ramsz, in, league_hub_look_ctx());
             /* 연습 대전(허브가 연습 경기일 때만 일함) — 같은 잠금·같은 순서. 메뉴에서 나가기를 고르면 여기서 리셋하고 허브를 돌려보낸다 */
             practice_vram(chr, scr, pal, c_spriteram ? c_spriteram() : NULL);

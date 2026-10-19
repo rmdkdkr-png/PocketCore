@@ -1235,8 +1235,22 @@ final class League {
                         .put("av", String.format("%016x", AvatarGen.fnv1a64("av:" + p.id)));
             }
             pf.put("persona", p.persona);
+            OppLook.Col col = OppLook.of(rankSeed(), p);                 /* 177 상대 컬러 — 프로필과 함께(난수 줄은 따로 — 위 프로필·이름은 그대로) */
+            if (col != null) pf.put("col", col.json());
         } catch (Exception e) { pf = new JSONObject(); }
         return pf;
+    }
+    /** 177 이 상대의 컬러 — 프로필(만난 상대는 저장한 pf)의 col, 없거나 깨졌으면 같은 함수로 계산(결정론 — 옛 pf·기록이 지워진 상대도 늘 같은 색).
+     *  상대가 될 수 없는 캐릭터면 null */
+    static synchronized OppLook.Col colOf(android.content.Context c, RankCore.Player p) {
+        if (p == null) return null;
+        OppLook.Col col = OppLook.fromJson(pfOf(c, p).optJSONObject("col"));
+        return col != null ? col : OppLook.of(rankSeed(), p);
+    }
+    /** 177 경기 기록의 상대 컬러(opp_snap.col — 정본, 이어 하기는 이것만). 없거나 깨졌으면 null(옛 경기 — 판 중간에 색이 생기지 않게 끈다) */
+    static OppLook.Col matchCol(JSONObject m) {
+        JSONObject s = m != null ? m.optJSONObject("opp_snap") : null;
+        return s != null ? OppLook.fromJson(s.optJSONObject("col")) : null;
     }
     static String nickOf(android.content.Context c, RankCore.Player p) { return pfOf(c, p).optString("nick", p.nick); }
 
@@ -1291,6 +1305,7 @@ final class League {
             if (openMatch() != null || p == null || k == null || !oppSupported(p.ch, p.sty)) return null;
             RankCore.Me me = rankMe();
             JSONObject pf = pfOf(c, p);
+            OppLook.Col col = colOf(c, p);                                /* 177: 처음 만날 때 굳힌다(기록 사본 = 정본) */
             JSONObject m = new JSONObject();
             m.put("id", java.util.UUID.randomUUID().toString());
             m.put("mode", "ranked");
@@ -1311,12 +1326,14 @@ final class League {
             m.put("opp_snap", new JSONObject().put("nick", pf.optString("nick", p.nick)).put("ch", p.ch).put("sty", p.sty).put("label", v.label)
                     .put("lp", v.lp).put("mr", v.master ? v.mr : 0).put("title", pf.optString("title")).put("region", ProfileGen.regionLabel(pf))
                     .put("av", pf.optString("av")).put("persona", p.persona).put("mood", pf.optString("mood")).put("legacy", p.legacy));
+            if (col != null) m.optJSONObject("opp_snap").put("col", col.json());
             m.put("rematch_n", rematchN);
             m.put("look", new JSONObject().put("stage", stage).put("color", 0));
             JSONObject ps = players();
             JSONObject pr = ps.optJSONObject(p.id);
             if (pr == null) { pr = new JSONObject().put("w", 0).put("l", 0).put("d", 0).put("last", 0).put("broke", 0).put("mmr_adj", 0).put("lp_adj", 0); ps.put(p.id, pr); }
             if (pr.optJSONObject("pf") == null) pr.put("pf", pf);       /* 처음 만난 모습을 글자 그대로 */
+            if (col != null && OppLook.fromJson(pr.optJSONObject("pf").optJSONObject("col")) == null) pr.optJSONObject("pf").put("col", col.json());   /* 177: 옛 pf(col 없음)엔 이번 색을 */
             pr.put("at", System.currentTimeMillis());
             trimPlayers(ps);
             JSONArray rm = rmatches();

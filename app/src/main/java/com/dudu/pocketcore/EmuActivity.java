@@ -1205,8 +1205,12 @@ public class EmuActivity extends Activity {
                 League.note(leagueId, "fix", "경기를 시작한 판(롬 " + m.optString("rom", "?") + " · 앱 동봉 코어)으로 되돌리면 재개할 수 있습니다. 아니면 기권만 할 수 있습니다.");
                 leagueBlocked(BLK_ROM, why);
             }
+            oppLookOff();
             return;
         }
+        /* 177 상대 컬러 — 경기 기록(opp_snap.col)대로, 체크포인트 불러오기보다 먼저(불러온 첫 프레임·무장 전 프레임부터 상대 색).
+           기록에 없으면(이 기능 전에 시작한 경기) 끈다 — 판 중간에 색이 생기지 않게 */
+        oppLookSet(rule0(m, "char"), rule0(m, "style"), League.matchCol(m));
         File ck = League.ckpt(leagueId);
         boolean fromCk = false;
         if (fresh) League.ckptDelete(leagueId);
@@ -1214,6 +1218,7 @@ public class EmuActivity extends Activity {
             boolean had = ck.exists();
             if (had) fromCk = Emu.nativeLoadState(ck.getAbsolutePath()) == 0;
             if (!fromCk) {
+                oppLookOff();                                             /* 177 M1: 무장 없이 남지 않게(상태 [18] 도 깨끗이) */
                 League.setResumeFail(leagueId, had ? "badckpt" : "nockpt");
                 League.setStatus(leagueId, "resume", had ? "체크포인트를 불러오지 못함" : "체크포인트 없음");
                 leagueBlocked(had ? BLK_BADCKPT : BLK_NOCKPT, null);
@@ -1250,6 +1255,19 @@ public class EmuActivity extends Activity {
     }
 
     private boolean leagueStarted = false;      /* 첫 라운드가 실제로 시작됐나(league.c 경기 시작 규칙) */
+
+    /* ── 177 리그 상대 커스텀 컬러(native look.c — 팔레트 5). 넣는 곳: 허브 대진(rankArmNext·rankQGo — nativeHubMatch 직후, VS 띠 전) · 경기 기록(rankNewMatch) ·
+       이어 하기(leagueStart — 체크포인트 불러오기 전). 끄는 곳: hubReturn(−4 빼고) · leagueExit · 연습 허브를 켤 때 · 이어 하기 실패.
+       onDestroy 에선 안 끈다(K1 — 설정 «적용하고 이어하기»·갈아타기는 새 창의 leagueStart 가 넣은 뒤에 옛 창의 onDestroy 가 온다. 코어를 내릴 때 native 가 끈다) */
+    private static int rule0(org.json.JSONObject m, String k) { org.json.JSONObject r = m != null ? m.optJSONObject("rule") : null; return r != null ? r.optInt(k, -1) : -1; }
+    private void oppLookSet(int ch, int sty, OppLook.Col c) {
+        try {
+            if (c == null || ch < 0 || ch > 14) Emu.nativeLookOpp(-1, 0, -1, 0, 0, 0);
+            else Emu.nativeLookOpp(ch, sty, c.t[0], c.t[1], c.t[2], c.fx);
+        } catch (UnsatisfiedLinkError ignored) { }                         /* 옛 native — 상대 컬러 없이 */
+    }
+    private void oppLookArm(RankCore.Player p) { oppLookSet(p != null ? p.ch : -1, p != null ? p.sty : 0, p != null ? League.colOf(this, p) : null); }
+    private void oppLookOff() { oppLookSet(-1, 0, null); }
     private String leagueRomNow;                /* leagueVersionProblem 이 «롬만 바뀜»으로 막았을 때 지금 롬 이름(카드 B) — 아니면 null */
 
     /** 경기 시작을 봤으면 «준비» → «진행 중». poll·onPause·나가기에서 부른다. */
@@ -1715,6 +1733,7 @@ public class EmuActivity extends Activity {
         if (leaving) return;
         leaving = true;
         liveHubOff();
+        oppLookOff();                                                    /* 177 */
         MainActivity.forgetLast(this);
         gl.queueEvent(new Runnable() { @Override public void run() {
             Emu.nativeLeagueDisarm();
@@ -2697,6 +2716,7 @@ public class EmuActivity extends Activity {
             rankQClose(false); hubReturn(-1); toast("상대를 잡지 못했어요 — 다시 찾아 주세요");   /* 옛 대진이 남아 다른 상대로 붙지 않게 */
             return;
         }
+        oppLookArm(p);                                                   /* 177 상대 컬러 — 돌려보내기(−4) 뒤 VS 인트로 첫 프레임부터 */
         rankVsArm(p);                                                    /* 띠는 돌려보내기(−4) 뒤에도 남는다 */
         rankCap = rankAuto == 1; rankCapRefine = false;
         hubReturn(-4);
@@ -2712,6 +2732,7 @@ public class EmuActivity extends Activity {
             rankQClose(false); Emu.nativeHubSearch(false); toast("상대를 잡지 못했어요 — 다시 찾아 주세요");
             return;
         }
+        oppLookArm(p);                                                   /* 177 상대 컬러 */
         rankVsArm(p);
         rankCap = rankAuto == 1; rankCapRefine = false;
         rankQMode = Q_RUN; rankQGoAt = android.os.SystemClock.uptimeMillis();
@@ -2991,6 +3012,7 @@ public class EmuActivity extends Activity {
             return false;
         }
         leagueId = m.optString("id"); leagueArmed = true; leagueDone = false; leagueStarted = false; leagueRetry = 0;
+        oppLookSet(rule0(m, "char"), rule0(m, "style"), League.matchCol(m));   /* 177: 기록 사본(정본)대로 — 대진 때 넣은 색과 같다(결정론) */
         leagueVersionProblem(m);
         League.setLook(leagueId, hubStage, hubColor, lookTri(hubColor));
         h.removeCallbacks(leaguePoll); h.postDelayed(leaguePoll, 250);
@@ -3125,6 +3147,7 @@ public class EmuActivity extends Activity {
         hubWaitGen = Math.max(hubWaitGen, hubGen) + 1;     /* 153: 앞의 돌려보내기가 아직 GL 스레드에 안 닿았으면 그다음 것까지(−4 바로 뒤 그만 −1) */
         leagueId = null; leagueArmed = false; leagueDone = false; leagueStarted = false; leagueRetry = 0; leagueCheatSeen = 0;
         if (rematch != -4) { rankQClose(false); rankCap = false; rankCapRefine = false; }   /* 153: −4(다음 상대·재대결)는 부른 쪽이 겹창을 먼저 띄웠다 */
+        if (rematch != -4) oppLookOff();                                 /* 177: 타이틀·내 캐릭터 먼저(−5)·나중에·그만 — 리그 밖 1인 대전에 상대 색이 남지 않게(−4 는 rankArmNext 가 방금 넣음) */
         if (rematch != -5) rankPickOnly = false;                         /* 168: −5 = 내 캐릭터 먼저(hubPickOnly 가 켰다) */
         hubResumePending = false;
         h.removeCallbacks(leaguePoll);
@@ -4158,6 +4181,7 @@ public class EmuActivity extends Activity {
         Emu.nativeHubDual(practiceDual);
         if (want) practiceAutoUsed = true;
         practiceHub = true;
+        oppLookOff();                                                    /* 177: 연습 더미는 프로필이 아님 — 게임 거울 2P색 그대로(native 게이트도 연습을 뺀다) */
         h.post(new Runnable() { @Override public void run() {
             if (hubBanner == null) { addHubBanner(); hubBanner.setVisibility(View.GONE); }
             h.removeCallbacks(practicePoll); h.postDelayed(practicePoll, 200);

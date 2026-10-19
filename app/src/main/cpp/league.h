@@ -97,3 +97,4 @@ void league_status(int v[LEAGUE_NSTAT]);
 int league_hub_owns_select(void);
 /* look_tick 의 ctx — BUSY(위와 같음) · HOLD(연습 «내 캐릭터 먼저»: 컬러는 look, 결정은 허브) · FREE */
 int league_hub_look_ctx(void);
+int league_opp_live(void);      /* 177: 상대 컬러를 칠해도 되는 때 — 랭크 경기 무장(연습 허브 제외) · 승리 대사 · 걸쇠(native.c → look_set_opp_live) */
