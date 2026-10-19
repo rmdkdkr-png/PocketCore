@@ -928,8 +928,9 @@ static void hub_tick(uint8_t *ram, int input)
          if (lv[0] && lv[1]) t = look_take_confirm();   /* look 이 쥔 화면 — 가르기가 낸 결정(1 A · 2 B) */
          else t = a_edge ? 1 : b_edge ? 2 : 0;       /* 컬러 고르기 끔·아직 안 쥠 — 허브가 A·B 를 직접(게임엔 안 줌 — 검질 확정·«뒤로»는 허브가) */
          if (t) { H.hold_a = !!(input & IN_A); H.hold_b = !!(input & IN_B); }
-         if (t && sub != 4) { pr_pend_t = t; pr_pend_tf = H.f; t = 0; }   /* 검질을 바꾸는 연출(06) 중의 결정 — 받기(04)가 되면(40프레임 안) 그때 */
-         else if (!t && pr_pend_t && sub == 4) { if (H.f - pr_pend_tf <= 40) t = pr_pend_t; pr_pend_t = 0; }
+         if (t && sub != 4) { pr_pend_t = t; pr_pend_tf = H.f; t = 0; }   /* 검질을 바꾸는 연출(06) 중의 결정 — 받기(04)가 되면(180프레임 안) 그때.
+                                                                              연출 길이는 캐릭터마다(177 실측: 갈포드 35 · 나코루루 97프레임) — 40 이면 나코루루에서 A 가 사라졌다 */
+         else if (!t && pr_pend_t && sub == 4) { if (H.f - pr_pend_tf <= 180) t = pr_pend_t; pr_pend_t = 0; }
          if (t && sub == 4) {                        /* 받기(04)일 때만 */
             if (t == 1) {
                H.me_pad = (ram[R_STYC] & 1) + 1;     /* 내 검질 + 1(옛 «남는 칸» — sizeof H 그대로, 옛 덩어리는 0 = 모름).
