@@ -730,7 +730,11 @@ public class EmuActivity extends Activity {
         if (!leagueHub) { leagueSuspend("설정 다시 올리기", null); return; }   /* 옛 한 판(EXTRA_LEAGUE — 쓰이지 않음) */
         final boolean live = hubMatchLive();                              /* 결판이 막 섰으면 여기서 정산 → false */
         if (leagueId != null && leagueDone) { cfgReloadPending = true; return; }   /* M10: 결판부터 — 바뀐 값은 타이틀에서 한 번 다시 올림 */
-        if (live && !other) { cfgReloadPending = true; return; }          /* 언어만 — 이 경기는 시작한 판 그대로, 끝나면 */
+        if (live && !other) {                                             /* 언어만 — 이 경기 롬 판에서 그 언어가 되면(순정 판 ja↔en — 같은 롬, 코어 언어만) 지금 다시 올리고,
+                                                                             아니면(한글패치 판 ↔ 원어 — 롬 사본이 달라 이 경기는 시작한 판 그대로) 경기가 끝나 타이틀에서 */
+            String nl = langOf(now);
+            if (nl.equals(lang) || !nl.equals(League.matchLang(lm(), nl))) { cfgReloadPending = true; return; }
+        }
         if (live && !lgmShown && lgm != null && lgm.isOpen()) lgmCloseNow();
         reloadLeague(live);
     }
