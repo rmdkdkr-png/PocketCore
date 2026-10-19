@@ -79,6 +79,13 @@ public final class LaunchSheet {
     private int cheatLink = -1;                                  /* 겉 창에서 «치트 ›» 고리의 자리(linkViews) — 돌아올 때 커서를 거기로 */
     /** 게임 안: 치트 세이브 보관에 쓸 롬(원래 경로 — 사본도 이름이 같다) · 이 롬 판에서 치트가 안 켜지면 그 글(치트 창 부제). EmuActivity 가 창을 연 뒤 넣는다 */
     public File cheatRom; public String cheatOff;
+    /** 168 — 리그 판에서 연 창: 올카드 줄은 뺀다(리그는 늘 카드 전부 열림 · «세이브에 남기기»가 엉뚱한 세이브(원작 세이브)를 보관·되돌리지 않게 — 검토 G-4) */
+    public boolean leagueSession;
+    private java.util.List<Settings.Item> cheatItems() {
+        java.util.List<Settings.Item> out = new java.util.ArrayList<>();
+        for (Settings.Item it : Settings.GROUPS.get(Cheats.GROUP)) if (!(leagueSession && Cheats.CARDS_KEY.equals(it.key))) out.add(it);
+        return out;
+    }
 
     public static LaunchSheet show(Activity a, File rom, Games.Game g, Bitmap thumb, String title, Runnable onStart) {
         LaunchSheet s = new LaunchSheet(a, g, onStart);
@@ -96,9 +103,9 @@ public final class LaunchSheet {
         return s;
     }
     /** 168 §9 — 화면 «치트» 알약: 치트 창만 바로(겉 창 없이). 단추 «적용 ▶» · 뒤로 = 닫기(onClose 가 값을 넣는다) */
-    public static LaunchSheet showCheats(Activity a, Games.Game g, File rom) {
+    public static LaunchSheet showCheats(Activity a, Games.Game g, File rom, boolean league) {
         LaunchSheet s = new LaunchSheet(a, g, null);
-        s.inGame = true; s.cheatsOnly = true; s.cheatRom = rom;
+        s.inGame = true; s.cheatsOnly = true; s.cheatRom = rom; s.leagueSession = league;
         s.open(null, null, g != null ? g.ko : null);
         return s;
     }
@@ -231,7 +238,7 @@ public final class LaunchSheet {
         });
         dlg.setContentView(frame);
         if (cheatsOnly) { opts.clear(); clearViews(); cheatView = true; Map<String, String> m0 = Settings.load();
-            for (Settings.Item it : Settings.GROUPS.get(Cheats.GROUP)) opts.add(fromItem(it, m0));
+            for (Settings.Item it : cheatItems()) opts.add(fromItem(it, m0));
             focus = 0; setSheet(buildCheats()); }
         else setSheet(build(rom, thumb, title));
         Window w = dlg.getWindow();
@@ -657,7 +664,7 @@ public final class LaunchSheet {
         cheatView = true;
         opts.clear(); clearViews();
         Map<String, String> m = Settings.load();
-        for (Settings.Item it : Settings.GROUPS.get(Cheats.GROUP)) opts.add(fromItem(it, m));
+        for (Settings.Item it : cheatItems()) opts.add(fromItem(it, m));
         focus = 0;
         setSheet(buildCheats());
         paintFocus();

@@ -206,6 +206,7 @@ final class LeagueMenu {
     void openResultNow(MenuModel m, LgmPages.Scene result, LgmPages.Scene quit) {
         if (m == null || result == null) return;
         model = m; sResult = result; sQuit = quit; sPause = sConfirm = sDrawer = null; drawerTab = -1;
+        sLobby = sLobbyConfirm = sLobbyQuit = null; lobbyMode = 0; drawerConfirm = 0;   /* 168: 대기 «기권» 뒤 — 대기 위에 결판 */
         lastPatch = null; stageSel = result.stageSel; busy = false; afterClose = null;
         autoOn = m.prefs != null && m.prefs.autoNextSec == 10; autoOff = false;
         resultCursor = clampRow(result, result.defaultRow);
@@ -260,10 +261,12 @@ final class LeagueMenu {
         sLobby = lobby; sLobbyConfirm = confirm; sLobbyQuit = quit;
         if (st == ST_DRAWER && drawerFrom == ST_LOBBY) { model = m.withPrefs(model != null ? model.prefs : m.prefs); return; }
         if (st == ST_LOBBY) {
-            model = m; lobbyMode = 0;
+            model = m; lobbyMode = 0; busy = false;
             if (show(lobby, SHOW_END, Emu.OV_START_NOW, clampRow(lobby, lobbyCursor))) { capture = true; updateHit(); }
         }
     }
+    /** 168 UI 가 동작을 못 했다(저장 실패 등) — 부른 장면(결판·쉼·대기)을 끝 상태로 다시. GL 스레드 */
+    void recoverNow() { if (st == ST_CLOSED || st == ST_ARMED || st == ST_PAUSE_PENDING) return; if (st == ST_DRAWER) { busy = false; return; } recover(); }
     /** 쉼을 못 엶(결판이 이미 남 등) — 멈춤만 풂 */
     void cancelPause() {
         if (st != ST_PAUSE_PENDING) return;
