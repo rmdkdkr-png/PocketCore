@@ -518,10 +518,16 @@ int look_take_confirm(void)
 void look_set_opp(int ch, int sty, int c1, int c2, int c3, int fx)
 {
    pthread_mutex_lock(&K_mu);
-   OP.on = c1 >= 0 && ch >= 0 && ch <= 14; OP.ch = ch; OP.sty = sty & 1; OP.state = 0; OP.fb = -1; OP.grace = 0;
+   int on = c1 >= 0 && ch >= 0 && ch <= 14, fxn = on && fx > 0 && fx < SLASH_N ? fx : 0;
+   if (on && OP.on && OP.ch == ch && OP.sty == (sty & 1) && OP.fx == fxn
+       && OP.c[0] == (uint16_t)(c1 & 0xFFF) && OP.c[1] == (uint16_t)(c2 & 0xFFF) && OP.c[2] == (uint16_t)(c3 & 0xFFF)) {
+      pthread_mutex_unlock(&K_mu);                    /* 같은 값을 다시(허브 대진 뒤 경기 기록 rankNewMatch) — 칠한 상태·대신 색·유예를 그대로(한 프레임 [18]=0 이 안 보이게) */
+      return;
+   }
+   OP.on = on; OP.ch = ch; OP.sty = sty & 1; OP.state = 0; OP.fb = -1; OP.grace = 0;
    OP.c[0] = (uint16_t)(c1 & 0xFFF); OP.c[1] = (uint16_t)(c2 & 0xFFF); OP.c[2] = (uint16_t)(c3 & 0xFFF);
    memcpy(OP.show, OP.c, 6);
-   OP.fx = OP.on && fx > 0 && fx < SLASH_N ? fx : 0;
+   OP.fx = fxn;
    pthread_mutex_unlock(&K_mu);
 }
 void look_set_opp_live(int live) { pthread_mutex_lock(&K_mu); OP.live = live ? 1 : 0; pthread_mutex_unlock(&K_mu); }
