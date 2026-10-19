@@ -58,7 +58,7 @@ final class LeagueMenu {
         default boolean tag(int side, byte[] pix, int w, int h, int x, int y, short[] pals) { return false; }
         default void tagOn(boolean on) { }
         default int[] tagStatus() { return null; }
-        /** 176 메뉴 효과음(Emu.UI_SFX_*) — 옛 native·시험 받침은 없음 */
+        /** 176 메뉴 효과음(Emu.UI_SFX_*) — 옛 native·시험 받침은 없음. 이것만 아무 스레드(내 이름 카드는 UI 스레드) */
         default void sfx(int kind) { }
         /** Emu.nativeOv* 로 — 옛 native(UnsatisfiedLinkError)면 null */
         static OvPort emu() {
@@ -1211,6 +1211,8 @@ final class LeagueMenu {
     private void sfx(int kind) { if (sfxRank(kind) > sfxRank(sfxReq)) sfxReq = kind; }
     private static int sfxRank(int k) { return k == Emu.UI_SFX_SELECT ? 3 : k == Emu.UI_SFX_BACK ? 2 : k == Emu.UI_SFX_CURSOR ? 1 : 0; }
     private void flushSfx() { int k = sfxReq; sfxReq = 0; if (k != 0) ov.sfx(k); }
+    /** 메뉴 위에 뜬 안드로이드 카드(내 이름)의 단추 소리 — 바로 native 로(받는 문은 같다: 메뉴가 보이거나 멈춤일 때만). UI 스레드에서도(OvPort.sfx 는 native 한 줄) */
+    void sfxNow(int kind) { if (kind != 0) ov.sfx(kind); }
     /** 동작 뒤 아무 일도 없었다(UI 가 못 받음) — 부른 장면을 끝 상태로 다시 */
     private void recover() {
         busy = false;
