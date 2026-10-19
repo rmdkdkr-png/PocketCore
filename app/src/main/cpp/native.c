@@ -20,6 +20,7 @@
 #include "look.h"
 #include "cheat.h"
 #include "ovplane.h"
+#include "uisfx.h"
 #include "display_shaders.h"
 #include <math.h>
 
@@ -467,6 +468,7 @@ static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
       }
    }
    g_rd = rd;
+   uisfx_mix(out, numFrames, mute, ov_active() || ov_hold());   /* 176: 덧판 메뉴 효과음 — 고리(게임 소리) 위에. 코어가 멈춰 고리가 비어도 난다 · 메뉴가 사라지면 결정의 메아리는 안 냄(잠금 없는 int 둘) */
    return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
@@ -489,6 +491,7 @@ static void audio_start(int rate)
    if (g_stream) { pthread_mutex_unlock(&g_audio_mx); return; }   /* 이미 열려 있다 — 두 번 열면 앞 스트림이 샌다 */
    g_audio_rate = rate;
    g_audio_dead = 0;
+   uisfx_reset(rate);                  /* 176: 콜백이 돌기 전 — 닫히기 전(onPause·끊김) 남은 효과음·요청은 버림 */
    if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) { pthread_mutex_unlock(&g_audio_mx); return; }
    AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_I16);
    AAudioStreamBuilder_setChannelCount(b, 2);
@@ -1182,6 +1185,19 @@ JNI(void, nativeAudioPause)(JNIEnv *env, jclass cls)
 
 JNI(void, nativeAudioResume)(JNIEnv *env, jclass cls)
 { (void)env; (void)cls; if (g_loaded && !g_stream) audio_start(g_audio_rate); }
+
+/* 176: 덧판 메뉴 효과음(uisfx.c — 사무쇼2 메뉴 소리 합성) — kind 1 커서 · 2 결정 · 3 뒤로 · 0 줄여 끔. 아무 스레드.
+   메뉴가 보이거나(OVF_VISIBLE) 메뉴 멈춤(ov_hold) 중일 때만 받는다 — 메뉴가 없으면 소리도 없다. 소리는 오디오 콜백이 낸다(스트림이 닫혀 있으면 안 남) */
+JNI(jboolean, nativeUiSfx)(JNIEnv *env, jclass cls, jint kind)
+{
+   (void)env; (void)cls;
+   if (kind != UISFX_STOP) {
+      int v[OV_NSTAT];
+      ov_status(v);
+      if (!(v[OVS_FLAGS] & (OVF_VISIBLE | OVF_HOLD))) return JNI_FALSE;
+   }
+   return uisfx_request(kind) ? JNI_TRUE : JNI_FALSE;
+}
 
 /* 게임 속 리그: 결판 뒤 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
 JNI(void, nativeLeagueHubReturn)(JNIEnv *env, jclass cls, jint rematch)

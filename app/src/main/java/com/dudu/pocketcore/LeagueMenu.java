@@ -11,6 +11,7 @@ package com.dudu.pocketcore;
  * 장면이 자리 잡기 전(readyT) A·B·방향·OPTION = 연출 건너뛰기만 · ▲▼ 첫 누름 한 칸, 18f 쥐면 5f 마다(60Hz 시계 — vsync 수 아님).
  * 닫힌 동안 쉼 자격(setPauseEligible)이면 OPTION(비트 3)을 늘 지우고, 다른 버튼 없이 눌렀다 30f 안에 떼면(탭) 쉼을 연다.
  * 화면 그림은 모두 장면(LgmPages)이 미리 만든 것 — 여기서는 올리고(층·창유리·쿼드·바탕·대본) 커서 줄의 팔레트만 바꾼다(recolor).
+ * 176 효과음: 사무쇼2 메뉴 소리 — 커서 옮김(목록 넘김·탭·무대 ◀▶) = 커서 · 고름 = 결정 · 뒤로·거둠·나가기 = 뒤로. 받지 않은 누름(연출 건너뛰기·무장 전·바쁨·못 고르는 줄)은 소리 없음.
  */
 final class LeagueMenu {
     /* NGPC 버튼 = libretro 비트(Emu) */
@@ -57,6 +58,8 @@ final class LeagueMenu {
         default boolean tag(int side, byte[] pix, int w, int h, int x, int y, short[] pals) { return false; }
         default void tagOn(boolean on) { }
         default int[] tagStatus() { return null; }
+        /** 176 메뉴 효과음(Emu.UI_SFX_*) — 옛 native·시험 받침은 없음. 이것만 아무 스레드(내 이름 카드는 UI 스레드) */
+        default void sfx(int kind) { }
         /** Emu.nativeOv* 로 — 옛 native(UnsatisfiedLinkError)면 null */
         static OvPort emu() {
             try { if (Emu.nativeOvStatus() == null) return null; } catch (UnsatisfiedLinkError e) { return null; }
@@ -86,6 +89,11 @@ final class LeagueMenu {
                 @Override public int[] tagStatus() {
                     if (!natTag) return null;
                     try { return Emu.nativeOvTagStatus(); } catch (UnsatisfiedLinkError e) { natTag = false; return null; }
+                }
+                private boolean natSfx = true;          /* 효과음 native(176)가 없으면 끄고 소리 없이 */
+                @Override public void sfx(int kind) {
+                    if (!natSfx) return;
+                    try { Emu.nativeUiSfx(kind); } catch (UnsatisfiedLinkError e) { natSfx = false; }
                 }
             };
         }
@@ -171,6 +179,8 @@ final class LeagueMenu {
     private int listY, listTarget, listMin, listMax;
     /* 터치 */
     private int touchKind = 0, touchIdx = -1;   // DOWN 때 맞힌 것(1 줄 · 2 무대 왼쪽 · 3 무대 오른쪽 · 4 탭 · 5 칼집 밖)
+    /* 176 효과음 — 입력 한 번에 하나(센 것 = 게임 우선순위 커서 < 뒤로 < 결정) · feed·onTouch·back 끝에, 닫기(close)면 덧판을 지우기 전에 보낸다(native 는 메뉴가 보일 때만 받음) */
+    private int sfxReq;
 
     LeagueMenu(OvPort ov, Actions actions, android.os.Handler ui) {
         this.ov = ov; this.act = actions; this.ui = ui;
@@ -394,10 +404,12 @@ final class LeagueMenu {
                 && t >= curReadyT + AUTO_NEXT_FRAMES && !running) {
             autoOff = true;
             select(rowById(cur, MenuModel.ROW_NEXT));
+            sfxReq = 0;                                                  /* 저절로 고름 — 누름이 아니라 소리 없음 */
             return 0;
         }
         if (guard) return 0;                                             /* 무장 전 — 연타가 고르지 않게(건너뛸 연출도 없으면 그냥 삼킴) */
         handle(rise, held);
+        flushSfx();
         return 0;
     }
 
@@ -433,23 +445,23 @@ final class LeagueMenu {
                 if (!row.enabled) return;
                 if (idx == cursor) select(idx);                       /* 같은 줄 다시 탭 = 결정(기권은 맥박으로 한 번 더 — 그 줄을 또 탭하면 기권) */
                 else if (st == ST_CONFIRM) { collapseConfirm(); moveCursorTo(idx); }
-                else if (st == ST_LOBBY && lobbyMode == 1) { collapseLobby(idx); }
-                else if (st == ST_DRAWER && drawerConfirm != 0) { collapseDrawerConfirm(idx); }
+                else if (st == ST_LOBBY && lobbyMode == 1) { sfx(Emu.UI_SFX_CURSOR); collapseLobby(idx); }
+                else if (st == ST_DRAWER && drawerConfirm != 0) { sfx(Emu.UI_SFX_CURSOR); collapseDrawerConfirm(idx); }
                 else moveCursorTo(idx);
                 break;
             }
             case 2: case 3:
-                if (st == ST_RESULT) post(() -> act.lgmStage(kind == 2 ? -1 : 1));
+                if (st == ST_RESULT) { sfx(Emu.UI_SFX_CURSOR); post(() -> act.lgmStage(kind == 2 ? -1 : 1)); }
                 break;
             case 4:
                 if (st == ST_DRAWER && cur.tabs != null && idx < cur.tabs.length) switchTab(cur.tabs[idx].id);
                 break;
             case 5:
-                if (st == ST_PAUSE) resume();
-                else if (st == ST_LOBBY && lobbyMode == 0) resume();
+                if (st == ST_PAUSE || (st == ST_LOBBY && lobbyMode == 0)) { sfx(Emu.UI_SFX_BACK); resume(); }
                 break;
             default: break;
         }
+        flushSfx();
     }
     /** UI 스레드 — 게임 px 가 메뉴가 받을 자리인가(줄·탭·칼집·무대 줄, 세로 화면 쉼은 칼집 밖도). 장면이 바뀔 때 GL 스레드가 고친 불변 스냅숏을 읽는다 */
     boolean hitTest(int x, int y) {
@@ -472,6 +484,7 @@ final class LeagueMenu {
         if ((fl & Emu.OVF_RUNNING) != 0 && t >= 0 && t < curReadyT) { ov.cue(null, Emu.OV_SKIP_TO_END); return; }
         if (guard) return;
         handle(IN_B, 0);
+        flushSfx();
     }
     boolean isOpen() { int s = st; return s != ST_CLOSED && s != ST_ARMED; }
     int state() { return st; }
@@ -479,6 +492,7 @@ final class LeagueMenu {
     boolean resultUp() { int s = st; return s == ST_ARMED || s == ST_RESULT || s == ST_QUIT || (s == ST_DRAWER && sResult != null) || (s == ST_CLOSING && sResult != null); }
     /** 바로 닫기 — 덧판 지움(OV_CLR_ALL: 멈춤·막기도 풂). hubReturn·나가기 전에 GL 스레드에서 */
     void close() {
+        flushSfx();                                                      /* 176: 뒤로·이어하기가 바로 닫으면 — 지우기 전에(지운 뒤엔 native 가 안 받음) */
         ov.clear(Emu.OV_CLR_ALL);
         resetClosed(prev);
     }
@@ -490,7 +504,7 @@ final class LeagueMenu {
         sResult = sQuit = sPause = sConfirm = sDrawer = null; drawerTab = -1; drawerWaiting = false;
         sLobby = sLobbyConfirm = sLobbyQuit = null; lobbyMode = 0; drawerConfirm = 0;
         busy = false; afterClose = null; capture = false; ignore = 0; repDir = 0; autoOn = false;
-        optDown = false; lastPatch = null; cursor = -1; armed = true; opening = false; quadHidden = false;
+        optDown = false; lastPatch = null; cursor = -1; armed = true; opening = false; quadHidden = false; sfxReq = 0;
         updateHit();
     }
     /** 결판·쉼을 닫힌 데서(또는 기권 뒤 결판을) 열었다 — 무장 전으로 */
@@ -604,35 +618,35 @@ final class LeagueMenu {
         switch (st) {
             case ST_RESULT:
                 if (step != 0) moveCursor(step);
-                if (lr != 0) { final int d = lr; post(() -> act.lgmStage(d)); }
+                if (lr != 0) { final int d = lr; if (sc.stageRow != null) sfx(Emu.UI_SFX_CURSOR); post(() -> act.lgmStage(d)); }
                 if ((rise & IN_A) != 0) select(cursor);
                 else if ((rise & IN_B) != 0) {
                     int q = rowById(sc, MenuModel.ROW_QUIT);
                     if (q >= 0 && cursor != q) moveCursorTo(q);       /* 처음: 커서만 «그만하기» */
                     else if (q >= 0) select(q);                        /* 그 위에서 또: 그만하기(타이틀로 — 157 post: «그만할까요?» 목록 없음) */
-                } else if ((rise & IN_OPT) != 0) openDrawer(firstTab());
+                } else if ((rise & IN_OPT) != 0) { sfx(Emu.UI_SFX_SELECT); openDrawer(firstTab()); }
                 break;
             case ST_QUIT:
                 if (step != 0) moveCursor(step);
                 if ((rise & IN_A) != 0) select(cursor);
-                else if ((rise & IN_B) != 0) backToResult();
+                else if ((rise & IN_B) != 0) { sfx(Emu.UI_SFX_BACK); backToResult(); }
                 break;
             case ST_PAUSE:
                 if (step != 0) moveCursor(step);
                 if ((rise & IN_A) != 0) select(cursor);
-                else if ((rise & (IN_B | IN_OPT)) != 0) resume();
+                else if ((rise & (IN_B | IN_OPT)) != 0) { sfx(Emu.UI_SFX_BACK); resume(); }
                 break;
             case ST_CONFIRM:                                               /* 157 post: 기권 줄이 맥박 — A = 기권 · ▲▼ = 거두고 옮김 · B/OPTION = 거둠 */
                 if (step != 0) { collapseConfirm(); moveCursor(step); break; }
                 if ((rise & IN_A) != 0) select(cursor);
-                else if ((rise & (IN_B | IN_OPT)) != 0) collapseConfirm();
+                else if ((rise & (IN_B | IN_OPT)) != 0) { sfx(Emu.UI_SFX_BACK); collapseConfirm(); }
                 break;
             case ST_DRAWER:
-                if (drawerWaiting) { if ((rise & (IN_B | IN_OPT)) != 0) closeDrawer(); break; }
+                if (drawerWaiting) { if ((rise & (IN_B | IN_OPT)) != 0) { sfx(Emu.UI_SFX_BACK); closeDrawer(); } break; }
                 if (drawerConfirm != 0) {                                  /* 168 리그 탭 두 번 묻기 펼침 — A = 그 일 · ▲▼ = 거두고 옮김 · B/OPTION/◀▶ = 거둠 */
-                    if (step != 0) { int to = Math.floorMod(cursor + step, Math.max(1, sc.rows.length)); collapseDrawerConfirm(to); break; }
+                    if (step != 0) { int to = Math.floorMod(cursor + step, Math.max(1, sc.rows.length)); if (to != cursor) sfx(Emu.UI_SFX_CURSOR); collapseDrawerConfirm(to); break; }
                     if ((rise & IN_A) != 0) select(cursor);
-                    else if ((rise & (IN_B | IN_OPT)) != 0 || lr != 0) collapseDrawerConfirm(cursor);
+                    else if ((rise & (IN_B | IN_OPT)) != 0 || lr != 0) { sfx(Emu.UI_SFX_BACK); collapseDrawerConfirm(cursor); }
                     break;
                 }
                 if (lr != 0) switchTab(nextTab(drawerTab, lr));
@@ -645,18 +659,18 @@ final class LeagueMenu {
                     } else scrollList(step);
                 }
                 if ((rise & IN_A) != 0 && sc.rows != null && sc.rows.length > 0) select(cursor);
-                else if ((rise & (IN_B | IN_OPT)) != 0) closeDrawer();
+                else if ((rise & (IN_B | IN_OPT)) != 0) { sfx(Emu.UI_SFX_BACK); closeDrawer(); }
                 break;
             case ST_LOBBY:
                 if (lobbyMode == 1) {                                      /* 기권 펼침 — A = 기권 · ▲▼ = 거두고 옮김 · B/OPTION = 거둠 */
-                    if (step != 0) { int to = Math.floorMod(cursor + step, Math.max(1, sc.rows.length)); collapseLobby(to); break; }
+                    if (step != 0) { int to = Math.floorMod(cursor + step, Math.max(1, sc.rows.length)); if (to != cursor) sfx(Emu.UI_SFX_CURSOR); collapseLobby(to); break; }
                     if ((rise & IN_A) != 0) select(cursor);
-                    else if ((rise & (IN_B | IN_OPT)) != 0) collapseLobby(cursor);
+                    else if ((rise & (IN_B | IN_OPT)) != 0) { sfx(Emu.UI_SFX_BACK); collapseLobby(cursor); }
                     break;
                 }
                 if (step != 0) moveCursor(step);
                 if ((rise & IN_A) != 0) select(cursor);
-                else if ((rise & (IN_B | IN_OPT)) != 0) { if (lobbyMode == 2) backToLobby(); else resume(); }
+                else if ((rise & (IN_B | IN_OPT)) != 0) { sfx(Emu.UI_SFX_BACK); if (lobbyMode == 2) backToLobby(); else resume(); }
                 break;
             default: break;
         }
@@ -670,6 +684,7 @@ final class LeagueMenu {
         switch (st) {
             case ST_RESULT:
                 resultCursor = i;
+                sfx(id == MenuModel.ROW_QUIT ? Emu.UI_SFX_BACK : Emu.UI_SFX_SELECT);   /* 그만하기 = 게임 GAME OPTION «おわり» 처럼 뒤로 */
                 switch (id) {
                     case MenuModel.ROW_NEXT: closeThen(() -> act.lgmNext(false)); break;
                     case MenuModel.ROW_NEWCHAR: closeThen(() -> act.lgmNext(true)); break;
@@ -680,12 +695,14 @@ final class LeagueMenu {
                 }
                 break;
             case ST_QUIT:
+                sfx(Emu.UI_SFX_BACK);                                        /* 취소·나가기 */
                 if (id == MenuModel.QUIT_CANCEL) { backToResult(); break; }
                 setBusy();
                 post(() -> act.lgmQuit(id));
                 break;
             case ST_PAUSE:
                 pauseCursor = i;
+                sfx(Emu.UI_SFX_SELECT);
                 switch (id) {
                     case MenuModel.ROW_RESUME: resume(); break;
                     case MenuModel.ROW_DRAWER: openDrawer(firstTab()); break;
@@ -696,23 +713,27 @@ final class LeagueMenu {
                 }
                 break;
             case ST_CONFIRM:
-                if (id != MenuModel.ROW_FORFEIT) { collapseConfirm(); break; }
+                if (id != MenuModel.ROW_FORFEIT) { sfx(Emu.UI_SFX_BACK); collapseConfirm(); break; }
                 if (now - confirmAt < CONFIRM_MIN) break;                    /* 첫 A 의 튐 — 안 받음 */
+                sfx(Emu.UI_SFX_SELECT);
                 setBusy(); post(act::lgmForfeit);
                 break;
             case ST_LOBBY:
                 if (lobbyMode == 2) {                                      /* 리그 나가기 — 내 게임 · 게임 목록 · 취소 */
+                    sfx(Emu.UI_SFX_BACK);
                     if (id == MenuModel.QUIT_CANCEL) { backToLobby(); break; }
                     setBusy(); post(() -> act.lgmQuit(id));
                     break;
                 }
                 if (lobbyMode == 1) {
-                    if (id != MenuModel.ROW_OPEN_FORFEIT) { collapseLobby(i); break; }
+                    if (id != MenuModel.ROW_OPEN_FORFEIT) { sfx(Emu.UI_SFX_BACK); collapseLobby(i); break; }
                     if (now - confirmAt < CONFIRM_MIN) break;
+                    sfx(Emu.UI_SFX_SELECT);
                     setBusy(); post(act::lgmOpenForfeit);
                     break;
                 }
                 lobbyCursor = i;
+                sfx(Emu.UI_SFX_SELECT);
                 switch (id) {
                     case MenuModel.ROW_SEARCH: closeThen(act::lgmSearch); break;
                     case MenuModel.ROW_RESUME_OPEN: closeThen(act::lgmResumeOpen); break;
@@ -730,12 +751,13 @@ final class LeagueMenu {
                     if (drawerConfirm == id) {
                         if (now - confirmAt < CONFIRM_MIN) break;
                         final int kind = id == LgmPages.LG_NEW_SEASON ? 1 : 2;
+                        sfx(Emu.UI_SFX_SELECT);
                         setBusy(); post(() -> act.lgmSeason(kind));
-                    } else openDrawerConfirm(id);
+                    } else { sfx(Emu.UI_SFX_SELECT); openDrawerConfirm(id); }
                     break;
                 }
-                if (id == LgmPages.LG_MAIN) { closeThen(act::lgmMain); break; }
-                if (id == LgmPages.LG_NAME) { setBusy(); post(act::lgmName); break; }
+                if (id == LgmPages.LG_MAIN) { sfx(Emu.UI_SFX_SELECT); closeThen(act::lgmMain); break; }
+                if (id == LgmPages.LG_NAME) { sfx(Emu.UI_SFX_SELECT); setBusy(); post(act::lgmName); break; }
                 MenuModel.Prefs p = model.prefs, n = p;
                 switch (id) {
                     case LgmPages.SET_FX: n = p.withFx((p.fx + 1) % 3); break;
@@ -745,6 +767,7 @@ final class LeagueMenu {
                     default: break;
                 }
                 if (n != p) {
+                    sfx(Emu.UI_SFX_SELECT);                                  /* 설정 값 바꿈 = 게임 GAME OPTION ◀▶ 처럼 결정 */
                     model = model.withPrefs(n);
                     if (id == LgmPages.SET_AUTO) autoOff = true;            /* 이 결판에서는 켜지 않는다(바꾼 것도 입력) */
                     final MenuModel.Prefs np = n;
@@ -929,6 +952,7 @@ final class LeagueMenu {
     }
     private void switchTab(int tab) {
         if (tab == drawerTab && sDrawer != null) return;
+        sfx(Emu.UI_SFX_CURSOR);
         drawerTab = tab; drawerWaiting = true; drawerConfirm = 0;
         if (model != null && model.prefs.rememberTab && model.prefs.lastTab != tab) {
             model = model.withPrefs(model.prefs.withTab(tab));
@@ -1083,7 +1107,9 @@ final class LeagueMenu {
 
     /* 서랍 목록 넘기기 — 목표를 8px 씩, 화면은 vsync 마다 2px(쥐면 4px) */
     private void scrollList(int step) {
-        listTarget = Math.max(listMin, Math.min(listMax, listTarget + step * LIST_STEP));
+        int t = Math.max(listMin, Math.min(listMax, listTarget + step * LIST_STEP));
+        if (t != listTarget) sfx(Emu.UI_SFX_CURSOR);                   /* 끝에서 더 누르면 소리 없음 */
+        listTarget = t;
     }
     private void stepList(int held) {
         if (cur == null || cur.l == null || listY == listTarget) return;
@@ -1114,7 +1140,8 @@ final class LeagueMenu {
         if (!fresh && i == cursor) return;
         if (cursor >= 0 && cursor < sc.rows.length && cursor != i) { LgmPages.Row o = sc.rows[cursor]; ov.recolor(Emu.OV_W, o.c0, o.r0, o.c1 - o.c0 + 1, o.r1 - o.r0 + 1, o.palOff); }
         LgmPages.Row r = sc.rows[i];
-        if (fresh) for (int k = 0; k < sc.rows.length; k++) if (k != i) { LgmPages.Row o = sc.rows[k]; ov.recolor(Emu.OV_W, o.c0, o.r0, o.c1 - o.c0 + 1, o.r1 - o.r0 + 1, o.palOff); }
+        if (fresh) { for (int k = 0; k < sc.rows.length; k++) if (k != i) { LgmPages.Row o = sc.rows[k]; ov.recolor(Emu.OV_W, o.c0, o.r0, o.c1 - o.c0 + 1, o.r1 - o.r0 + 1, o.palOff); } }
+        else sfx(Emu.UI_SFX_CURSOR);                                     /* 사용자가 옮김(장면을 새로 올릴 때는 소리 없음) */
         ov.recolor(Emu.OV_W, r.c0, r.r0, r.c1 - r.c0 + 1, r.r1 - r.r0 + 1, r.palOn);
         int[] q = quadDef(sc, LgmPages.Q_CURSOR);
         if (q != null) ov.quad(q[0], q[1], r.quadX, r.quadY, q[4], r.palOn, quadHidden ? q[6] & ~Emu.OV_Q_SHOW : q[6] | Emu.OV_Q_SHOW);
@@ -1180,6 +1207,12 @@ final class LeagueMenu {
         if (h != null) ov.pane(h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], true);
     }
     private void setBusy() { busy = true; busyT0 = now; }
+    /* 176 효과음 */
+    private void sfx(int kind) { if (sfxRank(kind) > sfxRank(sfxReq)) sfxReq = kind; }
+    private static int sfxRank(int k) { return k == Emu.UI_SFX_SELECT ? 3 : k == Emu.UI_SFX_BACK ? 2 : k == Emu.UI_SFX_CURSOR ? 1 : 0; }
+    private void flushSfx() { int k = sfxReq; sfxReq = 0; if (k != 0) ov.sfx(k); }
+    /** 메뉴 위에 뜬 안드로이드 카드(내 이름)의 단추 소리 — 바로 native 로(받는 문은 같다: 메뉴가 보이거나 멈춤일 때만). UI 스레드에서도(OvPort.sfx 는 native 한 줄) */
+    void sfxNow(int kind) { if (kind != 0) ov.sfx(kind); }
     /** 동작 뒤 아무 일도 없었다(UI 가 못 받음) — 부른 장면을 끝 상태로 다시 */
     private void recover() {
         busy = false;

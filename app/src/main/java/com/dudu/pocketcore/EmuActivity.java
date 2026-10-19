@@ -2423,6 +2423,7 @@ public class EmuActivity extends Activity {
         private int sel = -1;
         private Runnable onDismiss;
         private Ask under;                           /* 이 카드가 뜰 때 떠 있던 카드 — 닫으면 그 카드가 다시 맨 위(먼저 카드를 닫지 않는다: 그 닫힘 리스너가 경기를 풀지 않게) */
+        private boolean sfx;                         /* 176: 덧판 메뉴 위 카드(내 이름) — 단추 옮김 = 커서 · 첫 단추 = 결정 · 다른 단추·취소 = 뒤로(메뉴 효과음) */
         Ask(String title, String msg) {
             float dp = getResources().getDisplayMetrics().density;
             scrim = new FrameLayout(EmuActivity.this);
@@ -2464,7 +2465,8 @@ public class EmuActivity extends Activity {
         /** 단추 — r 은 누른 뒤(카드를 닫기 전에) 한 번. null = 닫기만(AlertDialog 의 null 리스너처럼) */
         Ask btn(String label, final Runnable r) {
             float dp = getResources().getDisplayMetrics().density;
-            final TextView t = hubPill(label, new Runnable() { @Override public void run() { press(r); } });
+            final boolean first = list.isEmpty();
+            final TextView t = hubPill(label, new Runnable() { @Override public void run() { press(r, first); } });
             android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
             lp.topMargin = Math.round(6 * dp);
@@ -2474,6 +2476,8 @@ public class EmuActivity extends Activity {
             return this;
         }
         Ask cancelable(boolean c) { cancelable = c; return this; }
+        Ask sfx() { sfx = true; return this; }
+        private void sfx(int kind) { LeagueMenu mm = lgm; if (sfx && mm != null) mm.sfxNow(kind); }
         /** 168(11) 글 칸 — 단추 줄 위에. 글자 키는 칸이 받는다(dispatchKeyEvent) · 키보드 «완료» = 첫 단추 */
         private android.widget.EditText field;
         Ask field(android.widget.EditText e) {
@@ -2505,17 +2509,20 @@ public class EmuActivity extends Activity {
             if (ask == this) { ask = under; while (ask != null && !ask.showing) ask = ask.under; }   /* 아래 카드 중 아직 떠 있는 것 */
             if (onDismiss != null) onDismiss.run();
         }
-        void cancel() { if (cancelable) dismiss(); }
+        void cancel() { if (cancelable) { sfx(Emu.UI_SFX_BACK); dismiss(); } }
         private boolean pressing;
-        private void press(Runnable r) {
+        private void press(Runnable r, boolean first) {
             if (!showing || pressing) return;        /* 두 번 눌러도 한 번만 */
+            sfx(first ? Emu.UI_SFX_SELECT : Emu.UI_SFX_BACK);
             pressing = true;
             try { if (r != null) r.run(); } finally { pressing = false; }
             dismiss();                                /* AlertDialog 와 같은 차례 — 리스너 다음에 닫힘(닫힘 리스너가 리스너의 표시를 본다) */
         }
         private void select(int i) {
             if (list.isEmpty()) return;
-            sel = (i + list.size()) % list.size();
+            int s = (i + list.size()) % list.size();
+            if (s != sel) sfx(Emu.UI_SFX_CURSOR);
+            sel = s;
             for (int k = 0; k < list.size(); k++) {
                 TextView t = list.get(k);
                 ((android.graphics.drawable.GradientDrawable) t.getBackground()).setStroke(k == sel ? Math.round(2 * getResources().getDisplayMetrics().density) : 0, 0xfffff3c4);
@@ -3931,7 +3938,7 @@ public class EmuActivity extends Activity {
         e.setTextColor(0xfff3ead7); e.setTypeface(hubFont()); e.setTextSize(18);
         final boolean[] done = { false };
         Ask d = ask("내 이름", "한글·영문·숫자 " + League.NAME_MAX + "자까지 · 비우면 «나»\n이름표·VS 띠·결판·순위표에 나와요")
-                .field(e)
+                .field(e).sfx()
                 .btn("정하기", () -> {
                     done[0] = true;
                     String before = League.myNick();
