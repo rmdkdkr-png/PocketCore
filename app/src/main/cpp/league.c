@@ -387,19 +387,65 @@ static int hdr_layout(void)
    for (int c = 0; c < 9; c++) if (scr_tile(1, 1, 5 + c) != 0x15A + c) return 0;
    return scr_tile(1, 1, 14) == 0x163 ? 2 : 1;
 }
-static void hdr_put(int kind, int sangdae)
+/* mode 0 = 원래대로 · 1 «상대»(한글판 앞 6칸 × 2줄 · 순정판은 «선택»까지 20) · 2 «내 캐릭터»(177 §10-8 — 10칸 × 2줄 통째, 한글판은 1줄 14칸(0x159 와 같은 타일)을 뺀 19).
+   보관(H.hdr_orig)은 처음 바꿀 때만 · 되돌릴 땐 그 타일이 아직 우리 그림일 때만(게임이 다시 그렸으면 그대로 — 화면이 바뀌어 타일을 새로 읽은 뒤 옛 그림으로 덮지 않게) */
+static int hdr_mode_now;              /* 177: H.hdr_orig 를 보관한 배치(1·2) — H 밖(.prac 는 hdr_saved 0 으로 되돌림) */
+static int hdr_tile(int mode, int i) { return mode == 2 ? (i < 10 ? 0x150 + i : 0x15A + (i - 10)) : i < 6 ? 0x150 + i : i < 12 ? 0x15A + (i - 6) : i < 16 ? 0x156 + (i - 12) : 0x160 + (i - 16); }
+static const uint8_t *hdr_src(int mode, int i) { return mode == 2 ? HUB_HDR_NAECHAR + i * 16 : i < 12 ? HUB_HDR_SANGDAE + i * 16 : HUB_HDR_SEONTAEK + (i - 12) * 16; }
+static void hdr_put(int kind, int mode)
 {
-   int n = sangdae ? (kind == 2 ? 20 : 12) : H.hdr_saved;
-   for (int i = 0; i < n; i++) {
-      int t = i < 6 ? 0x150 + i : i < 12 ? 0x15A + (i - 6) : i < 16 ? 0x156 + (i - 12) : 0x160 + (i - 16);
-      uint8_t *dst = g_chr + t * 16;
-      if (sangdae) {
-         if (!H.hdr_saved) memcpy(H.hdr_orig + i * 16, dst, 16);
-         memcpy(dst, i < 12 ? HUB_HDR_SANGDAE + i * 16 : HUB_HDR_SEONTAEK + (i - 12) * 16, 16);
-      } else memcpy(dst, H.hdr_orig + i * 16, 16);
+   if (!g_chr) { H.hdr_saved = 0; return; }
+   if (H.hdr_saved && mode != hdr_mode_now) {        /* 원래대로(또는 다른 배치로 바꾸기 전에) */
+      for (int i = 0; i < H.hdr_saved && i < 20; i++) {
+         uint8_t *dst = g_chr + hdr_tile(hdr_mode_now, i) * 16;
+         if (!memcmp(dst, hdr_src(hdr_mode_now, i), 16)) memcpy(dst, H.hdr_orig + i * 16, 16);
+      }
+      H.hdr_saved = 0;
    }
-   H.hdr_saved = sangdae ? n : 0;
+   if (!mode) return;
+   int n = mode == 2 ? (kind == 2 ? 20 : 19) : (kind == 2 ? 20 : 12);
+   for (int i = 0; i < n; i++) {
+      uint8_t *dst = g_chr + hdr_tile(mode, i) * 16;
+      if (!H.hdr_saved) memcpy(H.hdr_orig + i * 16, dst, 16);
+      memcpy(dst, hdr_src(mode, i), 16);
+   }
+   H.hdr_saved = n; hdr_mode_now = mode;
 }
+/* 177 §10-8 상대 화면 빨강 — 머리말 칸(둘째 판 0~1줄 5~14칸, 한글판 19칸)의 칠 번호를 «상대» 도장(문양 칸, vpanel 아이콘 자리)이 빌린 둘째 판 팔레트로.
+   고르기 화면 둘째 판은 칠 1·8~12·15 만 쓴다(롬 6판 실측 — 머리말은 15 = 000/FFF/888/000) · 상대 화면은 look 이 손을 떼(BUSY) 아이콘 자리와 안 다툼.
+   들어가는 순간 3번 깜빡(36프레임 — 바탕이 검정이라 세 색을 검정으로 = 빈칸). 원래 칸 값은 H 밖 static, 저장 직전·화면을 떠날 때 «아직 우리 칸이면» 되돌림 */
+static const uint16_t HDR_RED[3] = { 0x22F, 0xFFF, 0x000 }, HDR_BLANK[3] = { 0x000, 0x000, 0x000 };   /* 색 1 빨강(글·도장 바탕) · 2 흰(도장 글) · 3 검정(바깥테) */
+static uint16_t hdr_ent_orig[20];
+static int hdr_red_n, hdr_red_pal = -1;
+static unsigned hdr_csel_f;
+static uint8_t *hdr_cell(int i) { return g_scr + 0x800 + ((i < 10 ? 0 : 32) + 5 + i % 10) * 2; }
+static void hdr_red_off(void)
+{
+   if (hdr_red_n && g_scr)
+      for (int i = 0; i < hdr_red_n; i++) {
+         uint8_t *e = hdr_cell(i); uint16_t v = (uint16_t)(e[0] | (e[1] << 8));
+         if (((v >> 9) & 15) == hdr_red_pal && (v & 0x1FF) == (hdr_ent_orig[i] & 0x1FF)) { e[0] = (uint8_t)hdr_ent_orig[i]; e[1] = (uint8_t)(hdr_ent_orig[i] >> 8); }
+      }
+   hdr_red_n = 0; hdr_red_pal = -1;
+   vpanel_hdr_mark(0);
+}
+static void hdr_red(int kind, unsigned f)
+{
+   int blink = f < 56 && ((f - 20) / 6) % 2 == 1;
+   if (!g_scr || !vpanel_icon_put(HUB_SEAL_SANGDAE, blink ? HDR_BLANK : HDR_RED)) { hdr_red_off(); return; }
+   int p = vpanel_icon_pal();
+   if (p < 0) { hdr_red_off(); return; }
+   if (hdr_red_n && p != hdr_red_pal) hdr_red_off();
+   vpanel_hdr_mark(1);                              /* vpanel 이 머리말 칸을 «게임이 그 팔레트를 씀»으로 안 보게 */
+   int n = kind == 2 ? 20 : 19;
+   for (int i = 0; i < n; i++) {
+      uint8_t *e = hdr_cell(i); uint16_t v = (uint16_t)(e[0] | (e[1] << 8));
+      if (((v >> 9) & 15) != p) { hdr_ent_orig[i] = v; v = (uint16_t)((v & ~0x1E00) | (p << 9)); e[0] = (uint8_t)v; e[1] = (uint8_t)(v >> 8); }
+   }
+   hdr_red_n = n; hdr_red_pal = p;
+}
+/* 내 캐릭터 고르기 화면(연습 H_PICK_ME1·검질 가기 전 STY1 · 랭크 H_PICK_SOLO · H_PICK_ME 직접·자동 고르기) — 머리말 «내 캐릭터» */
+static void hdr_mine(void) { int hk = hdr_csel_f >= 20 ? hdr_layout() : 0; if (hk) { if (hdr_red_n) hdr_red_off(); hdr_put(hk, 2); } }
 
 /* 캐릭터 고르기 오른쪽 세로 이름 칸 — 둘째 판 3~11줄 × 17·18칸(위아래 테: 2줄 0x16C · 12줄 0x16E, 검질 고르기는 0x19C · 0x19E).
    원래는 왼쪽 칸과 같은 커서 캐릭터 이름(전용 타일 0x1E8 빈칸 ~ 0x1F9). 상대 고르기에서는 배경 이름(여기), 내 캐릭터 고르기에서는 컬러 이름(look.c)을
@@ -721,6 +767,7 @@ static void hub_tick(uint8_t *ram, int input)
    int menu = mk != 0;
    int csel = ram[R_MODE] == 240 && ram[R_SCR] == 2;
    int block = 0;
+   hdr_csel_f = csel ? hdr_csel_f + 1 : 0;           /* 177 §10-8: 고르기 화면이 이어진 프레임(머리말은 자리 잡은 뒤에) */
    if (H.hold_a && !(input & IN_A)) H.hold_a = 0;
    if (H.hold_b && !(input & IN_B)) H.hold_b = 0;
 
@@ -832,6 +879,7 @@ static void hub_tick(uint8_t *ram, int input)
       break;
    case H_PICK_ME1:                                  /* 연습: 내 캐릭터 먼저 — 컬러(OPTION)·베기 색(A+B)·A·B 가르기는 look(ctx HOLD — 대신 누르지 않고 결정만 넘김) */
       if (csel) { H.seen_csel = 1; H.csel_f++; } else H.csel_f = 0;
+      if (csel) hdr_mine();                         /* 177 §10-8 머리말 «내 캐릭터» */
       if (csel && !H.nav) {
          block = IN_A | IN_B;
          int h = ram[R_HOVER] >> 2;
@@ -853,7 +901,6 @@ static void hub_tick(uint8_t *ram, int input)
                H.me1 = (signed char)(H.hover + 1); H.me_pin = 0; H.me_b2p = 0; H.me_pad = 0;
                H.hold_a = !!(input & IN_A); H.hold_b = !!(input & IN_B);   /* 아직 쥔 단추는 뗄 때까지 게임에 안 준다 */
                H.st = H_PICK_STY1; H.nav_f = H.f; pr_flow_clear(); pr_inj = IN_A; pr_inj_f = H.f;
-               if (H.hdr_saved && hdr_layout()) hdr_put(0, 0);
             }
          } else (void)look_take_confirm();           /* 받을 수 없을 때 온 결정은 버린다(늦게 온 결정이 나중에 저절로 결정되지 않게) */
       } else if (H.nav) (void)look_take_confirm();  /* 허브가 커서를 미리 옮기는 중(nav) — 그동안 누른 것도 버린다 */
@@ -866,6 +913,7 @@ static void hub_tick(uint8_t *ram, int input)
       unsigned d = H.f - pr_inj_f;
       league_in_or = (pr_inj && d >= 1 && d <= 4) ? pr_inj : 0;   /* 대신 누름(다음 프레임 입력) */
       if (csel || sty_scr) block = IN_A | IN_B;      /* 사용자 A·B 는 게임에 안 준다(컬러 고르기 끔이어도 — 확정·«뒤로»는 허브가 대신) */
+      if (csel && !pr_back) hdr_mine();
       if (csel && ph == 6 && !pr_back) {             /* 아직 캐릭터 고르기 — 게임이 A 를 못 받았으면(받기 04 그대로) 16프레임마다 다시(M8) · 세 번 넘으면 사용자가 다시 결정 */
          (void)look_take_confirm();
          if (pr_inj == IN_A && d > 16 && sub == 4) {
@@ -921,10 +969,11 @@ static void hub_tick(uint8_t *ram, int input)
          int h = ram[R_HOVER] >> 2;                 /* 0~13 캐릭터 · 15 가운데 무작위 칸 = 유가(14) — 더미는 AI 가 필요 없어 15명 모두 */
          H.hover = (h >= 0 && h < 14) ? h : h == 15 ? 14 : -1;
          int hk = H.csel_f >= 20 ? hdr_layout() : 0;
-         if (hk) { hdr_put(hk, 1); H.label_hdr = hk; }
+         if (hk) { hdr_put(hk, 1); H.label_hdr = hk; hdr_red(hk, H.csel_f); }   /* 177 §10-8: 빨강 · «상대» 도장 · 들어갈 때 깜빡 */
          if (H.csel_f >= 20) vp_put(H.stage_sel == -2 ? 8 : H.stage_sel);
          if ((a_edge || b_edge) && H.csel_f >= 20 && H.hover >= 0) {   /* 머리말이 «상대 선택» 으로 바뀐 뒤에만 */
             H.picked = H.hover; H.pick_sty = a_edge ? 0 : 1;
+            hdr_red_off();
             if (H.hdr_saved && hdr_layout()) hdr_put(0, 0);
             look_stage = H.stage_sel >= 0 ? H.stage_sel : (int)((H.f * 5u + 3u) % 8u);   /* 무작위는 고르는 순간 뽑는다 */
             look_color = H.color;
@@ -947,7 +996,7 @@ static void hub_tick(uint8_t *ram, int input)
          int h = ram[R_HOVER] >> 2;                 /* 0~13 캐릭터 · 15 가운데 무작위 칸 — 고르기 판에 없는 유가(14)를 그 칸에 숨은 상대로 */
          H.hover = (h >= 0 && h < 14) ? h : (h == 15 && H.sty[14] >= 0) ? 14 : -1;
          int hk = H.csel_f >= 20 ? hdr_layout() : 0;
-         if (hk) { hdr_put(hk, 1); H.label_hdr = hk; }
+         if (hk) { hdr_put(hk, 1); H.label_hdr = hk; hdr_red(hk, H.csel_f); }   /* 177 §10-8 */
          if (H.csel_f >= 20) {                       /* 오른쪽 세로 칸 = 배경 이름(상대 기본이면 커서 상대의 배경, 리그 상대가 아니면 원래 이름) */
             int lab = H.stage_sel == -2 ? 8 : H.stage_sel >= 0 ? H.stage_sel
                     : (H.hover >= 0 && H.sty[H.hover] >= 0 && H.home[H.hover] >= 0) ? H.home[H.hover] : -1;
@@ -955,6 +1004,7 @@ static void hub_tick(uint8_t *ram, int input)
          }
          if (a_edge && H.csel_f >= 20 && H.hover >= 0 && H.sty[H.hover] >= 0) {   /* 머리말이 «상대 선택» 으로 바뀐 뒤에만(두 번 눌러 안 보고 골라지지 않게) */
             H.picked = H.hover;
+            hdr_red_off(); vpanel_restore();                 /* 177: 빨강·도장 — 내 캐릭터 화면은 look 이 세로 칸·아이콘을 다시 쥔다 */
             if (H.hdr_saved && hdr_layout()) hdr_put(0, 0);
             hub_set_look(H.picked);
             arm_locked(H.picked, H.sty[H.picked], H.dif[H.picked], 2, 60, LEAGUE_ALLCARDS, NULL);
@@ -967,7 +1017,7 @@ static void hub_tick(uint8_t *ram, int input)
       }
       break;
    case H_PICK_ME:
-      if (csel) H.seen_csel = 1;
+      if (csel) { H.seen_csel = 1; hdr_mine(); }   /* 177 §10-8 머리말 «내 캐릭터»(직접·자동 모두) */
       if (H.kind == 0) block = pick_me_153(ram);    /* 153: 랭크 자동 진행·tail·내 고르기 기록 · 序章 넘기기·인트로 VS 띠 */
       /* 컬러(옵션·A+B 베기 색·A·B 가르기·미리보기·세로 칸·아이콘)는 look.c — 허브가 바쁘지 않으면(league_hub_owns_select 0) look 이 쥔다 */
       if (H.kind == 1) {                            /* 연습: 검질 고르기를 본 뒤 카드 화면이 끝나면 이야기(MODE 241 · SCR 0)·대사(MODE 240 · SCR 8)를 A 로 넘긴다 */
@@ -1000,7 +1050,7 @@ static void hub_tick(uint8_t *ram, int input)
       }
       break;
    case H_PICK_SOLO:                                 /* 168 내 캐릭터만 — 고르기는 게임 그대로(사용자 · 컬러는 look), 이야기가 시작되면 남기고 멈춰 둠 */
-      if (csel) H.seen_csel = 1;
+      if (csel) { H.seen_csel = 1; hdr_mine(); }   /* 177 §10-8 */
       if (ram[R_MODE] == 240 && (ram[R_SCR] == 2 || ram[R_SCR] == 4)) memset(ram + R_OWN, 8, 120);   /* 올카드(무장의 allcards 와 같은 창) — 무장이 없으니 허브가 */
       if (!PO.done) {
          my_track(ram);
@@ -1016,6 +1066,7 @@ static void hub_tick(uint8_t *ram, int input)
    default: break;
    }
    if (!menu && (H.menu_saved || H.focus)) { H.focus = 0; H.menu_saved = 0; arrows_clear(); }   /* 타이틀을 떠났다 — 화살표 타일을 비운다(게임이 메뉴를 새로 그린다) */
+   if (!csel && (H.hdr_saved || hdr_red_n)) { hdr_red_off(); hdr_put(0, 0); }   /* 177: 고르기 화면을 떠났다 — 머리말 타일·칸은 «아직 우리 것이면» 원래대로 */
    if (H.hold_a) block |= IN_A;
    if (H.hold_b) block |= IN_B;
    if (block & (IN_A | IN_B)) block |= IN_ABFOLD;   /* 패드 «A+B»·원버튼 비트로 게임이 A 를 받아 허브를 건너뛰지 않게 */
@@ -1203,6 +1254,7 @@ void league_practice_title(void)
 void league_hub_before_save(void)
 {
    pthread_mutex_lock(&L_mu);
+   hdr_red_off();                                   /* 177 §10-8 빨간 머리말 칸 — 도장(아이콘)은 아래 vp_restore 가 */
    if (H.hdr_saved && hdr_layout()) hdr_put(0, 0);
    if (hub_ram && H.nav == 4 && hub_ram[R_MODE] == 240 && hub_ram[R_SCR] == 2) {   /* 커서 옮기는 중(이웃 칸을 써 두고 톡이 아직)이면 진짜 커서를 보이는 칸으로 —
                                                        저장된 상태를 불러와 A 를 누르면 보이는 캐릭터가 골라지게. 살아 있는 nav 는 d==10 확인에서 다시 한다 */

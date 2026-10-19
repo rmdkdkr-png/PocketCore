@@ -15,5 +15,6 @@ int  vpanel_icon_put(const uint8_t *tiles4, const uint16_t c[3]);
 void vpanel_restore(void);                      /* 이름 칸·아이콘 — 칸·팔레트·타일 그림을 원래 값으로(아직 우리 것일 때만) */
 void vpanel_forget(void);                       /* 화면이 통째로 바뀌었다(상태 불러오기·코어 올림) — 되돌리지 않고 잊는다 */
 int  vpanel_on(void);                           /* 이름 칸이나 아이콘을 빌리고 있나 */
-int  vpanel_icon_pal(void);                     /* 아이콘이 빌린 둘째 판 팔레트(−1 없음) — 시험·상태 */
+int  vpanel_icon_pal(void);                     /* 아이콘이 빌린 둘째 판 팔레트(−1 없음) — 시험·상태 · 177: 허브가 상대 화면 머리말을 같은 팔레트로 */
+void vpanel_hdr_mark(int on);                   /* 177 §10-8: 머리말 칸(둘째 판 0~1줄 5~14칸)이 그 팔레트를 쓰는 중 — «게임이 씀»으로 안 본다(league.c) */
 int  vpanel_menu_kind(void);                    /* 타이틀 메뉴가 떠 있나 — 1 한글판 · 2 순정판 · 0 아님 */
