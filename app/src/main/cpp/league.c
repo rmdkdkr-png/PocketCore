@@ -935,7 +935,7 @@ static void hub_tick(uint8_t *ram, int input)
             if (t == 1) {
                H.me_pad = (ram[R_STYC] & 1) + 1;     /* 내 검질 + 1(옛 «남는 칸» — sizeof H 그대로, 옛 덩어리는 0 = 모름).
                                                         무작위 칸은 고정하지 않는다 — 뽑기는 검질을 확정한 뒤에야 돈다(177 실측: 검질 화면 받기 04 동안 커서 15 그대로).
-                                                        첫 경기 시작에 뽑힌 캐릭터로 고정(아래 L.fight_seen — 유가 치트면 14 라 고정 안 함)은 예전 그대로 */
+                                                        첫 경기 시작에 뽑힌 캐릭터·검질로 고정(아래 L.fight_seen — 유가 치트면 14 라 고정 안 함) */
                pr_back = 1;
             } else pr_back = 2;
             pr_inj = IN_B; pr_inj_f = H.f; pr_try = 0;
@@ -1041,6 +1041,8 @@ static void hub_tick(uint8_t *ram, int input)
       if (L.fight_seen && H.kind == 1) {            /* 연습 경기 시작 — 무작위 칸이면 뽑힌 캐릭터(P1 블록, 유가 치트면 14 → 고정 안 함) */
          int c = ram[R_P1BLK] >> 4;
          H.me_pin = (signed char)(H.me1 == 16 && c < 14 ? c + 1 : 0);
+         if (H.me1 == 16 && c < 14) H.me_pad = ((ram[R_P1BLK] >> 3) & 1) + 1;   /* 뽑힌 검질도(177 리뷰: 무작위 칸은 게임이 검질까지 뽑아 ② 를 안 씀 —
+                                                                                 «상대 고르기» 가 캐릭터는 고정하고 검질만 ② 로 바꾸던 것) */
          H.me_b2p = 0;                               /* 165: 플레이어 2P색 없음(옛 덩어리의 남은 1 도 여기서 낫는다) */
       }
       if (L.fight_seen) {
