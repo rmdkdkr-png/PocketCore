@@ -905,13 +905,15 @@ static void activate(const uint8_t *ram, int dummy, int dsty)
    켜짐: 1인 대전(06)·무한 대전(0C) 전투측(MODE 241) — 일반 판·리그 판(랭크·게임 속 리그, 보기는 «치트» 기록·정산 면제와 무관)·연습 흐름 밖.
    연습 흐름(허브 연습 종류 — 상대 고르기~연습 경기)에선 꺼진다: 연습 자기 «표시» 설정만 따른다(미터 뷰·숫자 칸이 하나라 겹칠 일 없음).
    라운드: 새 라운드 첫 조작 프레임에 미터·숫자를 지운다(기술 기억은 남김). KO·승리 포즈 동안은 마지막 값이 남는다.
-   prev_hp 는 cheat_tick 뒤 practice_view_post 가 — 무한 체력·한 방 치트가 쓴 체력이 대미지로 세지지 않게(연습이 자기 바닥·회복 뒤에 잡는 것과 같은 뜻) */
+   prev_hp 는 cheat_tick 뒤 practice_view_post 가 — 무한 체력·한 방 치트가 쓴 체력이 대미지로 세지지 않게(연습이 자기 바닥·회복 뒤에 잡는 것과 같은 뜻).
+   disp(보이는 숫자): 셈(shown)이 0 보다 클 때만 따라간다 — 잡기·칼 맞물림은 콤보 수가 체력보다 먼저 올라 셈이 0 으로 새로 시작하는데,
+   그때 «0» 이 HUD 에 남아 지난 콤보 대미지를 지우지 않게(일반·리그 경기는 CPU 가 잡기를 자주 쓴다). 연습(P 칸)은 그대로 */
 static struct {
    int active, bits, why, fd_now, prev_live, rounds, seen;
    unsigned f;
-   int prev_hp[2], prev_combo[2], rec_open[2], dmg_cur[2], shown_side, shown; unsigned dmg_f[2];
+   int prev_hp[2], prev_combo[2], rec_open[2], dmg_cur[2], shown_side, shown, disp; unsigned dmg_f[2];
    int dig_state; uint16_t dig_orig[3], dig_ours[3];
-} AV = { .shown = -1, .shown_side = -1 };
+} AV = { .shown = -1, .shown_side = -1, .disp = -1 };
 
 static void view_reset_dmg(const uint8_t *ram)
 {
@@ -919,7 +921,7 @@ static void view_reset_dmg(const uint8_t *ram)
       AV.prev_hp[p] = ram[PB(p) + O_HP]; AV.prev_combo[p] = ram[PB(p) + O_COMBO];
       AV.rec_open[p] = 0; AV.dmg_cur[p] = 0; AV.dmg_f[p] = 0;
    }
-   AV.shown = -1; AV.shown_side = -1;
+   AV.shown = -1; AV.shown_side = -1; AV.disp = -1;
 }
 static void view_release(void)                 /* 꺼짐·전투 화면 아님·연습 흐름 — 우리 숫자 칸 되돌림 · 미터 끔 */
 {
@@ -941,7 +943,8 @@ static void view_tick(uint8_t *ram, int bits, int own)
    if (lv && !paused) fd_tick(ram);                 /* practice_tick 의 연습 경기와 같은 조건 */
    if (!paused) dmg_count(ram, AV.f, AV.prev_hp, AV.prev_combo, AV.rec_open, AV.dmg_cur, AV.dmg_f, &AV.shown_side, &AV.shown);
    /* ↑ 셈은 전투측 내내(라운드 진행이 끝나는 KO 프레임의 마지막 한 대까지) — 라운드 밖엔 체력이 줄지 않는다(새 라운드 채움은 늘어남) */
-   dig_draw((bits & 2) && AV.shown >= 0 && hud_layout(), AV.shown, &AV.dig_state, AV.dig_orig, AV.dig_ours);
+   if (AV.shown_side >= 0 && AV.dmg_cur[AV.shown_side] > 0) AV.disp = AV.shown;   /* 체력이 준 셈만 — 새 콤보의 «0» 은 안 보임(지난 숫자 그대로) */
+   dig_draw((bits & 2) && AV.disp >= 0 && hud_layout(), AV.disp, &AV.dig_state, AV.dig_orig, AV.dig_ours);
    AV.fd_now = (bits & 1) && AV.seen;
 }
 
@@ -1040,7 +1043,7 @@ void practice_view_post(const uint8_t *ram)
 void practice_view_status(int v[PRACTICE_VSTAT])
 {
    pthread_mutex_lock(&P_mu);
-   v[0] = AV.bits; v[1] = AV.active; v[2] = AV.fd_now; v[3] = AV.dig_state; v[4] = AV.why; v[5] = AV.active ? AV.shown : -1;
+   v[0] = AV.bits; v[1] = AV.active; v[2] = AV.fd_now; v[3] = AV.dig_state; v[4] = AV.why; v[5] = AV.active ? AV.disp : -1;
    v[6] = AV.rounds; v[7] = (int)AV.f;
    pthread_mutex_unlock(&P_mu);
 }
@@ -1057,7 +1060,7 @@ void practice_forget(void)
 {
    pthread_mutex_lock(&P_mu);
    P.active = 0; P.menu = M_NONE; P.exit_req = 0; W.open = 0; W.npool = 0; W.fx_orig[0] = W.fx_orig[1] = -1;
-   memset(&AV, 0, sizeof AV); AV.shown = AV.shown_side = -1;   /* 176 보기도 — 화면 램이 통째로 바뀌었으니 되돌리지 않고 잊는다 */
+   memset(&AV, 0, sizeof AV); AV.shown = AV.shown_side = AV.disp = -1;   /* 176 보기도 — 화면 램이 통째로 바뀌었으니 되돌리지 않고 잊는다 */
    fd_reset(1);
    practice_in_block = 0; practice_in_or = 0; practice_opt_mask = 0;
    pthread_mutex_unlock(&P_mu);
