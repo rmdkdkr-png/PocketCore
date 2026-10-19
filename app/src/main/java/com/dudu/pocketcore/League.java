@@ -17,7 +17,7 @@ import java.security.MessageDigest;
  *   기록      = 루트/league/league.json   (원자 저장: 임시 파일 → fsync → 이름 바꾸기, 같은 내용 한 벌 더 .bak)
  *   랭크전 세이브 = 루트/league/saves/       (원작 세이브 폴더와 다른 곳 — 랭크전이 원작 세이브를 건드리지 않는다)
  *   랭크전 롬   = 루트/league/rom/          (원본 + 번역 패치만 — 조작 패치·배경음악 없이 고정 판, Patcher.resolveLeague)
- *   체크포인트 = 루트/league/ckpt_<경기id>.state (앱이 내려갈 때 그 순간만, 한 번 쓰면 지운다)
+ *   체크포인트 = 루트/league/ckpt_<경기id>.state (앱이 내려갈 때 그 순간만, 한 번 쓰면 지운다) + 옆 .state.look(경기 컬러·경기 베기 색 — 171 부터 같이 옮기고 같이 지움)
  *
  * 경기 상태(기획서 4장): ready 준비 · playing 진행 중 · settled 정산 완료 · resume 복귀 대기 · forfeit 기권 · hold 오류 보류
  *                       · cancelled 무효(대진 전에 멈춤). 끝난 상태(settled·forfeit·hold·cancelled)는 다시 바뀌지 않는다.
@@ -99,6 +99,10 @@ final class League {
     static File saveDir()  { File d = new File(dir(), "saves"); d.mkdirs(); return d; }
     static File romDir()   { File d = new File(dir(), "rom"); d.mkdirs(); return d; }
     static File ckpt(String id) { return new File(dir(), "ckpt_" + id + ".state"); }
+    /** 체크포인트 옆 .look(경기 컬러·경기 베기 색 — nativeSaveState 가 씀, 171 부터 체크포인트와 같이 옮김) */
+    static File ckptLook(String id) { return new File(ckpt(id).getPath() + ".look"); }
+    /** 체크포인트를 지운다 — 옆 .look 도(작은 파일이 경기마다 쌓이지 않게) */
+    static void ckptDelete(String id) { ckpt(id).delete(); ckptLook(id).delete(); }
     private static File file() { return new File(dir(), "league.json"); }
     private static File bak()  { return new File(dir(), "league.json.bak"); }
 
@@ -551,7 +555,7 @@ final class League {
             m.put("updated", System.currentTimeMillis());
             if (isRanked(m)) releasePending(m.optString("opp"));   /* 보류는 잡힌 상대를 푼다 — 같은 원인(손잡이 불일치 등)으로 같은 상대에게 되풀이해 막히지 않게 */
             if (!save()) { db = new JSONObject(backup); return false; }
-            ckpt(id).delete();
+            ckptDelete(id);
             return true;
         } catch (Exception e) {
             try { db = new JSONObject(backup); } catch (Exception ignored) { }
@@ -571,7 +575,7 @@ final class League {
             m.put("status", "cancelled"); m.put("why", why); m.put("updated", System.currentTimeMillis());
             if (stale && isRanked(m)) pendingMiss(m.optString("opp"));
             if (!save()) { db = new JSONObject(backup); return false; }
-            ckpt(id).delete();
+            ckptDelete(id);
             return true;
         } catch (Exception e) {
             try { db = new JSONObject(backup); } catch (Exception ignored) { }
@@ -628,7 +632,7 @@ final class League {
             m.put("updated", System.currentTimeMillis());
             if (isRanked(m)) pendingMiss(m.optString("opp"));
             if (!save()) { db = new JSONObject(backup); return false; }
-            ckpt(id).delete(); new File(ckpt(id).getPath() + ".tmp").delete();
+            ckptDelete(id); new File(ckpt(id).getPath() + ".tmp").delete(); new File(ckpt(id).getPath() + ".tmp.look").delete();
             return true;
         } catch (Exception e) {
             try { db = new JSONObject(backup); } catch (Exception ignored) { }
@@ -741,7 +745,7 @@ final class League {
                 m.put("fix", "점수는 그대로입니다. 새로 도전하면 1인 대전 캐릭터 고르기로 자동으로 들어갑니다.");
                 if (rk) releasePending(m.optString("opp"));   /* 보류는 잡힌 상대를 푼다(hold 와 같게) */
                 if (!save()) throw new IOException("save");
-                ckpt(matchId).delete();
+                ckptDelete(matchId);
                 return m;
             }
             /* 결판 비트와 승수가 서로 맞을 때만 정산한다(0단계 «결과 감지 규칙»: 승자 = 낮은 비트, 무승부 결판 = 0x90 3:3).
@@ -761,7 +765,7 @@ final class League {
                 m.put("fix", "점수는 그대로입니다. 같은 상대에게 다시 도전하면 새 경기로 기록됩니다.");
                 if (rk) releasePending(m.optString("opp"));   /* 손잡이 불일치가 그 상대 탓이면 되풀이된다 — 풀어서 다음엔 새 상대 */
                 if (!save()) throw new IOException("save");
-                ckpt(matchId).delete();
+                ckptDelete(matchId);
                 return m;
             }
             if (rk) applyRanked(m, out, false); else apply(m, me, o, out);
@@ -769,7 +773,7 @@ final class League {
             m.put("settled", System.currentTimeMillis());
             if (rk && liveHub) noteSessionMem(m);           /* 157 G2 — 같은 한 번의 저장으로 */
             if (!save()) throw new IOException("save");
-            ckpt(matchId).delete();
+            ckptDelete(matchId);
             return m;
         } catch (Exception e) {
             try { db = new JSONObject(backup); } catch (Exception ignored) { }
@@ -825,7 +829,7 @@ final class League {
             m.put("settled", System.currentTimeMillis());
             if (isRanked(m) && liveHub) noteSessionMem(m);  /* 157 G2 */
             if (!save()) throw new IOException("save");
-            ckpt(matchId).delete();
+            ckptDelete(matchId);
             return m;
         } catch (Exception e) {
             try { db = new JSONObject(backup); } catch (Exception ignored) { }
@@ -1613,7 +1617,7 @@ final class League {
             r.remove("pending");
             r.put("season", n + 1); r.put("season_start", System.currentTimeMillis());
             if (!save()) { db = new JSONObject(backup); arc.delete(); return false; }
-            for (String id : ready) ckpt(id).delete();
+            for (String id : ready) ckptDelete(id);
             return true;
         } catch (Exception e) {
             try { db = new JSONObject(backup); } catch (Exception ignored) { }
@@ -1645,7 +1649,7 @@ final class League {
             db.put("ranked", n);
             if (!save()) { db = new JSONObject(backup); arc.delete(); return false; }
             File[] fs = dir().listFiles();
-            for (int i = 0; fs != null && i < fs.length; i++) if (fs[i].getName().startsWith("ckpt_")) fs[i].delete();   /* .state·.state.tmp */
+            for (int i = 0; fs != null && i < fs.length; i++) if (fs[i].getName().startsWith("ckpt_")) fs[i].delete();   /* .state·.state.tmp·.look */
             return true;
         } catch (Exception e) {
             try { db = new JSONObject(backup); } catch (Exception ignored) { }

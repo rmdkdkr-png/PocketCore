@@ -1032,7 +1032,7 @@ public class EmuActivity extends Activity {
     @Override protected void onResume() {
         super.onResume(); Orient.apply(this); immersive(); gl.onResume();
         resumedNow = true;
-        if (leagueId != null && leagueArmed && !leagueDone) League.ckpt(leagueId).delete();   /* 다시 올라왔다 — 경기는 이어서 돈다 */
+        if (leagueId != null && leagueArmed && !leagueDone) League.ckptDelete(leagueId);   /* 다시 올라왔다 — 경기는 이어서 돈다(.look 도) */
         if (leagueId != null && leagueArmed && leagueDone && !leaving) {                    /* 백그라운드에서 정산됐다 — 이제 결과 창으로 */
             if (postState() == 1) { h.removeCallbacks(leaguePoll); h.post(leaguePoll); }      /* 153: 승리 대사 도중 내려갔다 — 대사를 마저 보고 */
             else leagueExit(leagueId);
@@ -1130,7 +1130,7 @@ public class EmuActivity extends Activity {
         }
         File ck = League.ckpt(leagueId);
         boolean fromCk = false;
-        if (fresh) ck.delete();
+        if (fresh) League.ckptDelete(leagueId);
         else {
             boolean had = ck.exists();
             if (had) fromCk = Emu.nativeLoadState(ck.getAbsolutePath()) == 0;
@@ -1140,7 +1140,7 @@ public class EmuActivity extends Activity {
                 leagueBlocked(had ? BLK_BADCKPT : BLK_NOCKPT, null);
                 return;
             }
-            ck.delete();                                      /* 한 번 쓰면 끝 */
+            League.ckptDelete(leagueId);                      /* 한 번 쓰면 끝(.look 은 불러오며 이미 읽었다) */
         }
         org.json.JSONObject rule = m.optJSONObject("rule");
         {   /* 배경·컬러 — 경기에 적힌 값(이어 하기), 없으면 새 판만 고른 배경(게임 속 리그 OPTION 과 같은 설정)으로 정해 적는다.
@@ -1229,12 +1229,17 @@ public class EmuActivity extends Activity {
         return true;
     }
 
-    /** 체크포인트 — 임시 파일에 쓰고 이름을 바꿔 넣는다(쓰다 죽어도 반쪽 파일이 안 남는다). 실패하면 옛 것을 그대로 둔다. */
+    /** 체크포인트 — 임시 파일에 쓰고 이름을 바꿔 넣는다(쓰다 죽어도 반쪽 파일이 안 남는다). 실패하면 옛 것을 그대로 둔다.
+     *  171: 상태 옆 .look(nativeSaveState 가 씀)도 같이 옮긴다 — 경기 베기 색(fx_sel)은 경기 기록에 없고 .look 에만 있다(지우면 이어 한 판이
+     *  끝까지 원래 베기 색). 몸 경기 컬러는 그대로 기록이 정한다: leagueStart 가 불러온 바로 뒤 nativeLeagueLook 으로 덮는다(옛 기록이면 −1).
+     *  .look 은 상태 크기·지문이 맞을 때만 쓰이니(native look_side_read) 남은 옛 것이 다른 상태에 붙지 않는다 */
     private boolean leagueSaveCkpt() {
         File ck = League.ckpt(leagueId), tmp = new File(ck.getPath() + ".tmp");
-        if (Emu.nativeSaveState(tmp.getAbsolutePath()) != 0) { tmp.delete(); return false; }
-        new File(tmp.getPath() + ".look").delete();          /* 경기 컬러는 경기 기록(look)이 정한다(leagueStart → nativeLeagueLook) — 옆 파일을 남기지 않는다 */
-        if (!tmp.renameTo(ck)) { tmp.delete(); return false; }
+        File tl = new File(tmp.getPath() + ".look"), cl = League.ckptLook(leagueId);
+        if (Emu.nativeSaveState(tmp.getAbsolutePath()) != 0) { tmp.delete(); tl.delete(); return false; }
+        if (!tmp.renameTo(ck)) { tmp.delete(); tl.delete(); return false; }
+        if (!tl.exists()) cl.delete();                      /* 컬러·베기 색 없는 판 — 지난 체크포인트의 .look 을 남기지 않는다 */
+        else if (!tl.renameTo(cl)) { tl.delete(); cl.delete(); }   /* 못 옮기면 .look 없는 체크포인트(원래 베기 색 — 예전과 같음) */
         return true;
     }
 
