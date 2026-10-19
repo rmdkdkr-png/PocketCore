@@ -196,4 +196,9 @@ public final class Emu {
     public static native void nativeOvTagOn(boolean on);
     /** [OVT_*] — 아무 스레드 */
     public static native int[] nativeOvTagStatus();
+    /* 176 덧판 메뉴 효과음(uisfx.c) — 사무쇼2 메뉴 소리(커서 0x0E · 결정 0x02 · 뒤로 0x06)를 native 가 합성해 오디오 콜백에서 게임 소리 위에 더한다
+       (코어가 멈춰 있어도 남 · 스트림이 닫히면(onPause) 안 남 · 미디어 음량을 따름). 메뉴가 보이거나 메뉴 멈춤 중일 때만 받는다(false = 안 받음).
+       아무 스레드 · 옛 native 면 UnsatisfiedLinkError(부르는 쪽이 받아 소리 없이) */
+    public static final int UI_SFX_STOP = 0, UI_SFX_CURSOR = 1, UI_SFX_SELECT = 2, UI_SFX_BACK = 3;
+    public static native boolean nativeUiSfx(int kind);
 }
