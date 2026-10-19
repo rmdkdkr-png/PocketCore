@@ -243,9 +243,9 @@ static int pr_pend_on;                /* 불러온 상태의 연습 경기 허�
 /* 177 §10-7 연습 검질 — H 밖(.prac 아님 · 연습 흐름 한 판 동안만, pr_apply·league_practice_hub·_title·_return 이 비움 — M6).
    pr_inj = 대신 누를 단추(A = 캐릭터 확정 · B = 검질 화면 «뒤로»), pr_inj_f 부터 1~4프레임 · pr_try = A 다시 한 횟수(M8) ·
    pr_back = 1 검질을 받고 캐릭터 고르기로 돌아가는 중(→ 상대) · 2 캐릭터부터 다시 · pr_sty_auto = 검질 + 1(H_PICK_ME 가 검질 화면에서 자동 확정, 0 = 사용자) */
-static int pr_inj, pr_try, pr_back, pr_sty_auto, pr_sty_seen, pr_pend_t;
+static int pr_inj, pr_try, pr_back, pr_sty_auto, pr_sty_seen, pr_pend_t, pr_on_sty;   /* pr_on_sty: 자동 확정할 검질 화면(240/4)에 있음 — look ctx AUTO 는 그때만 */
 static unsigned pr_inj_f, pr_sty_f, pr_pend_tf;
-static void pr_flow_clear(void) { pr_inj = 0; pr_try = 0; pr_back = 0; pr_sty_auto = 0; pr_sty_seen = 0; pr_pend_t = 0; }
+static void pr_flow_clear(void) { pr_inj = 0; pr_try = 0; pr_back = 0; pr_sty_auto = 0; pr_sty_seen = 0; pr_pend_t = 0; pr_on_sty = 0; }
 volatile int league_in_block = 0;     /* 입력 콜백이 사용자 입력에서 지울 비트(허브가 대신 받는 A) */
 static int hub_scr = -1;              /* 지난 프레임 메뉴 화면(MODE 240 일 때 R_SCR: 0 타이틀 · 2 캐릭터 · 4 검질 · 6 카드 · 8 대사, 아니면 −1) — 띠 안내를 화면마다 */
 static int hub_mk = 0;                /* 168 고침(K5): 지난 프레임 타이틀 메뉴 글자가 떠 있었나(menu_kind — 0 아님 · 1 한글판 · 2 순정판). GAME OPTION·COLLECTION·인트로 그림도 SCR 0 이라 hub_scr 로는 못 가른다 */
@@ -1031,6 +1031,7 @@ static void hub_tick(uint8_t *ram, int input)
             if (((H.f - pr_sty_f) % 16u) < 4) league_in_or |= IN_A;   /* 못 받았으면(04 그대로) 16프레임마다 다시 */
          }
          if (pr_sty_auto && (ram[R_PHASE] >= 10 || ram[R_MODE] == 241)) pr_sty_auto = 0;
+         pr_on_sty = pr_sty_auto && ram[R_MODE] == 240 && ram[R_SCR] == 4;   /* 캐릭터 고르기 화면(허브가 손 뗀 뒤 사용자가 직접 고를 때)은 FREE 그대로 — look 이 A 를 가른다 */
          if (csel && !H.nav) {                       /* 게임 쪽에서 다시 고르면(검질 고르기에서 B 로 뒤로) 그 칸이 내 칸 — 뽑혔던 캐릭터로 고정한 칸은 확정 연출 동안만 무작위 칸 그대로
                                                         (뒤로 와서 그 칸을 다시 고르면 직접 고른 것 — look 도 그때 무작위 칸 컬러 기억을 놓는다) */
             int h = ram[R_HOVER] >> 2;
@@ -1865,7 +1866,7 @@ int league_hub_owns_select(void)
 int league_hub_look_ctx(void)
 {
    pthread_mutex_lock(&L_mu);
-   int v = auto_active() || (H.kind == 1 && H.st == H_PICK_ME && pr_sty_auto && !H.nav) ? LOOK_CTX_AUTO                   /* 177: 연습 내 검질 자동 확정 동안도 */
+   int v = auto_active() || (H.kind == 1 && H.st == H_PICK_ME && pr_on_sty && !H.nav) ? LOOK_CTX_AUTO                   /* 177: 연습 내 검질 자동 확정(검질 화면) 동안도 */
          : (H.st == H_PICK_ME1 || H.st == H_PICK_STY1) ? LOOK_CTX_HOLD
          : (H.st == H_PICK_OPP || H.nav != 0 || league_ovr_on) ? LOOK_CTX_BUSY : LOOK_CTX_FREE;
    pthread_mutex_unlock(&L_mu);
