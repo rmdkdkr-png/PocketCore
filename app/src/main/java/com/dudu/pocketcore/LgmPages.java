@@ -1335,12 +1335,12 @@ final class LgmPages {
     static String lobbyLabel(int id) {
         switch (id) {
             case MenuModel.ROW_SEARCH: return "상대 찾기";
-            case MenuModel.ROW_RESUME_OPEN: return "이어서 하기";
-            case MenuModel.ROW_DRAWER: return "순위·전적·리그";
+            case MenuModel.ROW_RESUME_OPEN: return "이어하기";           /* 칼집 줄 글은 52px(갈무리11 4자) 안 — 자세한 말은 아래 띠 */
+            case MenuModel.ROW_DRAWER: return "순위·전적";
             case MenuModel.ROW_MAIN: return "내 캐릭터";
             case MenuModel.ROW_OPEN_FORFEIT: return "기권";
-            case MenuModel.ROW_OPEN_VOID: return "무효로 닫기";
-            case MenuModel.ROW_LEAVE: return "리그 나가기";
+            case MenuModel.ROW_OPEN_VOID: return "무효 닫기";
+            case MenuModel.ROW_LEAVE: return "나가기";
             default: return "";
         }
     }
@@ -1371,8 +1371,7 @@ final class LgmPages {
     private void lobbyPlate(TileCanvas cv, MenuModel m) {
         cv.fill(0, 32, 79, 71, 3);
         cv.cellPal(0, 4, 9, 5, P_INK);
-        cv.text("리그", 4, 36, 2, ink.g7);
-        cv.text(fit(cover7or11(m.me.nick), 52, ink.g11), 24, 34, 1, ink.g11);
+        cv.text(fit(cover7or11(m.me.nick), 74, ink.g11), 4, 34, 1, ink.g11);   /* 내 이름(8자까지 — 칼집 머리가 «리그 대전») */
         cv.cellPal(0, 6, 9, 6, P_TIER);
         if (m.me.placement) cv.text("배치 경기 " + m.me.placementPlayed + "/5", 4, 49, 2, ink.g7);
         else {
@@ -1389,7 +1388,7 @@ final class LgmPages {
         String day = m.todayW + m.todayL + m.todayD > 0 ? m.todayLine() + " · " + MenuModel.signed(m.todayLp) : "오늘 첫 판";
         cv.text(fit(day, 74, ink.g7), 4, 57, 1, ink.g7);
         cv.cellPal(0, 8, 9, 8, P_INK);
-        String sub = m.started ? "멈춘 경기 · vs " + m.opp.nick : m.bonusLeft ? "첫 승 +" + RankCore.BONUS_DAILY + " 남았어요" : m.me.style != null ? "내 캐릭터 · " + m.me.style : "";
+        String sub = m.started ? "멈춤 · vs " + m.opp.nick : m.bonusLeft ? "첫 승 +" + RankCore.BONUS_DAILY + " 남았어요" : m.me.style != null ? "내 캐릭터 · " + m.me.style : "";
         if (!sub.isEmpty()) cv.text(fit(cover7(sub), 74, ink.g7), 4, 65, 2, ink.g7);
         cv.cellPal(0, 9, 9, 9, P_GOLD);
         cv.fill(0, 72, 79, 72, 2);
@@ -1468,7 +1467,7 @@ final class LgmPages {
         cv.cellPal(0, 18, 19, 18, D_INK);
         if (confirmId != 0) {
             boolean ns = confirmId == LG_NEW_SEASON;
-            String what = li.openVs != null ? "멈춘 경기(vs " + li.openVs + ")는 기권패로 닫고 " + (ns ? "새 시즌" : "처음부터")
+            String what = li.openVs != null ? "멈춘 경기는 기권패로 닫고 " + (ns ? "새 시즌" : "처음부터") + " · vs " + li.openVs   /* 넘치면 닉이 잘린다(할 일이 먼저) */
                     : ns ? "시즌 " + (li.season + 1) + " · LP " + li.lp0 + "→" + li.lp1 + " · 승패 0부터" : "배치 5판부터 · 지금 기록은 보관";
             cv.text(fit(cover7(what), 156, ink.g7), 80, 137, 1, ink.g7, -1, TileCanvas.CENTER, 0);
             cv.text(fit(ns ? "A 한 번 더 = 새 시즌 · B 취소" : "A 한 번 더 = 처음부터 · B 취소", 156, ink.g7), 80, 145, 2, ink.g7, -1, TileCanvas.CENTER, 0);
