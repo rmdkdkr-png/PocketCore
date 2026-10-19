@@ -19,7 +19,9 @@
             중간에 끄면 이번 판에서 8 로 덮은 램을 그 전 값(게임이 마지막에 세이브에서 읽은 값)으로 되돌린다 — 이미 게임이 저장했으면 세이브엔 남아 있다
             (되돌리기는 실행 창의 «세이브 되돌리기» — Java 가 켤 때 .flash 를 따로 보관).
      유가   캐릭터 고르기에서 가운데(쿠로코 · 커서 0x4E3C = 60) 칸으로 확정하면(0x5726 06→08), 검질 확정 뒤 0x57D5/0x57D6 = 14/검질.
-            (15 간다라는 첫 라운드 끝에서 멈춤 — 안 씀) */
+            (15 간다라는 첫 라운드 끝에서 멈춤 — 안 씀)
+     보기   176: CH_FD(프레임 표시)·CH_DMG(대미지 미터)는 값만 둔다 — practice.c 가 cheat_view_bits 로 읽어 연습 대전의 두 표시를 그대로 켠다.
+            게임 램을 안 쓰니 MB(«치트» 기록·정산 면제)·S.used·v[1] 에 안 든다. */
 
 #include <jni.h>
 #include <pthread.h>
@@ -276,7 +278,7 @@ void cheat_tick(uint8_t *ram, size_t n, int input)
 
 void cheat_set(int key, int value)
 {
-   static const int MAXV[CH_N] = { 2, 1, 2, 2, 1, 1, 1, 5, 3, 2 };
+   static const int MAXV[CH_N] = { 2, 1, 2, 2, 1, 1, 1, 5, 3, 2, 1, 1 };
    if (key < 0 || key >= CH_N) return;
    pthread_mutex_lock(&C_mu);
    if (!locked) CV[key] = value >= 0 && value <= MAXV[key] ? value : 0;
@@ -336,6 +338,14 @@ void cheat_after_save(uint8_t *ram)
    pthread_mutex_unlock(&C_mu);
 }
 
+int cheat_view_bits(void)
+{
+   pthread_mutex_lock(&C_mu);
+   int b = locked ? 0 : (CV[CH_FD] ? 1 : 0) | (CV[CH_DMG] ? 2 : 0);
+   pthread_mutex_unlock(&C_mu);
+   return b;
+}
+
 unsigned cheat_match_bits(int clear)
 {
    pthread_mutex_lock(&C_mu);
@@ -349,7 +359,7 @@ void cheat_status(int v[CHEAT_NSTAT])
 {
    pthread_mutex_lock(&C_mu);
    int on = 0, sum = 0;
-   for (int i = 0; i < CH_N; i++) on += CV[i] != 0;
+   for (int i = 0; i < CH_FD; i++) on += CV[i] != 0;          /* 176: 보기(프레임·대미지)는 안 셈 — 왼쪽 위 «치트» 표시가 보기만 켰을 땐 안 뜨게 */
    for (int i = 0; i < 120; i++) sum += S.snap[i];
    v[0] = locked; v[1] = on; v[2] = S.used; v[3] = S.win; v[4] = sum; v[5] = S.perm_saved;
    v[6] = S.yuga_pick; v[7] = S.why; v[8] = S.atk_last; v[9] = S.atk_base; v[10] = S.last_ko; v[11] = S.hp_fixes;
