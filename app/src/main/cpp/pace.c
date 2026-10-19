@@ -13,22 +13,18 @@ void pace_reset(pace_t *p)
    p->drc_base = 1.0;
 }
 
-/* 흔한 화면 주사율로 맞춤 — 1% 안이면 그 값(120.0), 아니면 그대로 */
-static double snap_hz(double hz)
-{
-   static const double std_hz[] = { 48, 50, 60, 72, 75, 90, 96, 100, 120, 144, 165, 240 };
-   unsigned i;
-   for (i = 0; i < sizeof std_hz / sizeof std_hz[0]; i++)
-      if (fabs(hz - std_hz[i]) <= std_hz[i] * 0.01) return std_hz[i];
-   return hz;
-}
-
-/* 173: 잠글 때 화면 Hz — 잠금은 실측이 정수배 ±3% 안에 20 번 이어져야 걸리니, Java 값이 그 안(±3%)이면 Java 값(정확), 아니면 실측을 흔한 값으로 */
+/* 173: 잠글 때 화면 Hz — 잠금은 실측이 정수배 ±3% 안에 20 번 이어져야 걸린다. Java 값이 실측 ±3% 안이면 Java 값(정확),
+   아니면 실측에 가장 가까운 흔한 값(±3.5% 안), 그것도 없으면 실측. Java 값은 게임을 열 때 한 번만 받아(120Hz 요청이 걸리기 전 60 일 수 있다)
+   틀릴 수 있다 — 그때도 무거운 그림에 처진 실측(117~118)을 그대로 굳히지 않게 흔한 값으로 맞춘다 */
 static double lock_hz_at_lock(const pace_t *p, double hint)
 {
-   double m = p->ema > 0 ? 1.0 / p->ema : 0;
-   if (hint > 1 && m > 1 && fabs(m - hint) <= hint * LOCK_IN) return hint;
-   return snap_hz(m);
+   static const double std_hz[] = { 48, 50, 60, 72, 75, 90, 96, 100, 120, 144, 165, 180, 240 };
+   double m = p->ema > 0 ? 1.0 / p->ema : 0, best = 0, bd = 1e9;
+   unsigned i;
+   if (m <= 1) return hint > 1 ? hint : 0;
+   if (hint > 1 && fabs(m - hint) <= hint * LOCK_IN) return hint;
+   for (i = 0; i < sizeof std_hz / sizeof std_hz[0]; i++) { double d = fabs(m - std_hz[i]); if (d < bd) { bd = d; best = std_hz[i]; } }
+   return bd <= best * (LOCK_IN + 0.005) ? best : m;   /* 잠금 창(정수배 ±3%)을 다 덮게 3.5% */
 }
 
 static int near_k(double r, double tol)
