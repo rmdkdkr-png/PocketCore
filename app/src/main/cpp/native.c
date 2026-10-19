@@ -439,7 +439,7 @@ static int16_t cb_input_state(unsigned port, unsigned device, unsigned index, un
    if (port != 0 || device != RETRO_DEVICE_JOYPAD || id > 15) return 0;
    /* 가상 리그: 메뉴 자동 진입 중엔 그 입력, 게임 속 리그가 대신 받는 버튼(리그 대전 칸·상대 고르기의 A)은 게임에 안 준다.
       연습 대전: 경기 중 Option(탭 = 메뉴 · 조합 = 리셋)·메뉴가 열린 동안의 버튼은 게임에 안 주고, 일시정지를 걸고 풀 Option·이야기 넘기는 A 는 더한다
-      컬러(look.c): 고르기 화면의 OPTION(컬러)·B(2P색으로 결정)·컬러 만들기 창이 열린 동안의 모든 버튼은 게임에 안 주고, 2P색 결정의 A 는 더한다 */
+      컬러(look.c): 고르기 화면의 OPTION(컬러)·A·B·A+B(가르기 — A+B 는 베기 색)·컬러 만들기 창이 열린 동안의 모든 버튼은 게임에 안 주고, 가르기가 낸 결정의 A(검질 고르기 «뒤로»는 B)는 더한다 */
    /* 157 덧판: 메뉴가 보이거나 멈춤(ov_hold) 중이면 게임 비트 전부(0xFFF — A·B·OPTION·방향·SELECT·SP 접기 1·9·10·11)를 막는 백스톱 */
    int in = g_input, blk = league_in_block | practice_in_block | look_in_block | ov_in_block();
    if (in & (1 << RETRO_DEVICE_ID_JOYPAD_START)) blk |= practice_opt_mask;   /* Option 과 같은 프레임의 방향·A·B(연습 경기 중) */
@@ -940,9 +940,23 @@ JNI(void, nativeSetOption)(JNIEnv *env, jclass cls, jstring jkey, jstring jval)
    CORE_UNLOCK();
 }
 
+/* 165 고침: 코어 안 화면·팔레트·스프라이트 램과 팔레트 바꿔 쓰기 함수를 허브·컬러(look·vpanel)·연습·VS 띠에 — 코어를 올린 직후와 상태 불러오기 앞(live 1),
+   올리기 시작할 때·내릴 때 dlclose 전(live 0 = NULL). 예전엔 nativeFrame 에서만 넣어서, 코어를 내리고 다시 올린 뒤 첫 프레임 전 nativeLoadState
+   (이어하기·옵션 적용·랭크 체크포인트)의 look_after_load 가 내린 코어의 retro_ngp_palremap 을 부르고 풀린 NGPGfx 를 읽었다(리뷰 — SIGSEGV) */
+static void core_ptrs(int live)
+{
+   void *chr = live && c_charram ? c_charram() : NULL, *scr = live && c_scrollram ? c_scrollram() : NULL;
+   void *pal = live && c_palram ? c_palram() : NULL, *spr = live && c_spriteram ? c_spriteram() : NULL;
+   league_vram(chr, scr, pal);           /* look_vram(vpanel 칸·아이콘 · 컬러 팔레트)까지 */
+   league_spr(spr);
+   league_palremap_fn(live ? c_palremap : NULL);
+   practice_vram(chr, scr, pal, spr);
+}
+
 static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
                         jstring jsys, jstring jsave, jstring jopts)
 {
+   core_ptrs(0);                         /* 165 고침: 아래 무엇도 앞 코어(내렸으면 dlclose 된)의 램·함수를 만지지 않게 — 올린 뒤 core_ptrs(1) */
    league_disarm();                      /* 새 게임은 무장 없이 시작 — 랭크전이면 Java 가 로드 뒤에 다시 무장한다 */
    ov_clear(OV_CLR_ALL);                 /* 157 덧판: 코어 상태가 통째로 바뀜 — 메뉴·대본·멈춤·막기 모두(상태용 램 포인터는 올린 뒤 새로) */
    ov_tag_clear();                       /* 157 post: HUD 이름표도(메뉴 닫기는 안 지움 — 여기 다섯 곳만) */
@@ -999,6 +1013,7 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
    c_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
    sram_load();
    g_loaded = 1;
+   core_ptrs(1);                         /* 165 고침: 첫 프레임 전 불러오기·저장(이어하기 · 옵션 적용 · 체크포인트 · onPause 오토세이브)도 이 코어의 램으로 */
    if (c_get_memory_data && c_get_memory_size)   /* 157 덧판 상태(게임 PAUSE 0x61D4 · 라운드 승수)용 시스템 램 — 포인터만(코어가 내려갈 때 거둠) */
       ov_game_ram((const uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM), c_get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
 
@@ -1030,6 +1045,7 @@ static void unload_locked(void)
    practice_forget();
    look_enable(0); look_forget();
    cheat_reset_all();                    /* 앞 세션의 치트 값·보관한 카드가 다음 게임으로 새지 않게 */
+   core_ptrs(0);                         /* 165 고침: dlclose 뒤 내린 코어의 바꿔 쓰기 함수·풀린 화면 램을 아무도 안 부르게(다음 코어를 올리기 전 불러오기·저장 포함) */
    if (!g_loaded) return;
    sram_save();
    audio_stop();
@@ -1112,7 +1128,8 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             league_palremap_fn(c_palremap);
             league_tick_hub(ram, ramsz, in);
             /* 컬러(모든 모드) — 허브가 고르기 화면 입력을 쓰는 동안(상대 선택·대신 누르기)엔 «바쁨»: 컬러는 손대지 않는다. 연습 «내 캐릭터 먼저»는
-               «쥠»(HOLD — 컬러·2P색 표시는 look, 결정은 허브). 허브 잠금은 league_hub_look_ctx 안에서 풀린 뒤 look 잠금을 잡는다(겹치지 않음) */
+               «쥠»(HOLD — 컬러·베기 색·A·B 가르기는 look, 결정은 허브). 허브 잠금은 league_hub_look_ctx 안에서 풀린 뒤 look 잠금을 잡는다(겹치지 않음).
+               베기 색(look → slash.c)도 여기 — 코어 바꿔 쓰기 표 + 프레임 뒤 보정. 합성 호출엔 안 돈다(표는 코어 안·상태 밖이라 런어헤드·숨은 프레임에도 그대로) */
             look_tick(ram, ramsz, in, league_hub_look_ctx());
             /* 연습 대전(허브가 연습 경기일 때만 일함) — 같은 잠금·같은 순서. 메뉴에서 나가기를 고르면 여기서 리셋하고 허브를 돌려보낸다 */
             practice_vram(chr, scr, pal, c_spriteram ? c_spriteram() : NULL);
@@ -1255,7 +1272,7 @@ static void prac_side_apply(const uint8_t *side, size_t sn)
    league_practice_resume(side + 20, v[0]);
 }
 
-/* 경기 컬러 — 상태 파일 옆 «<경로>.look»: "LOK1" · 상태 크기 · 상태 FNV-1a · look 덩어리(16바이트). 경기 컬러가 있을 때만 쓰고, 없으면 지운다.
+/* 경기 컬러 — 상태 파일 옆 «<경로>.look»: "LOK1" · 상태 크기 · 상태 FNV-1a · look 덩어리(16바이트 — [5] 경기 베기 색). 경기 컬러나 베기 색이 있을 때만 쓰고, 없으면 지운다.
    불러올 때 크기·지문이 맞아야 쓴다(.prac 와 같은 규칙) — .look 없이 불러온 상태는 원래 색(저장 직전에 look_before_save 가 팔레트를 되돌려 둠) */
 #define LOOK_SIDE_MAX 64
 static size_t look_side_make(uint8_t *side, const void *state, size_t sz)
@@ -1296,11 +1313,12 @@ JNI(jint, nativeSaveState)(JNIEnv *env, jclass cls, jstring jpath)
    if (!g_loaded || !c_serialize_size) { CORE_UNLOCK(); return -1; }
    practice_before_save();               /* 연습 메뉴 창·대미지 숫자·«2P» 그림, 허브 머리말·세로 칸을 원래대로 — 저장된 상태에 우리 그림이 안 섞이게(다음 프레임에 다시 그린다) */
    league_hub_before_save();
-   look_before_save();                   /* 컬러: 세로 칸·팔레트 0·5 를 원래 색으로(다음 프레임에 다시 바꾼다) */
+   look_before_save();                   /* 컬러: 세로 칸·아이콘·몸 팔레트 0·베기 색 팔레트를 원래 색으로(저장 직후 look_after_save 가 다시) */
    if (c_get_memory_data) cheat_before_save((uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM));   /* 올카드(이번만)로 8 을 쓴 소유 개수를 원래 값으로 — 저장된 상태에 8 이 안 실리게 */
    size_t sz = c_serialize_size();
    void *buf = sz ? malloc(sz) : NULL;
    int ok = buf && c_serialize(buf, sz);
+   look_after_save();                    /* 컬러: 되돌린 것을 바로 우리 것으로(다음 화면 한 프레임이 원래 색으로 안 나오게) */
    if (c_get_memory_data) cheat_after_save((uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM));   /* before_save 가 돌려 둔 치트 값을 되씀 */
    uint8_t side[PRAC_SIDE_MAX];          /* 연습 경기 중이면 허브·설정 — 같은 잠금 안에서(상태와 한 순간) */
    size_t sn = ok ? prac_side_make(side, buf, sz) : 0;
@@ -1338,10 +1356,13 @@ JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
    CORE_LOCK();
    int ok = g_loaded && c_unserialize(buf, (size_t)sz);
    if (ok) {
+      core_ptrs(1);                                  /* 165 고침: 아래 look_after_load 가 쓰는 화면 램·팔레트·바꿔 쓰기 함수 = 지금 코어 것(첫 프레임 전이어도) */
       practice_forget(); league_practice_title();   /* 연습 대전: 램·화면이 통째로 바뀜 — 지금 것은 되돌리지 않고 잊는다 */
       prac_side_apply(side, sn);                     /* 연습 경기 중에 저장한 상태면 그 연습 경기로(아니면 기다리던 것도 버림) */
-      look_forget();                                 /* 컬러: 화면 칸은 잊고, 경기 컬러는 .look 이 맞을 때만(아니면 버림) */
+      look_forget();                                /* 컬러: 화면 칸은 잊고, 경기 컬러는 .look 이 맞을 때만(아니면 버림) */
       look_resume(lsn ? lside + 12 : NULL, lsn ? lsn - 12 : 0);
+      if (c_get_memory_data && c_get_memory_size)    /* 컬러: 불러온 램으로 바꿔 쓰기 표를 새로 넣고 지금 팔레트도(첫 프레임부터 경기 컬러·베기 색 — 끈 판이면 원래 색) */
+         look_after_load((const uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM), c_get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
       cheat_forget();                                /* 치트: 램이 통째로 바뀜 — 보관한 카드는 버리고 다음 프레임부터 새로 */
       ov_clear(OV_CLR_ALL);                          /* 157 덧판: 코어 상태가 통째로 바뀜 */
       ov_tag_clear();
