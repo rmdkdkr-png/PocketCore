@@ -114,6 +114,8 @@ public final class Emu {
     public static native int[] nativePracticeStatus();
     /** 연습 대전 프레임 미터 — cells[160](나 80칸 · 상대 80칸) · sum[40](practice.h PRACTICE_FD_NSUM). 돌려줌: 바뀔 때마다 오르는 판 번호 */
     public static native int nativePracticeFrames(byte[] cells, int[] sum);
+    /** 176 치트 보기(practice.c practice_view_status) — [0 보기 비트(1 프레임 · 2 대미지), 1 켜짐(전투측), 2 미터 켬, 3 숫자 그림, 4 막힌 이유, 5 보이는 대미지, 6 라운드 수, 7 프레임] */
+    public static native int[] nativeViewStatus();
 
     /* 모든 모드 컬러(look.c) — 사무쇼2 확인한 판에서 캐릭터·검질 고르기 OPTION = 다음 컬러(길게 = 만들기 요청) · A+B = 베기 색 다음 것 · A·B = 결정(보통 색).
        번호 0 기본 · 1 (옛 2P색 — 안 고름, 옛 기록 이름용) · 2~15 프리셋 · 16·17 내 색 1·2(Look.NAMES). 기억 칸 16개 = 캐릭터 0~13 · 14 안 씀 · 15 무작위 칸 */

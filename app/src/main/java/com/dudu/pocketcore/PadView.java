@@ -148,18 +148,18 @@ public class PadView extends View {
          상태(슬롯·저장·로드·리셋) · 설정·배치 · 나가기(목록·종료). 한 줄로 들어가면 한 줄(폴드 큰 화면), 좁으면 두 줄.
        뺀 것: 샷(폰 화면 캡처로 충분) · 띠·앱보간·코어120 즉석 토글(설정에 있음, 실험용이었다) ·
        화면 구석의 둥근 「목록」 버튼(메뉴 칸과 겹쳐 그려졌다 — 이제 메뉴 안 「목록」) */
-    private final RectF[] util = new RectF[10];
+    private final RectF[] util = new RectF[11];
     /* 「종료」= 게임을 닫고 고르는 창으로 (제보: 「롬」은 사실 종료 버튼인데 이름이 달랐다).
        「배치」= 버튼 자리·크기 + 게임 화면 상자까지 한꺼번에 편집(제보: 「키」란 이름이 좁았다). */
     /* 세 무리로 묶어 둔다 — 두 줄로 접힐 때 무리가 갈리지 않게 순서가 곧 배치다.
          ① 상태  슬롯·저장·로드·샷·리셋
          ② 이 게임(코어 기능)  띠 — 게임마다 있는 것만 칸이 생긴다 (기둥은 2026-09-07 폐기)
          ③ 마무리  설정·배치·종료
-         ④ 그때그때 칸  컬러 만들기·리그 대전(148) — 앞 칸 번호가 안 바뀌게 맨 끝에 붙인다 */
-    private final String[] utilLabel = { "슬롯 1", "저장", "로드", "리셋", "설정", "버튼 배치", "목록", "종료", "컬러 만들기", "리그 대전" };
+         ④ 그때그때 칸  컬러 만들기·리그 대전(148)·치트(176) — 앞 칸 번호가 안 바뀌게 맨 끝에 붙인다 */
+    private final String[] utilLabel = { "슬롯 1", "저장", "로드", "리셋", "설정", "버튼 배치", "목록", "종료", "컬러 만들기", "리그 대전", "치트" };
     /* 칸 아래 작은 줄 — 저장 칸 «빈 칸/덮어쓰기», 로드 칸 «3분 전/없음». 불러오기 전에 무엇을 불러오는지 보이게(2026-10-11) */
-    private final String[] utilSub = new String[10];
-    private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_RESET, ACT_CFG, 0, ACT_PICK, ACT_QUIT, ACT_LOOK, ACT_LEAGUE };
+    private final String[] utilSub = new String[11];
+    private final int[] utilAct = { ACT_SLOT, ACT_SAVE, ACT_LOAD, ACT_RESET, ACT_CFG, 0, ACT_PICK, ACT_QUIT, ACT_LOOK, ACT_LEAGUE, ACT_CHEAT };
     private static final int UTIL_EDIT = 5;   /* 「배치」 칸 = 편집 토글 (액션이 아니다) */
     /* 「컬러 만들기」(사무쇼2 look) — 맨 끝 칸, 고르기 화면일 때만 보인다(EmuActivity 가 setLookCell). 앞 칸 번호(저장·로드 아래 줄 등)를 안 바꾸려고 끝에 붙였다 */
     private static final int UTIL_LOOK = 8;
@@ -167,6 +167,9 @@ public class PadView extends View {
     /* 148 「리그 대전」(아래 줄 «랭크 매치») — 컬러 만들기 뒤 맨 끝 칸. 사무쇼2 일반 판에서만 보인다(EmuActivity.leagueCellSetup → setLeagueCell) */
     private static final int UTIL_LEAGUE = 9;
     private boolean leagueCell = false;
+    /* 176 「치트」 — 맨 끝 칸. «치트» 알약을 쓸 수 있는 판이면(사무쇼2 · 확인한 롬 — 리그 판도) 늘 보인다(알약을 배치에서 숨겨도). 누르면 알약과 같은 ACT_CHEAT */
+    static final int UTIL_CHEAT = 10;
+    private boolean cheatCellOff = false;    /* 176 검토: 지금은 치트 창을 못 엶(결판 덧판·확인 카드·컬러 만들기 창) — 칸을 잠시 숨김 */
     private boolean hasCoreFg = false;
     /* 168 — 리그 판(랭크) 바: 저장·로드·슬롯 칸 없음(숨김 — 눌러도 아무 일 없게) · 리셋 아래 줄 «저장 후 타이틀» · 메뉴 알약 길게 누르기(빠른 저장) 없음 */
     private boolean rankedBar = false;
@@ -364,10 +367,15 @@ public class PadView extends View {
     }
 
     /** 상단바 i번 칸이 이 게임에 존재하는가 — 「컬러 만들기」(고르기 화면)·「리그 대전」(사무쇼2 일반 판)만 그때그때, 나머지는 모든 게임에 있다(게임별 칸은 설정으로 옮겼다). */
-    private boolean utilVisible(int i) {
-        return i >= 0 && i < util.length && (i != UTIL_LOOK || lookCell) && (i != UTIL_LEAGUE || leagueCell)
-                && !(rankedBar && (i == 0 || i == 1 || i == 2));     /* 168(3b): 리그 판엔 슬롯·저장·로드 칸이 없다 */
+    private boolean utilVisible(int i) { return i >= 0 && i < util.length && utilShown(i, lookCell, leagueCell, cheatPill && !cheatCellOff, rankedBar); }
+    /** 칸 i 가 보이나(정적 — 시험) · 168(3b): 리그 판엔 슬롯·저장·로드 칸이 없다 · 176: 치트 칸은 알약을 쓸 수 있는 판이면 */
+    static boolean utilShown(int i, boolean look, boolean league, boolean cheat, boolean ranked) {
+        return (i != UTIL_LOOK || look) && (i != UTIL_LEAGUE || league) && (i != UTIL_CHEAT || cheat)
+                && !(ranked && (i == 0 || i == 1 || i == 2));
     }
+    /** 누르면 바를 접는 칸(정적 — 시험) — 목록·종료·리그 대전 = 판을 떠남 · 컬러 만들기 = 게임이 돌아야 미리보기 · 176 치트 = 창을 닫으면 바로 게임으로
+     *  (접기는 onAction 다음 — 치트 창이 이미 떠 있어 onMenu(false) 가 멈춤을 안 푼다) */
+    static boolean barFolds(int act) { return act == ACT_PICK || act == ACT_QUIT || act == ACT_LOOK || act == ACT_LEAGUE || act == ACT_CHEAT; }
     /** 168(3b) — 리그 판 바: 슬롯·저장·로드 칸을 숨기고(바 배치가 개수로 다시 잡힘) 리셋 아래 줄 «저장 후 타이틀» · 메뉴 알약 길게 누르기 없음 */
     public void setRankedBar(boolean on) {
         if (rankedBar == on) return;
@@ -390,7 +398,17 @@ public class PadView extends View {
         if (cheatPill == on) return;
         cheatPill = on;
         if (!on) cheatPid = -1;
+        if (!on && barSel == UTIL_CHEAT) barSel = -1;
         updateExclusion();
+        if (getWidth() > 0) layoutBar(getWidth(), getHeight());   /* 176: 바 «치트» 칸도 같이 */
+        invalidate();
+    }
+    /** 176 검토 — 바 «치트» 칸을 잠시 숨김(EmuActivity.cheatCellSync — 바를 열 때·덧판 상태가 바뀔 때). 전엔 눌러도 바만 접히고 창이 안 떴다 */
+    public void setCheatCellOff(boolean off) {
+        if (cheatCellOff == off) return;
+        cheatCellOff = off;
+        if (off && barSel == UTIL_CHEAT) barSel = -1;
+        if (getWidth() > 0) layoutBar(getWidth(), getHeight());
         invalidate();
     }
     /** 「컬러 만들기」 칸을 보일지 — 사무쇼2 고르기 화면을 컬러 쪽이 쥐었을 때만(바가 열린 채 바뀌면 칸 자리를 다시 잡는다) */
@@ -524,10 +542,10 @@ public class PadView extends View {
             /* 148: 배치 편집 중 패드로 화면을 떠나는 칸(목록·종료·리그 대전)을 누르면 — 뒤로가기처럼 배치를 먼저 저장하고 끝낸다.
                터치는 편집 중 칸이 안 눌려 해당 없다. 전엔 편집이 안 끝난 채 떠나 고친 배치가 날아갔다.
                바는 연 채로 끝낸다 — 손잡이로 바를 접은 편집이어도 onMenu(false)(멈춤 풀기)가 동작보다 먼저 가지 않게(편집 아닐 때와 같은 차례) */
-            if (edit && (act == ACT_PICK || act == ACT_QUIT || act == ACT_LEAGUE)) { barOpen = true; endEdit(); }
+            if (edit && (act == ACT_PICK || act == ACT_QUIT || act == ACT_LEAGUE || act == ACT_CHEAT)) { barOpen = true; endEdit(); }
             if (listener != null) listener.onAction(act);
-            if (act == ACT_PICK || act == ACT_QUIT || act == ACT_LOOK || act == ACT_LEAGUE) barOpen = false;   /* 컬러 만들기 = 게임이 돌아야 미리보기가 그려진다 · 리그 대전 = 판을 떠난다 */
-            if (act == ACT_LOOK || act == ACT_LEAGUE) barSel = -1;
+            if (barFolds(act)) barOpen = false;   /* 컬러 만들기 = 게임이 돌아야 미리보기가 그려진다 · 리그 대전 = 판을 떠난다 · 치트 = 창 닫으면 바로 게임 */
+            if (act == ACT_LOOK || act == ACT_LEAGUE || act == ACT_CHEAT) barSel = -1;
         }
         menuChanged();
         invalidate();
@@ -818,7 +836,7 @@ public class PadView extends View {
             }
         } else if (barOpen || edit) {
             fill.setColor(0x22ffffff);
-            text.setTextSize(util[0].height() * 0.5f);
+            text.setTextSize(util[UTIL_EDIT].height() * 0.5f);      /* 176: 늘 있는 「배치」 칸 높이로 — 리그 판 바는 0번(슬롯) 칸이 없어 글 크기가 0 이었다(단순 모양) */
             for (int i = 0; i < util.length; i++) {
                 if (util[i].isEmpty()) continue;                     /* 이 프로필에 없는 기능 */
                 boolean hl = (i == UTIL_EDIT && edit) || i == barSel;   /* 패드 커서 칸도 같은 강조색 */
@@ -1137,7 +1155,7 @@ public class PadView extends View {
                         if (listener != null) listener.onAction(ua);
                         /* 순수 토글 — [≡]를 다시 눌러야 닫힌다. 저장·로드·샷은 연달아 쓰는데
                            매번 다시 열어야 했다(제보). 다만 화면을 떠나는 「롬」만은 접는다(컬러 만들기도 — 창이 뜨는 동안 게임이 돌아야 한다). */
-                        if (ua == ACT_PICK || ua == ACT_QUIT || ua == ACT_LOOK || ua == ACT_LEAGUE) { barOpen = false; barSel = -1; }
+                        if (barFolds(ua)) { barOpen = false; barSel = -1; }
                         menuChanged();
                         invalidate();
                         return true;

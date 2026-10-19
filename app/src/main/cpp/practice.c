@@ -29,6 +29,7 @@
 #include <stddef.h>
 #include "practice.h"
 #include "league.h"
+#include "cheat.h"
 #define PG_WANT_WINDOW
 #include "practice_glyphs.h"
 
@@ -45,6 +46,7 @@
 #define R_CPUDEF A(0x57E4)
 #define R_HSTOP  A(0x5DC7)   /* 히트스톱(두 사람 공통) */
 #define R_PAUSE  A(0x61D4)   /* 일시정지 중 1 */
+#define R_PROG   A(0x57C6)   /* 메뉴 프로그램 — 06 1인 대전 · 0C 무한 대전(cheat.c 와 같은 주소) — 176 보기만 본다 */
 #define R_FXX    A(0x41F8)   /* 첫째 판 효과 층(줄 19~31)을 보여 주는 틱의 가로 스크롤 — 게임이 효과 자리로 옮긴다(아수라 MAX 비오의 뒤 0xC9 로 남음, 실측) */
 #define R_BAX    A(0x41F7)   /* 첫째 판 줄 4~16 을 보여 주는 틱의 가로 스크롤 — 보통 0 이지만 효과가 쓰고 남긴다(샬럿 CPU 의 ACT 0x1A0 · 효과 물체 0x1CC 뒤 0x1F, 실측).
                                 게임은 틱마다 지금 띠의 값(0x41F7 / 0x41F8)을 0x41F9 로 옮겨 래스터로 줄 32~136 의 가로 스크롤에 쓴다 */
@@ -259,6 +261,24 @@ static void request_reset(int pos)
    P.rq = 1; P.rq_pos = pos; P.rq_f = P.f;
 }
 
+/* F8 대미지 셈 — 맞은 쪽 콤보 수가 0→1 이면 새 콤보, 체력이 준 만큼 더한다. 콤보 수 없이 깎임(가드 깎임)은 40프레임 넘게 떨어지면 따로.
+   연습(game_writes · P 칸)과 176 보기(view_tick · AV 칸)가 같은 함수를 부른다. prev_hp 는 부르는 쪽이 이번 프레임에 램을 다 쓴 뒤 잡는다 */
+static void dmg_count(const uint8_t *ram, unsigned f, int prev_hp[2], int prev_combo[2], int rec_open[2],
+                      int dmg_cur[2], unsigned dmg_f[2], int *side, int *shown)
+{
+   for (int d = 0; d < 2; d++) {
+      int b = PB(d), hp = ram[b + O_HP], combo = ram[b + O_COMBO];
+      if (prev_combo[d] == 0 && combo > 0) { dmg_cur[d] = 0; rec_open[d] = 1; *side = d; }
+      if (hp < prev_hp[d]) {
+         if (!rec_open[d] && combo == 0 && f - dmg_f[d] > 40) dmg_cur[d] = 0;   /* 콤보 수 없이 깎임(가드 깎임) — 따로 센다 */
+         dmg_cur[d] += prev_hp[d] - hp; dmg_f[d] = f; *side = d;
+      }
+      if (combo == 0) rec_open[d] = 0;
+      prev_combo[d] = combo;
+   }
+   if (*side >= 0) *shown = dmg_cur[*side] > 999 ? 999 : dmg_cur[*side];
+}
+
 /* ── 경기 램 쓰기(라운드 진행 · 일시정지 아님) ─────────────────────── */
 static void game_writes(uint8_t *ram, int input)
 {
@@ -298,17 +318,7 @@ static void game_writes(uint8_t *ram, int input)
       P.prev_hp[1] = P.set_hp2; P.calm[1] = 0; P.set_hp2 = 0;
    }
    /* F8 대미지(바닥을 쓰기 전에) */
-   for (int d = 0; d < 2; d++) {
-      int b = PB(d), hp = ram[b + O_HP], combo = ram[b + O_COMBO];
-      if (P.prev_combo[d] == 0 && combo > 0) { P.dmg_cur[d] = 0; P.rec_open[d] = 1; P.shown_side = d; }
-      if (hp < P.prev_hp[d]) {
-         if (!P.rec_open[d] && combo == 0 && P.f - P.dmg_f[d] > 40) P.dmg_cur[d] = 0;   /* 콤보 수 없이 깎임(가드 깎임) — 따로 센다 */
-         P.dmg_cur[d] += P.prev_hp[d] - hp; P.dmg_f[d] = P.f; P.shown_side = d;
-      }
-      if (combo == 0) P.rec_open[d] = 0;
-      P.prev_combo[d] = combo;
-   }
-   if (P.shown_side >= 0) P.shown = P.dmg_cur[P.shown_side] > 999 ? 999 : P.dmg_cur[P.shown_side];
+   dmg_count(ram, P.f, P.prev_hp, P.prev_combo, P.rec_open, P.dmg_cur, P.dmg_f, &P.shown_side, &P.shown);
 
    /* F2 체력 바닥·회복 */
    for (int p = 0; p < 2; p++) {
@@ -615,6 +625,34 @@ static int hud_layout(void)
    if (!v_chr || !v_scr) return 0;
    return (ent_rd(0, 12) & 0x1FF) == 0x049 && (ent_rd(0, 13) & 0x1FF) == 0x04A && (ent_rd(0, 7) & 0x1FF) == 0x03C;
 }
+/* 대미지 숫자: 셋째 줄 검은 띠 가운데(칸 10 에 맞춰 오른쪽 정렬 — 두 자리 9·10, 세 자리 8~10), 게임 «N HITS» 숫자 타일 0x002~0x00B · 팔레트 4.
+   연습(hud_update · P 칸)과 176 보기(view_tick · AV 칸)가 같은 함수 — 같은 칸·같은 그림. want = 지금 보일지 · st/orig/ours = 그린 상태·원래 값·우리 값 */
+static void dig_draw(int want, int v, int *st, uint16_t orig[3], uint16_t ours[3])
+{
+   if (*st) for (int i = 0; i < 3; i++) if (ent_rd(3, 8 + i) != ours[i]) orig[i] = ent_rd(3, 8 + i);
+   if (want) {
+      if (!*st) {
+         for (int i = 0; i < 3; i++) orig[i] = ent_rd(3, 8 + i);
+         if ((orig[0] & 0x1FF) != 0x001 || (orig[1] & 0x1FF) != 0x001 || (orig[2] & 0x1FF) != 0x001) return;   /* 검은 띠가 아니면 안 씀 */
+      }
+      int dg[3] = { v / 100, (v / 10) % 10, v % 10 }, nd = v >= 100 ? 3 : v >= 10 ? 2 : 1;
+      for (int i = 0; i < 3; i++) {
+         uint16_t w = i >= 3 - nd ? (uint16_t)((4 << 9) | (0x002 + dg[i])) : orig[i];
+         if (ent_rd(3, 8 + i) != w) ent_wr(3, 8 + i, w);
+         ours[i] = w;
+      }
+      *st = 1;
+   } else if (*st) {                               /* 끔 · HUD 가 사라짐 — 우리 숫자가 그대로 있는 칸만 되돌린다 */
+      for (int i = 0; i < 3; i++) if (ent_rd(3, 8 + i) == ours[i]) ent_wr(3, 8 + i, orig[i]);
+      *st = 0;
+   }
+}
+/* 상태 저장 직전 — 우리 숫자가 그대로 있는 칸만 원래대로(다음 프레임에 dig_draw 가 다시 그린다) */
+static void dig_restore(int *st, uint16_t orig[3], uint16_t ours[3])
+{
+   if (v_scr && *st) for (int i = 0; i < 3; i++) if (ent_rd(3, 8 + i) == ours[i]) ent_wr(3, 8 + i, orig[i]);
+   *st = 0;
+}
 static void hud_update(void)
 {
    if (!v_chr || !v_scr) return;
@@ -629,31 +667,14 @@ static void hud_update(void)
       memcpy(P.com_ours, ours, 32); P.com_state = 1;
    } else if (!want2p && P.com_state) { memcpy(t, P.com_orig, 32); P.com_state = 0; }
 
-   /* 대미지: 셋째 줄 검은 띠 가운데(칸 10 에 맞춰 오른쪽 정렬 — 두 자리 9·10, 세 자리 8~10), 게임 «N HITS» 숫자 타일 0x002~0x00B · 팔레트 4 */
-   if (P.dig_state) for (int i = 0; i < 3; i++) if (ent_rd(3, 8 + i) != P.dig_ours[i]) P.dig_orig[i] = ent_rd(3, 8 + i);
-   if (PS.num == 0 && P.shown >= 0 && hud_layout()) {
-      if (!P.dig_state) {
-         for (int i = 0; i < 3; i++) P.dig_orig[i] = ent_rd(3, 8 + i);
-         if ((P.dig_orig[0] & 0x1FF) != 0x001 || (P.dig_orig[1] & 0x1FF) != 0x001 || (P.dig_orig[2] & 0x1FF) != 0x001) return;   /* 검은 띠가 아니면 안 씀 */
-      }
-      int v = P.shown, dg[3] = { v / 100, (v / 10) % 10, v % 10 }, nd = v >= 100 ? 3 : v >= 10 ? 2 : 1;
-      for (int i = 0; i < 3; i++) {
-         uint16_t w = i >= 3 - nd ? (uint16_t)((4 << 9) | (0x002 + dg[i])) : P.dig_orig[i];
-         if (ent_rd(3, 8 + i) != w) ent_wr(3, 8 + i, w);
-         P.dig_ours[i] = w;
-      }
-      P.dig_state = 1;
-   } else if (P.dig_state) {                       /* 끔 · HUD 가 사라짐 — 우리 숫자가 그대로 있는 칸만 되돌린다 */
-      for (int i = 0; i < 3; i++) if (ent_rd(3, 8 + i) == P.dig_ours[i]) ent_wr(3, 8 + i, P.dig_orig[i]);
-      P.dig_state = 0;
-   }
+   dig_draw(PS.num == 0 && P.shown >= 0 && hud_layout(), P.shown, &P.dig_state, P.dig_orig, P.dig_ours);
 }
 static void hud_restore(void)
 {
    if (!v_chr || !v_scr) { P.com_state = 0; P.dig_state = 0; return; }
    if (P.com_state && !memcmp(v_chr + 0x049 * 16, P.com_ours, 32)) memcpy(v_chr + 0x049 * 16, P.com_orig, 32);
-   if (P.dig_state) for (int i = 0; i < 3; i++) if (ent_rd(3, 8 + i) == P.dig_ours[i]) ent_wr(3, 8 + i, P.dig_orig[i]);
-   P.com_state = 0; P.dig_state = 0;
+   dig_restore(&P.dig_state, P.dig_orig, P.dig_ours);
+   P.com_state = 0;
 }
 
 /* ── 연습 메뉴 창(F7) ─────────────────────────────────────────────── */
@@ -878,19 +899,71 @@ static void activate(const uint8_t *ram, int dummy, int dsty)
    for (int p = 0; p < 2; p++) P.prev_x[p] = rd16(ram, PB(p) + O_X);
 }
 
+/* ── 176 보기 — 치트 «프레임 표시»·«대미지 미터»: 연습 대전의 두 표시를 일반 판·리그 판 경기에 그대로 ─────────────
+   새 표시 코드는 없다: 연습이 쓰는 fd_tick(미터 자료) · dmg_count(셈) · dig_draw(HUD 숫자 칸 줄 3 칸 8~10)를 같은 함수로 부르고 상태만 AV 칸.
+   작업 램은 한 바이트도 안 쓴다(미터·셈은 읽기, 숫자는 화면 램 세 칸 — 연습과 같은 칸). 입력도 막거나 더하지 않는다.
+   켜짐: 1인 대전(06)·무한 대전(0C) 전투측(MODE 241) — 일반 판·리그 판(랭크·게임 속 리그, 보기는 «치트» 기록·정산 면제와 무관)·연습 흐름 밖.
+   연습 흐름(허브 연습 종류 — 상대 고르기~연습 경기)에선 꺼진다: 연습 자기 «표시» 설정만 따른다(미터 뷰·숫자 칸이 하나라 겹칠 일 없음).
+   라운드: 새 라운드 첫 조작 프레임에 미터·숫자를 지운다(기술 기억은 남김). KO·승리 포즈 동안은 마지막 값이 남는다.
+   prev_hp 는 cheat_tick 뒤 practice_view_post 가 — 무한 체력·한 방 치트가 쓴 체력이 대미지로 세지지 않게(연습이 자기 바닥·회복 뒤에 잡는 것과 같은 뜻).
+   disp(보이는 숫자): 셈(shown)이 0 보다 클 때만 따라간다 — 잡기·칼 맞물림은 콤보 수가 체력보다 먼저 올라 셈이 0 으로 새로 시작하는데,
+   그때 «0» 이 HUD 에 남아 지난 콤보 대미지를 지우지 않게(일반·리그 경기는 CPU 가 잡기를 자주 쓴다). 연습(P 칸)은 그대로 */
+static struct {
+   int active, bits, why, fd_now, prev_live, rounds, seen;
+   unsigned f;
+   int prev_hp[2], prev_combo[2], rec_open[2], dmg_cur[2], shown_side, shown, disp; unsigned dmg_f[2];
+   int dig_state; uint16_t dig_orig[3], dig_ours[3];
+} AV = { .shown = -1, .shown_side = -1, .disp = -1 };
+
+static void view_reset_dmg(const uint8_t *ram)
+{
+   for (int p = 0; p < 2; p++) {
+      AV.prev_hp[p] = ram[PB(p) + O_HP]; AV.prev_combo[p] = ram[PB(p) + O_COMBO];
+      AV.rec_open[p] = 0; AV.dmg_cur[p] = 0; AV.dmg_f[p] = 0;
+   }
+   AV.shown = -1; AV.shown_side = -1; AV.disp = -1;
+}
+static void view_release(void)                 /* 꺼짐·전투 화면 아님·연습 흐름 — 우리 숫자 칸 되돌림 · 미터 끔 */
+{
+   dig_restore(&AV.dig_state, AV.dig_orig, AV.dig_ours);
+   AV.active = 0; AV.fd_now = 0; AV.seen = 0;
+}
+/* own = league_session_owner()(0 그 밖 · 1 리그 · 2 연습 흐름) · bits = cheat_view_bits() */
+static void view_tick(uint8_t *ram, int bits, int own)
+{
+   int prog = ram[R_PROG], fight = ram[R_MODE] == 241 && (prog == 0x06 || prog == 0x0C);   /* 데모(03)·통신 대전 아님 — cheat.c fight_tick 의 «ours» 와 같은 판단 */
+   AV.bits = bits;
+   AV.why = !bits ? 0 : own == 2 ? 3 : !fight ? 4 : 0;
+   if (!bits || own == 2 || !fight) { if (AV.active) view_release(); return; }
+   if (!AV.active) { AV.active = 1; AV.prev_live = 0; AV.seen = 0; fd_reset(1); view_reset_dmg(ram); }
+   AV.f++;
+   int lv = live(ram), paused = ram[R_PAUSE] == 1;
+   if (lv && !AV.prev_live) { fd_reset(1); view_reset_dmg(ram); AV.rounds++; AV.seen = 1; }   /* 새 라운드 — 지난 라운드 미터·숫자 지움 */
+   AV.prev_live = lv;
+   if (lv && !paused) fd_tick(ram);                 /* practice_tick 의 연습 경기와 같은 조건 */
+   if (!paused) dmg_count(ram, AV.f, AV.prev_hp, AV.prev_combo, AV.rec_open, AV.dmg_cur, AV.dmg_f, &AV.shown_side, &AV.shown);
+   /* ↑ 셈은 전투측 내내(라운드 진행이 끝나는 KO 프레임의 마지막 한 대까지) — 라운드 밖엔 체력이 줄지 않는다(새 라운드 채움은 늘어남) */
+   if (AV.shown_side >= 0 && AV.dmg_cur[AV.shown_side] > 0) AV.disp = AV.shown;   /* 체력이 준 셈만 — 새 콤보의 «0» 은 안 보임(지난 숫자 그대로) */
+   dig_draw((bits & 2) && AV.disp >= 0 && hud_layout(), AV.disp, &AV.dig_state, AV.dig_orig, AV.dig_ours);
+   AV.fd_now = (bits & 1) && AV.seen;
+}
+
 void practice_tick(uint8_t *ram, size_t n, int input)
 {
    int dummy = -1, dsty = 0;
    if (!ram || n < 0x4000) return;
+   int vbits = cheat_view_bits(), own = vbits ? league_session_owner() : 0;   /* 176: 잠금 밖에서(C_mu·L_mu 단독 — 겹쳐 잡지 않음) */
    int match = league_practice_match(&dummy, &dsty);
    pthread_mutex_lock(&P_mu);
    g_ram = ram;
    if (!match || dummy < 0 || dummy > 14) {
       if (P.active) { P.active = 0; W.open = 0; }   /* 게임 쪽에서 경기가 끝남 — 화면이 이미 바뀌었으니 되돌리지 않는다 */
       practice_in_block = 0; practice_in_or = 0; practice_opt_mask = 0;
+      view_tick(ram, vbits, own);                   /* 176 보기(치트) */
       pthread_mutex_unlock(&P_mu);
       return;
    }
+   if (AV.active) view_release();                   /* 176: 연습 경기 — 연습 자기 표시만(보통은 연습 흐름에서 이미 꺼져 있다) */
    if (!P.active) activate(ram, dummy, dsty);
    P.f++;
    int lv = live(ram), paused = ram[R_PAUSE] == 1;
@@ -959,6 +1032,22 @@ void practice_tick(uint8_t *ram, size_t n, int input)
    pthread_mutex_unlock(&P_mu);
 }
 
+void practice_view_post(const uint8_t *ram)
+{
+   if (!ram) return;
+   pthread_mutex_lock(&P_mu);
+   if (AV.active) for (int p = 0; p < 2; p++) AV.prev_hp[p] = ram[PB(p) + O_HP];
+   pthread_mutex_unlock(&P_mu);
+}
+
+void practice_view_status(int v[PRACTICE_VSTAT])
+{
+   pthread_mutex_lock(&P_mu);
+   v[0] = AV.bits; v[1] = AV.active; v[2] = AV.fd_now; v[3] = AV.dig_state; v[4] = AV.why; v[5] = AV.active ? AV.disp : -1;
+   v[6] = AV.rounds; v[7] = (int)AV.f;
+   pthread_mutex_unlock(&P_mu);
+}
+
 int practice_take_exit(void)
 {
    pthread_mutex_lock(&P_mu);
@@ -971,6 +1060,7 @@ void practice_forget(void)
 {
    pthread_mutex_lock(&P_mu);
    P.active = 0; P.menu = M_NONE; P.exit_req = 0; W.open = 0; W.npool = 0; W.fx_orig[0] = W.fx_orig[1] = -1;
+   memset(&AV, 0, sizeof AV); AV.shown = AV.shown_side = AV.disp = -1;   /* 176 보기도 — 화면 램이 통째로 바뀌었으니 되돌리지 않고 잊는다 */
    fd_reset(1);
    practice_in_block = 0; practice_in_or = 0; practice_opt_mask = 0;
    pthread_mutex_unlock(&P_mu);
@@ -980,6 +1070,7 @@ void practice_before_save(void)
 {
    pthread_mutex_lock(&P_mu);
    if (P.active) { window_restore(); hud_restore(); }   /* 메뉴가 열린 채면 다음 프레임에 window_draw 가 다시 빌려 그린다 */
+   if (AV.active) dig_restore(&AV.dig_state, AV.dig_orig, AV.dig_ours);   /* 176 보기 숫자도 — 다음 진짜 프레임에 다시 그린다 */
    pthread_mutex_unlock(&P_mu);
 }
 
@@ -1061,7 +1152,7 @@ uint32_t practice_fd_get(uint8_t *cells, int *sum)
    if (cells) memcpy(cells, FD.cell, sizeof FD.cell);
    if (sum) {
       for (int i = 0; i < PRACTICE_FD_NSUM; i++) sum[i] = 0;
-      sum[0] = PS.fd && P.active; sum[1] = (int)FD.seq_id; sum[2] = FD.len; sum[3] = FD.seq_on; sum[4] = FD.frozen_n; sum[5] = FD.gap_n; sum[6] = (int)FD.ver; sum[7] = FD.focus;
+      sum[0] = (PS.fd && P.active) || AV.fd_now; sum[1] = (int)FD.seq_id; sum[2] = FD.len; sum[3] = FD.seq_on; sum[4] = FD.frozen_n; sum[5] = FD.gap_n; sum[6] = (int)FD.ver; sum[7] = FD.focus;
       for (int p = 0; p < 2; p++) {
          int *o = sum + 8 + 14 * p; const FdSum *s = &FD.sum[p];
          FdMem *m = s->id ? fd_mem(s->kc, s->ka, s->ks, 0) : NULL;
@@ -1091,6 +1182,19 @@ JNI(jintArray, nativePracticeStatus)(JNIEnv *env, jclass cls)
    for (int i = 0; i < PRACTICE_NSTAT; i++) jv[i] = v[i];
    jintArray a = (*env)->NewIntArray(env, PRACTICE_NSTAT);
    if (a) (*env)->SetIntArrayRegion(env, a, 0, PRACTICE_NSTAT, jv);
+   return a;
+}
+
+/* 176 보기 상태(practice.h PRACTICE_VSTAT) — Java viewPoll(150ms) */
+JNI(jintArray, nativeViewStatus)(JNIEnv *env, jclass cls)
+{
+   (void)cls;
+   int v[PRACTICE_VSTAT];
+   jint jv[PRACTICE_VSTAT];
+   practice_view_status(v);
+   for (int i = 0; i < PRACTICE_VSTAT; i++) jv[i] = v[i];
+   jintArray a = (*env)->NewIntArray(env, PRACTICE_VSTAT);
+   if (a) (*env)->SetIntArrayRegion(env, a, 0, PRACTICE_VSTAT, jv);
    return a;
 }
 

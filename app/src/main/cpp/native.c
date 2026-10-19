@@ -1136,6 +1136,7 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             practice_tick(ram, ramsz, in);
             /* 치트(일반 세션) — 가장 뒤. 리그 세션이면 아무것도 안 쓰고, 연습 대전 흐름이면 올카드·유가만 */
             cheat_tick(ram, ramsz, in);
+            practice_view_post(ram);         /* 176 보기(치트 «대미지 미터») — 치트가 쓴 체력까지 지난 값으로 */
             int ex = practice_take_exit();
             if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); cheat_forget(); }
             stop = league_post_hold();       /* 153: 걸쇠가 이 진짜 프레임에 섰다(합성 호출에선 안 선다) */

@@ -186,8 +186,8 @@ public class EmuActivity extends Activity {
             @Override public void onScreenDrop() { persistScreen(); }
             /* 메뉴가 열려 있는 동안 게임을 멈춘다 — 고르는 사이 맞지 않게(Delta 의 멈춤 메뉴). 옵션 창이 떠 있으면 그 창이 멈춤을 쥔다 */
             @Override public void onMenu(boolean open) {
-                if (open) { releasePhysical(); refreshSlotInfo(); }
-                if (fdView != null && fdWanted) fdView.setVisibility(open ? View.GONE : View.VISIBLE);   /* 프레임 미터가 버튼 아래 줄에 서면 메뉴 칸(저장·로드) 위를 덮는다 — 메뉴 동안 숨김 */
+                if (open) { releasePhysical(); refreshSlotInfo(); cheatCellSync(); }
+                if (fdView != null && fdWanted) fdView.setVisibility(open || sheetUp() ? View.GONE : View.VISIBLE);   /* 프레임 미터가 버튼 아래 줄에 서면 메뉴 칸(저장·로드) 위를 덮는다 — 메뉴 동안 숨김(176: 창이 떠 있어도) */
                 if (!loaded) return;
                 Emu.nativeSetPaused(open || (sheet != null && sheet.isShowing()) || (leagueDlg != null && leagueDlg.isShowing())
                         || (leagueId != null && leagueArmed && nativeDone() && postState() != 1)   /* 결판이 잡혀 정산을 기다리는 동안은 멈춘 채로(153: 승리 대사 중엔 닫으면 대사가 이어 돈다 — 끝은 native 걸쇠가 멈춘다) */
@@ -584,10 +584,11 @@ public class EmuActivity extends Activity {
             sheet.cheatRom = new File(orig);                   /* 치트 «세이브에 남기기» — 세이브 보관 이름 */
             sheet.leagueSession = ranked();                    /* 168: 리그 판 — 치트 창에 올카드 줄 없음 */
             if (game != null && Cheats.GAME.equals(game.id) && !cheatOk) sheet.cheatOff = "이 롬 판에선 치트가 안 켜져요";
+            final int[] cg0 = cheatGame();
             sheet.onClose = new Runnable() { @Override public void run() {
                 Emu.nativeSetPaused(pad.isBarOpen());          /* 메뉴가 아직 열려 있으면 계속 멈춤 */
                 applyDisplay(); pushCoreOpts();
-                if (sheet != null && sheet.cheatsChanged() && pushCheats() && !ranked()) toast("치트 적용"); } };   /* 치트 창에서 바꾼 값 — 다시 열지 않고 바로 · 175: 리그 판은 글 없음(알약 «치트 ON») */
+                cheatClose(cg0, false); } };                   /* 치트 창에서 바꾼 값 — 다시 열지 않고 바로 · 175: 리그 판은 글 없음(알약 «치트 ON») */
             break; }
         case PadView.ACT_PICK:
             goList();
@@ -1922,7 +1923,7 @@ public class EmuActivity extends Activity {
                         FrameLayout.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP | android.view.Gravity.LEFT));
                 fdView.setOnTouchListener(fdDrag);
             }
-            fdView.setVisibility(pad != null && pad.isBarOpen() ? View.GONE : View.VISIBLE);
+            fdView.setVisibility(barOpen() || sheetUp() ? View.GONE : View.VISIBLE);
             placeFrameMeter();
             h.removeCallbacks(fdPoll); h.post(fdPoll);
         } else {
@@ -1932,6 +1933,9 @@ public class EmuActivity extends Activity {
         }
         placeHubBanner();
     }
+
+    /** 176 — 창(설정·치트)이 떠 있나: 프레임 미터를 바처럼 숨긴다 */
+    private boolean sheetUp() { return sheet != null && sheet.isShowing(); }
 
     private final Runnable fdPoll = new Runnable() { @Override public void run() {
         if (!fdWanted || fdView == null || leaving || !loaded) return;
@@ -3360,7 +3364,8 @@ public class EmuActivity extends Activity {
         final MenuModel warm = lgmWarmModel(m);                         /* 165: 결판 장면을 한 번 미리(버림) — 정산 때 그림이 빨라 걸쇠를 안 놓치게 */
         lgmRender(() -> {
             LgmPages pg = lgmPages();
-            final LgmPages.HudTag a = pg.hudTag(sd[0], false), b = pg.hudTag(sd[1], true);
+            final boolean dmg = (viewBits & 2) != 0;                     /* 176: 대미지 미터 숫자(줄 24~31 · x 64~87)와 안 겹치는 폭으로 */
+            final LgmPages.HudTag a = pg.hudTag(sd[0], false, LgmPages.tagRoom(false, dmg)), b = pg.hudTag(sd[1], true, LgmPages.tagRoom(true, dmg));
             h.post(() -> {
                 if (id.equals(lgmTagsId)) { lgmTagsPending = false; lgmTagsAt = android.os.SystemClock.uptimeMillis(); }
                 if (!id.equals(leagueId) || leaving || leagueDone) return;
@@ -3421,6 +3426,7 @@ public class EmuActivity extends Activity {
         LeagueMenu mm = lgm;
         boolean open = mm != null && (mm.isOpen() || lgmShown);
         if (open != lgmOpen) lgmOpenUi(open);
+        cheatCellSync();                                                  /* 176: 바 «치트» 칸 — 결판 덧판 동안 숨김 */
     }
     private void lgmOpenUi(boolean open) {
         lgmOpen = open;
@@ -4013,7 +4019,7 @@ public class EmuActivity extends Activity {
 
     /** 코어를 올린 뒤(loadCore — UI·GL 스레드 어느 쪽에서든) */
     private void cheatSetup() {
-        cheatOk = false; cheatActiveMask = 0;
+        cheatOk = false; cheatActiveMask = 0; viewBits = 0;
         if (!loaded) { cheatPillPost(false); return; }
         java.util.Map<String, String> m = Settings.load();
         if (game == null || !Cheats.GAME.equals(game.id)) { cheatPillPost(false); return; }
@@ -4025,18 +4031,42 @@ public class EmuActivity extends Activity {
     }
     private void cheatPillPost(final boolean on) { h.post(new Runnable() { @Override public void run() { if (pad != null) pad.setCheatPill(on); } }); }
 
-    /** 168 §9 — «치트» 알약: 치트 창만 바로. 덧판 메뉴·확인 카드·컬러 만들기 창·다른 창이 떠 있으면 무시. 닫으면 값만 넣는다(코어를 다시 올리지 않음) */
+    /** 168 §9 — «치트» 알약(176: 바 «치트» 칸도): 치트 창만 바로. 확인 카드·컬러 만들기 창·다른 창이 떠 있으면 무시 —
+     *  게임 속 리그 덧판은 쉬는 메뉴(쉼·서랍·대기)면 그 위에 연다(cheatLgmOk). 닫으면 값만 넣는다(코어를 다시 올리지 않음) */
     private void openCheatSheet() {
-        if (!cheatOk || !loaded || leaving || ask != null || lookEditor != null || (sheet != null && sheet.isShowing())) return;
-        if (lgm != null && (lgm.isOpen() || lgmShown)) return;
+        if (!cheatCellOk() || (sheet != null && sheet.isShowing())) return;
         final String orig = getIntent().getStringExtra("rom");
         padMask = 0; releasePhysical();
         Emu.nativeSetPaused(true);
+        final int[] cg0 = cheatGame();
         sheet = LaunchSheet.showCheats(this, game, orig != null ? new File(orig) : null, ranked());
+        if (fdView != null) fdView.setVisibility(View.GONE);             /* 176: 창이 떠 있는 동안 프레임 미터 숨김(바와 같게) */
         sheet.onClose = new Runnable() { @Override public void run() {
-            Emu.nativeSetPaused(barOpen() || hubCard != null || lgmShown);
-            if (sheet != null && sheet.cheatsChanged()) pushCheats();     /* 175: 글 없음 — 알약 «치트 ON»·왼쪽 위 «치트» 가 보인다 */
+            Emu.nativeSetPaused(barOpen() || hubCard != null || lgmShown);   /* 덧판 쉼·대기는 native ov_hold 가 따로 멈춰 둔다 */
+            cheatClose(cg0, true);                                        /* 175: 알약 길은 글 없음 — 알약 «치트 ON»·왼쪽 위 «치트» 가 보인다 */
+            if (fdView != null && fdWanted) fdView.setVisibility(barOpen() ? View.GONE : View.VISIBLE);
         } };
+    }
+    /** 176 검토 — 치트 창을 열 수 있나(알약·바 «치트» 칸 공통 · 설정 창은 따로 막지 않음). 바 칸은 못 열 때 숨긴다(cheatCellSync) — 눌러도 바만 접히던 칸 */
+    private boolean cheatCellOk() {
+        return cheatOk && loaded && !leaving && ask == null && lookEditor == null && cheatLgmOk();
+    }
+    /** 덧판이 없거나 쉬는 메뉴(쉼·쉼 확인·서랍·대기 — 코어는 ov_hold 로 멈춘 채, 창이 떠 있는 동안 키는 창으로)면 true.
+     *  결판(연속 대전 도화선이 돈다)·여는 중·닫는 중은 false */
+    private boolean cheatLgmOk() {
+        LeagueMenu mm = lgm;
+        if (mm == null) return true;
+        int s = mm.state();
+        if (s == LeagueMenu.ST_CLOSED || s == LeagueMenu.ST_ARMED) return !lgmShown;
+        return s == LeagueMenu.ST_PAUSE || s == LeagueMenu.ST_CONFIRM || s == LeagueMenu.ST_DRAWER || s == LeagueMenu.ST_LOBBY;
+    }
+    /** 바 «치트» 칸 보이기 — 바를 열 때·hubTick(덧판 상태)마다. 알약을 쓸 수 없는 판이면 칸은 원래 없다(setCheatPill) */
+    private void cheatCellSync() { if (pad != null) pad.setCheatCellOff(!cheatCellOk()); }
+    /** 176 검토 — 지금 옵션의 게임 치트 값(보기 «프레임 표시»·«대미지 미터» 뺌 · 리그 판은 올카드도 뺌) */
+    private int[] cheatGame() { return Cheats.gameVals(Settings.load(), ranked()); }
+    /** 치트 창을 닫을 때 — 바꾼 값을 넣고, 게임 치트가 바뀐 때만 «치트 적용»(보기만 바꿨으면 말없이) */
+    private void cheatClose(int[] before, boolean quiet) {           /* quiet = 알약 길(175: 글 없음) · 리그 판도 글 없음(175) */
+        if (sheet != null && sheet.cheatsChanged() && pushCheats() && !quiet && !ranked() && !java.util.Arrays.equals(before, cheatGame())) toast("치트 적용");
     }
     /** 168 §9 — 이 판에 먹은 치트(native 가 무장 때 비움 · 옛 native 면 0) */
     private static boolean natCheatMatch = true;
@@ -4067,9 +4097,35 @@ public class EmuActivity extends Activity {
                                                               넣으면 리그 세이브를 다시 읽는 순간(prog 03→06 · 카드 8 미만) 비트가 서서 매 판 «치트»로 적혔다. «세이브에 남기기»도 리그 세이브에 안 들어감 */
         cheatFight = Cheats.fight(m);
         cheatActiveMask = Cheats.activeMask(m, ranked());
+        final int vb0 = viewBits;
+        viewBits = Cheats.views(m);                                      /* 176 보기 — native 는 위 push 로 이미 받았다 */
+        final boolean retag = ((vb0 ^ viewBits) & 2) != 0;
+        h.post(new Runnable() { @Override public void run() {
+            h.removeCallbacks(viewPoll); h.post(viewPoll);
+            if (retag && lgmTagsId != null && lgmTagsId.equals(leagueId) && !leagueDone) lgmTagsArm();   /* 리그 경기 중 대미지 미터를 켜고 끔 — 이름표 폭 다시 */
+        } });
         final boolean act = cheatActiveMask != 0;
         h.post(new Runnable() { @Override public void run() { if (pad != null) pad.setCheatActive(act); } });   /* 168 고침: 알약 «치트 ON» — 리그 판의 경기 중 표시 */
         return true;
+    }
+
+    /* ── 176 치트 보기 — «프레임 표시»·«대미지 미터»(practice.c 연습 표시 그대로) ─────────────────
+       숫자는 native 가 게임 HUD 칸에 그대로 그린다(연습과 같은 칸). 여기선 프레임 미터(연습과 같은 FrameMeterView · 자리·끌기·톡 그대로)만 켜고 끈다.
+       연습 허브가 도는 판(일반 판 «리그·연습» 켬)은 practicePoll 이 연습 «표시»와 함께 정하고, 안 도는 판(리그 판·«리그·연습» 끔)은 viewPoll 이.
+       게임 속 리그 덧판 메뉴(쉼·서랍·결판)가 떠 있으면 숨김 · 바·창이 떠 있으면 숨김(onMenu·sheetUp). 보기는 기록에 «치트»로 안 남는다(Cheats.activeMask). */
+    private volatile int viewBits = 0;                               /* 1 프레임 표시 · 2 대미지 미터 — pushCheats 가 정함(확인한 판만 · 아니면 0) */
+    private final Runnable viewPoll = new Runnable() { @Override public void run() {
+        if (leaving || !cheatOk || (viewBits & 1) == 0) { if (!practiceHub) setFrameMeter(false); return; }
+        if (!practiceHub && loaded) setFrameMeter(viewFdNow());
+        h.postDelayed(this, 150);                                    /* practicePoll 과 같은 박자 */
+    }};
+    /** native 가 지금 보기 미터를 켰나(1인·무한 대전 전투측 · 연습 흐름 밖) — 덧판 메뉴가 떠 있으면 false */
+    private boolean viewFdNow() {
+        if ((viewBits & 1) == 0 || !loaded || !cheatOk) return false;
+        if (lgm != null && (lgm.isOpen() || lgmShown)) return false;
+        if (hubCard != null || ask != null || (leagueDlg != null && leagueDlg.isShowing()) || postState() > 0) return false;   /* 176 검토: 옛 결과 카드·확인 카드·결판 뒤(정산 대기)도 */
+        int[] v = Emu.nativeViewStatus();
+        return v != null && v.length > 2 && v[2] == 1;
     }
 
     /** 1초마다 — 왼쪽 위 작은 «치트» 표시(먹는 치트가 있을 때 · 리그 이름표와 같은 자리, 색만 흐리게), «세이브에 남기기»가 세이브에 들어간 순간 한 번 알림 */
@@ -4178,7 +4234,7 @@ public class EmuActivity extends Activity {
             int[] hs = Emu.nativeLeagueHubStatus(), ps = Emu.nativePracticeStatus();
             int[] dv = Emu.nativeHubDualStatus();                         /* 둘 다 꺼져 있어도 — 메뉴 화면(v[5])으로 띠를 고른다 */
             if (practiceDual && dv != null && dv.length >= 5 && dv[2] == 1) { switchSession(true, false); return; }   /* 셋째 줄 «리그 대전» — 리그 판으로 */
-            setFrameMeter(hs != null && ps != null && hs[0] == 4 && ps.length > 24 && ps[24] == 1);   /* 연습 메뉴 «표시: 프레임·둘 다» — 경기 중에만 */
+            setFrameMeter((hs != null && ps != null && hs[0] == 4 && ps.length > 24 && ps[24] == 1) || viewFdNow());   /* 연습 메뉴 «표시: 프레임·둘 다» — 경기 중에만 · 176 치트 «프레임 표시»(일반 경기) */
             String t = (hs != null && ps != null) ? practiceText(hs[0], ps, dv) : null;
             if (t == null && hs != null && hs[0] == 1) t = lookHint();   /* 허브는 타이틀 그대로 1인·무한 대전 — 고르기 화면이면 컬러 안내 */
             /* 경기 중(메뉴 닫힘)엔 띠가 게임 그림 위로 올라가면(가로 화면 — 아래 자리가 없음) 숨긴다: 체력 막대·«2P» 를 연습 내내 가리지 않게 */
