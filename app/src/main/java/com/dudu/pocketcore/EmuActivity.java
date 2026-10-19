@@ -1899,8 +1899,8 @@ public class EmuActivity extends Activity {
     /* ── 연습 대전 프레임 미터(SF6 식) ─────────────────────────────────
        연습 메뉴 «표시: 프레임 · 둘 다» 일 때 경기 중에만 보인다. 자료는 practice.c 가 진짜 프레임마다 쌓고(런어헤드·프레임 생성의 숨은 프레임은 안 셈),
        여기선 33ms 마다 판 번호가 바뀌었을 때만 다시 그린다(할당 없음).
-       자리: 안내 띠와 같은 규칙 — 게임 그림 아래에서 패드 버튼과 안 겹치는 첫 줄(PadView.freeSpan, 칸 3dp 이상이 들어가는 폭) →
-       없으면(가로 화면) 게임 그림 아래 끝에 반투명으로 겹친다(HUD 맨 아래 «PAUSE» 줄 · 분노 막대 아래 반). 안내 띠는 미터 아래로 비킨다.
+       자리(176): 폭은 게임 그림 폭 그대로 — 그림 바로 아래, 그 폭에 패드 버튼이 안 걸치는 줄(PadView.freeSpan) →
+       없으면 게임 그림 아래 끝에 반투명으로 겹친다(버튼이 그림 안으로 들어와 있으면 그 위로). 자세한 규칙은 placeFrameMeter. 안내 띠는 미터 아래로 비킨다.
        손가락으로 끌면 그 자리를 기억(세로·가로 따로), 두 번 톡 = 자동 자리, 한 번 톡 = 색 설명 켜고 끄기. */
     private FrameMeterView fdView;
     private final byte[] fdCells = new byte[2 * FrameMeterText.VIEW];
@@ -1943,11 +1943,16 @@ public class EmuActivity extends Activity {
         int W = root.getWidth(), H = root.getHeight();
         if (W <= 0 || H <= 0) return;
         float dp = getResources().getDisplayMetrics().density;
-        boolean port = H > W;
-        int edge = Math.round(8 * dp);
-        int minW = Math.round(80 * 3 * dp + 40 * dp);            /* 칸 3dp × 80 + «상대» 이름 칸 */
-        int maxW = Math.min(W - 2 * edge, port ? W - 2 * edge : Math.round(W * 0.62f));
-        int left = -1, top = -1, width = maxW, hh = fdView.heightFor(maxW);
+        /* 176: 폭 = 게임 그림 폭 그대로 — 왼·오른 끝이 그림(gameBox[0]·[2])과 같다(유저 «프레임미터 가로길이 디스플레이랑 맞춰»). 전엔 화면 폭(세로 W−16dp · 가로 0.62W)이나
+           버튼 사이 빈 폭이라 그림과 어긋났다. 크기·자리를 바꾼 그림(scrPct·scrX·scrY)·회전도 placeScreen → 여기서 같은 규칙.
+           자리: ① 그림 바로 아래(4dp 띄움 · 버튼이 걸치면 24dp 까지 6dp 씩 내려 봄) — 그 줄의 [그림 왼끝, 오른끝]에 패드 버튼이 없어야(PadView.freeSpan 이 그 구간을 품음).
+           멀리 화면 아래(손이 덮는 줄)까지는 안 내려간다 — 그림에서 떨어지면 «그림과 같은 폭»이 안 보인다.
+           ② 없으면 그림 아래 끝에 겹침(반투명 · 같은 폭) — 버튼(가로 OPTION 알약 · 16:9 세로 SP)이 그림 아래로 들어와 있으면 그 위까지 올림(미터가 버튼을 덮어 못 누르게 되지 않게).
+              올려도 그림 아래 ⅓ 안까지만 — 더 올라가면 싸움꾼(그림 가운데)을 가린다.
+           ③ 그래도 없으면(그림을 버튼 자리까지 내려 둠 · 4:3 가로 등) 그림 아래 끝 그대로(옛 겹침 자리). 끌어 둔 자리는 가운데 점을 지키고 폭만 그림 폭. */
+        int gx0 = Math.max(0, Math.min(W, gameBox[0])), gx1 = Math.max(0, Math.min(W, gameBox[2]));
+        if (gx1 - gx0 < Math.round(40 * dp)) { gx0 = 0; gx1 = W; }   /* 그림 자리가 아직 없다(첫 배치 전) — 화면 폭 */
+        int width = gx1 - gx0, hh = fdView.heightFor(width), left = gx0, top = -1, step = Math.max(1, Math.round(6 * dp));
         boolean overlay = false;
         float[] pos = null;
         String saved = Settings.load().get(fdKey());
@@ -1959,23 +1964,20 @@ public class EmuActivity extends Activity {
             left = Math.max(0, Math.min(W - width, Math.round(pos[0] * W - width / 2f)));
             top = Math.max(0, Math.min(H - hh, Math.round(pos[1] * H - hh / 2f)));
         } else {
-            for (int y = gameBox[3] + Math.round(4 * dp); y < H; y += Math.round(6 * dp)) {
-                if (y + hh > H - Math.round(4 * dp)) break;
-                float[] sp = pad != null ? pad.freeSpan(y, y + hh) : new float[] { 0, W };
-                int spW = Math.round(sp[1] - sp[0]) - 2 * edge;
-                if (spW < minW) continue;
-                width = Math.min(maxW, spW); hh = fdView.heightFor(width);
-                float[] sp2 = pad != null ? pad.freeSpan(y, y + hh) : sp;          /* 좁아져 칸이 높아졌을 수 있다 — 그 높이로 다시 */
-                if (Math.round(sp2[1] - sp2[0]) - 2 * edge < width) { width = maxW; hh = fdView.heightFor(maxW); continue; }
-                left = Math.round((sp[0] + sp[1]) / 2f - width / 2f); top = y;
-                break;
+            int y0 = gameBox[3] + Math.round(4 * dp);
+            for (int y = y0; y <= y0 + Math.round(24 * dp) && y + hh <= H - Math.round(4 * dp); y += step) {
+                float[] sp = pad != null ? pad.freeSpan(y, y + hh) : null;
+                if (sp == null || (sp[0] <= gx0 + 0.5f && sp[1] >= gx1 - 0.5f)) { top = y; break; }
             }
-            if (top < 0) {                                      /* 빈 줄이 없다 — 게임 그림 아래 끝에 겹쳐 */
-                width = Math.min(maxW, gameBox[2] - gameBox[0] - Math.round(8 * dp));
-                hh = fdView.heightFor(width);
-                left = gameBox[0] + ((gameBox[2] - gameBox[0]) - width) / 2;
-                top = gameBox[3] - hh - Math.round(2 * dp);
+            if (top < 0) {                                      /* 바로 아래 빈 줄이 없다 — 그림 아래 끝에 겹쳐(버튼이 들어와 있으면 그 위로 · 아래 ⅓ 안) */
                 overlay = true;
+                int y1 = gameBox[3] - hh - Math.round(2 * dp);
+                top = y1;
+                for (int y = y1, yMin = gameBox[1] + (gameBox[3] - gameBox[1]) * 2 / 3; y >= yMin && pad != null; y -= step) {
+                    float[] sp = pad.freeSpan(y, y + hh);
+                    if (sp[0] <= gx0 + 0.5f && sp[1] >= gx1 - 0.5f) { top = y; break; }
+                }
+                top = Math.max(0, Math.min(H - hh, top));
             }
         }
         fdView.setOverlay(overlay);
