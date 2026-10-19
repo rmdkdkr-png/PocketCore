@@ -418,7 +418,8 @@ static const uint16_t HDR_RED[3] = { 0x22F, 0xFFF, 0x000 }, HDR_BLANK[3] = { 0x0
 static uint16_t hdr_ent_orig[20];
 static int hdr_red_n, hdr_red_pal = -1;
 static unsigned hdr_csel_f;
-static unsigned hdr_blink_f0;                       /* 깜빡임 셈의 시작 — 이번에 들어와 빨강을 처음 그린 프레임(f). 0 = 아직(f 는 늘 20 이상) */
+static unsigned hdr_blink_f0;                       /* 깜빡임 셈의 시작 — 이번에 들어와 빨강을 처음 그린 프레임(f). 0 = 아직(f 는 늘 20 이상) ·
+                                                       화면을 떠남(!csel)·상대를 고름·내 캐릭터 화면(hdr_mine)에서 0 */
 static uint8_t *hdr_cell(int i) { return g_scr + 0x800 + ((i < 10 ? 0 : 32) + 5 + i % 10) * 2; }
 static void hdr_red_restore(void)                   /* 칸만 원래대로(깜빡임 셈은 그대로 — 저장 직전·팔레트 바뀜 뒤 다음 프레임에 이어 그림) */
 {
@@ -430,16 +431,17 @@ static void hdr_red_restore(void)                   /* 칸만 원래대로(깜�
    hdr_red_n = 0; hdr_red_pal = -1;
    vpanel_hdr_mark(0);
 }
-static void hdr_red_off(void) { hdr_red_restore(); hdr_blink_f0 = 0; }   /* 화면을 떠남·상대를 고름·그릴 수 없음 — 다음에 그릴 때 깜빡임을 처음부터 */
+static void hdr_red_off(void) { hdr_red_restore(); hdr_blink_f0 = 0; }   /* 화면을 떠남·상대를 고름 — 다음에 그릴 때 깜빡임을 처음부터 */
 static void hdr_red(int kind, unsigned f)
 {
-   if (!hdr_blink_f0 || f < hdr_blink_f0) hdr_blink_f0 = f ? f : 1;   /* 177 리뷰: 화면에 든 프레임(csel_f)이 아니라 처음 그린 프레임부터 36프레임 —
+   if (hdr_blink_f0 && f < hdr_blink_f0) hdr_blink_f0 = 0;          /* 화면에 새로 듦(셈이 되돌아감) */
+   unsigned g = hdr_blink_f0 ? f - hdr_blink_f0 : 0;                 /* 177 리뷰: 화면에 든 프레임(csel_f)이 아니라 처음 그린 프레임부터 36프레임 —
                                                          «상대 고르기»·두 번째 ①②③ 은 지난 더미 칸으로 옮기는(nav) 동안 안 그려 첫 모습이 빈칸 · 2번만 깜빡였다 */
-   unsigned g = f - hdr_blink_f0;
    int blink = g < 36 && (g / 6) % 2 == 1;
-   if (!g_scr || !vpanel_icon_put(HUB_SEAL_SANGDAE, blink ? HDR_BLANK : HDR_RED)) { hdr_red_off(); return; }
+   if (!g_scr || !vpanel_icon_put(HUB_SEAL_SANGDAE, blink ? HDR_BLANK : HDR_RED)) { hdr_red_restore(); return; }   /* 못 그림(빌린 팔레트를 게임이 씀 등) — 셈은 그대로 */
    int p = vpanel_icon_pal();
-   if (p < 0) { hdr_red_off(); return; }
+   if (p < 0) { hdr_red_restore(); return; }
+   if (!hdr_blink_f0) hdr_blink_f0 = f ? f : 1;     /* 처음 그린 프레임 */
    if (hdr_red_n && p != hdr_red_pal) hdr_red_restore();
    vpanel_hdr_mark(1);                              /* vpanel 이 머리말 칸을 «게임이 그 팔레트를 씀»으로 안 보게 */
    int n = kind == 2 ? 20 : 19;
