@@ -415,7 +415,9 @@ public class EmuActivity extends Activity {
         loaded = rc == 0;
         snapCoreOpts();
         romMtime = new File(romPath).lastModified();
-        toast(loaded ? coreLabel : "코어/롬 로드 실패 (code " + rc + ")");
+        /* 175: 리그 판(ranked)은 코어 이름 알림(«… · 동봉 코어(리그)»)을 안 띄운다 — 리그 판을 열 때·경기 중 설정 «적용하고 이어하기»로 다시 올릴 때마다
+           뜨던 안내 글(유저 «안내 글을 보고 싶지 않음»). 실패 글은 그대로. 코어 이름은 경기 기록(League.note «core»)에 남는다 */
+        if (!loaded || !ranked()) toast(loaded ? coreLabel : "코어/롬 로드 실패 (code " + rc + ")");
         /* 컬러(look)는 이어하기 «앞»에 켠다 — 그래야 불러오기(look_after_load)가 경기 컬러·베기 색을 첫 프레임부터 넣는다(165 리뷰: 뒤에 켜면
            불러온 첫 프레임이 원래 색으로 한 번 보였다). lookSetup 은 resumed·연습·리그 칸 설정과 상관없다 */
         lookSetup();
