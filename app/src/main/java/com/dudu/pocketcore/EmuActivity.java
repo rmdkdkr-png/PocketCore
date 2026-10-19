@@ -82,6 +82,7 @@ public class EmuActivity extends Activity {
         game = Games.identify(romPath);
         romType = (game != null) ? game.id : "svc";
         lang = readLang();
+        if (leagueHub) lang = League.matchLang(League.openMatch(), lang);   /* 168 §10: 시작한 경기가 있으면 그 경기의 롬 판(언어)으로 — 언어를 바꿔도 «롬이 바뀜»으로 막히지 않게(새 언어는 다음 리그 판부터) */
         {   /* 언어 하나로 두 축을 함께 움직인다.
                한국어면 번역 패치를 **사본**에 입히고(유저 롬은 안 건드린다) 그 패치가 덮은
                언어로 코어를 맞춘다. 일본어·영어는 롬에 원래 든 것이라 패치가 필요 없고
@@ -496,12 +497,14 @@ public class EmuActivity extends Activity {
     }
 
     private void handleAction(int action) {
-        if (ranked() && (action == PadView.ACT_LOAD || action == PadView.ACT_UNDO || action == PadView.ACT_RESET
-                || action == PadView.ACT_CFG || action == PadView.ACT_SAVE || action == PadView.ACT_QSAVE)) {
-            toast(leagueId != null ? "리그 경기 중엔 저장·불러오기·리셋·설정을 못 써요 — 그만두려면 뒤로"
-                    : hubDual ? "리그 판에선 저장·불러오기·리셋·설정이 막혀요 — 셋째 줄 «연습 대전»이나 뒤로로 나가면 돼요"
-                    : "리그 판에선 저장·불러오기·리셋·설정이 막혀요 — 뒤로로 나가면 돼요");   /* 저장도 막는다: 슬롯 파일 이름이 자유 플레이와 같다 */
-            return;
+        if (ranked()) {
+            switch (action) {
+            case PadView.ACT_SAVE: case PadView.ACT_QSAVE: case PadView.ACT_LOAD: case PadView.ACT_UNDO: case PadView.ACT_SLOT:
+                return;                                     /* 168(3b): 리그 판엔 저장·불러오기가 없다 — 칸은 숨겼고(setRankedBar) 남은 길은 조용히(글 없음) */
+            case PadView.ACT_RESET:
+                h.post(this::leagueReset); return;          /* 168(3b): 리셋 = 경기를 저장하고 타이틀로(A 로 이어서) — 바가 닫히며 멈춤을 푼 뒤 */
+            default: break;                                 /* 설정(§10)·치트(§9)·나머지는 아래 평소 길 */
+            }
         }
         if (ranked() && (action == PadView.ACT_PICK || action == PadView.ACT_QUIT)) {
             /* 메뉴 바가 닫히며 멈춤을 푸는(menuChanged) 것보다 뒤에 처리한다.
@@ -564,12 +567,13 @@ public class EmuActivity extends Activity {
             /* 창이 떠 있는 동안 게임을 멈춘다 — 전엔 뒤에서 게임이 계속 돌고, 쥐고 있던 버튼이 눌린 채 남았다 */
             padMask = 0; releasePhysical();
             Emu.nativeSetPaused(true);
+            cfgSnap = reloadSnap();                            /* 168 §10: 리그 판은 다시 올려야 먹는 값(원버튼·컬러 고르기)이 바뀐 때만 체크포인트 길 */
             sheet = LaunchSheet.showInGame(this, game, game != null ? game.ko : new File(orig).getName(),
-                    new Runnable() { @Override public void run() { applyLive(orig); } },
+                    new Runnable() { @Override public void run() { if (ranked()) applyLiveLeague(orig); else applyLive(orig); } },
                     new Runnable() { @Override public void run() {
                         startActivity(new Intent(EmuActivity.this, SettingsActivity.class).putExtra("rom", orig)); } });
             sheet.cheatRom = new File(orig);                   /* 치트 «세이브에 남기기» — 세이브 보관 이름 */
-            if (game != null && Cheats.GAME.equals(game.id) && !cheatOk) sheet.cheatOff = ranked() ? "리그 대전에선 치트가 꺼져요" : "이 롬 판에선 치트가 안 켜져요";
+            if (game != null && Cheats.GAME.equals(game.id) && !cheatOk) sheet.cheatOff = "이 롬 판에선 치트가 안 켜져요";
             sheet.onClose = new Runnable() { @Override public void run() {
                 Emu.nativeSetPaused(pad.isBarOpen());          /* 메뉴가 아직 열려 있으면 계속 멈춤 */
                 applyDisplay(); pushCoreOpts();
@@ -581,8 +585,11 @@ public class EmuActivity extends Activity {
         case PadView.ACT_LOOK:                             /* 멈춤 메뉴 «컬러 만들기» — 바가 닫히며 멈춤이 풀린 뒤에 창을 연다(미리보기는 게임이 돌아야 그려진다) */
             h.post(new Runnable() { @Override public void run() { int[] v = lookV; if (v != null && v.length >= 14 && v[1] == 1) openLookEditor(v[12], v[13]); } });
             break;
-        case PadView.ACT_LEAGUE:                           /* 148 멈춤 바 «리그 대전» — 바가 닫히며 멈춤을 푼 뒤에(확인 카드가 그 뒤에 떠야 멈춤을 쥔다) */
-            h.post(new Runnable() { @Override public void run() { leagueFromGame(); } });
+        case PadView.ACT_LEAGUE:                           /* 148 멈춤 바 «리그 대전» — 바가 닫히며 멈춤을 푼 뒤에(확인 카드가 그 뒤에 떠야 멈춤을 쥔다) · 168 리그 판에선 «리그 메뉴» */
+            h.post(new Runnable() { @Override public void run() { if (leagueHub) leagueMenuCell(); else leagueFromGame(); } });
+            break;
+        case PadView.ACT_CHEAT:                            /* 168 §9 화면 «치트» 알약 — 치트 창 바로 */
+            openCheatSheet();
             break;
         case PadView.ACT_QUIT:
             /* 앱 종료 — 오토세이브는 onPause 가, 코어 내리기는 onDestroy 가 챙긴다. 다음에 켜면 목록부터. */
@@ -1018,7 +1025,7 @@ public class EmuActivity extends Activity {
                    재개하면 FROM_CKPT 가 같은 결과를 다시 잡는다(재시도가 성공하면 settle 이 체크포인트를 지운다).
                    아직 경기 시작 전(준비)이면 체크포인트가 필요 없다 — 다시 열면 새 판으로 시작한다. */
                 org.json.JSONObject m = lm();
-                if (!leagueDone && m != null && !"ready".equals(m.optString("status"))) leagueSaveCkpt();
+                if (!leagueDone && m != null && !"ready".equals(m.optString("status"))) { leagueCheatSync(); leagueSaveCkpt(); }   /* 168 §9: 내려가기 전까지 먹은 치트도 기록에 */
             }
         }
         /* 오디오 장치를 놓는다 — 백그라운드에서 물고 있으면 다른 앱 재생 뒤
@@ -1162,7 +1169,8 @@ public class EmuActivity extends Activity {
         /* 새 판은 첫 라운드가 실제로 시작될 때까지 «준비» 그대로 — 그 전에 멈추면 무효로 닫을 수 있다(대진 준비 실패는 점수에 안 넣는다).
            재개는 이미 시작한 경기라 바로 «진행 중»(지난 사유는 지운다). */
         leagueStarted = fromCk;
-        if (fromCk) League.setStatus(leagueId, "playing", "");
+        leagueCheatSeen = m.optInt("cheat_bits");                  /* 168 §9: 멈추기 전까지 먹은 치트는 기록에 이미 — native 비트는 무장이 비웠다 */
+        if (fromCk) League.setStatus(leagueId, "playing", "");     /* 168 K3: 이어 하기에 성공 — 사용자 멈춤 표지도 지운다(그 뒤 진짜 앱 멈춤은 예전 규칙) */
         if (leagueHub) lgmTagsArm();                                 /* 157 post: 이어 하는 랭크 경기도 HUD 이름표(체크포인트 불러오기 뒤 — native 가 불러오며 지웠다) */
         toast(fromCk ? "리그 경기 — 멈춘 자리부터 이어 해요" : "리그 경기 — 내 캐릭터·검질·카드를 고르세요");
         h.postDelayed(leaguePoll, 250);
@@ -1221,7 +1229,7 @@ public class EmuActivity extends Activity {
         /* 153: 정산은 결판 프레임 값으로 바로(대사 중에 나가도·꺼져도 결과는 같다) — 게임은 멈추지 않고 승리 대사까지 돈다(입력은 native 가 막음).
            대사가 끝난 프레임에 native 걸쇠가 멈춘다 — 다음 장·이어하기 화면으로는 안 간다. 옛 native 면 예전처럼 그 자리에서 */
         if (st.length <= 22) Emu.nativeSetPaused(true);
-        if (League.settle(leagueId, st) == null) return true;
+        if (League.settle(leagueId, st, cheatBitsNow()) == null) return true;   /* 168 §9: 먹은 치트 — 그 치트가 설명하는 검사만 면제 · «치트» 표 */
         leagueDone = true;
         Emu.nativeLeagueDisarm();
         return true;
@@ -1248,6 +1256,7 @@ public class EmuActivity extends Activity {
         if (!loaded || leaving) return;
         if (lm() == null) { leagueVanished(); return; }    /* 경기 기록이 사라졌다(다시 읽기 등 — 있을 수 없는 일) */
         leagueSyncStarted();
+        leagueCheatSync();                                 /* 168 §9: 새로 먹은 치트 → 경기 기록 */
         lgmTagsWatch();                                    /* 165: 이름표가 꺼졌으면 다시 걸고 · 오래 안 보이면 까닭을 남김 */
         if (nativeDone()) {
             if (leagueDlg != null && leagueDlg.isShowing()) leagueDlg.dismiss();
@@ -1307,7 +1316,7 @@ public class EmuActivity extends Activity {
             Emu.nativeSetPaused(true);
             ask("리그 기록이 바뀌었어요", null)
                     .cancelable(false)
-                    .btn("리그 화면으로", new Runnable() { @Override public void run() { leagueExit(null); } })
+                    .btn(leagueHub ? "타이틀로" : "리그 화면으로", new Runnable() { @Override public void run() { leagueExit(null); } })   /* 168: 게임 속 리그는 타이틀로(리그 화면으로 안 나감) */
                     .show();
         }});
     }
@@ -1328,9 +1337,12 @@ public class EmuActivity extends Activity {
     private void leagueBlocked(final String msg) {
         leagueDone = true;
         h.post(new Runnable() { @Override public void run() {
+            boolean hubOn = leagueHub && myLiveGen != 0;         /* 168: 허브가 켜진 판 — 타이틀로 · 허브를 못 켠 판 — 게임 목록(리그 화면으로 안 나감) */
             Ask d0 = ask(leagueId != null ? "멈춘 리그 경기를 이어할 수 없어요" : "리그 대전을 열 수 없어요", msg)
-                    .cancelable(false)
-                    .btn("리그 화면으로", new Runnable() { @Override public void run() { leagueExit(null); } });
+                    .cancelable(false);
+            if (!leagueHub) d0.btn("리그 화면으로", new Runnable() { @Override public void run() { leagueExit(null); } });
+            else if (hubOn) d0.btn("타이틀로", new Runnable() { @Override public void run() { leagueDone = false; hubReturn(-1); } });
+            else if (!fromGame()) d0.btn("게임 목록", new Runnable() { @Override public void run() { leagueHub = false; goList(); } });
             if (fromGame())                                  /* 일반 판에서 갈아타 왔다 — 그 게임으로도 */
                 d0.btn("게임으로", new Runnable() { @Override public void run() { switchSession(false, false); } });
             d0.show();
@@ -1350,7 +1362,7 @@ public class EmuActivity extends Activity {
         if (m == null) { leagueVanished(); return; }
         leagueDone = true;
         String vk = League.voidKind(m, League.appVer);
-        if (vk == null && kind != BLK_ROM) vk = kind == BLK_BADCKPT ? "ckpt" : "crash";   /* 기록이 따라오지 못했어도(저장 실패) 이 카드의 종류로 */
+        if (vk == null && kind != BLK_ROM && !League.userSuspended(m)) vk = kind == BLK_BADCKPT ? "ckpt" : "crash";   /* 기록이 따라오지 못했어도(저장 실패) 이 카드의 종류로 · 168 K3: 사용자가 멈춘 판은 무효 없음(기권만) */
         final String voidKind = vk;
         final boolean hub = leagueHub, single = !leagueHub;
         String title, body;
@@ -1382,7 +1394,7 @@ public class EmuActivity extends Activity {
             if (voidKind != null)
                 d.btn(single ? "무효로 닫기" : "무효로 닫고 계속", new Runnable() { @Override public void run() { leagueResolve(true, kind, why); } });
             d.btn(single ? "기권" : "기권하고 계속", new Runnable() { @Override public void run() { leagueResolve(false, kind, why); } });
-            d.btn("리그 화면으로", new Runnable() { @Override public void run() { leagueExit(null); } });
+            d.btn(single ? "리그 화면으로" : "타이틀로", new Runnable() { @Override public void run() { leagueExit(null); } });   /* 168: 게임 속 리그는 타이틀로(멈춘 경기는 그대로 — A 로 다시) */
             if (hub && fromGame()) d.btn("게임으로", new Runnable() { @Override public void run() { switchSession(false, false); } });
             d.show();
         }});
@@ -1395,6 +1407,7 @@ public class EmuActivity extends Activity {
         if (id == null || m == null) { leagueVanished(); return; }
         if (voidIt) {
             String vk = League.voidKind(m, League.appVer);
+            if (vk == null && League.userSuspended(m)) { leagueBlocked(kind, why); return; }   /* 168 K3: 사용자가 멈춘 판 — 무효 없음 */
             if (vk == null) vk = kind == BLK_BADCKPT ? "ckpt" : "crash";
             if (!League.voidStarted(id, vk)) { toast("저장 실패 — 다시 시도하세요"); leagueBlocked(kind, why); return; }
             if (leagueHub) {
@@ -1457,6 +1470,7 @@ public class EmuActivity extends Activity {
                         storageBlocked(kind);                              /* 돌아와서 «다시 확인» */
                     } });
             if (fromGame()) d.btn("게임으로", new Runnable() { @Override public void run() { switchSession(false, false); } });
+            else if (leagueHub) d.btn("게임 목록", new Runnable() { @Override public void run() { leagueHub = false; goList(); } });   /* 168: 리그 화면으로 안 나감 */
             else d.btn("리그 화면으로", new Runnable() { @Override public void run() { leagueExit(null); } });
             d.show();
         }});
@@ -1476,26 +1490,15 @@ public class EmuActivity extends Activity {
         if (!leagueStarted) { leagueLeaveBeforeStart(); return; }
         leagueChoosing = false;
         Emu.nativeSetPaused(true);
-        leagueDlg = ask("리그 경기 중", "나중에 이어하면 지금 자리에서 한 번만 다시 열 수 있습니다. 기권하면 패배로 기록됩니다.")
+        leagueDlg = ask("리그 경기 중", leagueHub ? "나중에 = 지금 자리를 저장하고 타이틀로 · A 로 이어서. 기권하면 패배로 기록돼요."
+                        : "나중에 이어하면 지금 자리에서 한 번만 다시 열 수 있습니다. 기권하면 패배로 기록됩니다.")
                 .btn("계속하기", null)
-                .btn("나중에 이어하기", new Runnable() {
+                .btn(leagueHub ? "나중에" : "나중에 이어하기", new Runnable() {
                     @Override public void run() {
                         leagueChoosing = true;
                         if (leagueSettleNow()) { leagueChoosing = false; return; }   /* poll 이 결과 화면으로 */
-                        gl.queueEvent(new Runnable() { @Override public void run() {
-                            final boolean ok = leagueSaveCkpt();
-                            h.post(new Runnable() { @Override public void run() {
-                                if (leagueDone) return;
-                                if (!ok) {
-                                    leagueChoosing = false;
-                                    toast("체크포인트를 저장하지 못했어요 — 경기를 계속합니다");
-                                    Emu.nativeSetPaused(pad.isBarOpen());
-                                    return;
-                                }
-                                League.setStatus(leagueId, "resume", "사용자가 나중에 이어하기");
-                                leagueDone = true; Emu.nativeLeagueDisarm(); leagueExit(null);
-                            }});
-                        }});
+                        leagueChoosing = false;
+                        leagueSuspend("사용자가 나중에 이어하기", null);      /* 168 §1: 저장 → 타이틀(리그는 켠 채 · A 로 이어서) — 리그 화면으로 안 나감 */
                     } })
                 .btn("기권", new Runnable() {
                     @Override public void run() {
@@ -1531,6 +1534,12 @@ public class EmuActivity extends Activity {
     /** 리그 화면으로 — 결과가 있으면 그 결과 창을 띄운다. 코어는 GL 스레드에서 내린다(goList 와 같은 이유, 내릴 때 native 가 무장도 푼다). */
     private void leagueExit(final String resultId) {
         if (leagueHub && resultId != null) { hubResult(resultId); return; }   /* 게임 속 리그: 결과 카드를 게임 위에 — 나가지 않는다 */
+        if (leagueHub && myLiveGen != 0) {                                    /* 168 §1·M3: 게임 흐름에서 LeagueActivity(순위표·리그 화면)로 안 나간다 — 타이틀로(리그는 켠 채) */
+            if (leaving) return;
+            leagueDone = false;
+            hubReturn(-1);
+            return;
+        }
         if (leaving) return;
         leaving = true;
         liveHubOff();
@@ -2913,8 +2922,13 @@ public class EmuActivity extends Activity {
     private void leagueCellSetup() {
         boolean on = loaded && !ranked() && leagueId == null && !leagueHub && game != null && "ss2".equals(game.id) && hubOn();
         if (on) { League.db(); on = League.dbProblem == null; }       /* dbProblem 은 기록 파일을 한 번 읽어야 정해진다 */
-        final boolean v = on;
-        h.post(new Runnable() { @Override public void run() { if (pad != null) pad.setLeagueCell(v); } });
+        final boolean v = on, rk = ranked(), hub = loaded && leagueHub;
+        h.post(new Runnable() { @Override public void run() {
+            if (pad == null) return;
+            pad.setRankedBar(rk);                                     /* 168(3b): 리그 판 바 — 저장·로드·슬롯 칸 없음 · 리셋 «저장 후 타이틀» */
+            if (hub) pad.setLeagueCell(true, "리그 메뉴");            /* 168 §2: 리그 판 — 같은 칸이 «리그 메뉴»(대기 · 경기 중이면 쉼) */
+            else pad.setLeagueCell(v);
+        } });
     }
 
     /** 칸을 눌렀다 — 못 쓰면 알림 · 아니면 바로(157 post «들어가고 나오는 거 … '나가나요?' 같은 것 하지 않는다»: 오토세이브 꺼짐도 묻지 않고 —
@@ -3491,30 +3505,56 @@ public class EmuActivity extends Activity {
        코어 쪽은 올리고 내릴 때 이미 모두 끈다. 게임 안 「설정」 › «치트»에서 바꾸면 닫을 때 값만 다시 넣는다(코어를 다시 올리지 않음). */
 
     private volatile boolean cheatOk = false, cheatFight = false;   /* cheatSetup 은 GL 스레드(롬 바뀜 다시 로드)에서도 돈다 */
-    private boolean cheatLeagueTold = false;
     private int cheatPermPrev = -1;
     private TextView cheatTag;
 
     /** 코어를 올린 뒤(loadCore — UI·GL 스레드 어느 쪽에서든) */
     private void cheatSetup() {
         cheatOk = false;
-        if (!loaded) return;
+        if (!loaded) { cheatPillPost(false); return; }
         java.util.Map<String, String> m = Settings.load();
-        if (ranked()) {
-            Emu.nativeCheatLock(true);
-            if (Cheats.any(m) && !cheatLeagueTold) { cheatLeagueTold = true; toast("리그 대전에선 치트가 꺼져요"); }
-            return;
-        }
-        if (game == null || !Cheats.GAME.equals(game.id)) return;
-        cheatOk = practiceRomOk();
-        if (!cheatOk) { if (Cheats.any(m)) toast("이 롬 판에선 치트가 안 켜져요"); return; }
+        if (game == null || !Cheats.GAME.equals(game.id)) { cheatPillPost(false); return; }
+        cheatOk = ranked() ? hubVersionProblem() == null : practiceRomOk();   /* 168 §9: 리그 판도 — 리그 사본은 판정 주소를 확인한 판(허브가 이미 본다) */
+        if (!cheatOk) { if (Cheats.any(m) && !ranked()) toast("이 롬 판에선 치트가 안 켜져요"); cheatPillPost(false); return; }
         pushCheats();
+        cheatPillPost(true);
         h.post(new Runnable() { @Override public void run() { h.removeCallbacks(cheatPoll); h.postDelayed(cheatPoll, 500); } });
+    }
+    private void cheatPillPost(final boolean on) { h.post(new Runnable() { @Override public void run() { if (pad != null) pad.setCheatPill(on); } }); }
+
+    /** 168 §9 — «치트» 알약: 치트 창만 바로. 덧판 메뉴·확인 카드·컬러 만들기 창·다른 창이 떠 있으면 무시. 닫으면 값만 넣는다(코어를 다시 올리지 않음) */
+    private void openCheatSheet() {
+        if (!cheatOk || !loaded || leaving || ask != null || lookEditor != null || (sheet != null && sheet.isShowing())) return;
+        if (lgm != null && (lgm.isOpen() || lgmShown)) return;
+        final String orig = getIntent().getStringExtra("rom");
+        padMask = 0; releasePhysical();
+        Emu.nativeSetPaused(true);
+        sheet = LaunchSheet.showCheats(this, game, orig != null ? new File(orig) : null);
+        sheet.onClose = new Runnable() { @Override public void run() {
+            Emu.nativeSetPaused(pad.isBarOpen() || hubCard != null || lgmShown);
+            if (sheet != null && sheet.cheatsChanged() && pushCheats()) toast("치트 적용");
+        } };
+    }
+    /** 168 §9 — 이 판에 먹은 치트(native 가 무장 때 비움 · 옛 native 면 0) */
+    private static boolean natCheatMatch = true;
+    private int cheatMatch() {
+        if (!natCheatMatch || !loaded) return 0;
+        try { return Emu.nativeCheatMatch(false); } catch (UnsatisfiedLinkError e) { natCheatMatch = false; return 0; }
+    }
+    private int leagueCheatSeen = 0;                 /* 이 경기에 먹은 치트 — 경기 기록(cheat_bits)에 적은 것 */
+    private int cheatBitsNow() { return leagueCheatSeen | cheatMatch(); }
+    /** leaguePoll 마다 — 새로 먹은 치트가 있으면 경기 기록에 */
+    private void leagueCheatSync() {
+        if (leagueId == null || !leagueArmed || leagueDone) return;
+        int cb = cheatMatch();
+        if ((cb & ~leagueCheatSeen) == 0) return;
+        leagueCheatSeen |= cb;
+        League.orCheat(leagueId, leagueCheatSeen);
     }
 
     /** options 의 치트 값을 native 에 — 넣었으면 true(일반 세션 · 확인한 판일 때만) */
     private boolean pushCheats() {
-        if (!loaded || !cheatOk || ranked()) return false;
+        if (!loaded || !cheatOk) return false;
         java.util.Map<String, String> m = Settings.load();
         Cheats.push(m);
         cheatFight = Cheats.fight(m);
@@ -3523,11 +3563,11 @@ public class EmuActivity extends Activity {
 
     /** 1초마다 — 왼쪽 위 작은 «치트» 표시(먹는 치트가 있을 때 · 리그 이름표와 같은 자리, 색만 흐리게), «세이브에 남기기»가 세이브에 들어간 순간 한 번 알림 */
     private final Runnable cheatPoll = new Runnable() { @Override public void run() {
-        if (leaving || !cheatOk || ranked()) { showCheatTag(null); return; }
+        if (leaving || !cheatOk) { showCheatTag(null); return; }
         if (loaded) {
             int[] v = Emu.nativeCheatStatus();
             if (v != null && v.length >= 16) {
-                showCheatTag(v[1] == 0 || v[0] != 0 ? null : v[7] == 3 && cheatFight ? "치트 · 연습 중엔 경기 치트 쉼" : "치트");
+                showCheatTag(ranked() || v[1] == 0 || v[0] != 0 ? null : v[7] == 3 && cheatFight ? "치트 · 연습 중엔 경기 치트 쉼" : "치트");   /* 168: 리그 판엔 이름표(HUD)와 겹치니 안 띄움 — 결판 «치» 도장·기록만 */
                 /* [5]: 게임이 세이브를 다시 읽은 값이 모두 8(1)·아님(0)·아직 모름(−1 — 올린 뒤·불러온 뒤 첫 다시 읽기 전). «모름 → 1» 은 원래 들어가 있던 것 —
                    이 세션에서 «0 → 1» 이 된 순간만 알린다(이어하기로 연 판에서 처음 모드를 고를 때 잘못 알리지 않게) */
                 if (v[5] < 0) cheatPermPrev = -1;

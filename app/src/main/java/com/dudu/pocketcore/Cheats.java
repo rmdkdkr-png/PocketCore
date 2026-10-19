@@ -14,7 +14,8 @@ import java.util.Map;
  * 고르는 순서(VALS)가 곧 native 번호(cheat.h CH_* 값)다.
  *
  * 마스터(«치트» 켬/끔, 기본 켬)를 끄면 native 에 모두 0 을 넣는다 — 고른 값은 그대로 남아 다시 켜면 돌아온다. 하나하나는 기본 끔.
- * 리그 판(랭크전·게임 속 리그)에선 EmuActivity 가 잠근다(값을 안 넣음) — native 도 허브 종류를 보고 한 번 더 막는다.
+ * 168: 리그 판(랭크전·게임 속 리그)에서도 먹는다(유저 «리그 때도 쓸 수 있게») — 그 판에 실제로 먹은 치트(native cheat_match_bits)는 경기 기록에 «치트»로 남고,
+ * 정산 검사는 그 치트가 설명하는 것만 면제한다(시간 무한 → 실효 시간 · CPU 세기 → 손잡이). 연습 대전 흐름은 예전처럼 경기 치트를 쉰다.
  */
 final class Cheats {
 
@@ -26,7 +27,7 @@ final class Cheats {
 
     /** native CH_* 순서 (cheat.h) */
     static final String[] KEYS = { "cards", "time", "hp1", "hp2", "rage1", "rage2", "cpu", "diff", "pow", "yuga" };
-    static final int CARDS = 0, TIME = 1, POW = 8, YUGA = 9;
+    static final int CARDS = 0, TIME = 1, HP1 = 2, HP2 = 3, RAGE1 = 4, RAGE2 = 5, CPU = 6, DIFF = 7, POW = 8, YUGA = 9;
     static final String CARDS_KEY = PREFIX + "cards", CARDS_TEMP = "temp", CARDS_SAVE = "save";
 
     private static final String[] OFF_INF = { "off", "inf" }, HP = { "off", "inf", "one" }, OFF_MAX = { "off", "max" };
@@ -52,7 +53,13 @@ final class Cheats {
         "카드 효과에 곱해져요.",
         "캐릭터 선택 가운데(쿠로코) 칸이 유가가 돼요. 수라·나찰은 여기서 골라요." };
     /** 치트 창 끝 한 줄 — 기록 경고 */
-    static final String WARN = "치트로 이겨도 스토리 클리어·연승·카드 상은 세이브에 남아요. 리그 대전엔 안 먹어요 — 리그 기록은 깨끗해요.";
+    static final String WARN = "치트로 이겨도 스토리 클리어·연승·카드 상은 세이브에 남아요. 리그 대전에서도 먹어요 — 그 판은 기록에 «치트»로 남아요.";
+    /** 168 — 먹은 치트 비트(1 << 번호) → «시간·CPU 세기·상대 체력» (없으면 빈 글) */
+    static String names(int bits) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < LABELS.length; i++) if ((bits & (1 << i)) != 0) { if (b.length() > 0) b.append('·'); b.append(LABELS[i]); }
+        return b.toString();
+    }
 
     /** Settings.GROUPS «치트» 의 항목들 — 모두 사무쇼2 전용(.g), 실행 창 본문엔 안 낀다(.l() 없음 — 고리 하나로 따로 연다) */
     static Settings.Item[] items() {

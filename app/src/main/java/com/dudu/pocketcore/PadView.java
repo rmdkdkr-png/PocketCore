@@ -48,7 +48,8 @@ public class PadView extends View {
     public static final int ACT_QSAVE = 15;                   /* 빠른 저장 — 메뉴 알약 길게 누르기 */
     public static final int ACT_LAYOUT_DEFAULT = 16;          /* 배치 「처음대로」 — 게임 화면 자리도 자동 맞춤으로 */
     public static final int ACT_LOOK = 17;                    /* 사무쇼2 «컬러 만들기» — 캐릭터·검질 고르기 화면일 때만 칸이 생긴다(setLookCell) */
-    public static final int ACT_LEAGUE = 18;                  /* 148: 일반 판 «리그 대전» — 싸우는 중에도 뒤로 → 한 번에 랭크 매치로(setLeagueCell) */
+    public static final int ACT_LEAGUE = 18;                  /* 148: 일반 판 «리그 대전» — 싸우는 중에도 뒤로 → 한 번에 랭크 매치로(setLeagueCell) · 168: 리그 판에선 «리그 메뉴» */
+    public static final int ACT_CHEAT = 19;                   /* 168: 화면 «치트» 알약 — 치트 창 바로(setCheatPill) */
     public static final int ACT_SAVE = 1, ACT_LOAD = 2, ACT_SHOT = 3, ACT_RESET = 4, ACT_PICK = 5, ACT_SLOT = 6, ACT_SPK = 7,
             /* 설정 — 게임 안에서 바로 연다. 예전에는 「롬」으로 게임을 내리고
                목록 맨 아래까지 가야 닿았다. 설정 하나 보려고 게임을 끄는 건 말이 안 된다. */
@@ -59,7 +60,7 @@ public class PadView extends View {
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-    /* 컨트롤: {이름, 라벨, 비트(-1=십자, -2=OPTION, -3=배속), 기본fx, 기본fy, 기본크기} */
+    /* 컨트롤: {이름, 라벨, 비트(-1=십자, -2=OPTION, -3=배속, -5=치트 알약 — 게임 비트 없음), 기본fx, 기본fy, 기본크기} */
     private static final Object[][] P_SVC = {
         { "DPAD", "",     -1, 0.22f, 0.76f, 1.00f },
         { "WP",   "약P",   0, 0.74f, 0.84f, 1.00f },
@@ -77,6 +78,8 @@ public class PadView extends View {
         { "AB",   "A+B",   1, 0.10f, 0.59f, 0.95f },
         { "OPT",  "",     -2, 0.50f, 0.955f, 1.00f },
         { "FF",   "▶▶",  -3, 0.94f, 0.17f, 0.80f },
+        /* 168: «치트» 알약 — OPTION 알약(세로 화면 폭 0.40~0.60) 왼쪽 0.19~0.35 · 십자 아래끝(≈0.84h) 아래 줄 — 안 겹침(검토 G-4) */
+        { "CHEAT", "치트", -5, 0.27f, 0.955f, 0.90f },
     };
     /* KOF R-2 — SP 엔진(설정 「KOF 원버튼」 켬): R(비트11)=SP, 탭=약/홀드=강(문턱 6프레임,
        코어가 잰다 — SVC 의 12 와 다르다, 이식소 실측). L(비트10)=A+B. 슬롯은 잡은 방향:
@@ -165,6 +168,12 @@ public class PadView extends View {
     private static final int UTIL_LEAGUE = 9;
     private boolean leagueCell = false;
     private boolean hasCoreFg = false;
+    /* 168 — 리그 판(랭크) 바: 저장·로드·슬롯 칸 없음(숨김 — 눌러도 아무 일 없게) · 리셋 아래 줄 «저장 후 타이틀» · 메뉴 알약 길게 누르기(빠른 저장) 없음 */
+    private boolean rankedBar = false;
+    /* 168 — «치트» 알약(사무쇼2 · 치트를 넣을 수 있는 판) */
+    private boolean cheatPill = false;
+    private int cheatPid = -1;
+    private final RectF cheatR = new RectF();
     /* 이 게임이 코어에서 쓰는 기능 — 게임별 칸은 여기서만 생긴다.
        전에는 「이 게임에 그 기능이 있나」를 패드 프로필 모양(prof == P_SS2)으로 판단했다.
        게임 표에 이미 있는 사실을 모양으로 되짚은 것이라 진실이 두 벌이 됐다.
@@ -192,7 +201,7 @@ public class PadView extends View {
     private static final Object[][] LAND = {
         /* 가로에서 게임 상자는 가운데 약 43%(160:152 를 세로에 맞춤)를 차지하므로 오른쪽 무리는 72% 밖에 둔다 */
         { "DPAD", 0.13f, 0.64f }, { "WP", 0.78f, 0.82f }, { "WK", 0.90f, 0.72f },         { "TECH", 0.95f, 0.30f }, { "AB", 0.05f, 0.36f }, { "A", 0.80f, 0.78f },
-        { "B", 0.92f, 0.62f }, { "SP", 0.94f, 0.36f }, { "OPT", 0.50f, 0.96f }, { "FF", 0.965f, 0.10f },
+        { "B", 0.92f, 0.62f }, { "SP", 0.94f, 0.36f }, { "OPT", 0.50f, 0.96f }, { "FF", 0.965f, 0.10f }, { "CHEAT", 0.38f, 0.96f },
     };
     private int dragIdx = -1, dragPid = -1, selIdx = -1;
     /* 배치 모드 두 손가락 핀치 — 고른 상자(없으면 게임 화면)의 크기 (유저 2026-09-05 「두 손 드래그로 크기 변경」) */
@@ -300,7 +309,7 @@ public class PadView extends View {
 
     /** 이 컨트롤을 지금 화면에 두는가. 숨긴 것은 그리지도, 누르지도, 편집에서 잡히지도 않는다. */
     private boolean ctrlVisible(int i) {
-        return true;   /* 숨기는 버튼이 없다 — 강P·강K 를 걷어낸 뒤로(2026-09-06) */
+        return bitOf(i) != -5 || cheatPill;   /* 168: 치트 알약만 그때그때(강P·강K 는 2026-09-06 에 걷어냈다) */
     }
 
     public void setProfile(String name) { setProfile(name, name); }
@@ -332,7 +341,7 @@ public class PadView extends View {
         if (!edit) for (int i = 0; i < nC; i++) {
             if (!ctrlVisible(i)) continue;
             int b = bitOf(i);
-            if (b == -2 || b == -3 || b == -4) continue;          /* OPTION·배속·목록 — 가장자리에서 밀 일이 없다 */
+            if (b == -2 || b == -3 || b == -4 || b == -5) continue;   /* OPTION·배속·목록·치트 — 가장자리에서 밀 일이 없다 */
             float r = radOf(i) * 1.25f, l = cx(i) - r, rt = cx(i) + r;
             if (l > edgeZone && rt < w - edgeZone) continue;
             rs.add(new android.graphics.Rect(Math.max(0, Math.round(l)), Math.max(0, Math.round(cy(i) - r)),
@@ -350,7 +359,25 @@ public class PadView extends View {
 
     /** 상단바 i번 칸이 이 게임에 존재하는가 — 「컬러 만들기」(고르기 화면)·「리그 대전」(사무쇼2 일반 판)만 그때그때, 나머지는 모든 게임에 있다(게임별 칸은 설정으로 옮겼다). */
     private boolean utilVisible(int i) {
-        return i >= 0 && i < util.length && (i != UTIL_LOOK || lookCell) && (i != UTIL_LEAGUE || leagueCell);
+        return i >= 0 && i < util.length && (i != UTIL_LOOK || lookCell) && (i != UTIL_LEAGUE || leagueCell)
+                && !(rankedBar && (i == 0 || i == 1 || i == 2));     /* 168(3b): 리그 판엔 슬롯·저장·로드 칸이 없다 */
+    }
+    /** 168(3b) — 리그 판 바: 슬롯·저장·로드 칸을 숨기고(바 배치가 개수로 다시 잡힘) 리셋 아래 줄 «저장 후 타이틀» · 메뉴 알약 길게 누르기 없음 */
+    public void setRankedBar(boolean on) {
+        if (rankedBar == on) return;
+        rankedBar = on;
+        utilSub[3] = on ? "저장 후 타이틀" : null;
+        if (on && (barSel == 0 || barSel == 1 || barSel == 2)) barSel = -1;
+        if (getWidth() > 0) layoutBar(getWidth(), getHeight());
+        invalidate();
+    }
+    /** 168(9) — «치트» 알약을 보일지(사무쇼2 · 치트를 넣을 수 있는 판) */
+    public void setCheatPill(boolean on) {
+        if (cheatPill == on) return;
+        cheatPill = on;
+        if (!on) cheatPid = -1;
+        updateExclusion();
+        invalidate();
     }
     /** 「컬러 만들기」 칸을 보일지 — 사무쇼2 고르기 화면을 컬러 쪽이 쥐었을 때만(바가 열린 채 바뀌면 칸 자리를 다시 잡는다) */
     public void setLookCell(boolean on) {
@@ -361,8 +388,13 @@ public class PadView extends View {
         invalidate();
     }
     /** 「리그 대전」 칸을 보일지 — 사무쇼2 일반 판·리그 옵션 켬·기록 파일 정상일 때(EmuActivity.leagueCellSetup). 바가 열린 채 바뀌어도 칸 자리를 다시 잡는다 */
-    public void setLeagueCell(boolean on) {
-        if (leagueCell == on) return;
+    public void setLeagueCell(boolean on) { setLeagueCell(on, null); }
+    /** 168: 리그 판에선 같은 칸을 «리그 메뉴»(아래 줄 없음)로 — label null = «리그 대전 / 랭크 매치» */
+    public void setLeagueCell(boolean on, String label) {
+        String lab = label != null ? label : "리그 대전", sub = label != null ? null : "랭크 매치";
+        boolean same = leagueCell == on && lab.equals(utilLabel[UTIL_LEAGUE]);
+        utilLabel[UTIL_LEAGUE] = lab; utilSub[UTIL_LEAGUE] = sub;
+        if (same) return;
         leagueCell = on;
         if (!on && barSel == UTIL_LEAGUE) barSel = -1;
         if (getWidth() > 0) layoutBar(getWidth(), getHeight());
@@ -564,7 +596,7 @@ public class PadView extends View {
         for (int i = 0; i < nC; i++) {
             if (!ctrlVisible(i)) continue;
             float l, r, t, b;
-            if (bitOf(i) == -2) {
+            if (bitOf(i) == -2 || bitOf(i) == -5) {
                 float base = Math.min(getWidth(), getHeight()), ow2 = base * 0.10f * sc[i], oh2 = base * 0.021f * sc[i];
                 l = cx(i) - ow2; r = cx(i) + ow2; t = cy(i) - oh2; b = cy(i) + oh2;
             } else {
@@ -646,6 +678,12 @@ public class PadView extends View {
                 c.drawRoundRect(opt, 12, 12, fill);
                 text.setTextSize(opt.height() * 0.5f);
                 c.drawText("OPTION", opt.centerX(), opt.centerY() + opt.height() * 0.18f, text);
+            } else if (b == -5) {                            /* 168 치트 알약 — OPTION 과 같은 모양 */
+                pillRect(i, cheatR);
+                fill.setColor(cheatPid >= 0 ? 0x66ffffff : 0x2affffff);
+                c.drawRoundRect(cheatR, 12, 12, fill);
+                text.setTextSize(cheatR.height() * 0.55f);
+                c.drawText(label(i), cheatR.centerX(), cheatR.centerY() + cheatR.height() * 0.2f, text);
             } else if (b == -3) {                            /* 배속 */
                 float r = radOf(i);
                 fill.setColor(ffDown ? 0x88ffcc44 : 0x33ffffff);
@@ -794,6 +832,11 @@ public class PadView extends View {
             skin.pill(c, "opt", opt, bit(Emu.START), false, 0, "OPTION");
             return true;
         }
+        if (b == -5) {                                   /* 168 치트 알약 — OPTION 그림 그대로 */
+            pillRect(i, cheatR);
+            skin.pill(c, "opt", cheatR, cheatPid >= 0, false, 0, label(i));
+            return true;
+        }
         if (b == -3) {
             skin.button(c, "ff", cx(i), cy(i), radOf(i), ffDown ? 0xffe0a43a : 0xff4a4e5a, ffDown, false, label(i));
             return true;
@@ -837,6 +880,23 @@ public class PadView extends View {
         return m;
     }
 
+    /** 알약 자리(OPTION 과 같은 크기 공식) */
+    private void pillRect(int i, RectF out) {
+        float base = Math.min(getWidth(), getHeight());
+        float ow2 = base * 0.10f * sc[i], oh2 = base * 0.021f * sc[i];
+        out.set(cx(i) - ow2, cy(i) - oh2, cx(i) + ow2, cy(i) + oh2);
+    }
+    private int cheatIndex() { for (int i = 0; i < nC; i++) if (bitOf(i) == -5) return i; return -1; }
+    /** 치트 알약 누르는 자리 — OPTION 처럼 48dp 이상 */
+    private boolean cheatHit(float x, float y) {
+        int ci = cheatIndex();
+        if (ci < 0 || !cheatPill) return false;
+        RectF r = new RectF(); pillRect(ci, r);
+        float min = 48 * getResources().getDisplayMetrics().density;
+        if (r.height() < min) r.inset(0, -(min - r.height()) / 2f);
+        if (r.width() < min) r.inset(-(min - r.width()) / 2f, 0);
+        return r.contains(x, y);
+    }
     /** OPTION 누르는 자리 — 그림(실기처럼 작은 알약)은 그대로, 누르는 자리만 48dp 이상(135 접근성 검수: 덮개 화면에서 69×14.5dp 였다) */
     private final RectF optHitR = new RectF();
     private RectF optHit() {
@@ -934,9 +994,9 @@ public class PadView extends View {
                 invalidate();
                 return true;
             }
-            if (handleHit(x, y) && handlePid < 0) {   /* 메뉴 알약 — 짧게 = 여닫기(뗄 때), 길게 = 빠른 저장 */
+            if (handleHit(x, y) && handlePid < 0) {   /* 메뉴 알약 — 짧게 = 여닫기(뗄 때), 길게 = 빠른 저장(168: 리그 판엔 길게 누르기 없음 — 그냥 탭) */
                 handlePid = e.getPointerId(idx); handleFired = false;
-                removeCallbacks(handleHold); postDelayed(handleHold, HOLD_MS);
+                removeCallbacks(handleHold); if (!rankedBar) postDelayed(handleHold, HOLD_MS);
                 return true;
             }
             if ((barOpen || edit) && util[UTIL_EDIT].contains(x, y)) {   /* 「키」 */
@@ -1012,6 +1072,11 @@ public class PadView extends View {
             /* 151: 물리 패드라 숨겨 둔 버튼은 화면을 만지면 다시 나오고 이 터치도 그대로 먹는다(잠그지 않음) */
             if (hideMode == 1 && !touchBack && !edit) { touchBack = true; invalidate(); }
             if (hidesTouch()) return true;            /* 「숨김」(늘)일 때만 게임 입력을 안 받는다 */
+            if (cheatPid < 0 && cheatHit(x, y)) {     /* 168 «치트» 알약 — 뗄 때 안이면 치트 창(게임 비트 없음) */
+                cheatPid = e.getPointerId(idx);
+                invalidate();
+                return true;
+            }
             int fi = ffIndex();
             if (fi >= 0 && dist(x, y, cx(fi), cy(fi)) < radOf(fi) * 1.3f) {
                 ffDown = true; ffPid = e.getPointerId(idx);
@@ -1078,6 +1143,15 @@ public class PadView extends View {
             return true;
         }
 
+        if (cheatPid >= 0 && (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_POINTER_UP || act == MotionEvent.ACTION_CANCEL)) {   /* 168 치트 알약 뗌 */
+            int ai = e.getActionIndex();
+            if (act == MotionEvent.ACTION_CANCEL || e.getPointerId(ai) == cheatPid) {
+                boolean in = act != MotionEvent.ACTION_CANCEL && cheatHit(e.getX(ai), e.getY(ai));
+                cheatPid = -1;
+                invalidate();
+                if (in && listener != null) listener.onAction(ACT_CHEAT);
+            }
+        }
         if (ffDown) {                                  /* 배속 해제 검사 */
             boolean still = false;
             if (act != MotionEvent.ACTION_UP && act != MotionEvent.ACTION_CANCEL) {
@@ -1100,6 +1174,7 @@ public class PadView extends View {
                 if (act == MotionEvent.ACTION_POINTER_UP && i == e.getActionIndex()) continue;
                 if (e.getPointerId(i) == ffPid) continue;
                 if (e.getPointerId(i) == handlePid) continue;   /* 메뉴 알약을 누르고 있는 손가락 */
+                if (e.getPointerId(i) == cheatPid) continue;    /* 168 치트 알약을 누르고 있는 손가락 */
                 if (e.getPointerId(i) == dpadPid) {        /* 소유 손가락 — 어디에 있든 십자만 */
                     dpadMask = dpadDir(e.getX(i), e.getY(i));
                     dpadHeld = true;

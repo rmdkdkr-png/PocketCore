@@ -90,6 +90,11 @@ public final class Emu {
     public static native boolean nativeHubVs(byte[] tiles, short[] map, int hold, int flags);
     /** [단계 0 없음·1 걸어 둠·2 序章 넘김·3 띠 보임·4 배너·5 끝·6 실패 (|0x10 얹힘 · |0x20 타일 겹침 포기), 대사 단계 프레임, hold] */
     public static native int[] nativeHubVsStatus();
+    /** 168 랭크 «내 캐릭터 먼저» — 상대 없이(무장 안 함) 1인 대전 고르기(허브 상태 9). 타이틀·찾기에서만 받는다(true). 고른 것은 이야기가 시작될 때 nativeHubMyPick 에.
+     *  옛 native 면 UnsatisfiedLinkError — 부르는 쪽이 받아 예전 tail 길(상대를 정한 채 직접 고르기) */
+    public static native boolean nativeHubPickOnly();
+    /** [요청 대기, 고르는 판(허브 9), 고른 것을 남김, 그 판 프레임(−1)] */
+    public static native int[] nativeHubPickOnlyStatus();
 
     /* 연습 대전(practice.c) — 일반 세션에서 타이틀 «2 인 대전» 자리 = «연습 대전». 판정 주소를 확인한 롬 판(League.romLabel)에서만 켤 것.
        autostart = 로고·메뉴를 넘겨 «캐릭터 선택»(내 캐릭터 먼저 → 상대)까지 대신 누름(실행 창 «연습 대전으로» 링크). 상태·허브 상태는 nativeLeagueHubStatus 와 같이 본다 */
@@ -132,6 +137,8 @@ public final class Emu {
     /** [잠김, 켜진 수, 이번 세션 경기 치트 먹음, 올카드 창 안, 보관 합, 세이브에 이미 올카드, 유가 고름, 막힌 이유(0·1 잠김·2 리그·3 연습),
      *   마지막 P1 공격 배율, 그 기준, 마지막 한 방 KO 프레임, 무한 체력 되돌림 수, 프레임, 0x57C6, 0x5726, 세이브에 남기기로 8 을 쓰는 중] (cheat.h) */
     public static native int[] nativeCheatStatus();
+    /** 168 이 판에 실제로 먹은 치트(1 << Cheats 번호) — clear 면 0 으로. 무장(nativeLeagueArm·허브 대진)이 비운다. 옛 native 면 UnsatisfiedLinkError */
+    public static native int nativeCheatMatch(boolean clear);
 
     /* 157 덧판(ovplane.c — 계약서 docs/157_contract.md §3). 게임 화면 위 가상 오버레이 판: 코어 램·VRAM 을 안 건드리고 gl_draw 가 잔상 뒤에 합성한다.
        nativeOvStatus 만 아무 스레드 — 나머지는 GL 스레드(LeagueMenu, gl.queueEvent)에서만. 옛 native 면 UnsatisfiedLinkError — 부르는 쪽이 받아 옛 결과 카드로.
