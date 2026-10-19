@@ -618,10 +618,7 @@ public class LeagueActivity extends Activity {
         /* 153: «매칭 대기»(보통·빠르게)는 뺐다 — 찾기는 늘 ~1초(RankCore.quickMs). Settings pocketcore_rank_wait 는 남아도 안 읽는다 */
 
         /* 새 시즌 · 처음부터 — 막힘(기록 파일·게임 속 리그·끝나지 않은 경기)이면 둘 다 끄고 이유를 보인다 */
-        if (League.liveHub) {                                    /* 168 M2: 리그 판이 떠 있다 — 시즌 도구는 게임 안 «리그 메뉴» › 리그 탭에 */
-            col.addView(caption("새 시즌·처음부터는 게임 안 «리그 메뉴» › 리그 탭에서도 해요"));
-            return;
-        }
+        if (League.liveHub) return;                              /* 168 M2: 리그 판이 떠 있다 — 시즌 도구 줄은 숨김(글 없이 · 게임 안 «리그 메뉴» › 리그 탭에 있다) */
         final String blk = League.resetBlockedWhy();
         if (me.placementLeft > 0) {
             TextView pl = text("배치 경기를 마치면 새 시즌을 열 수 있어요", 12, DIM, false); pl.setPadding(0, dp(14), 0, 0);
@@ -756,6 +753,7 @@ public class LeagueActivity extends Activity {
         i.putExtra("rom", rom);
         i.putExtra(EmuActivity.EXTRA_LEAGUE_HUB, true);
         i.putExtra(EmuActivity.EXTRA_HUB_GO, true);
+        i.putExtra(EmuActivity.EXTRA_RESUME_NOW, true);              /* 168 K4: 여기서 «멈춘 경기 이어서 하기»를 눌렀다 — 리셋·«나중에»로 멈춘 경기도 타이틀에서 기다리지 않고 바로 */
         try { startActivity(i); }
         catch (Exception e) { launching = false; toast("화면을 열지 못했어요 — 다시 눌러 주세요"); return; }
         finish();

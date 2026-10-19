@@ -770,6 +770,8 @@ final class League {
      * 저장에 실패하면 메모리를 되돌리고 null — 호출자가 다시 시도한다(결과는 코어 쪽에 그대로 있다).
      */
     static synchronized JSONObject settle(String matchId, int[] st) { return settle(matchId, st, 0); }
+    /** 치트 번호(cheat.h CH_* = Cheats.TIME·DIFF) — League 는 Cheats(설정 묶음)를 안 끌어온다(JVM 시험이 League 만 따로 엮는다) */
+    static final int CH_TIME = 1, CH_DIFF = 7;
     /** 168 §9 — cheatBits = 이 판에 먹은 치트(Emu.nativeCheatMatch · 1 << Cheats 번호) | 경기에 적힌 cheat_bits. 치트 판도 LP·전적은 그대로 반영하고(D1)
      *  «cheat» 표를 남긴다. 검사 면제는 그 치트가 설명하는 것만: 시간 무한(TIME) → 실효 시간 0x80 · CPU 세기(DIFF) → 손잡이·난도 확인. 대진·포인트·결판 비트는 그대로 */
     static synchronized JSONObject settle(String matchId, int[] st, int cheatBits) {
@@ -779,7 +781,7 @@ final class League {
         String backup = db.toString();
         try {
             int cb = cheatBits | m.optInt("cheat_bits");
-            boolean cTime = (cb & (1 << Cheats.TIME)) != 0, cDiff = (cb & (1 << Cheats.DIFF)) != 0;
+            boolean cTime = (cb & (1 << CH_TIME)) != 0, cDiff = (cb & (1 << CH_DIFF)) != 0;
             if (cb != 0) { m.put("cheat", cb); m.put("cheat_bits", cb); }
             JSONObject rule = m.optJSONObject("rule");
             boolean rk = isRanked(m);

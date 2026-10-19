@@ -171,8 +171,9 @@ public class PadView extends View {
     /* 168 — 리그 판(랭크) 바: 저장·로드·슬롯 칸 없음(숨김 — 눌러도 아무 일 없게) · 리셋 아래 줄 «저장 후 타이틀» · 메뉴 알약 길게 누르기(빠른 저장) 없음 */
     private boolean rankedBar = false;
     /* 168 — «치트» 알약(사무쇼2 · 치트를 넣을 수 있는 판) */
-    private boolean cheatPill = false;
+    private boolean cheatPill = false, cheatHidden = false;     /* cheatHidden = 배치 편집에서 두 번 톡으로 숨김(방향마다 배치 파일에 «,h») */
     private int cheatPid = -1;
+    private long cheatTapAt = 0;
     private final RectF cheatR = new RectF();
     /* 이 게임이 코어에서 쓰는 기능 — 게임별 칸은 여기서만 생긴다.
        전에는 「이 게임에 그 기능이 있나」를 패드 프로필 모양(prof == P_SS2)으로 판단했다.
@@ -183,6 +184,9 @@ public class PadView extends View {
     private final RectF hintPlate = new RectF();   /* 배치 모드 안내 글 뒤 어두운 판 */
     private static final String[] HINT_ONE = { "끌어서 옮기기 · 두 손가락·[－][＋]로 크기 · 「배치」로 저장" };
     private static final String[] HINT_TWO = { "끌어서 옮기기 · 두 손가락·[－][＋]로 크기", "「배치」를 다시 누르면 저장" };
+    /* 168 — 치트 알약이 있는 판: 두 번 톡 숨기기 안내 한 줄 더 */
+    private static final String[] HINT_ONE_C = { "끌어서 옮기기 · 두 손가락·[－][＋]로 크기 · 「배치」로 저장", "치트 알약 두 번 톡 = 숨기기·보이기" };
+    private static final String[] HINT_TWO_C = { "끌어서 옮기기 · 두 손가락·[－][＋]로 크기", "치트 알약 두 번 톡 = 숨기기 · 「배치」 다시 = 저장" };
     private float barBottom = 0;   /* 두 줄로 접히므로 편집 안내문은 «마지막 줄» 아래에 놓는다 */
     private final RectF minus = new RectF(), plus = new RectF();
     private final RectF barHandle = new RectF();
@@ -309,7 +313,7 @@ public class PadView extends View {
 
     /** 이 컨트롤을 지금 화면에 두는가. 숨긴 것은 그리지도, 누르지도, 편집에서 잡히지도 않는다. */
     private boolean ctrlVisible(int i) {
-        return bitOf(i) != -5 || cheatPill;   /* 168: 치트 알약만 그때그때(강P·강K 는 2026-09-06 에 걷어냈다) */
+        return bitOf(i) != -5 || (cheatPill && (edit || !cheatHidden));   /* 168: 치트 알약만 그때그때 — 배치에서 숨긴 알약은 배치 중에만 흐리게(강P·강K 는 2026-09-06 에 걷어냈다) */
     }
 
     public void setProfile(String name) { setProfile(name, name); }
@@ -405,6 +409,7 @@ public class PadView extends View {
     private File cfg() { return new File(MainActivity.root(), "pad_" + profName + (land ? "_land" : "") + ".txt"); }
 
     private void applyDefaults() {
+        cheatHidden = false;
         for (int i = 0; i < nC; i++) {
             fx[i] = (Float) prof[i][3]; fy[i] = (Float) prof[i][4]; sc[i] = (Float) prof[i][5];
             if (land) for (Object[] l : LAND)
@@ -494,6 +499,7 @@ public class PadView extends View {
                         fx[i] = Float.parseFloat(kv[1]);
                         fy[i] = Float.parseFloat(kv[2]);
                         if (kv.length >= 4) sc[i] = Float.parseFloat(kv[3]);
+                        if (bitOf(i) == -5) cheatHidden = kv.length >= 5 && "h".equals(kv[4]);   /* 168 치트 알약 숨김(옛 앱은 다섯째 칸을 안 읽는다) */
                     }
             }
         } catch (Exception ignored) { }
@@ -504,7 +510,7 @@ public class PadView extends View {
         StringBuilder sb = new StringBuilder("# 패드 배치 (이름=가로,세로,크기) — 지우면 기본값\n");
         for (int i = 0; i < nC; i++)
             sb.append(prof[i][0]).append('=').append(fx[i]).append(',')
-              .append(fy[i]).append(',').append(sc[i]).append('\n');
+              .append(fy[i]).append(',').append(sc[i]).append(bitOf(i) == -5 && cheatHidden ? ",h" : "").append('\n');
         try (FileOutputStream fo = new FileOutputStream(cfg())) {
             fo.write(sb.toString().getBytes("UTF-8"));
         } catch (Exception ignored) { }
@@ -680,10 +686,10 @@ public class PadView extends View {
                 c.drawText("OPTION", opt.centerX(), opt.centerY() + opt.height() * 0.18f, text);
             } else if (b == -5) {                            /* 168 치트 알약 — OPTION 과 같은 모양 */
                 pillRect(i, cheatR);
-                fill.setColor(cheatPid >= 0 ? 0x66ffffff : 0x2affffff);
+                fill.setColor(cheatHidden ? 0x14ffffff : cheatPid >= 0 ? 0x66ffffff : 0x2affffff);
                 c.drawRoundRect(cheatR, 12, 12, fill);
                 text.setTextSize(cheatR.height() * 0.55f);
-                c.drawText(label(i), cheatR.centerX(), cheatR.centerY() + cheatR.height() * 0.2f, text);
+                c.drawText(cheatHidden ? "숨김" : label(i), cheatR.centerX(), cheatR.centerY() + cheatR.height() * 0.2f, text);
             } else if (b == -3) {                            /* 배속 */
                 float r = radOf(i);
                 fill.setColor(ffDown ? 0x88ffcc44 : 0x33ffffff);
@@ -777,7 +783,8 @@ public class PadView extends View {
                어두운 판을 깔고, 오른쪽 위 ▶▶ 를 가리지 않게 가운데 72% 안에 넣는다 — 안 들어가면 두 줄, 그래도 넘치면 글자를 줄인다(덮개 화면). */
             float ts = getHeight() * 0.017f, lim = w * 0.72f;
             text.setTextSize(ts);
-            String[] hint = text.measureText(HINT_ONE[0]) <= lim ? HINT_ONE : HINT_TWO;
+            boolean ch = cheatPill && cheatIndex() >= 0;                     /* 168 치트 알약 숨기기 안내 */
+            String[] hint = text.measureText(HINT_ONE[0]) <= lim ? (ch ? HINT_ONE_C : HINT_ONE) : (ch ? HINT_TWO_C : HINT_TWO);
             float tw = 0;
             for (String s : hint) tw = Math.max(tw, text.measureText(s));
             if (tw > lim) { ts *= lim / tw; text.setTextSize(ts); tw = lim; }
@@ -834,7 +841,8 @@ public class PadView extends View {
         }
         if (b == -5) {                                   /* 168 치트 알약 — OPTION 그림 그대로 */
             pillRect(i, cheatR);
-            skin.pill(c, "opt", cheatR, cheatPid >= 0, false, 0, label(i));
+            skin.pill(c, "opt", cheatR, cheatPid >= 0, false, 0, cheatHidden ? "숨김" : label(i));
+            if (cheatHidden) { fill.setColor(0x99000000); c.drawRoundRect(cheatR, 12, 12, fill); }   /* 배치 중 — 숨긴 알약은 어둡게 */
             return true;
         }
         if (b == -3) {
@@ -890,7 +898,7 @@ public class PadView extends View {
     /** 치트 알약 누르는 자리 — OPTION 처럼 48dp 이상 */
     private boolean cheatHit(float x, float y) {
         int ci = cheatIndex();
-        if (ci < 0 || !cheatPill) return false;
+        if (ci < 0 || !cheatPill || cheatHidden || edit) return false;
         RectF r = new RectF(); pillRect(ci, r);
         float min = 48 * getResources().getDisplayMetrics().density;
         if (r.height() < min) r.inset(0, -(min - r.height()) / 2f);
@@ -1037,6 +1045,11 @@ public class PadView extends View {
                     invalidate(); return true;
                 }
                 int ci = nearestControl(x, y);
+                if (ci >= 0 && bitOf(ci) == -5) {                     /* 168 치트 알약 — 두 번 톡 = 숨기기/보이기(배치 중엔 흐리게 남아 다시 꺼낼 수 있다) */
+                    long now = android.os.SystemClock.uptimeMillis();
+                    if (now - cheatTapAt < 350) { cheatHidden = !cheatHidden; cheatTapAt = 0; performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); updateExclusion(); }
+                    else cheatTapAt = now;
+                }
                 if (ci >= 0) {
                     dragIdx = ci; selIdx = ci; selScreen = false;
                     dragPid = e.getPointerId(idx); invalidate();

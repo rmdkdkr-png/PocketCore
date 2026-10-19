@@ -298,7 +298,7 @@ final class MenuModel {
                         on = canRe;
                         r = Math.max(1, Math.min(3, played)) + "/3";
                         if (on) d = b.outcome == O_LOSS ? "같은 상대와 바로 다시" : "같은 상대와 한 판 더";
-                        else d = !supported ? "이 조합은 아직 못 해요" : "3판을 다 했어요";
+                        else d = "";                                    /* 168: 못 쓰는 재대결 줄은 아예 안 넣는다(위 rows) — 이유 글 없음 */
                         break;
                     case ROW_NEWCHAR: d = "내 캐릭터부터 고르고 상대를 찾아요"; break;   /* 168 §6: 늘 켬 */
                     case ROW_DRAWER: d = "순위·전적·리그 보기"; break;
