@@ -70,6 +70,9 @@ public class FrameMeterView extends View {
     boolean narrow(int w) { return (w - 12 * dp - labelW()) / FrameMeterText.VIEW < 3; }
     private float padX(int w) { return narrow(w) ? 2 * dp : 6 * dp; }
     float cellW(int w) { return Math.max(2, (w - 2 * padX(w) - (narrow(w) ? 0 : labelW())) / FrameMeterText.VIEW); }
+    /** 176 검토: 칸 80개가 2px 씩 다 들어가는 가장 좁은 폭(좁은 판 — 옆 여백 2dp · 이름 칸 없음). 그림이 이보다 좁으면(정수배 1× = 160px)
+     *  cellW 가 2 에 걸려 오른쪽 칸들이 미터 밖으로 잘렸다 → placeFrameMeter 가 이 폭으로 그림 가운데에 둔다 */
+    int minWidth() { return (int) Math.ceil(2 * FrameMeterText.VIEW + 4 * dp); }
 
     @Override protected void onMeasure(int ws, int hs) {
         int w = MeasureSpec.getSize(ws);
