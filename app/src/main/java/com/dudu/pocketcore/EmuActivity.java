@@ -1426,15 +1426,19 @@ public class EmuActivity extends Activity {
         if (m == null) { leagueVanished(); return; }
         leagueDone = true;
         String vk = League.voidKind(m, League.appVer);
-        if (vk == null && kind != BLK_ROM && !League.userSuspended(m)) vk = kind == BLK_BADCKPT ? "ckpt" : "crash";   /* 기록이 따라오지 못했어도(저장 실패) 이 카드의 종류로 · 168 K3: 사용자가 멈춘 판은 무효 없음(기권만) */
+        final boolean userSusp = League.userSuspended(m);
+        if (vk == null && kind != BLK_ROM && !userSusp) vk = kind == BLK_BADCKPT ? "ckpt" : "crash";   /* 기록이 따라오지 못했어도(저장 실패) 이 카드의 종류로 · 168 K3: 사용자가 멈춘 판은 무효 없음(기권만) */
         final String voidKind = vk;
+        /* 168 K3: 사용자가 멈춘 판(체크포인트가 없음·못 읽음)도 같은 A 카드 — 무효 단추만 없다(기권하고 계속 · 타이틀로) */
+        String look = vk != null ? vk : userSusp && kind != BLK_ROM ? (kind == BLK_BADCKPT ? "ckpt" : "crash") : null;
         final boolean hub = leagueHub, single = !leagueHub;
         String title, body;
         org.json.JSONObject snap = m.optJSONObject("opp_snap");
         String vs = "vs " + League.oppNick(m) + (snap != null && !snap.optString("label").isEmpty() ? " · " + snap.optString("label") : "");
-        if ("crash".equals(vk) || "ckpt".equals(vk)) {                              /* A — 앱이 멈춤 · 자리를 못 불러옴 */
+        if ("crash".equals(look) || "ckpt".equals(look)) {                          /* A — 앱이 멈춤 · 자리를 못 불러옴 */
             title = "멈춘 경기를 이어할 수 없어요";
-            body = vs + "\n" + ("ckpt".equals(vk) ? "이어할 자리를 불러오지 못했어요." : "앱이 멈춰서 이어할 자리가 없어요.") + "\n무효로 닫으면 LP·전적은 그대로예요.";
+            body = vs + "\n" + ("ckpt".equals(look) ? "이어할 자리를 불러오지 못했어요." : userSusp ? "저장해 둔 자리가 없어요." : "앱이 멈춰서 이어할 자리가 없어요.")
+                    + (voidKind != null ? "\n무효로 닫으면 LP·전적은 그대로예요." : "\n기권하면 패배로 기록돼요.");
         } else if ("app".equals(vk)) {                                              /* B′ — 앱 판이 바뀜 */
             title = "앱이 바뀌어 이어할 수 없어요";
             body = "앱을 업데이트해서 이 경기를 이어할 수 없어요.\n무효로 닫으면 LP·전적은 그대로예요.";
