@@ -93,13 +93,13 @@
 |---|---|
 | 다음 상대 | `rankNext(false)` (겹창 rankQ 를 먼저 띄우고 hubReturn(−4)) |
 | 재대결 / 설욕전 n/3 | `rankRematch(m, rp)` — **G9: 무대 = rankStageFor(rp)**(pref.stage) |
-| 새 캐릭터 | `rankNext(true)` (rankAuto == 2 일 때만 켜짐) |
+| 새 캐릭터 | `rankNext(true)` — 168: 늘 켬 · 내 캐릭터부터(`hubPickOnly(true)` → 허브 9 → 고른 걸 pref.main → `rankNext(false)`) |
 | ◀▶ 무대 | `rankStageStep(±1)` → `menu.setStage(sel)` |
 | 그만할까요? › 타이틀로 | `rankOppV = null; hubReturn(-1)` |
-| › 리그 화면 | `leagueExitBoard()` |
+| ~~› 리그 화면~~ | 168: 줄 없앰(순위표는 서랍 · LeagueActivity 는 런처에서만) |
 | › 내 게임 | `hubToGame()` |
 | › 게임 목록 | `leagueHub = false; goList()` |
-| 쉼 › 나중에 [저장] | leagueLeave 의 «나중에 이어하기» 몸통(체크포인트 → resume → leagueExit(null)) |
+| 쉼 › 나중에 [저장] | 168: `leagueSuspend` — 체크포인트 → `League.suspendUser`(resume + suspend=user + 치트 비트, 저장 한 번) → `hubReturn(-1)`(타이틀 · A 로 이어서) |
 | 쉼 › 기권 | leagueLeave 의 «기권» 몸통(League.forfeit) → 결판(기권패) |
 | 쉼 › 그만두기 (무효) | leagueLeaveBeforeStart 의 몸통(League.cancel) |
 
@@ -676,8 +676,8 @@ Emu.nativeSetInput(in); Emu.nativeFrame(); …
 |---|---|---|
 | 결판 «그만하기» · 결판 B | «그만할까요?» 장면 | **바로 타이틀로**(`lgmQuit(QUIT_TITLE)` — 리그는 켠 채, A 로 다시 찾기). 줄 설명 «타이틀로 · 리그는 켠 채». `armResult/openResultNow(…, quit = null)` |
 | 타이틀·찾기·고르기·결판 뒤 — 메뉴 바 «목록»·«종료» | `hubLeave` 카드(계속/타이틀로/내 게임/순위표/목록) | `hubLeaveTo(dest)`: 목록 = 게임 목록 · 종료 = 앱 종료 · 대진 전 준비 기록은 `cancelReady`(무효 · `leagueId` 잊음 — 내려가며 onPause 가 닫은 경기의 체크포인트를 쓰지 않게) |
-| 리그 타이틀에서 뒤로 | 같은 카드 | `hubLeaveTo(0)` = 게임에서 왔으면 그 게임 · 아니면 리그 화면 |
-| 첫 라운드 전 나가기(옛 길) | «시작 전 — 계속/그만두기» 카드 | 바로 무효(토스트 «시작 전이라 무효로 닫았어요 — LP 그대로») · 게임 속 리그면 «무효» 결과 카드 없이 바로 타이틀(`hubReturn(-1)` — 고르기 화면 뒤로와 같게) · 한 경기 판이면 리그 화면 · 그사이 첫 라운드가 시작됐으면 보통 나가기 |
+| 리그 타이틀에서 뒤로 | 같은 카드 | `hubLeaveTo(0)` = 게임에서 왔으면 그 게임 · 아니면 168 대기(못 열면 게임 목록 — K6) |
+| 첫 라운드 전 나가기(옛 길) | «시작 전 — 계속/그만두기» 카드 | 바로 무효(175: 알림 글 없음 — LP 그대로) · 게임 속 리그면 «무효» 결과 카드 없이 바로 타이틀(`hubReturn(-1)` — 고르기 화면 뒤로와 같게) · 한 경기 판이면 리그 화면 · 그사이 첫 라운드가 시작됐으면 보통 나가기 |
 | 일반 판 패드 «리그 대전» 칸 | 오토세이브가 꺼져 있으면 «리그 대전으로 — 갈까요?» 카드 | 바로 리그 판(꺼져 있으면 토스트 «자동 저장이 꺼져 있어 지금 판은 이어지지 않아요» — 목록으로 나갈 때와 같은 규칙) |
 | 이어 할 수 없는 경기(허브 — 체크포인트 없음·못 불러옴·앱 바뀜) | 막힘 카드 | 무효로 닫을 수 있으면(`League.voidKind`) **묻지 않고** 카드의 «무효로 닫고 계속» 길 그대로(`autoVoidId` 로 한 번만 — 저장 실패면 카드) |
 | 점수가 걸린 경기 중 | 쉼(덧판) | 그대로 — 쉼이 나가기 메뉴(나중에·기권). **기권만** 묻는다: 한 번에 — 같은 칼집 안 기권 줄 맥박 · 아래 띠 «기권 글(−LP·강등)» + «A 한 번 더 = 기권 · B 취소» · 커서가 옮기면 확인 접음 · 연 지 8f 안의 A 는 무시(`CONFIRM_MIN`) |
@@ -747,3 +747,42 @@ vsync 마다 그린 텍스처의 이름표 줄 = 날 그림 + 자바로 따로 �
 | 서랍 순위표 무쌍 | 무쌍은 MR(다른 점수)로 매겨 늘 모든 LP 티어 위(RankCore.key — 그대로, 시험으로 확인). 무쌍 줄 값 칸 = 빨강 «MR» + 흰 숫자(칸 c12–19 티어 빛) · 내 줄도 · 무쌍 → LP 첫 경계에 금줄 나눔 줄 «▲ 무쌍 · MR 순 ▼ LP 순»(«…» 건너 있으면 그 뒤) · «…» 줄 = 건너뛴 순위 «… 101~916위 …» · 열 머리 «LP·MR»(무쌍이 있을 때) · 아래 줄 «무쌍은 MR 순 · 늘 LP 위 ▲▼ ◀▶ B» |
 
 시험: `u165/sim/run_sim.sh`(장면 ckpt · pausedrawer · skip · hub · hubfirst · settledrop — JOPTS 로 그림 지연·버림·실패·잔상·사람 입력·롬) · `u165/fuzz/BoardMrTest.java`(무쌍 줄 «MR»·나눔 줄·«…» 순위·열 머리·RankCore 순서) · `u165/fuzz/LgmFuzz.java` · `u165/tools/tagdiag.py`.
+
+## 22. 168(166 묶음 A) — 멈춘 경기 · 대기(157-B) · 서랍 리그 탭 · 내 이름 · 리그 치트 · 경기 중 설정
+
+설계 `handoff/ss2_next/설계_166묶음/README.md`(1·2·3/3b·6·9·10·11 + 검토 K1–K6·M1–M5·M10). 4·5·7·8(2P색·검질 무관 색·연습 순서·나/상대 구분)은 베기 색 가지(w165-fx) 뒤.
+
+| 무엇 | 정함 |
+|---|---|
+| 멈춘 경기 | 리셋(바)·«나중에»(쉼·옛 나가기 카드)·셋째 줄 «연습 대전» = `leagueSuspend`: 체크포인트 → `League.suspendUser`(한 저장) → 타이틀(리그 켠 채). 결판이 선 판은 결판 길(M4). 저장 실패면 경기 계속(저장소 글 한 줄). 타이틀 A(허브 6)·대기 «이어서 하기»·«끝나지 않은 경기» 카드 = `hubResumeOpen`(허브 1/6·대신 누르기 0 에서만 — 아니면 미뤘다가 hubTick 이, K2) |
+| 사용자 멈춤 표지 | `suspend=user` 인 복귀 대기 판(앱 판 그대로)은 `voidKind`·`voidStarted`·막힘 카드 대체 줄 모두 무효 없음(기권·이어 하기만, K3) · 이어 하기에 성공하면 `setStatus(playing)` 이 지움 · 앱을 다시 켜면(hub_go 도) 타이틀에서 기다림 — 리그 화면 «멈춘 경기 이어서 하기»만 `EXTRA_RESUME_NOW` 로 바로(K4) |
+| 리그 판 바 | `PadView.setRankedBar(true)` — 슬롯·저장·로드 칸 없음 · 리셋 아래 «저장 후 타이틀» · 메뉴 알약 길게(빠른 저장) 없음 · `handleAction` 은 저장·로드·되돌리기·슬롯을 글 없이 무시 · 같은 «리그 대전» 칸이 «리그 메뉴»(`leagueMenuCell` — 경기 중 쉼 · 그 밖 대기) |
+| 대기(K_LOBBY · ST_LOBBY · SC_LOBBY 8 / CONFIRM 10 / QUIT 11) | 자격 `lobbyEligible`: 리그 랭크 판 · 허브 1 · 메뉴 화면 0(데모 아님 — K5) · 경기 기록·겹창·카드·창 없음. 여는 길: 타이틀 OPTION 탭(`optionGate` → `lgmWantLobby`) · 타이틀에서 뒤로 · 바 «리그 메뉴» · 옛 카드 «리그 메뉴». 줄(못 쓰는 줄은 안 넣음): 상대 찾기 / 이어서 하기 · 순위·전적·리그 · 내 캐릭터 · (멈춘 경기) 기권(두 번 묻기) · (앱 탓) 무효로 닫기 · 리그 나가기(내 게임 · 게임 목록 · 취소). Actions: `lgmWantLobby · lgmSearch · lgmResumeOpen · lgmMain · lgmOpenForfeit · lgmOpenVoid · lgmSeason(kind) · lgmName` |
+| 서랍 4탭 | 보이는 차례 `Prefs.TAB_ORDER` = 순위 · 전적 · 리그(3) · 설정(2) — 저장 값 번호 그대로(옛 0~2 읽힘) · ◀▶ 는 차례 안에서 돎 |
+| 리그 탭(SC_LEAGUE 9 / CONFIRM 12) | 줄 `LG_NEW_SEASON 301`(배치 끝난 뒤만) · `LG_RESTART 302` · `LG_MAIN 303`(이 셋은 대기에서 연 서랍만) · `LG_NAME 304`(늘). 시즌 둘은 첫 A 펼침(`Scene.variants` — 그 줄 맥박 · 아래 띠 «A 한 번 더») · 둘째 A(CONFIRM_MIN 뒤) = `lgmSeason`. 멈춘 경기가 있으면 펼침 글 «멈춘 경기(vs …)는 기권패로 닫고 …» → `League.newSeason/restartRanked(true, true)` 가 한 저장 안에서 기권(보관 파일 = 기권 뒤) · 뒤에 `sessionReset`(M1). 아래 목록(L): 시즌 · 지난 시즌 · 치트 판 수 · 멈춘 경기 · 보류·무효 · 규칙(`League.rulesShort` — 리그 화면 규칙은 `League.rulesText`) |
+| 내 캐릭터 먼저(허브 9 H_PICK_SOLO) | `hubPickOnly(viaReset)` — 결판 «새 캐릭터»는 −5, 타이틀·찾기·대기는 `nativeHubPickOnly`. 상대 없이 고르기 → 이야기 시작에 native 가 남김(PO.done) → `League.setMain` → `rankNext(false)`. 허브 9 는 3 이 아니라 «허브 3 → 경기 기록»에 안 걸림(K1) · 고르기에서 뒤로 = 예전 캐릭터 그대로 · 멈춘 경기가 있으면 setMain 만 하고 타이틀(M5) · main 이 없을 때 찾기도 이 길 · 175 컬러: 허브 9 는 look ctx FREE(대신 누르는 nav 동안만 BUSY) — OPTION 몸 컬러 · A+B 베기 색 다음 것 · A·B 모두 결정(보통 색 — 2P색 없음) · 세로 칸 이름·문양 칸 아이콘 · 몸 컬러는 캐릭터 기억·pref.main colour, 베기 색은 look 전역 값(`Look.saveFx`) — −4 자동 고르기(AUTO)가 그대로 경기에 · 멈춤·이어 하기는 체크포인트 .look(171) |
+| 리그 치트 | native why 4(씀) · `cheat_match_bits`(무장 때 비움) → `leagueCheatSync`/멈추기/다시 올리기/onPause 때 `League.orCheat` · `League.settle(id, st, cheatBits)` 면제는 그 치트가 설명하는 것만(TIME → 실효 시간 0x80 · DIFF → 손잡이·난도) · LP 반영(D1) · 기록 `cheat` → 결판 «치» 도장(E_CHEAT 13) · 전적 «치트 n» · 줄 «… · 치트». 리그 판엔 왼쪽 위 «치트» 이름표 없음(HUD 이름표) · 치트 창에 올카드 줄 없음 |
+| «치트» 알약 | PadView `ACT_CHEAT 19` · 사무쇼2 치트 판(`setCheatPill`)만 · 세로 (0.27, 0.955, ×0.90) · 가로 (0.38, 0.96) · 배치 편집에서 끌기·크기·두 번 톡 숨김(배치 파일 «,h») · 누르면 `LaunchSheet.showCheats`(겉 창 없음) — 덧판·카드·컬러 창이 떠 있으면 무시 |
+| 경기 중 설정 | 리그 판도 설정 창. 닫을 때 먹는 것은 그대로. «적용하고 이어하기» = `applyLiveLeague`: 원버튼·컬러 고르기가 바뀌었으면 경기 중이면 체크포인트 → 새 창(리그 판 · 표지 없음 → 바로 이어 함) · 경기 밖이면 새 창(`EXTRA_HUB_TITLE` — 로고만 넘겨 타이틀). 언어만 바뀌었거나 결판이 막 선 판은 미뤘다가(경기 끝 · 타이틀) 한 번 다시 올림(S1·M10). 리그 판 언어 = 시작한 경기의 롬 판(`League.matchLang` — rom_md5 의 한글패치 여부) |
+| 내 이름 | `League.setMyName` — KS X 1001 한글·영문·숫자·_-. 8자(글꼴 셋 공통), 비우면 «나» · 대기 머리 패 · 이름표 · VS 띠 · 결판 띠 · 순위표(BoardCache·LeagueActivity) · 리그 탭 «내 이름» → 게임 위 글 칸 카드(`Ask.field`) · 리그 화면 «내 이름 [바꾸기]» |
+| 리그 화면으로 새는 길 | 게임 흐름에서 없음 — `leagueExit(null)` 은 허브가 켜졌으면 `hubReturn(-1)` · 막힘 카드는 «타이틀로»/«게임 목록» · 결판 «그만할까요?»의 «리그 화면» 줄 없음. LeagueActivity 는 런처 «리그 순위표»에서만(리그 판이 떠 있으면 «게임으로 돌아가기» — M2) |
+| «리그라 안 돼요» 글 | 없음(토스트·창·흐린 줄 이유 글 모두). 남은 거절 글은 저장소 실패·체크포인트 저장 실패뿐 |
+| 리그 길 알림 글(175) | 없음 — 멈춤 «경기를 저장했어요»·경기 시작 «리그 경기 — …»·무효·기권·시즌 시작·«내 캐릭터로 정했어요»·«그만뒀어요»·«다음에 정산해요»·«재대결을 할 수 없어요»·런처 «다음 판에 새로 골라요»·«첫 라운드 전에 멈춘 경기를 무효로 닫았어요»·셋째 줄 «리그 대전만 돼요» 모두 뺌. 남은 글은 실패(저장·찾기·자동 고르기·저장소)뿐 |
+
+시험: `u168/h/menu/t/Lgm168Test.java`(대기·리그 탭·입력·두 번 묻기·탭 차례·치트 정산·표지·시즌 도구·언어·이름) · `u168/fuzz/LgmFuzz.java`(대기 셋 판 · 리그 탭 · 펼침 판) · `u168/sim/j/SimTest.java` 장면 reset · later · restart · cheat · cfg · cfgtitle · newchar · firstpick · pickback · lobby · lobbyff · k2 · name(진짜 EmuActivity + native.c + 164 코어) · `u168/nat/tests/t_po.py`·`t_cheat_league.py`.
+
+### 22-1. 168 검토 고침(결함 8개)
+
+| 무엇 | 정함 |
+|---|---|
+| 올카드는 리그 기록에 안 남음 | 리그 판 `pushCheats` 는 `Cheats.push` 뒤 `nativeCheatSet(CARDS, 0)`(리그는 늘 카드 전부 열림 · 리그 치트 창에 그 줄이 없어 끌 수도 없다 · «세이브에 남기기»도 리그 세이브에 안 들어감). 안전망 `cheatMatch()` 는 리그 판에서 올카드 비트를 뺀다(멈추기·다시 올리기·onPause·leaguePoll 모두 이 길). 전엔 리그 세이브를 다시 읽는 프레임(prog 03→06 · 카드 8 미만)에 비트가 서서 매 판 «치트»·«치» 도장 |
+| RESUME_NOW 한 번만 | LeagueActivity `goHub` 는 시작한 열린 경기가 있을 때만 붙임. EmuActivity: `hubStart` 가 읽고 `removeExtra` · `onSaveInstanceState` 에 «썼음»(`hub_rnow_used`) · `onCreate` 첫머리 `hubRestore(b)`(묶음이 있으면 앞 창 값, 모르면 썼음) — 다시 만든 창(설정 바뀜·프로세스가 죽은 뒤 최근 앱)도 사용자 멈춤 판은 타이틀에서 A 를 기다림(K4·D7) |
+| 대기 자격 = 진짜 타이틀 메뉴(K5) | 새 JNI `nativeHubMenu()`(league.c `league_hub_menu` — 지난 진짜 프레임 `menu_kind`: 0 아님 · 1 한글판 · 2 순정판 · LEAGUE_NHUB/NDUAL 그대로). `hubTitleMenu()` = 화면 0 이고 메뉴 글자 있음(옛 native 면 화면 0). `lobbyEligibleAt(st)`·`leagueMenuCell`·`lobbyFromBack` 이 이것으로 — GAME OPTION·COLLECTION·인트로 그림·데모에선 대기 자격 없음(OPTION 은 게임으로) · 바 «리그 메뉴»·뒤로는 타이틀로 돌려보낸 뒤 그 메뉴에서 대기 |
+| 찾기 겹창 안전망 | Q_SEARCH 에서 허브 1 인데 메뉴가 없으면 찾기를 안 건다(전엔 1→6→1 끝없이) · Q_GO_LOST(2.5초) 넘게 없으면 겹창 닫고 «상대를 잡지 못했어요 — 다시 찾아 주세요» · 메뉴 없는 화면에 매달린 «내 캐릭터 먼저» 요청(PO.req)은 2초 뒤 `nativeLeagueHubCancel` 로 지움(그 화면을 나오자 고르기로 튀지 않게) |
+| 미룬 대기 열기 | `lobbyWant(viaBack)` — hubTick 이 이번 틱 상태(`lobbyEligibleAt(st)`)로 보고 못 열면 남겨 둠(전엔 돌아온 첫 타이틀 틱에 hubLastState 가 5·9 라 버려졌다 — 옛 결과 카드 «리그 메뉴»·고르기의 바 «리그 메뉴»가 맨 타이틀로). 경기·찾기·고르기·결판·이어 하기가 시작되거나 60초가 지나면 `lobbyUnwant()` — 뒤로 표(lobbyViaBack)도 함께 지움(남은 표가 다른 대기를 K6 갈래로 빠뜨리지 않게) |
+| «치트» 알약 자리·차례 | 가로 기본 x = `cheatLandX(w,h)` = min(0.38, 0.50 − 0.21·짧은 변/w)(OPTION 반폭 0.10 + 치트 반폭 0.09 + 틈 0.02 — 4:3 0.342 · 3:2 0.360 · 폴드 안쪽 0.325 · 넓은 폰 0.38 그대로) · 배치 파일에 없고 안 옮겼으면 크기가 바뀔 때 다시 잡음. 누를 때 차례 `cheatTakes`: 보이는 OPTION > 보이는 치트 > OPTION 누르는 자리(48dp) > 십자 잡는 자리(1.35R) > 치트 누르는 자리 |
+| 리그 판 치트 표시 | 먹는 치트가 있으면(옵션 값 · 리그 판은 올카드 뺌 — `Cheats.activeMask`) 알약이 밝게 «치트 ON»(`PadView.setCheatActive`) — 이것 하나(175: 첫 라운드 한 줄 알림·«치트 적용» 글 없음 — 유저 «안내 글을 보고 싶지 않음»). 왼쪽 위 이름표는 여전히 리그 판엔 없음 |
+| 런처 시즌 도구 | `League.seasonToolWhy()`(= resetBlockedWhy(false, true)) — 멈춘 경기로 막지 않음 · 두 번 묻기 창 첫 줄 `League.openForfeitLine()` «멈춘 경기(vs …)는 기권패로 닫아요 · −n LP» · 단추 «기권패로 닫고 시작/처음부터» → `newSeason/restartRanked(false, true)` · 물은 뒤 멈춘 경기가 바뀌었으면 다시 그림 · 새 시즌 뒤 `sessionReset` |
+| 타이틀 언어만 | 경기 밖이고 언어만 바뀌었는데 멈춘 경기가 있으면 `matchLang(그 경기, 새 언어)` 가 지금 창 언어와 같을 때 다시 올리지 않고 미룸(새 창도 그 판으로 고정이라 바뀔 게 없다) |
+
+시험: `u168/sim/j/SimTest.java` 장면 cards_off · cards_temp · cards_save · cards_nat · rnow · optlobby · optsearch · collback · bootlobby · cardlobby · barcell · backstale · actblock · cheatind · langtitle · `u168/h/pad/t/PadGeomTest.java`(기기 6종 × 세로·가로) · `Lgm168Test`(시즌 도구 글).

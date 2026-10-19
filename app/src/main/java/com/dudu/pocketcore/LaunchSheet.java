@@ -74,11 +74,18 @@ public final class LaunchSheet {
     private KeyMap keymap;
     /* 치트 창(사무쇼2) — 같은 창 안에서 내용만 갈아 끼운다: 런처·게임이 쥔 이 창 하나로 패드 키가 그대로 오고(창을 따로 띄우면 키를 받는 창이 갈린다),
        닫기·바깥 탭의 onClose(게임 안: 멈춤 풀기 + 치트 넣기)도 그대로 돈다. 겉 창으로 돌아올 때 다시 그리려고 롬·썸네일·제목을 둔다 */
-    private boolean cheatView = false, inGame = false, cheatsChanged = false;
+    private boolean cheatView = false, inGame = false, cheatsChanged = false, cheatsOnly = false;   /* cheatsOnly = 알약으로 연 치트 창(겉 창 없음) */
     private File romFile; private Bitmap thumbBmp; private String titleText;
     private int cheatLink = -1;                                  /* 겉 창에서 «치트 ›» 고리의 자리(linkViews) — 돌아올 때 커서를 거기로 */
     /** 게임 안: 치트 세이브 보관에 쓸 롬(원래 경로 — 사본도 이름이 같다) · 이 롬 판에서 치트가 안 켜지면 그 글(치트 창 부제). EmuActivity 가 창을 연 뒤 넣는다 */
     public File cheatRom; public String cheatOff;
+    /** 168 — 리그 판에서 연 창: 올카드 줄은 뺀다(리그는 늘 카드 전부 열림 · «세이브에 남기기»가 엉뚱한 세이브(원작 세이브)를 보관·되돌리지 않게 — 검토 G-4) */
+    public boolean leagueSession;
+    private java.util.List<Settings.Item> cheatItems() {
+        java.util.List<Settings.Item> out = new java.util.ArrayList<>();
+        for (Settings.Item it : Settings.GROUPS.get(Cheats.GROUP)) if (!(leagueSession && Cheats.CARDS_KEY.equals(it.key))) out.add(it);
+        return out;
+    }
 
     public static LaunchSheet show(Activity a, File rom, Games.Game g, Bitmap thumb, String title, Runnable onStart) {
         LaunchSheet s = new LaunchSheet(a, g, onStart);
@@ -93,6 +100,13 @@ public final class LaunchSheet {
         s.onSettings = onSettings;
         s.inGame = true;
         s.open(null, null, title);
+        return s;
+    }
+    /** 168 §9 — 화면 «치트» 알약: 치트 창만 바로(겉 창 없이). 단추 «적용 ▶» · 뒤로 = 닫기(onClose 가 값을 넣는다) */
+    public static LaunchSheet showCheats(Activity a, Games.Game g, File rom, boolean league) {
+        LaunchSheet s = new LaunchSheet(a, g, null);
+        s.inGame = true; s.cheatsOnly = true; s.cheatRom = rom; s.leagueSession = league;
+        s.open(null, null, g != null ? g.ko : null);
         return s;
     }
     /** 런처 카드 아래 한 줄 — 이 게임에 지금 걸린 실행 옵션. 창을 열지 않아도 무엇으로 켜질지 보이게(2026-10-11).
@@ -223,7 +237,10 @@ public final class LaunchSheet {
             @Override public void onClick(View v) { dlg.cancel(); }
         });
         dlg.setContentView(frame);
-        setSheet(build(rom, thumb, title));
+        if (cheatsOnly) { opts.clear(); clearViews(); cheatView = true; Map<String, String> m0 = Settings.load();
+            for (Settings.Item it : cheatItems()) opts.add(fromItem(it, m0));
+            focus = 0; setSheet(buildCheats()); }
+        else setSheet(build(rom, thumb, title));
         Window w = dlg.getWindow();
         if (w != null) {
             w.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
@@ -647,7 +664,7 @@ public final class LaunchSheet {
         cheatView = true;
         opts.clear(); clearViews();
         Map<String, String> m = Settings.load();
-        for (Settings.Item it : Settings.GROUPS.get(Cheats.GROUP)) opts.add(fromItem(it, m));
+        for (Settings.Item it : cheatItems()) opts.add(fromItem(it, m));
         focus = 0;
         setSheet(buildCheats());
         paintFocus();
@@ -655,6 +672,7 @@ public final class LaunchSheet {
 
     /** 겉 창으로 — 줄·고리 글(«치트 · 3개 켬»)을 새 값으로 다시 그리고 커서는 «치트 ›» 고리에 */
     private void closeCheats() {
+        if (cheatsOnly) { try { dlg.dismiss(); } catch (Exception ignored) { } return; }   /* 알약으로 연 창 — 겉 창이 없다 */
         cheatView = false;
         opts.clear(); clearViews();
         buildOpts();
@@ -684,7 +702,7 @@ public final class LaunchSheet {
         col.addView(h);
         TextView s = new TextView(a);
         s.setText(cheatOff != null ? cheatOff
-                : inGame ? "바꾸면 바로 먹어요. 리그 대전엔 안 먹어요." : "고른 건 이 게임에 저장돼요. 리그 대전엔 안 먹어요.");
+                : inGame ? "바꾸면 바로 먹어요. 리그에서 먹은 판은 기록에 «치트»로 남아요." : "고른 건 이 게임에 저장돼요. 리그 대전에서도 먹어요 — 그 판은 «치트»로 남아요.");
         s.setTextColor(cheatOff != null ? GOLD : DIM); s.setTextSize(12); s.setPadding(0, dp(2), 0, 0);
         face(s, false, false);
         col.addView(s);

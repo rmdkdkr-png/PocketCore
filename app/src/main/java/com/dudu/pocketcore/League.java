@@ -398,11 +398,51 @@ final class League {
         String s = m.cell == 15 ? "무작위 칸" : CHAR[m.ch] + " " + STYLE[m.sty];
         return colour >= 0 && colour < COLORS.length ? s + " · " + COLORS[colour] : s;
     }
-    /** 랭크 화면·VS 띠에 쓰는 내 이름 — 기록의 me.name(없으면 «나») */
+    /** 랭크 화면·VS 띠·이름표·결판 띠·순위표에 쓰는 내 이름 — 기록의 me.name(없으면 «나») */
     static String myNick() {
         JSONObject me = me();
-        String n = me != null ? me.optString("name", "") : "";
-        return n.trim().isEmpty() ? "나" : n.trim();
+        String n = me != null ? cleanName(me.optString("name", "")) : "";
+        return n.isEmpty() ? "나" : n;
+    }
+    /** 168(11) 내 이름 길이 — 이름표(62px)·순위표(54px) 칸에 «…» 없이 드는 갈무리 글자 수 근처 */
+    static final int NAME_MAX = 8;
+    /** 내 이름으로 쓸 수 있는 글자만 — KS X 1001 한글 2,350자·영문·숫자·밑줄·붙임표·마침표(앱 픽셀 글꼴 갈무리7·11·11B 가 다 가진 것 —
+     *  assets/fonts/README: «ASCII + KS X 1001 한글 2,350자») · 앞뒤·겹친 빈칸 정리 · NAME_MAX 자.
+     *  다른 글자(KS X 1001 밖 음절 «똠»·이모지·한자·자모 따로 등)는 뺀다 — 덧판·이름표는 «?», VS 띠는 시스템 글꼴로 그려져 픽셀 글꼴이 깨지기 때문 */
+    static String cleanName(String raw) {
+        if (raw == null) return "";
+        StringBuilder b = new StringBuilder();
+        boolean sp = false;
+        for (int i = 0; i < raw.length() && b.length() < NAME_MAX; ) {
+            int cp = raw.codePointAt(i); i += Character.charCount(cp);
+            boolean ok = (cp >= 0xAC00 && cp <= 0xD7A3 && ksHangul(cp)) || (cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z') || (cp >= '0' && cp <= '9')
+                    || cp == '_' || cp == '-' || cp == '.';
+            if (cp == ' ' || cp == 0x3000) { if (b.length() > 0) sp = true; continue; }
+            if (!ok) continue;
+            if (sp && b.length() < NAME_MAX - 1) b.append(' ');
+            sp = false;
+            b.appendCodePoint(cp);
+        }
+        return b.toString().trim();
+    }
+    /** KS X 1001 완성형 한글 2,350자인가(EUC-KR 로 쓸 수 있는 음절) — 글꼴 셋이 모두 가진 음절. EUC-KR 이 없는 JVM 이면 모든 음절을 받는다 */
+    private static boolean ksHangul(int cp) {
+        try { return java.nio.charset.Charset.forName("EUC-KR").newEncoder().canEncode((char) cp); }
+        catch (Exception e) { return true; }
+    }
+    /** 내 이름 바꾸기 — 다듬은 값(비면 «나»)을 me.name 에. 같으면 파일을 안 건드린다. 저장 실패면 false(메모리는 되돌림) */
+    static synchronized boolean setMyName(String raw) {
+        String n = cleanName(raw);
+        if (n.isEmpty()) n = "나";
+        try {
+            JSONObject me = me();
+            if (me == null) { me = new JSONObject(); db().put("me", me); }
+            String old = me.optString("name", "나");
+            if (n.equals(old)) return true;
+            me.put("name", n);
+            if (!save()) { me.put("name", old); return false; }
+            return true;
+        } catch (Exception e) { return false; }
     }
 
     /** 고른 배경을 실제 배경(0~7)으로 — 상대 기본·무작위 풀기 */
@@ -520,7 +560,7 @@ final class League {
         if (m == null || terminal(m.optString("status"))) return false;
         try {
             m.put("status", status);
-            if ("playing".equals(status)) m.remove("resume_fail");     /* 다시 이어 하게 됐다 — 지난 이어 하기 실패 표시(voidKind 가 보는)는 지운다 */
+            if ("playing".equals(status)) { m.remove("resume_fail"); m.remove("suspend"); }   /* 다시 이어 하게 됐다 — 지난 이어 하기 실패·사용자 멈춤 표시(voidKind 가 보는)는 지운다(168 K3) */
             if (why != null) {
                 if (why.isEmpty()) { m.remove("why"); m.remove("fix"); }   /* 빈 사유 = 지난 사유를 지운다 */
                 else m.put("why", why);
@@ -543,6 +583,39 @@ final class League {
         JSONObject m = matchById(id);
         if (m == null) return false;
         try { m.put(key, val); return save(); } catch (Exception e) { return false; }
+    }
+
+    /** 168 §A — 사용자가 멈춘 경기(리셋·«나중에»·연습으로 갈아타기): 복귀 대기 + 사유 + 사용자 멈춤 표지 + 그때까지 먹은 치트 비트를 «한 번의 저장»으로(K3 — 두 저장 사이에
+     *  죽으면 표지 없는 복귀 대기가 남아 «앱이 멈춤»으로 자동 무효될 수 있었다). 체크포인트는 부르는 쪽이 먼저 쓴다. 끝난 경기·저장 실패면 false(메모리 되돌림) */
+    static synchronized boolean suspendUser(String id, String why, int cheatBits) {
+        JSONObject m = matchById(id);
+        if (m == null || terminal(m.optString("status"))) return false;
+        String backup = db.toString();
+        try {
+            m.put("status", "resume"); m.put("why", why); m.put("suspend", "user");
+            if (cheatBits != 0) m.put("cheat_bits", m.optInt("cheat_bits") | cheatBits);
+            m.put("updated", System.currentTimeMillis());
+            if (!save()) { db = new JSONObject(backup); return false; }
+            return true;
+        } catch (Exception e) {
+            try { db = new JSONObject(backup); } catch (Exception ignored) { }
+            return false;
+        }
+    }
+    /** 사용자가 스스로 멈춘 경기인가(K3·K4) — 표지 «user» · 복귀 대기 · 경기를 시작한 앱 판 그대로(앱이 바뀌어 체크포인트를 못 읽는 건 사용자 탓이 아니다).
+     *  이런 경기는 «무효로 닫기»가 없고(이어 하기·기권만), 리그를 다시 열어도 바로 이어 하지 않고 타이틀에서 A 를 기다린다 */
+    static boolean userSuspended(JSONObject m) {
+        if (m == null || !"user".equals(m.optString("suspend")) || !"resume".equals(m.optString("status"))) return false;
+        return appVer <= 0 || !m.has("app") || m.optInt("app") == appVer;
+    }
+    /** 168 §9 — 이 경기에 먹은 치트 비트를 더한다(1 << Cheats 번호). 끝난 경기는 그대로. 같으면 파일을 안 건드린다 */
+    static synchronized boolean orCheat(String id, int bits) {
+        if (bits == 0) return true;
+        JSONObject m = matchById(id);
+        if (m == null || terminal(m.optString("status"))) return false;
+        int o = m.optInt("cheat_bits");
+        if ((o | bits) == o) return true;
+        try { m.put("cheat_bits", o | bits); return save(); } catch (Exception e) { return false; }
     }
 
     /** 오류 보류 — 원인과 복구 방법을 같이 남긴다(기획서 «판정 오류는 보류하고 원인과 복구 방법을 기록»). 점수는 안 움직인다. */
@@ -602,6 +675,7 @@ final class League {
      *  appVer ≤ 0(모름)이면 판은 안 본다 */
     static String voidKind(JSONObject m, int appVer) {
         if (m == null) return null;
+        if (userSuspended(m)) return null;                    /* 168 K3: 사용자가 멈춘 판 — 이어 하기·기권만(지는 판을 멈추고 파일을 지워 빠지지 못하게) */
         String s = m.optString("status");
         if (!"playing".equals(s) && !"resume".equals(s)) return null;
         if ("playing".equals(s) && liveHub) return null;      /* 체크포인트는 onPause 에서야 생긴다 — 지금 하는 판을 «앱이 멈춤»으로 보지 않게 */
@@ -624,6 +698,7 @@ final class League {
         String s = m.optString("status");
         if (!"playing".equals(s) && !"resume".equals(s)) return false;
         if ("playing".equals(s) && liveHub) return false;      /* 게임 속 리그가 지금 하는 판(voidKind 와 같게) */
+        if (userSuspended(m)) return false;                   /* 168 K3: 마지막 관문 — 사용자가 멈춘 판은 무효로 닫지 않는다 */
         String k = "app".equals(kind) || "ckpt".equals(kind) ? kind : "crash";
         String backup = db.toString();
         try {
@@ -707,12 +782,20 @@ final class League {
      *   대진 불일치(결판 때 P2 블록 ≠ 표시한 상대) · 규칙 불일치(실효 포인트·시간 ≠ 랭크전 규칙 — 예: 무한 대전 1라운드 결판).
      * 저장에 실패하면 메모리를 되돌리고 null — 호출자가 다시 시도한다(결과는 코어 쪽에 그대로 있다).
      */
-    static synchronized JSONObject settle(String matchId, int[] st) {
+    static synchronized JSONObject settle(String matchId, int[] st) { return settle(matchId, st, 0); }
+    /** 치트 번호(cheat.h CH_* = Cheats.TIME·DIFF) — League 는 Cheats(설정 묶음)를 안 끌어온다(JVM 시험이 League 만 따로 엮는다) */
+    static final int CH_TIME = 1, CH_DIFF = 7;
+    /** 168 §9 — cheatBits = 이 판에 먹은 치트(Emu.nativeCheatMatch · 1 << Cheats 번호) | 경기에 적힌 cheat_bits. 치트 판도 LP·전적은 그대로 반영하고(D1)
+     *  «cheat» 표를 남긴다. 검사 면제는 그 치트가 설명하는 것만: 시간 무한(TIME) → 실효 시간 0x80 · CPU 세기(DIFF) → 손잡이·난도 확인. 대진·포인트·결판 비트는 그대로 */
+    static synchronized JSONObject settle(String matchId, int[] st, int cheatBits) {
         JSONObject m = matchById(matchId);
         if (m == null) return null;
         if (terminal(m.optString("status"))) return m;
         String backup = db.toString();
         try {
+            int cb = cheatBits | m.optInt("cheat_bits");
+            boolean cTime = (cb & (1 << CH_TIME)) != 0, cDiff = (cb & (1 << CH_DIFF)) != 0;
+            if (cb != 0) { m.put("cheat", cb); m.put("cheat_bits", cb); }
             JSONObject rule = m.optJSONObject("rule");
             boolean rk = isRanked(m);
             JSONObject o = rk ? null : oppById(m.optString("opp"));
@@ -728,7 +811,7 @@ final class League {
             if (st.length > 20) {                    /* 난도 적용 확인 — 1인 대전 첫 경기 CPU 단계 1+3×난도, 배율(하 00C0/0140 · 중 00D9/0126 · 상 00F3/010C) */
                 res.put("cpu_level", st[18]);
                 res.put("cpu_mult", String.format("%04X %04X", st[19], st[20]));
-                res.put("diff_ok", rk ? rankedKnobWhy(rule, st) == null : st[18] == 1 + 3 * rule.optInt("diff"));
+                res.put("diff_ok", cDiff || (rk ? rankedKnobWhy(rule, st) == null : st[18] == 1 + 3 * rule.optInt("diff")));
                 if (st.length > 21) res.put("cpu_cap", st[21]);
             }
             res.put("at", System.currentTimeMillis());
@@ -737,7 +820,7 @@ final class League {
             String why = null;
             if ((p2 & 0xF8) != want)
                 why = String.format("대진 불일치: 요청 %s·%s, 실제 P2 블록 0x%02X", CHAR[rule.optInt("char")], STYLE[rule.optInt("style")], p2);
-            else if (need != rule.optInt("points") || time != rule.optInt("time"))
+            else if (need != rule.optInt("points") || (time != rule.optInt("time") && !(cTime && time == 0x80)))
                 why = "규칙 불일치: 실효 포인트 " + need + "·시간 " + time + " (랭크전 " + rule.optInt("points") + "·" + rule.optInt("time")
                     + ") — 1인 대전 첫 경기가 아닌 곳(무한 대전 등)에서 결판이 났습니다";
             if (why != null) {
@@ -757,8 +840,8 @@ final class League {
             String why2 = null;
             if (out == null)
                 why2 = String.format("결판 판정 불일치: 결과 비트 0x%02X · 승수 %d:%d · 필요 승수 %d — 승패를 정할 수 없습니다", bits, w1, w2, need);
-            else if (rk) why2 = rankedKnobWhy(rule, st);     /* 랭크: 손잡이(단계·상한·배율)가 실제로 먹었나 */
-            else if (st.length > 20 && st[18] != 1 + 3 * rule.optInt("diff"))
+            else if (rk) { if (!cDiff) why2 = rankedKnobWhy(rule, st); }   /* 랭크: 손잡이(단계·상한·배율)가 실제로 먹었나 — CPU 세기 치트가 덮은 판만 면제 */
+            else if (!cDiff && st.length > 20 && st[18] != 1 + 3 * rule.optInt("diff"))
                 why2 = "난도 불일치: CPU 단계 " + st[18] + " (요청 난도 " + DIFF[rule.optInt("diff")] + " → " + (1 + 3 * rule.optInt("diff")) + ")";
             if (why2 != null) {
                 m.put("status", "hold"); m.put("why", why2);
@@ -823,10 +906,7 @@ final class League {
         if (terminal(m.optString("status"))) return m;
         String backup = db.toString();
         try {
-            m.put("forfeit", true);
-            if (isRanked(m)) applyRanked(m, "L", true); else apply(m, me(), oppById(m.optString("opp")), "L");
-            m.put("status", "forfeit");
-            m.put("settled", System.currentTimeMillis());
+            forfeitMem(m);
             if (isRanked(m) && liveHub) noteSessionMem(m);  /* 157 G2 */
             if (!save()) throw new IOException("save");
             ckptDelete(matchId);
@@ -835,6 +915,15 @@ final class League {
             try { db = new JSONObject(backup); } catch (Exception ignored) { }
             return null;
         }
+    }
+
+    /** 기권 반영(메모리만 — 저장은 호출자). 먹은 치트가 적혀 있으면 «cheat» 표도 */
+    private static void forfeitMem(JSONObject m) throws Exception {
+        m.put("forfeit", true);
+        if (isRanked(m)) applyRanked(m, "L", true); else apply(m, me(), oppById(m.optString("opp")), "L");
+        if (m.optInt("cheat_bits") != 0) m.put("cheat", m.optInt("cheat_bits"));
+        m.put("status", "forfeit");
+        m.put("settled", System.currentTimeMillis());
     }
 
     /** 이 상대와의 최근 경기들(정산·기권만, 새것부터). */
@@ -1345,7 +1434,7 @@ final class League {
         if (m.optInt("placement_left", 0) > 0 || "배치".equals(m.optString("tier_before"))) lp = "배치";
         else if (RankCore.TIER[7].equals(m.optString("tier_before"))) lp = signed(m.optInt("mr_after") - m.optInt("mr_before")) + " MR";   /* 무쌍은 LP 가 9000 그대로 — MR 로 */
         else lp = signed(d) + " LP";
-        return outcomeKo(m) + sc + " · " + lp;
+        return outcomeKo(m) + sc + " · " + lp + (m.optInt("cheat") != 0 ? " · 치트" : "");
     }
     /** 내 랭크 한 줄 — «검객 ★3 · 2410 LP» / «배치 2/5» / «무쌍 MR 1712» */
     static String myRankLabel(RankCore.Me me) {
@@ -1415,6 +1504,14 @@ final class League {
         try {
             JSONObject old = ranked().optJSONObject("session");
             if (old != null && old.optLong("start") > 0 && RankCore.today(old.optLong("start")) == today()) return;
+            ranked().put("session", new JSONObject().put("start", System.currentTimeMillis()).put("w", 0).put("l", 0).put("d", 0)
+                    .put("lp", 0).put("rank0", -1));
+            save();
+        } catch (Exception ignored) { }
+    }
+    /** 168 M1 — 새 시즌·처음부터 뒤: 같은 날이어도 세션을 새로(«오늘 4승 1패 +152»·rank0 이 지난 시즌 값으로 남지 않게). 저장 실패해도 메모리 값으로 */
+    static synchronized void sessionReset() {
+        try {
             ranked().put("session", new JSONObject().put("start", System.currentTimeMillis()).put("w", 0).put("l", 0).put("d", 0)
                     .put("lp", 0).put("rank0", -1));
             save();
@@ -1501,7 +1598,7 @@ final class League {
         JSONObject p = db().optJSONObject("pref"), g = p != null ? p.optJSONObject("lgm") : null;
         if (g == null) return MenuModel.Prefs.defaults();
         int fx = g.optInt("fx", 0), loss = g.optInt("loss", 0), auto = g.optInt("auto", 0), tab = g.optInt("tab", 0);
-        return new MenuModel.Prefs(fx >= 0 && fx <= 2 ? fx : 0, loss == 1 ? 1 : 0, auto == 10 ? 10 : 0, g.optBoolean("remember", true), tab >= 0 && tab <= 2 ? tab : 0);
+        return new MenuModel.Prefs(fx >= 0 && fx <= 2 ? fx : 0, loss == 1 ? 1 : 0, auto == 10 ? 10 : 0, g.optBoolean("remember", true), tab >= 0 && tab <= 3 ? tab : 0);   /* 168: 리그 탭 3 */
     }
     /** 바뀔 때만 저장 — 저장했거나 같으면 true */
     static synchronized boolean setMenuPrefs(MenuModel.Prefs n) {
@@ -1513,7 +1610,7 @@ final class League {
         if (!had && n.fx == 0 && n.lossCursor == 0 && n.autoNextSec == 0 && n.rememberTab && n.lastTab == 0) return true;   /* 기본값 그대로 — 칸을 만들지 않는다 */
         try {
             pref().put("lgm", new JSONObject().put("fx", Math.max(0, Math.min(2, n.fx))).put("loss", n.lossCursor == 1 ? 1 : 0)
-                    .put("auto", n.autoNextSec == 10 ? 10 : 0).put("remember", n.rememberTab).put("tab", Math.max(0, Math.min(2, n.lastTab))));
+                    .put("auto", n.autoNextSec == 10 ? 10 : 0).put("remember", n.rememberTab).put("tab", Math.max(0, Math.min(3, n.lastTab))));
             return save();
         } catch (Exception e) { return false; }
     }
@@ -1574,11 +1671,47 @@ final class League {
     }
     /** 새 시즌·처음부터를 지금 못 하는 이유(없으면 null) — 기록 파일 문제 · 게임 속 리그가 살아 있음 · 시작한 경기가 열려 있음.
      *  «준비» 경기는 막지 않는다(랭크 «준비»는 먼저 무효로 닫고, 예전 칸 «준비»는 그대로 둔다). 배치 중 새 시즌은 newSeasonPreview()==null 로 따로 본다 */
-    static synchronized String resetBlockedWhy() {
+    static synchronized String resetBlockedWhy() { return resetBlockedWhy(false, false); }
+    /** 168 §2-5 — inGame = 게임 속 리그(그 허브)가 부름: liveHub 는 안 본다(부르는 쪽이 그 판 · 준비 경기는 cancelReadyMem 이 닫는다).
+     *  forfeitOpen = 시작한 경기(멈춘 경기)는 기권패로 닫고 하겠다(M1 — 두 번 묻기 글이 그렇게 말했다) — 그때는 막지 않는다 */
+    static synchronized String resetBlockedWhy(boolean inGame, boolean forfeitOpen) {
         if (dbProblem != null) return dbProblem;
-        if (liveHub) return "게임 속 리그를 닫은 뒤에 할 수 있어요";
-        if (startedOpen()) return "끝나지 않은 경기를 먼저 정리해 주세요";
+        if (liveHub && !inGame) return "게임 속 리그를 닫은 뒤에 할 수 있어요";
+        if (startedOpen() && !forfeitOpen) return "끝나지 않은 경기를 먼저 정리해 주세요";
         return null;
+    }
+    /** 168 고침 — 런처 리그 화면(LeagueActivity) 시즌 도구: 멈춘 경기는 막지 않고 두 번 묻기 글에 «기권패로 닫고»(게임 안 리그 탭과 같게 — M1·D6).
+     *  막는 것은 기록 파일 문제·게임 속 리그가 살아 있음뿐(«먼저 정리해 주세요» 같은 글은 안 보인다 — 리셋·«나중에»마다 멈춘 경기가 생긴다) */
+    static synchronized String seasonToolWhy() { return resetBlockedWhy(false, true); }
+    /** 두 번 묻기 글 한 줄 — 멈춘 경기가 있으면 «멈춘 경기(vs 칼끝노인)는 기권패로 닫아요 · -80 LP», 없으면 null */
+    static synchronized String openForfeitLine() {
+        JSONObject open = startedOpenMatch();
+        if (open == null) return null;
+        String lp = null;
+        if (isRanked(open)) {
+            ForfeitPreview fp = forfeitPreview(open);
+            lp = fp.kind == ForfeitPreview.PLACEMENT ? "배치 1패" : fp.kind == ForfeitPreview.LP && fp.lpDelta != 0 ? signed(fp.lpDelta) + " LP" : null;
+        }
+        return "멈춘 경기(vs " + oppNick(open) + ")는 기권패로 닫아요" + (lp != null ? " · " + lp : "");
+    }
+    /** 시작한(멈춘) 경기 — 진행 중·복귀 대기(새것부터 첫째). 없으면 null */
+    static synchronized JSONObject startedOpenMatch() {
+        JSONObject o = openMatch();
+        return o != null && !"ready".equals(o.optString("status")) ? o : null;
+    }
+    /** M1 — 시즌 도구 앞에서 멈춘 경기를 기권패로(메모리만 · 같은 저장 안). 닫은 id 목록(체크포인트는 저장 뒤 지운다) */
+    private static java.util.List<String> forfeitStartedMem() throws Exception {
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        for (JSONArray a : new JSONArray[]{ matches(), rmatchesIfAny() })
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject m = a.optJSONObject(i);
+                String st = m.optString("status");
+                if (!"playing".equals(st) && !"resume".equals(st)) continue;
+                forfeitMem(m);
+                if (isRanked(m) && liveHub) noteSessionMem(m);
+                ids.add(m.optString("id"));
+            }
+        return ids;
     }
 
     /** 새 시즌 미리보기 — 시즌 N · LP lp0 → lp1 (label0 → label1). 배치 중이면 null(새 시즌을 못 연다) */
@@ -1595,12 +1728,16 @@ final class League {
 
     /** 새 시즌 — LP 를 배치 자리 쪽으로 반(RankCore.newSeasonLp), 무쌍 풂(MR 0 — 다시 오르면 새로), 승패·연승·최장·최고 LP·강등 위기 0부터.
      *  MMR·판수·최근 상대·상대 전적·오늘 첫 승·씨앗·경기 기록은 그대로. 잡힌 상대는 푼다. 막히면(resetBlockedWhy·배치 중)·저장 실패면 false(기록 그대로) */
-    static synchronized boolean newSeason() {
-        if (resetBlockedWhy() != null) return false;
-        if (rankMe().placementLeft > 0) return false;
+    static synchronized boolean newSeason() { return newSeason(false, false); }
+    /** 168 — inGame·forfeitOpen 은 resetBlockedWhy(inGame, forfeitOpen). 멈춘 경기 기권은 보관 파일보다 먼저(보관 = 기권 뒤 상태 — 기권패는 지난 시즌에 남는다) */
+    static synchronized boolean newSeason(boolean inGame, boolean forfeitOpen) {
+        if (resetBlockedWhy(inGame, forfeitOpen) != null) return false;
         String backup = db.toString();
         File arc = null;
+        java.util.List<String> ff = new java.util.ArrayList<>();
         try {
+            if (forfeitOpen) ff = forfeitStartedMem();
+            if (rankMe().placementLeft > 0) { db = new JSONObject(backup); return false; }   /* 기권으로 배치가 끝날 수는 없지만(배치 1패) — 배치 중이면 새 시즌 없음 */
             int n = season();
             arc = writeArchive("season");                   /* 바꾸기 직전 그대로(준비 경기를 닫기 전) */
             if (arc == null) { db = new JSONObject(backup); return false; }
@@ -1618,6 +1755,7 @@ final class League {
             r.put("season", n + 1); r.put("season_start", System.currentTimeMillis());
             if (!save()) { db = new JSONObject(backup); arc.delete(); return false; }
             for (String id : ready) ckptDelete(id);
+            for (String id : ff) { ckptDelete(id); new File(ckpt(id).getPath() + ".tmp").delete(); new File(ckpt(id).getPath() + ".tmp.look").delete(); }   /* 171: .look 도 */
             return true;
         } catch (Exception e) {
             try { db = new JSONObject(backup); } catch (Exception ignored) { }
@@ -1629,11 +1767,13 @@ final class League {
     /** 처음부터 다시 — 같은 rv·gen·씨앗으로 랭크 칸을 새로(freshRanked: 배치 5판·LP 0·판수 0·상대 전적·최근 상대·경기 기록 없음),
      *  시즌 번호는 이어서(+1), 지난 시즌 줄은 이어받고 이번 줄(restart)을 더한다. 잡힌 상대·옛 리그 이어받기(legacy)·오늘 첫 승은 없다.
      *  저장되면 체크포인트(ckpt_*)를 지운다. 예전 칸(me·opps·matches·pref)은 그대로. 막히면·저장 실패면 false(기록 그대로) */
-    static synchronized boolean restartRanked() {
-        if (resetBlockedWhy() != null) return false;
+    static synchronized boolean restartRanked() { return restartRanked(false, false); }
+    static synchronized boolean restartRanked(boolean inGame, boolean forfeitOpen) {
+        if (resetBlockedWhy(inGame, forfeitOpen) != null) return false;
         String backup = db.toString();
         File arc = null;
         try {
+            if (forfeitOpen) forfeitStartedMem();           /* 기권패는 보관 파일(지난 시즌 줄)에 — 처음부터는 어차피 배치부터라 피할 이득이 없다 */
             arc = writeArchive("restart");                  /* 바꾸기 직전 그대로(준비 경기를 닫기 전) */
             if (arc == null) { db = new JSONObject(backup); return false; }
             cancelReadyMem("처음부터 다시 하며 정리(대진 전)");
@@ -1687,6 +1827,107 @@ final class League {
         row.put("master", me.master); row.put("mr", me.mr); row.put("best", me.best);
         row.put("file", file);
         return row;
+    }
+
+    /* ── 168 §2 게임 안 서랍 «리그» 탭 자료 ── */
+
+    /** 리그 탭 사본 — UI 스레드에서 한 번(MenuModel.LeagueInfo · 불변). pause = 쉼(경기 중)에서 연 서랍: 시즌 도구·내 캐릭터 줄은 안 넣는다 */
+    static synchronized MenuModel.LeagueInfo leagueInfo(boolean pause) {
+        MenuModel.LeagueInfo li = new MenuModel.LeagueInfo();
+        RankCore.Me me = rankMe();
+        li.season = season();
+        long t0 = seasonStart();
+        java.text.SimpleDateFormat md = new java.text.SimpleDateFormat("M월 d일", java.util.Locale.KOREA);
+        md.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Seoul"));
+        li.since = t0 > 0 ? md.format(new java.util.Date(t0)) + "부터" : null;
+        li.wld = me.w + "승 " + me.l + "패" + (me.d > 0 ? " " + me.d + "무" : "");
+        java.util.List<JSONObject> past = seasons();
+        java.util.List<String> rows = new java.util.ArrayList<>();
+        for (int i = past.size() - 1; i >= 0 && rows.size() < 6; i--) {
+            JSONObject x = past.get(i);
+            String fin = x.optString("final_label");
+            rows.add("시즌 " + x.optInt("n", 1) + ("restart".equals(x.optString("kind")) ? " 처음부터" : "") + " · " + fin + " · "
+                    + x.optInt("w") + "승 " + x.optInt("l") + "패");
+        }
+        li.pastRows = rows.toArray(new String[0]);
+        li.placement = me.placementLeft > 0;
+        li.placementPlayed = 5 - me.placementLeft;
+        SeasonPreview sp = newSeasonPreview();
+        if (sp != null) { li.lp0 = sp.lp0; li.lp1 = sp.lp1; li.label0 = sp.label0; li.label1 = sp.label1; }
+        li.canSeason = !pause && dbProblem == null;
+        li.canMain = !pause;
+        JSONObject open = startedOpenMatch();
+        li.openVs = open != null ? oppNick(open) : null;
+        if (open != null && isRanked(open)) {
+            ForfeitPreview fp = forfeitPreview(open);
+            li.openForfeit = fp.kind == ForfeitPreview.PLACEMENT ? "배치 1패" : fp.kind == ForfeitPreview.LP && fp.lpDelta != 0 ? signed(fp.lpDelta) + " LP" : "기권패";
+        }
+        java.util.List<String> hs = new java.util.ArrayList<>();
+        for (JSONObject m : holds(5)) {
+            String w = m.optString("why", "");
+            if (w.length() > 40) w = w.substring(0, 40) + "…";
+            hs.add(statusKo(m.optString("status")) + " · " + oppNick(m) + (w.isEmpty() ? "" : " · " + w));
+        }
+        li.holds = hs.toArray(new String[0]);
+        Main mn = main();
+        li.mainLabel = mn != null ? mainLabel(mn, -1) : null;
+        li.name = myNick();
+        li.rules = rulesShort();
+        li.cheatGames = cheatGames();
+        return li;
+    }
+    /** 이번 시즌 «치트» 표가 붙은 랭크 경기 수(정산·기권) — 서랍 전적 «치트 n» */
+    static synchronized int cheatGames() {
+        long t0 = seasonStart();
+        int n = 0;
+        JSONArray a = rmatchesIfAny();
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject m = a.optJSONObject(i);
+            String st = m.optString("status");
+            if (m.optInt("cheat") != 0 && ("settled".equals(st) || "forfeit".equals(st)) && m.optLong("settled") >= t0) n++;
+        }
+        return n;
+    }
+    /** 규칙 글 — 리그 화면(LeagueActivity 규칙 탭)과 게임 안 서랍 리그 탭이 같이 쓴다(168) */
+    static String rulesText() {
+        return "경기 · " + POINTS + "선승(3판 2승) · 라운드 " + TIME + "초 · 카드 전원 올카드 해금. "
+                + "랭크에 처음 들어오면 내 캐릭터·검질·카드를 한 번만 골라요 — 그다음부터는 상대를 찾자마자 그 캐릭터로 바로 붙어요(«새 캐릭터»로 다시 골라요 — 내 캐릭터부터 고르고 상대를 찾아요). "
+                + "리그 판엔 저장·불러오기가 없고, 리셋·«나중에»는 경기를 그 자리에 저장하고 타이틀로 가요 — 타이틀에서 A 로 그 자리부터 이어 해요. 리그 세이브는 원작 세이브와 따로예요. "
+                + "치트도 먹어요 — 그 판은 기록에 «치트»로 남아요.\n\n"
+                + "상대 · 씨앗 하나로 만든 가상 플레이어 약 4만 명(모두 게임 CPU)과 예전 리그 12명(라이벌). "
+                + "CPU 세기 = 원작 난도처럼(낮은 티어는 약하게) · 높은 티어는 자기 카드(효과 그대로). "
+                + "실력(숨은 MMR)에 따라 CPU 가 주는 피해·받는 피해가 원작 1인 대전의 «하» 첫 판부터 «상» 끝판 값까지 오르고, AI 단계도 같이 올라요 — 같은 티어면 비슷하게 세요. "
+                + "검호 위쪽부터는 CPU 도 자기 카드를 껴요 — 처음엔 ★ 카드 한 장, 검성쯤부터 ★★★ 카드 한 장을 더 껴요. 카드의 공격·방어 보너스는 원작처럼 그대로 붙어요.\n\n"
+                + "티어 · 수련생 · 낭인 · 무사 · 검객 · 검호 · 달인 · 검성(각 ★1~5) · 무쌍(MR). 처음 5판은 배치 경기 — 끝나면 첫 티어가 정해져요. "
+                + "이기면 LP 가 오르고(센 상대일수록 더), 지면 내려가요. 수련생은 안 깎이고 낭인은 반만. "
+                + "3연승부터 연승 보너스, 진 상대를 재대결로 이기면 설욕 +" + RankCore.BONUS_REVENGE + ", 오늘 첫 승 +" + RankCore.BONUS_DAILY + ". "
+                + "무사 이상은 바닥 아래로 떨어질 때 한 번 «강등 위기»로 버텨요. 무쌍은 강등이 없어요.\n\n"
+                + "매칭 · «상대 발견!»이 뜬 뒤 나가면, 그 상대와 붙을 때까지 다음 찾기에 같은 상대가 나와요 (최대 24시간). 찾는 중에 그만두면 잡히지 않아요. "
+                + "재대결은 같은 상대와 연속 3판까지.";
+    }
+    /** 서랍 리그 탭의 짧은 규칙 줄들(156px 갈무리7 한 줄씩 — LgmPages 가 넘치면 «…») */
+    static String[] rulesShort() {
+        return new String[]{
+            "2선승 · 라운드 " + TIME + "초 · 카드 전부 열림",
+            "상대 = 게임 CPU · 티어 따라 세기",
+            "첫 5판 배치 → 첫 티어",
+            "이기면 LP+ · 지면 LP− (수련생 그대로)",
+            "3연승 보너스 · 설욕 +" + RankCore.BONUS_REVENGE + " · 첫 승 +" + RankCore.BONUS_DAILY,
+            "무사 위는 한 번 «강등 위기»로 버팀",
+            "리셋·나중에 = 저장 후 타이틀 · A 로 이어서",
+            "치트 판은 기록에 «치트»",
+            "재대결은 같은 상대와 3판까지" };
+    }
+    /** 168 §10·S1 — 리그 판을 켤 때 쓸 언어: 시작한 경기(멈춘·이어 할)가 있으면 그 경기 롬 판(rom_md5 → 한글패치 판이면 ko · 순정 판이면 원어)으로 고정 —
+     *  언어를 바꿔 롬 사본이 달라지면 «롬이 바뀜»으로 막히기 때문. 그 밖(경기 없음·롬을 안 적은 옛 경기)은 지금 설정 그대로. 새 언어는 다음 리그 판부터 */
+    static String matchLang(JSONObject open, String cur) {
+        if (open == null || "ready".equals(open.optString("status"))) return cur;
+        String md5 = open.optString("rom_md5", "");
+        String lab = md5.isEmpty() ? null : romLabel(md5);
+        if (lab == null) return cur;
+        boolean ko = lab.contains("한글패치");
+        if (ko) return "ko";
+        return "ko".equals(cur) ? "ja" : cur;                 /* 순정 판 — ja·en 은 같은 롬(코어 언어만 다름) */
     }
 
     static File archiveDir() { File d = new File(dir(), "archive"); d.mkdirs(); return d; }

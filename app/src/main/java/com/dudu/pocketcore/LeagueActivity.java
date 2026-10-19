@@ -114,8 +114,7 @@ public class LeagueActivity extends Activity {
         if (League.liveHub) { tidyDone = false; return; }
         tidyDone = true;
         League.markInterrupted();
-        int n = League.voidReady("순위표를 열며 정리(대진 전)");
-        if (n > 0) toast("첫 라운드 전에 멈춘 경기를 무효로 닫았어요 — 같은 상대가 기다려요");
+        League.voidReady("순위표를 열며 정리(대진 전)");          /* 175: 알림 글 없음 */
     }
 
     /** 롬 경로 없이 들어왔을 때 — 마지막으로 리그를 연 원래 롬(pref.last_rom)이 아직 있으면 그것 */
@@ -220,6 +219,7 @@ public class LeagueActivity extends Activity {
         RankCore.Me me = League.rankMe();
         col.addView(myCard(me));
         col.addView(mainRow());                                   /* 153 내 캐릭터 — 랭크는 이걸로 바로 붙는다 */
+        col.addView(nameRow());                                   /* 168(11) 내 이름 — 이름표·VS 띠·결판 띠·순위표 */
         /* 큰 버튼(148 — 늘 보인다): 열린 경기 없음 «하러 가기» · 이어 할 수 있는 경기 «멈춘 경기 이어서 하기» — 둘 다 게임 속 리그(허브)로.
            허브가 열린 경기를 체크포인트로 이어 하고, 결판 뒤 결과 카드 [다음 상대]. 무효로 닫을 경기(voidKind)·원래 롬이 아닌 롬 막힘은 카드 버튼만 · 저장소 문제면 저장소 카드만 */
         boolean started = open != null && !"ready".equals(open.optString("status"));
@@ -329,13 +329,41 @@ public class LeagueActivity extends Activity {
             b.setTextSize(13);
             b.setPadding(dp(14), dp(6), dp(14), dp(6));
             b.setOnClickListener(v -> {
-                if (!League.clearMain()) toast("저장하지 못했어요 — 다음 판에 다시 골라요");
-                else toast("다음 판에 새로 골라요");
+                if (!League.clearMain()) toast("저장하지 못했어요 — 다음 판에 다시 골라요");   /* 175: 된 때는 글 없음(줄이 바뀐다) */
                 render();
             });
             r.addView(b);
         }
         return r;
+    }
+    /** 168(11) 내 이름 줄 — «내 이름 · 새벽검객77 [바꾸기]». 게임 안 서랍 «리그» 탭과 같은 값(League.setMyName — 글꼴에 있는 글자만 · 비우면 «나») */
+    private View nameRow() {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(dp(4), dp(6), 0, 0);
+        r.addView(text("내 이름 · " + League.myNick(), 13, TXT, true), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView b = pill("바꾸기", BTN2, TXT);
+        b.setTextSize(13);
+        b.setPadding(dp(14), dp(6), dp(14), dp(6));
+        b.setOnClickListener(v -> askName());
+        r.addView(b);
+        return r;
+    }
+    private void askName() {
+        if (toolDlgUp()) return;
+        final android.widget.EditText e = new android.widget.EditText(this);
+        e.setSingleLine(true);
+        e.setText(League.myNick());
+        e.setSelection(e.getText().length());
+        e.setFilters(new android.text.InputFilter[]{ new android.text.InputFilter.LengthFilter(League.NAME_MAX + 4) });
+        toolDlg = new AlertDialog.Builder(this).setTitle("내 이름").setMessage("한글·영문·숫자 " + League.NAME_MAX + "자까지 · 비우면 «나»").setView(e)
+            .setPositiveButton("정하기", (x, y) -> {
+                if (!League.setMyName(e.getText().toString())) toast("저장하지 못했어요 — 이름은 그대로예요");
+                BoardCache.invalidate();
+                render();
+            })
+            .setNegativeButton("취소", null).show();
     }
     /** 지금 보일 컬러 번호 — 컬러 기억(캐릭터 칸 · 무작위 칸 15). 컬러 고르기 끔이면 기본 · 옛 1(2P색)도 기본 */
     static int mainColour(League.Main mn) {
@@ -437,7 +465,7 @@ public class LeagueActivity extends Activity {
         }
         LinearLayout tt = new LinearLayout(this);
         tt.setOrientation(LinearLayout.VERTICAL);
-        String nick = r.me ? "나" : pf.optString("nick", r.nick);
+        String nick = r.me ? League.myNick() : pf.optString("nick", r.nick);
         TextView nt = text(nick + (r.me ? "  (나)" : r.p != null && r.p.legacy ? "  · 라이벌" : ""), 15, TXT, true);
         nt.setSingleLine(true); nt.setEllipsize(android.text.TextUtils.TruncateAt.END);
         tt.addView(nt);
@@ -562,19 +590,7 @@ public class LeagueActivity extends Activity {
 
     private void rulesTab() {
         JSONObject lg = League.ranked().optJSONObject("legacy");
-        String s = "경기 · " + League.POINTS + "선승(3판 2승) · 라운드 " + League.TIME + "초 · 카드 전원 올카드 해금. "
-                + "랭크에 처음 들어오면 내 캐릭터·검질·카드를 한 번만 골라요 — 그다음부터는 상대를 찾자마자 그 캐릭터로 바로 붙어요(결과 카드 «캐릭터 바꾸기»로 다시 골라요). "
-                + "랭크 경기 중에는 불러오기·되돌리기·리셋을 쓸 수 없고, 리그 세이브는 원작 세이브와 따로예요.\n\n"
-                + "상대 · 씨앗 하나로 만든 가상 플레이어 약 4만 명(모두 게임 CPU)과 예전 리그 12명(라이벌). "
-                + "CPU 세기 = 원작 난도처럼(낮은 티어는 약하게) · 높은 티어는 자기 카드(효과 그대로). "
-                + "실력(숨은 MMR)에 따라 CPU 가 주는 피해·받는 피해가 원작 1인 대전의 «하» 첫 판부터 «상» 끝판 값까지 오르고, AI 단계도 같이 올라요 — 같은 티어면 비슷하게 세요. "
-                + "검호 위쪽부터는 CPU 도 자기 카드를 껴요 — 처음엔 ★ 카드 한 장, 검성쯤부터 ★★★ 카드 한 장을 더 껴요. 카드의 공격·방어 보너스는 원작처럼 그대로 붙어요.\n\n"
-                + "티어 · 수련생 · 낭인 · 무사 · 검객 · 검호 · 달인 · 검성(각 ★1~5) · 무쌍(MR). 처음 5판은 배치 경기 — 끝나면 첫 티어가 정해져요. "
-                + "이기면 LP 가 오르고(센 상대일수록 더), 지면 내려가요. 수련생은 안 깎이고 낭인은 반만. "
-                + "3연승부터 연승 보너스, 진 상대를 재대결로 이기면 설욕 +" + RankCore.BONUS_REVENGE + ", 오늘 첫 승 +" + RankCore.BONUS_DAILY + ". "
-                + "무사 이상은 바닥 아래로 떨어질 때 한 번 «강등 위기»로 버텨요. 무쌍은 강등이 없어요.\n\n"
-                + "매칭 · «상대 발견!»이 뜬 뒤 나가면, 그 상대와 붙을 때까지 다음 찾기에 같은 상대가 나와요 (최대 24시간). 찾는 중에 그만두면 잡히지 않아요. "
-                + "재대결은 같은 상대와 연속 3판까지.";
+        String s = League.rulesText();                          /* 168: 게임 안 서랍 «리그» 탭과 같은 글 */
         if (lg != null && lg.optInt("games") > 0)
             s += "\n\n옛 리그 기록 · " + lg.optInt("w") + "승 " + lg.optInt("l") + "패" + (lg.optInt("d") > 0 ? " " + lg.optInt("d") + "무" : "")
                + " · 최종 " + lg.optInt("score") + "점 — 이 기록으로 시작 실력을 정했어요.";
@@ -606,8 +622,9 @@ public class LeagueActivity extends Activity {
 
         /* 153: «매칭 대기»(보통·빠르게)는 뺐다 — 찾기는 늘 ~1초(RankCore.quickMs). Settings pocketcore_rank_wait 는 남아도 안 읽는다 */
 
-        /* 새 시즌 · 처음부터 — 막힘(기록 파일·게임 속 리그·끝나지 않은 경기)이면 둘 다 끄고 이유를 보인다 */
-        final String blk = League.resetBlockedWhy();
+        /* 새 시즌 · 처음부터 — 막힘(기록 파일)이면 둘 다 끄고 이유를 보인다. 168 고침: 멈춘 경기는 막지 않는다 — 두 번 묻기 글에 «기권패로 닫아요»(게임 안 리그 탭과 같게) */
+        if (League.liveHub) return;                              /* 168 M2: 리그 판이 떠 있다 — 시즌 도구 줄은 숨김(글 없이 · 게임 안 «리그 메뉴» › 리그 탭에 있다) */
+        final String blk = League.seasonToolWhy();
         if (me.placementLeft > 0) {
             TextView pl = text("배치 경기를 마치면 새 시즌을 열 수 있어요", 12, DIM, false); pl.setPadding(0, dp(14), 0, 0);
             col.addView(pl);
@@ -647,16 +664,19 @@ public class LeagueActivity extends Activity {
         if (toolDlgUp()) return;
         final League.SeasonPreview p = League.newSeasonPreview();
         if (p == null) { render(); return; }                   /* 그사이 배치로 돌아갔다(처음부터 다시 등) */
-        String body = "시즌 " + p.season + " 기록은 ‘지난 시즌’에 남아요.\n"
+        final String ffLine = League.openForfeitLine();         /* 168 고침: 멈춘 경기가 있으면 기권패로 닫고 새 시즌(M1·D6) */
+        final String ffId = openStartedId();
+        String body = (ffLine != null ? ffLine + ".\n\n" : "") + "시즌 " + p.season + " 기록은 ‘지난 시즌’에 남아요.\n"
                 + String.format(java.util.Locale.KOREA, "LP %,d → %,d", p.lp0, p.lp1) + " (" + p.label0 + " → " + p.label1 + ")\n"
                 + "승패·연승은 0부터, 실력 점수와 상대 전적은 그대로라 빨리 올라와요.";
         toolDlg = new AlertDialog.Builder(this).setTitle("새 시즌을 시작할까요?").setMessage(body)
-            .setPositiveButton("시작", (x, y) -> {
+            .setPositiveButton(ffLine != null ? "기권패로 닫고 시작" : "시작", (x, y) -> {
                 if (League.season() != p.season) { render(); return; }   /* 그사이 이미 바뀌었다 — 미리보기도 옛것 */
-                String why = League.resetBlockedWhy();
-                if (why != null) { toast(why); render(); return; }
-                if (!League.newSeason()) toast("저장하지 못했어요 — 기록은 그대로예요");
-                else toast("시즌 " + League.season() + " 시작!");
+                if (!java.util.Objects.equals(ffId, openStartedId())) { render(); return; }   /* 그사이 멈춘 경기가 바뀌었다 — 물은 글과 다르다 */
+                String why = League.seasonToolWhy();
+                if (why != null) { if (!League.liveHub) toast(why); render(); return; }   /* 168 M2: 그사이 리그 판이 떴으면 글 없이(줄이 숨는다) */
+                if (!League.newSeason(false, ffId != null)) toast("저장하지 못했어요 — 기록은 그대로예요");
+                else League.sessionReset();                    /* 175: 알림 글 없음 */
                 afterReset();
             })
             .setNegativeButton("취소", null).show();
@@ -665,21 +685,24 @@ public class LeagueActivity extends Activity {
     private void askRestart() {
         if (toolDlgUp()) return;
         final int s0 = League.season();
+        final String ffLine = League.openForfeitLine();         /* 168 고침: 멈춘 경기가 있으면 기권패로 닫고 처음부터(M1·D6) */
+        final String ffId = openStartedId();
         toolDlg = new AlertDialog.Builder(this).setTitle("처음부터 다시 할까요?")
-            .setMessage("티어·LP·전적·상대 전적을 처음으로 돌리고 배치 경기 5판부터 시작해요.\n"
+            .setMessage((ffLine != null ? ffLine + ".\n\n" : "") + "티어·LP·전적·상대 전적을 처음으로 돌리고 배치 경기 5판부터 시작해요.\n"
                     + "지금 기록은 지우지 않고 보관 파일과 ‘지난 시즌’에 남겨요.\n"
                     + "앱 안에서 되돌릴 수는 없어요.")
-            .setPositiveButton("처음부터", (x, y) -> {
+            .setPositiveButton(ffLine != null ? "기권패로 닫고 처음부터" : "처음부터", (x, y) -> {
                 if (League.season() != s0) { render(); return; }         /* 그사이 이미 바뀌었다 */
-                String why = League.resetBlockedWhy();
-                if (why != null) { toast(why); render(); return; }
-                if (!League.restartRanked()) toast("저장하지 못했어요 — 기록은 그대로예요");
-                else toast("시즌 " + League.season() + " — 배치 경기부터 시작해요");
+                if (!java.util.Objects.equals(ffId, openStartedId())) { render(); return; }   /* 그사이 멈춘 경기가 바뀌었다 */
+                String why = League.seasonToolWhy();
+                if (why != null) { if (!League.liveHub) toast(why); render(); return; }   /* 168 M2: 그사이 리그 판이 떴으면 글 없이(줄이 숨는다) */
+                if (!League.restartRanked(false, ffId != null)) toast("저장하지 못했어요 — 기록은 그대로예요");   /* 175: 된 때는 글 없음 */
                 afterReset();
             })
             .setNegativeButton("취소", null).show();
     }
 
+    private static String openStartedId() { JSONObject o = League.startedOpenMatch(); return o != null ? o.optString("id") : null; }
     /** 시즌을 바꾼 뒤 — 순위표 캐시(boardKey: 같은 날·같은 LP 면 다시 안 만든다)를 버리고 다시 그린다 */
     private void afterReset() {
         BoardCache.invalidate();
@@ -718,8 +741,7 @@ public class LeagueActivity extends Activity {
 
     /** 게임 속 리그(허브)를 못 여는 이유(없으면 null) — 허브가 시작할 때 한 번 더 본다 */
     private String hubWhy() {
-        if (League.liveHub) return "게임 속 리그를 닫은 뒤에 할 수 있어요";      /* 그 판이 아직 살아 있다 — 게임 창이 둘 뜨지 않게 */
-        String sw = storeWhy();
+        String sw = storeWhy();                                  /* 168 M2: 게임 속 리그가 살아 있으면 goHub 가 그 게임을 앞으로(글 없이) */
         if (sw != null) return sw;
         if (rom == null) return "롬 경로가 없습니다 — 런처에서 사무쇼2 카드를 눌러 「리그 순위표」로 들어오세요";
         if (!new File(rom).exists()) return "롬을 찾을 수 없습니다 — 원래 자리에 롬을 두세요";
@@ -732,6 +754,7 @@ public class LeagueActivity extends Activity {
      *  148: «이어서 하기»도 이 길 — 예전 한 판 열기(EXTRA_LEAGUE)는 안 쓴다(끝나면 [다음 상대] 없이 이 화면으로 돌아왔다) */
     private void goHub() {
         if (launching) return;
+        if (League.liveHub) { toGame(); return; }                /* 168 M2: 리그 판이 아직 떠 있다 — 새로 열지 않고 그 게임으로(창이 둘 뜨지 않게) */
         if (!tidyDone && !League.liveHub) { tidy(); render(); }   /* 열 때 살아 있던 게임 속 리그가 그사이 닫혔다 — 먼저 정리하고 다시 그린다 */
         if (!hubOk(League.openMatch())) { render(); return; }  /* 그사이 무효로 닫을 경기·롬 막힘이 됐다 — 큰 버튼이 숨는 상태라 카드에서 고르게 */
         String why = hubWhy();
@@ -741,8 +764,19 @@ public class LeagueActivity extends Activity {
         i.putExtra("rom", rom);
         i.putExtra(EmuActivity.EXTRA_LEAGUE_HUB, true);
         i.putExtra(EmuActivity.EXTRA_HUB_GO, true);
+        JSONObject om = League.openMatch();
+        if (om != null && !"ready".equals(om.optString("status")))     /* 168 K4: 여기서 «멈춘 경기 이어서 하기»를 눌렀다 — 리셋·«나중에»로 멈춘 경기도 타이틀에서 기다리지 않고 바로 */
+            i.putExtra(EmuActivity.EXTRA_RESUME_NOW, true);          /* 168 고침: 그 경기가 있을 때만(«하러 가기»·닫은 뒤 찾기엔 안 붙임 — 그 창에서 나중에 멈춘 경기가 다시 만든 창에서 바로 이어지지 않게) */
         try { startActivity(i); }
         catch (Exception e) { launching = false; toast("화면을 열지 못했어요 — 다시 눌러 주세요"); return; }
+        finish();
+    }
+
+    /** 168 M2 — 홈으로 내려 둔 리그 판(EmuActivity)을 앞으로 */
+    private void toGame() {
+        launching = true;
+        try { startActivity(new Intent(this, EmuActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)); }
+        catch (Exception e) { launching = false; return; }
         finish();
     }
 
@@ -762,7 +796,7 @@ public class LeagueActivity extends Activity {
         c.addView(text("진행 중 경기 · " + League.statusKo(st), 13, GOLD, true));
         String why = m.optString("why", "");
         String note;
-        if (live) note = "게임 속 리그를 닫은 뒤에 할 수 있어요";
+        if (live) note = "게임에서 하고 있어요";
         else if (ready) note = "첫 라운드 전에 멈춘 경기입니다 — 무효로 닫으면 점수는 그대로입니다.";
         else if ("app".equals(vk)) note = "앱을 업데이트해서 이 경기를 이어할 수 없어요.\n무효로 닫으면 LP·전적은 그대로예요.";
         else if ("ckpt".equals(vk)) note = "이어할 자리를 불러오지 못했어요. 무효로 닫으면 LP·전적은 그대로예요.";
@@ -773,7 +807,15 @@ public class LeagueActivity extends Activity {
         }
         else note = "앱이 내려간 그 자리에서 한 번 이어할 수 있습니다." + (why.isEmpty() ? "" : "\n(" + why + ")");
         c.addView(text((League.isRanked(m) ? "랭크 · " + League.oppLabel(m) : o != null ? o.optString("nick") + " · " + League.oppLine(o) : "?") + "\n" + note, 13, TXT, false));
-        if (live || !acts) { cardMargin(c); return c; }
+        if (live) {                                            /* 168 M2: 막는 글 대신 그 게임으로 */
+            TextView go = pill("게임으로 돌아가기", GOLD, INK);
+            go.setOnClickListener(v -> toGame());
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.topMargin = dp(10);
+            c.addView(go, lp);
+            cardMargin(c); return c;
+        }
+        if (!acts) { cardMargin(c); return c; }
         LinearLayout btns = new LinearLayout(this);
         btns.setOrientation(LinearLayout.HORIZONTAL);
         if (ready) {                                           /* 다시 시작은 큰 버튼(허브가 이 «준비»를 닫고 새로 찾는다) */
@@ -789,7 +831,7 @@ public class LeagueActivity extends Activity {
                 if (launching) return;
                 if (!vk.equals(voidKindNow(League.matchById(id)))) { render(); return; }   /* 그린 뒤 상태가 바뀌었다(이어 할 수 있게 됨 등) — 다시 보고 고르게 */
                 if (!League.voidStarted(id, vk)) { toast("저장 실패 — 다시 시도하세요"); render(); return; }
-                afterClose(id, "무효로 닫았어요 — LP 그대로 · 바로 상대를 찾아요", false);
+                afterClose(id, false);
             });
             btns.addView(vd, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             TextView ff = pill("기권하고 찾기", BTN2, LOSE);
@@ -835,7 +877,7 @@ public class LeagueActivity extends Activity {
         toolDlg = new AlertDialog.Builder(this).setTitle("기권하고 새로 찾을까요?").setMessage(body)
             .setPositiveButton("기권하고 찾기", (x, y) -> {
                 if (League.forfeit(id) == null) { toast("저장 실패 — 다시 시도하세요"); render(); return; }
-                afterClose(id, null, true);
+                afterClose(id, true);
             })
             .setNegativeButton("취소", null).show();
     }
@@ -844,16 +886,15 @@ public class LeagueActivity extends Activity {
      *  아니면 이 화면에 남아 닫은 것과 이유를 함께 보인다(기권이면 결과 창도) */
     private String hubAfter = null;                  /* 롬 확인이 끝나면 허브로 갈 — 닫은 경기 id */
     private boolean hubAfterRes = false;             /* 그때도 못 열면 결과 창(기권) */
-    private void afterClose(String id, String okToast, boolean showRes) {
+    private void afterClose(String id, boolean showRes) {      /* 175: 닫았다는 알림 글 없음 — 못 여는 까닭만 */
         String why = hubWhy();
-        if (why == null) { if (okToast != null) toast(okToast); goHub(); return; }
+        if (why == null) { goHub(); return; }
         render();
         if (ROM_CHECKING.equals(why)) {
-            if (okToast != null) toast(okToast);
             hubAfter = id; hubAfterRes = showRes;
             return;
         }
-        toast(okToast != null ? "무효로 닫았어요 — LP 그대로\n" + why : why);   /* okToast 는 무효만 준다 — «바로 상대를 찾아요»는 빼고 */
+        toast(why);
         if (showRes) showResult(id);
     }
     /** 롬 확인이 끝났다 — 닫은 뒤 기다리던 허브 열기 */
@@ -880,7 +921,7 @@ public class LeagueActivity extends Activity {
         btns.setOrientation(LinearLayout.HORIZONTAL);
         TextView re = pill("다시 읽기", GOLD, INK);
         re.setOnClickListener(v -> {
-            if (League.liveHub) { toast("게임 속 리그를 닫은 뒤에 할 수 있어요"); return; }   /* 그 판이 쓰는 메모리 기록을 버리지 않게 */
+            if (League.liveHub) { toGame(); return; }        /* 168 M2: 그 판이 쓰는 메모리 기록을 버리지 않게 — 글 대신 그 게임으로 */
             String left = reread();
             render();
             if (left != null) toast("아직 안 돼요 — " + left);

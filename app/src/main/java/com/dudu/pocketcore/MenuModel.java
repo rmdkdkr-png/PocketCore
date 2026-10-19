@@ -14,20 +14,22 @@ import org.json.JSONObject;
  */
 final class MenuModel {
     /* 종류 */
-    static final int K_RESULT = 1, K_PAUSE = 2;                 // 157-B: K_LOBBY = 3
+    static final int K_RESULT = 1, K_PAUSE = 2, K_LOBBY = 3;    // 168: K_LOBBY = 157-B «대기»(리그 타이틀)
     /* 결과 */
     static final int O_WIN = 1, O_LOSS = 2, O_DRAW = 3, O_FORFEIT = 4, O_VOID = 5;   // VOID = 보류(hold)·무효(cancelled)
     /* 경기 시작 때의 사다리 */
     static final int M_LP = 0, M_PLACEMENT = 1, M_MASTER = 2;
     /* 사건 — 호명 띠(최대 2) · 아래 띠 도장 */
     static final int E_PROMOTE = 1, E_DEMOTE = 2, E_MASTER = 3, E_STAR_UP = 4, E_REVENGE = 5, E_RIVAL = 6, E_STREAK = 7,
-            E_FIRST_WIN = 8, E_PLACED = 9, E_RISK = 10, E_BROKE = 11, E_PROTECT = 12;
+            E_FIRST_WIN = 8, E_PLACED = 9, E_RISK = 10, E_BROKE = 11, E_PROTECT = 12, E_CHEAT = 13;   // 168: 치트 판(도장 «치»)
     /** 호명 띠 우선순위(앞이 먼저) — 기획서 §5 «승급·강등 > 설욕·라이벌 > 3연승 이상 > 오늘 첫 승 > 연승 끊음 > 배치 완료» 에
      *  무쌍 달성(승급과 같은 급)·★ 올라감(목업 «★4 올라감!»)을 끼움. E_RISK·E_BROKE·E_PROTECT 는 띠 없이 머리·도장으로만 */
     static final int[] RIBBON_ORDER = { E_PROMOTE, E_MASTER, E_DEMOTE, E_STAR_UP, E_REVENGE, E_RIVAL, E_STREAK, E_FIRST_WIN, E_PLACED };
     /* 칼집 줄 */
     static final int ROW_NEXT = 1, ROW_REMATCH = 2, ROW_NEWCHAR = 3, ROW_DRAWER = 4, ROW_QUIT = 5,
-            ROW_RESUME = 6, ROW_LATER = 7, ROW_FORFEIT = 8, ROW_VOIDQUIT = 9;
+            ROW_RESUME = 6, ROW_LATER = 7, ROW_FORFEIT = 8, ROW_VOIDQUIT = 9,
+            /* 168 대기(K_LOBBY) — 상대 찾기 / 멈춘 경기 이어서 · 서랍 · 내 캐릭터 바꾸기 · 멈춘 경기 기권·무효 · 리그 나가기 */
+            ROW_SEARCH = 10, ROW_RESUME_OPEN = 11, ROW_MAIN = 12, ROW_OPEN_FORFEIT = 13, ROW_OPEN_VOID = 14, ROW_LEAVE = 15;
     /* 그만할까요? 줄 */
     static final int QUIT_TITLE = 1, QUIT_BOARD = 2, QUIT_GAME = 3, QUIT_LIST = 4, QUIT_CANCEL = 5;
 
@@ -62,7 +64,9 @@ final class MenuModel {
     static final class Prefs {
         static final int FX_NORMAL = 0, FX_SHORT = 1, FX_OFF = 2;            // 결판 연출 보통(기본) · 짧게 · 끄기(= 옛 Java 결과 카드)
         static final int LOSS_REVENGE = 0, LOSS_NEXT = 1;                    // 진 판 기본 커서 설욕전(기본) · 다음 상대
-        static final int TAB_BOARD = 0, TAB_RECORD = 1, TAB_SETTINGS = 2;
+        static final int TAB_BOARD = 0, TAB_RECORD = 1, TAB_SETTINGS = 2, TAB_LEAGUE = 3;   /* 저장 값(pref.lgm.tab)은 번호 그대로 */
+        /** 168 — 보이는 차례: 순위 · 전적 · 리그 · 설정 */
+        static final int[] TAB_ORDER = { TAB_BOARD, TAB_RECORD, TAB_LEAGUE, TAB_SETTINGS };
         final int fx, lossCursor, autoNextSec, lastTab;                       // autoNextSec 0 끔(기본) · 10
         final boolean rememberTab;                                            // 기본 true
         Prefs(int fx, int lossCursor, int autoNextSec, boolean rememberTab, int lastTab) {
@@ -76,6 +80,18 @@ final class MenuModel {
         Prefs withTab(int v) { return new Prefs(fx, lossCursor, autoNextSec, rememberTab, v); }
         boolean same(Prefs o) { return o != null && fx == o.fx && lossCursor == o.lossCursor && autoNextSec == o.autoNextSec && rememberTab == o.rememberTab && lastTab == o.lastTab; }
     }
+    /** 168 §2 — 서랍 «리그» 탭 사본(League.leagueInfo · UI 스레드에서 한 번 · 불변으로 씀) */
+    static final class LeagueInfo {
+        int season; String since, wld; String[] pastRows = new String[0];   // 시즌 줄 · 지난 시즌(새것부터)
+        boolean placement; int placementPlayed;                            // 배치 중이면 새 시즌 줄 없음(못 쓰는 줄은 안 넣는다)
+        int lp0, lp1; String label0, label1;                                // 새 시즌 미리보기 LP lp0 → lp1
+        boolean canSeason, canMain;                                         // 시즌 도구·내 캐릭터 줄을 넣나(쉼에서 연 서랍 · 기록 파일 문제면 false)
+        String openVs, openForfeit;                                         // 멈춘 경기(시작한 열린 경기) 상대 닉 · 기권 몫(«−18 LP»/«배치 1패») — 두 번 묻기 글
+        String[] holds = new String[0];                                     // 보류·무효 줄(새것부터 5)
+        String mainLabel, name;                                             // 내 캐릭터(null = 아직) · 내 이름
+        String[] rules = new String[0];                                     // 짧은 규칙 줄
+        int cheatGames;                                                     // 이번 시즌 치트 판 수
+    }
     /** 서랍 «전적» 요약(이번 시즌 · 통산) */
     static final class Record {
         int season, w, l, d, streak, best, winPct;        // winPct = 0..100(판 0 이면 −1)
@@ -85,6 +101,7 @@ final class MenuModel {
         int careerW, careerL, careerD; String peakLabel;  // 통산 · 최고 티어(«검호★1»)
         String rivalNick; int rivalW, rivalL; String rivalTag;   // ⛓ 줄(없으면 rivalNick null)
         int lp; boolean master, placement; int mr, placementPlayed;   // 지금 내 값(차트 끝·머리 «무사★4 · 1935»)
+        int cheatGames;                                    // 168: 이번 시즌 «치트» 판 수
     }
 
     /* ── 공통 ── */
@@ -262,11 +279,13 @@ final class MenuModel {
             }
             if (win && b.bonusDaily > 0 && !rib.contains(E_FIRST_WIN)) tags.add(new Tag('첫', "+" + b.bonusDaily, E_FIRST_WIN));
             if (rival && !rib.contains(E_RIVAL)) tags.add(new Tag('라', b.h2hW + "-" + b.h2hL, E_RIVAL));
+            if (m.optInt("cheat") != 0) tags.add(0, new Tag('치', "치트", E_CHEAT));   /* 168 §9 — 치트가 먹은 판(기록 표) — 자리가 모자라도 먼저 */
             b.tags = tags.toArray(new Tag[0]);
             b.eventful = !voidM && (b.starUp || b.promoted || b.enteredMaster || win && b.bonusRevenge > 0);
             /* 줄 */
             int[] rows;
             if (voidM) rows = new int[]{ ROW_NEXT, ROW_QUIT };
+            else if (!canRe) rows = new int[]{ ROW_NEXT, ROW_NEWCHAR, ROW_DRAWER, ROW_QUIT };   /* 168: 못 쓰는 재대결 줄은 빼고 이유 글도 없음(유저 «안 돼요» 싫음) */
             else if (b.outcome == O_LOSS) rows = new int[]{ ROW_REMATCH, ROW_NEXT, ROW_NEWCHAR, ROW_DRAWER, ROW_QUIT };
             else rows = new int[]{ ROW_NEXT, ROW_REMATCH, ROW_NEWCHAR, ROW_DRAWER, ROW_QUIT };
             b.rows = rows;
@@ -279,13 +298,10 @@ final class MenuModel {
                         on = canRe;
                         r = Math.max(1, Math.min(3, played)) + "/3";
                         if (on) d = b.outcome == O_LOSS ? "같은 상대와 바로 다시" : "같은 상대와 한 판 더";
-                        else d = !supported ? "이 조합은 아직 못 해요" : "3판을 다 했어요";
+                        else d = "";                                    /* 168: 못 쓰는 재대결 줄은 아예 안 넣는다(위 rows) — 이유 글 없음 */
                         break;
-                    case ROW_NEWCHAR:
-                        on = ctx.rankAuto == 2;
-                        d = on ? "이번 판만 직접 골라요" : "직접 고르는 판이라 그대로예요";
-                        break;
-                    case ROW_DRAWER: d = "순위표와 전적 보기"; break;
+                    case ROW_NEWCHAR: d = "내 캐릭터부터 고르고 상대를 찾아요"; break;   /* 168 §6: 늘 켬 */
+                    case ROW_DRAWER: d = "순위·전적·리그 보기"; break;
                     default: d = "타이틀로 · 리그는 켠 채"; break;   /* 157 post: 바로 타이틀로(A 로 다시 찾기) */
                 }
                 b.rowOn[i] = on; b.rowDesc[i] = d; b.rowRight[i] = r;
@@ -354,8 +370,8 @@ final class MenuModel {
                 b.rowOn[i] = true;
                 switch (rows[i]) {
                     case ROW_RESUME: b.rowDesc[i] = "멈춘 곳에서 바로 이어서"; break;
-                    case ROW_DRAWER: b.rowDesc[i] = "순위표와 전적 보기"; break;
-                    case ROW_LATER: b.rowDesc[i] = "저장하고 리그 화면으로"; b.rowRight[i] = "저장"; break;
+                    case ROW_DRAWER: b.rowDesc[i] = "순위·전적·리그 보기"; break;
+                    case ROW_LATER: b.rowDesc[i] = "저장하고 타이틀로 · A 로 이어서"; b.rowRight[i] = "저장"; break;
                     case ROW_FORFEIT:
                         b.rowDesc[i] = "패배로 기록돼요";
                         b.rowRight[i] = b.forfeit.kind == Forfeit.FP_PLACEMENT ? "배치" : b.forfeit.kind == Forfeit.FP_NOVICE ? "±0"
@@ -370,6 +386,96 @@ final class MenuModel {
             return new MenuModel(b);
         } catch (Exception e) {
             android.util.Log.e("PocketCore", "MenuModel.pause", e);
+            return null;
+        }
+    }
+
+    /** 168 §2 대기(157-B — 리그 타이틀) 사본. open = 열린 경기(없으면 null — «준비»는 넘기지 않음) · voidKind = League.voidKind(그 경기)
+     *  줄: 상대 찾기(또는 멈춘 경기 이어서) · 순위·전적·리그 · 내 캐릭터 바꾸기 · (멈춘 경기) 기권 · (앱 탓) 무효로 닫기 · 리그 나가기.
+     *  못 쓰는 줄은 아예 안 넣는다(흐린 줄·이유 글 없음) */
+    static MenuModel lobby(android.content.Context c, Ctx ctx, JSONObject open, String voidKind) {
+        try {
+            if (ctx == null) return null;
+            if (open != null && "ready".equals(open.optString("status"))) open = null;
+            B b = new B();
+            b.kind = K_LOBBY;
+            b.matchId = open != null ? open.optString("id") : "";
+            b.prefs = ctx.prefs != null ? ctx.prefs : Prefs.defaults();
+            b.stageSel = ctx.stageSel;
+            RankCore.Me me = League.rankMe();
+            League.Main mn = League.main();
+            boolean plc = me.placementLeft > 0, master = me.master;
+            int myCh = mn != null && mn.cell != 15 ? mn.ch : -1, mySty = mn != null && mn.cell != 15 ? mn.sty : -1;
+            b.me = new Side(League.myNick(), mySty >= 0 && mySty <= 1 ? League.STYLE[mySty] : null, plc ? 0 : master ? 7 : RankCore.tierOf(me.lp), plc || master ? 0 : RankCore.starOf(me.lp),
+                    plc ? 0 : master ? me.mr : me.lp, master, plc, plc ? 5 - me.placementLeft : 0, myCh, mySty);
+            if (open != null) {
+                JSONObject snap = open.optJSONObject("opp_snap"); if (snap == null) snap = new JSONObject();
+                JSONObject rule = open.optJSONObject("rule");
+                int olp = snap.optInt("lp"), omr = snap.optInt("mr");
+                boolean om = olp >= RankCore.MASTER_LP || omr > 0;
+                String on = League.oppNick(open);
+                b.opp = new Side(on == null || on.isEmpty() ? "?" : on, null, om ? 7 : RankCore.tierOf(olp), om ? 0 : RankCore.starOf(olp), om ? omr : olp, om, false, 0,
+                        rule != null ? rule.optInt("char", -1) : -1, rule != null ? rule.optInt("style", -1) : -1);
+            } else b.opp = new Side("", null, 0, 0, 0, false, false, 0, -1, -1);
+            League.Today t = League.rankedToday();
+            b.todayW = t.w; b.todayL = t.l; b.todayD = t.d; b.todayLp = t.lpSum;
+            b.bonusLeft = League.bonusLeft();
+            League.Session ss = League.session();
+            if (ss != null && RankCore.today(ss.start) == League.today()) { b.sessW = ss.w; b.sessL = ss.l; b.sessD = ss.d; b.sessLp = ss.lp; }
+            else b.sessW = -1;
+            b.total = RankCore.total();
+            b.rankNow = !plc && ctx.board != null && ctx.board.rank > 0 ? ctx.board.rank : -1;
+            b.rankBefore = -1;
+            b.record = record(me);
+            b.mode = plc ? M_PLACEMENT : master ? M_MASTER : M_LP;
+            b.lpBefore = b.lpAfter = me.lp; b.mrBefore = b.mrAfter = me.mr;
+            b.tierBefore = b.tierAfter = master ? 7 : RankCore.tierOf(me.lp);
+            b.starBefore = b.starAfter = master ? 0 : RankCore.starOf(me.lp);
+            b.placementLeft = me.placementLeft;
+            b.streakAfter = me.streak;
+            b.started = open != null;
+            if (open != null && League.isRanked(open)) {
+                League.ForfeitPreview fp = League.forfeitPreview(open);
+                switch (fp.kind) {
+                    case League.ForfeitPreview.PLACEMENT: b.forfeit = new Forfeit(Forfeit.FP_PLACEMENT, 0, fp.brokeStreak, "배치 1패로 기록"); break;
+                    case League.ForfeitPreview.NOVICE: b.forfeit = new Forfeit(Forfeit.FP_NOVICE, 0, fp.brokeStreak, "패배로 기록 · LP 그대로"); break;
+                    case League.ForfeitPreview.MASTER: b.forfeit = new Forfeit(Forfeit.FP_LP, 0, fp.brokeStreak, "패배로 기록 · MR " + signed(fp.mrDelta)); break;
+                    default: b.forfeit = new Forfeit(Forfeit.FP_LP, Math.min(0, fp.lpDelta), fp.brokeStreak, "패배로 기록 · " + signed(fp.lpDelta) + " LP"); break;
+                }
+            } else if (open != null) b.forfeit = new Forfeit(Forfeit.FP_LP, 0, 0, "패배로 기록");
+            java.util.List<Integer> rl = new java.util.ArrayList<>();
+            rl.add(open != null ? ROW_RESUME_OPEN : ROW_SEARCH);
+            rl.add(ROW_DRAWER);
+            rl.add(ROW_MAIN);
+            if (open != null) rl.add(ROW_OPEN_FORFEIT);
+            if (open != null && voidKind != null) rl.add(ROW_OPEN_VOID);
+            rl.add(ROW_LEAVE);
+            int[] rows = new int[rl.size()];
+            for (int i = 0; i < rows.length; i++) rows[i] = rl.get(i);
+            b.rows = rows;
+            b.rowOn = new boolean[rows.length]; b.rowDesc = new String[rows.length]; b.rowRight = new String[rows.length];
+            for (int i = 0; i < rows.length; i++) {
+                b.rowOn[i] = true;
+                switch (rows[i]) {
+                    case ROW_SEARCH: b.rowDesc[i] = mn == null ? "내 캐릭터부터 고르고 상대 찾기" : "상대를 찾아 바로 한 판"; break;
+                    case ROW_RESUME_OPEN: b.rowDesc[i] = "vs " + b.opp.nick + " · 멈춘 자리부터"; break;
+                    case ROW_DRAWER: b.rowDesc[i] = "순위·전적·리그 보기"; break;
+                    case ROW_MAIN: b.rowDesc[i] = mn != null ? League.mainLabel(mn, -1) + " → 다시 고르기" : "내 캐릭터를 골라 둬요"; break;
+                    case ROW_OPEN_FORFEIT:
+                        b.rowDesc[i] = b.forfeit != null ? b.forfeit.line : "패배로 기록돼요";
+                        b.rowRight[i] = b.forfeit == null ? null : b.forfeit.kind == Forfeit.FP_PLACEMENT ? "배치" : b.forfeit.kind == Forfeit.FP_NOVICE ? "±0"
+                                : b.mode == M_MASTER ? null : signed(b.forfeit.lpDelta);
+                        break;
+                    case ROW_OPEN_VOID: b.rowDesc[i] = "LP·전적 그대로 닫아요"; break;
+                    default: b.rowDesc[i] = "내 게임 · 게임 목록으로"; break;
+                }
+            }
+            b.defaultRow = 0;
+            b.ribbons = new int[0]; b.tags = new Tag[0];
+            b.w1 = -1; b.w2 = -1;
+            return new MenuModel(b);
+        } catch (Exception e) {
+            android.util.Log.e("PocketCore", "MenuModel.lobby", e);
             return null;
         }
     }
@@ -472,6 +578,7 @@ final class MenuModel {
         for (JSONObject x : League.seasons()) if (x.optInt("peak_lp") > peak && x.optString("peak_label", "").length() > 0) { peak = x.optInt("peak_lp"); pl = x.optString("peak_label"); }
         if (me.master) pl = RankCore.TIER[7];
         r.peakLabel = pl != null ? pl.replace(" ★", "★") : null;
+        r.cheatGames = League.cheatGames();
         League.RivalLine rv = League.rivalLine();
         if (rv != null) {
             r.rivalNick = rv.nick; r.rivalW = rv.w; r.rivalL = rv.l;

@@ -12,7 +12,10 @@ package com.dudu.pocketcore;
  * 커서 규칙(§10.3): 고른 줄·안 고른 줄의 픽셀은 같다(바탕 칠 3 · 글자 칠 1 · 오른쪽 작은 글 칠 2) — 고르면 팔레트만 SEL 로, 단도는 쿼드.
  */
 final class LgmPages {
-    static final int SC_RESULT = 1, SC_QUIT = 2, SC_PAUSE = 3, SC_PAUSE_CONFIRM = 4, SC_BOARD = 5, SC_RECORD = 6, SC_SETTINGS = 7;
+    static final int SC_RESULT = 1, SC_QUIT = 2, SC_PAUSE = 3, SC_PAUSE_CONFIRM = 4, SC_BOARD = 5, SC_RECORD = 6, SC_SETTINGS = 7,
+            SC_LOBBY = 8, SC_LEAGUE = 9, SC_LOBBY_CONFIRM = 10, SC_LOBBY_QUIT = 11, SC_LEAGUE_CONFIRM = 12;   /* 168 대기 · 서랍 리그 탭(+ 두 번 묻기) */
+    /** 168 서랍 «리그» 탭 줄(Row.id) */
+    static final int LG_NEW_SEASON = 301, LG_RESTART = 302, LG_MAIN = 303, LG_NAME = 304;
     /** 기권 확인 두 칸(Row.id) */
     static final int CONFIRM_NO = 101, CONFIRM_YES = 102;
     /** 설정 탭 줄(Row.id) */
@@ -67,6 +70,10 @@ final class LgmPages {
         boolean portraitOutside;         // (쉼) 칼집 밖 탭 = 이어하기를 받는 장면
         int[] hitRect;                   // {c0,r0,c1,r1} × n — 줄 말고도 메뉴가 받을 자리(칼집 몸통·판 정보 패)
         int tiles, pals;                 // W 타일 수·팔레트 수(보고·시험)
+        /* ── 168 ── */
+        int[] variantIds;                // 같은 쪽의 다른 판(두 번 묻기 펼침 등) — 그 줄 id 와 판(같은 칸·같은 줄)
+        Scene[] variants;
+        Scene variant(int id) { if (variantIds != null) for (int i = 0; i < variantIds.length; i++) if (variantIds[i] == id) return variants[i]; return null; }
     }
     /** 157-B 자리 — 캐릭터 얼굴 타일 묶음(우리 그림 또는 따로 조사한 것). 157-A 는 늘 null */
     interface FaceProvider { TileCanvas.Encoded face(int ch, int sty, int pal); }
@@ -193,10 +200,10 @@ final class LgmPages {
         sheath(cv, 4, 16);
         cv.cellPal(11, 4, 19, 5, R_HEAD);
         cv.text("그만할까요?", 90, 36, 1, ink.g11b);
-        int[] rows = { MenuModel.QUIT_TITLE, MenuModel.QUIT_BOARD, MenuModel.QUIT_GAME, MenuModel.QUIT_LIST, MenuModel.QUIT_CANCEL };
-        boolean[] on = { true, true, true, true, true };
-        String[] lab = { "타이틀로", "리그 화면", "내 게임", "게임 목록", "취소" };
-        cmdRows(b, null, 6, R_INK, R_WARN, R_SEL, rows, on, new String[5], lab, 4);
+        int[] rows = { MenuModel.QUIT_TITLE, MenuModel.QUIT_GAME, MenuModel.QUIT_LIST, MenuModel.QUIT_CANCEL };   /* 168: «리그 화면» 뺌 — 순위표는 서랍 */
+        boolean[] on = { true, true, true, true };
+        String[] lab = { "타이틀로", "내 게임", "게임 목록", "취소" };
+        cmdRows(b, null, 6, R_INK, R_WARN, R_SEL, rows, on, new String[4], lab, 3);
         /* r16 «오늘 4승 1패 +152» — 쉼 아래 띠·서랍 전적과 같은 «오늘»(rankedToday). 세션(G2)은 허브를 다시 켤 때마다 끊겨 같은 «오늘» 글자에 다른 숫자가 나왔다 */
         cv.cellPal(11, 16, 19, 16, R_INK);
         String day = m.todayLine();
@@ -204,7 +211,7 @@ final class LgmPages {
         int lim = (lps != null ? 155 - TileCanvas.mini3W(lps) - 4 : 156) - 90;
         cv.text(fit(day, lim, ink.g7), 90, 128, 2, ink.g7);
         if (lps != null) cv.mini3(lps, 155, 129, 1, TileCanvas.RIGHT);
-        String[] desc = { "리그는 켠 채 · A로 다시", "순위표·기록 화면으로", "내 세이브 게임으로", "게임 목록으로 나가요", "결판으로 돌아가요" };
+        String[] desc = { "리그는 켠 채 · A로 다시", "내 세이브 게임으로", "게임 목록으로 나가요", "결판으로 돌아가요" };
         for (int i = 0; i < b.rows.size(); i++) b.rows.get(i).desc = desc[i];
         bottomBand(b, m, "A 결정 B 취소", false, 0);
         katanaStore(cv, R_SEL);
@@ -1136,7 +1143,8 @@ final class LgmPages {
         /* 통산(r16) · 라이벌(r17) · 안내(r18) */
         cv.cellPal(0, 16, 19, 16, D_INK);
         int[] cw = { r.careerW, r.careerL, r.careerD };
-        String car = "통산 " + cw[0] + "승 " + cw[1] + "패" + (cw[2] > 0 ? " " + cw[2] + "무" : "") + (r.peakLabel != null ? " · 최고 " + r.peakLabel : "");
+        String car = "통산 " + cw[0] + "승 " + cw[1] + "패" + (cw[2] > 0 ? " " + cw[2] + "무" : "") + (r.peakLabel != null ? " · 최고 " + r.peakLabel : "")
+                + (r.cheatGames > 0 ? " · 치트 " + r.cheatGames : "");   /* 168 §9 — 이번 시즌 치트 판 */
         cv.text(fit(car, 156, ink.g7), 2, 129, 2, ink.g7);
         if (r.rivalNick != null) {
             cv.cellPal(0, 17, 0, 17, D_CHAIN);
@@ -1242,6 +1250,273 @@ final class LgmPages {
         return sc;
     }
 
+    /* ════════════════════════════════════════════════════════════════ 168 대기(157-B) */
+
+    /** 대기 — 리그 타이틀 위(코어 멈춤). 왼쪽 위 내 판 패 · 칼집(상대 찾기/멈춘 경기 이어서 · 순위·전적·리그 · 내 캐릭터 바꾸기 · 기권 · 무효로 닫기 · 리그 나가기) · 아래 먹 띠.
+     *  variant 0 보통 · 1 기권 두 번 묻기(기권 줄 맥박 · 아래 띠 «A 한 번 더 = 기권») · 2 리그 나가기(내 게임 · 게임 목록 · 취소) */
+    Scene lobby(MenuModel m, int variant) {
+        Sb b = new Sb(variant == 1 ? SC_LOBBY_CONFIRM : variant == 2 ? SC_LOBBY_QUIT : SC_LOBBY);
+        TileCanvas cv = b.cv;
+        setPal(cv, P_INK, C_INK); setPal(cv, P_GOLD, C_GOLD); setPal(cv, P_SEL, C_SEL); setPal(cv, P_WARN, C_WARN); setPal(cv, P_RIB, C_SEAL);
+        setPal(cv, P_PULSE, C_SEL);
+        int t = m.me.placement ? 0 : Math.max(0, Math.min(7, m.me.tier));
+        cv.setPal(P_TIER, LP_YELLOW, TIER_C[t][0], 0x012);
+        lobbyPlate(cv, m);
+        int[] ids; String[] lab, right; boolean[] on; String head;
+        if (variant == 2) {
+            ids = new int[]{ MenuModel.QUIT_GAME, MenuModel.QUIT_LIST, MenuModel.QUIT_CANCEL };
+            lab = new String[]{ "내 게임", "게임 목록", "취소" }; right = new String[3]; on = new boolean[]{ true, true, true };
+            head = "리그 나가기";
+        } else {
+            ids = m.rows; on = m.rowOn; right = m.rowRight.clone();
+            lab = new String[ids.length];
+            for (int i = 0; i < ids.length; i++) lab[i] = lobbyLabel(ids[i]);
+            head = ids.length <= 5 ? "리그 대전" : null;
+        }
+        int rTop = head != null ? 6 : 4, rEnd = Math.max(rTop + 2 * ids.length - 1, 13);
+        sheathP(cv, 4, rEnd);
+        if (head != null) { cv.cellPal(11, 4, 19, 5, P_GOLD); cv.text(head, 90, 36, 1, ink.g11b); }
+        cmdRowsP(b, rTop, ids, on, right, lab, variant == 2 ? 2 : -1);
+        String[] desc = variant == 2 ? new String[]{ "내 세이브 게임으로", "게임 목록으로 나가요", "대기로 돌아가요" } : m.rowDesc;
+        for (int i = 0; i < b.rows.size(); i++) b.rows.get(i).desc = i < desc.length ? desc[i] : null;
+        int fi = -1;
+        if (variant == 1) for (int i = 0; i < ids.length; i++) if (ids[i] == MenuModel.ROW_OPEN_FORFEIT) { fi = i; b.rows.get(i).palOn = P_PULSE; }
+        /* 아래 먹 띠 */
+        cv.cellPal(0, 16, 10, 16, P_GOLD); cv.cellPal(11, 16, 19, 16, P_GOLD);
+        cv.fill(0, 135, 159, 135, 2);
+        cv.fill(0, 136, 159, 151, 3);
+        cv.cellPal(0, 17, 19, 18, P_INK);
+        if (variant == 1) {
+            String line = m.forfeit != null ? m.forfeit.line : "패배로 기록돼요";
+            cv.text(fit("vs " + m.opp.nick + " · " + line, 156, ink.g7), 2, 137, 1, ink.g7);
+            cv.text(fit("A 한 번 더 = 기권 · B 취소", 156, ink.g7), 157, 145, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
+            for (Row row : b.rows) row.descC = -1;
+        } else {
+            for (int i = 0; i < b.rows.size(); i++) {      /* 줄 설명 — 창고 r21.. */
+                Row row = b.rows.get(i);
+                int sr = 21 + i;
+                cv.fill(0, sr * 8, 159, sr * 8 + 7, 3);
+                cv.cellPal(0, sr, 19, sr, P_INK);
+                if (row.desc != null) cv.text(fit(row.desc, 156, ink.g7), 2, sr * 8 + 1, 1, ink.g7);
+                row.descC = 0; row.descR = sr; row.descW = 20; row.descDstC = 0; row.descDstR = 17;
+            }
+            Row d0 = b.rows.isEmpty() ? null : b.rows.get(0);
+            if (d0 != null && d0.desc != null) cv.text(fit(d0.desc, 156, ink.g7), 2, 137, 1, ink.g7);
+            cv.text(fit(variant == 2 ? "A 결정 · B 돌아가기" : "A 결정 · B/OPTION 닫기", 156, ink.g7), 157, 145, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
+        }
+        katanaStore(cv, P_SEL);
+        b.pane(PP_SHEATH, 10, 4, 19, rEnd, 0, 0, true);
+        b.pane(PP_INFO, 0, 4, 9, 9, 0, 0, true);
+        b.pane(PP_BOTTOM, 0, 16, 19, 18, 0, 0, true);
+        b.base(B_DIM, Emu.OV_BASE_DIM, 0, 151, 2, 0);
+        if (variant == 1) b.scene().defaultRow = Math.max(0, fi);
+        Scene sc = b.finish(TileCanvas.RIGHT);
+        sc.portraitOutside = variant == 0;
+        sc.hitRect = new int[]{ 10, 4, 19, rEnd, 0, 4, 9, 9 };
+        if (variant != 0) {
+            Cue q = new Cue().wipe(0, SWING, Cue.W, variant == 1 ? 0 : 10, variant == 1 ? 17 : 4, 19, variant == 1 ? 18 : rEnd, 2, false, P_GOLD, 1, Cue.EASE_LINEAR);
+            if (variant == 1) q.palCycle(0, Cue.AMBIENT, Cue.W, P_PULSE, 3, 0x46E, 0x239, 16, false);
+            ambient(q, 0, P_SEL);
+            sc.cue = q.build(); sc.cueEnd = q.end(); sc.readyT = 0; sc.swapCue = sc.cue;
+        } else {
+            Cue q = new Cue().dim(0, PAUSE_BLEED, B_DIM, 0, 151, 4, 2);
+            q.show(0, Cue.W, PP_SHEATH, true).slide(0, SHEATH_IN, Cue.W, PP_SHEATH, Cue.AXIS_X, 72, 0, Cue.EASE_OUT);
+            q.show(0, Cue.W, PP_INFO, true).slide(0, PAUSE_INFO, Cue.W, PP_INFO, Cue.AXIS_X, -80, 0, Cue.EASE_OUT);
+            ambient(q, SHEATH_IN, P_SEL);
+            sc.cue = q.build(); sc.cueEnd = q.end(); sc.readyT = SHEATH_IN;
+            sc.swapCue = snap(sc.cue);
+        }
+        Cue c = new Cue().slide(0, CLOSE, Cue.W, PP_SHEATH, Cue.AXIS_X, 0, 80, Cue.EASE_IN)
+                .slide(0, CLOSE, Cue.W, PP_INFO, Cue.AXIS_X, 0, -80, Cue.EASE_IN)
+                .dim(0, CLOSE, B_DIM, 0, 151, 2, 4).show(0, Cue.W, PP_BOTTOM, false);
+        sc.closeCue = c.build(); sc.closeDur = CLOSE;
+        return sc;
+    }
+    static String lobbyLabel(int id) {
+        switch (id) {
+            case MenuModel.ROW_SEARCH: return "상대 찾기";
+            case MenuModel.ROW_RESUME_OPEN: return "이어하기";           /* 칼집 줄 글은 52px(갈무리11 4자) 안 — 자세한 말은 아래 띠 */
+            case MenuModel.ROW_DRAWER: return "순위·전적";
+            case MenuModel.ROW_MAIN: return "내 캐릭터";
+            case MenuModel.ROW_OPEN_FORFEIT: return "기권";
+            case MenuModel.ROW_OPEN_VOID: return "무효 닫기";
+            case MenuModel.ROW_LEAVE: return "나가기";
+            default: return "";
+        }
+    }
+    /** 쉼·대기 칼집 줄 — cmdRows 와 같은 칸(쉼 팔레트) · 기권 줄은 주홍 */
+    private void cmdRowsP(Sb b, int rTop, int[] ids, boolean[] on, String[] right, String[] labels, int dimIdx) {
+        TileCanvas cv = b.cv;
+        for (int k = 0; k < ids.length; k++) {
+            int r = rTop + 2 * k, y = r * 8;
+            boolean warn = ids[k] == MenuModel.ROW_OPEN_FORFEIT;
+            boolean dim = !on[k] || k == dimIdx;
+            cv.cellPal(11, r, 19, r + 1, warn ? P_WARN : P_INK);
+            cv.text(fit(labels[k], 52, ink.g11), 99, y + 3, dim ? 2 : 1, ink.g11);
+            String rt = right != null && k < right.length ? right[k] : null;
+            if (rt != null) {
+                if (mini3able(rt)) cv.mini3(rt, 155, y + 6, warn ? 1 : 2, TileCanvas.RIGHT);
+                else cv.text(rt, 155, y + 5, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
+            }
+            Row row = new Row();
+            row.id = ids[k]; row.c0 = 11; row.r0 = r; row.c1 = 19; row.r1 = r + 1;
+            row.rc0 = 10; row.rr0 = r; row.rc1 = 19; row.rr1 = r + 1;
+            row.palOn = P_SEL; row.palOff = warn ? P_WARN : P_INK;
+            row.quadX = 89; row.quadY = y + 4;
+            row.enabled = on[k];
+            b.rows.add(row);
+        }
+    }
+    /** 대기 왼쪽 위 내 판 패(c0–9 × r4–9) — «리그 · 내 이름» · 티어★ LP · 오늘 n승 m패 · 첫 승 보너스/세션 */
+    private void lobbyPlate(TileCanvas cv, MenuModel m) {
+        cv.fill(0, 32, 79, 71, 3);
+        cv.cellPal(0, 4, 9, 5, P_INK);
+        cv.text(fit(cover7or11(m.me.nick), 74, ink.g11), 4, 34, 1, ink.g11);   /* 내 이름(8자까지 — 칼집 머리가 «리그 대전») */
+        cv.cellPal(0, 6, 9, 6, P_TIER);
+        if (m.me.placement) cv.text("배치 경기 " + m.me.placementPlayed + "/5", 4, 49, 2, ink.g7);
+        else {
+            int x = cv.text(RankCore.TIER[Math.max(0, Math.min(7, m.me.tier))], 4, 49, 2, ink.g7);
+            if (m.me.master) { x = cv.text("MR", x + 3, 49, 2, ink.g7); cv.mini3(String.valueOf(m.me.lp), x + 4, 50, 1, TileCanvas.LEFT); }
+            else {
+                cv.art(OvArt.STAR5, x + 1, 50, 2, 0, 0, false);
+                x = cv.text(String.valueOf(m.me.stars), x + 7, 49, 2, ink.g7);
+                x = cv.mini3(String.valueOf(m.me.lp), x + 6, 50, 1, TileCanvas.LEFT);
+                cv.text("LP", Math.min(66, x + 3), 49, 2, ink.g7);
+            }
+        }
+        cv.cellPal(0, 7, 9, 7, P_INK);
+        String day = m.todayW + m.todayL + m.todayD > 0 ? m.todayLine() + " · " + MenuModel.signed(m.todayLp) : "오늘 첫 판";
+        cv.text(fit(day, 74, ink.g7), 4, 57, 1, ink.g7);
+        cv.cellPal(0, 8, 9, 8, P_INK);
+        String sub = m.started ? "멈춤 · vs " + m.opp.nick : m.bonusLeft ? "첫 승 +" + RankCore.BONUS_DAILY + " 남았어요" : m.me.style != null ? "내 캐릭터 · " + m.me.style : "";
+        if (!sub.isEmpty()) cv.text(fit(cover7(sub), 74, ink.g7), 4, 65, 2, ink.g7);
+        cv.cellPal(0, 9, 9, 9, P_GOLD);
+        cv.fill(0, 72, 79, 72, 2);
+        cv.fill(0, 73, 76, 73, 1);
+    }
+
+    /* ════════════════════════════════════════════════════════ 168 서랍 «리그» 탭 */
+
+    static final int D_PULSE = 15;
+    /** 리그 탭 — 줄: 새 시즌(배치 끝난 뒤) · 처음부터 다시 · 내 캐릭터 · 내 이름(A) · 아래 목록(L): 시즌 · 지난 시즌 · 치트 판 · 보류·무효 · 규칙.
+     *  confirmId = 두 번 묻기 펼친 줄(LG_NEW_SEASON · LG_RESTART — 그 줄 맥박 · 아래 띠 «A 한 번 더 = …») · 0 보통.
+     *  보통 판은 펼친 판 둘을 variants 에 같이 싣는다(LeagueMenu 가 바로 갈아 끼움) */
+    Scene league(MenuModel m, MenuModel.LeagueInfo li, int confirmId) {
+        Scene sc = league0(m, li, confirmId);
+        if (confirmId == 0) {
+            java.util.List<Integer> vi = new java.util.ArrayList<>();
+            java.util.List<Scene> vs = new java.util.ArrayList<>();
+            for (Row r : sc.rows) if (r.id == LG_NEW_SEASON || r.id == LG_RESTART) { vi.add(r.id); vs.add(league0(m, li, r.id)); }
+            sc.variantIds = new int[vi.size()];
+            for (int i = 0; i < vi.size(); i++) sc.variantIds[i] = vi.get(i);
+            sc.variants = vs.toArray(new Scene[0]);
+        }
+        return sc;
+    }
+    private Scene league0(MenuModel m, MenuModel.LeagueInfo li, int confirmId) {
+        Sb s = new Sb(confirmId != 0 ? SC_LEAGUE_CONFIRM : SC_LEAGUE);
+        TileCanvas cv = s.cv;
+        drawerPals(cv);
+        setPal(cv, D_PULSE, C_SEL);
+        drawerHead(cv, "리", "리그", "시즌 " + li.season + (li.since != null ? " · " + li.since : ""), li.wld, D_INK, false);
+        tabRow(s, MenuModel.Prefs.TAB_LEAGUE);
+        java.util.List<int[]> rows = new java.util.ArrayList<>();          /* {id} */
+        java.util.List<String[]> rl = new java.util.ArrayList<>();          /* {label, right, desc} */
+        if (li.canSeason && !li.placement && li.label0 != null) {
+            rows.add(new int[]{ LG_NEW_SEASON });
+            rl.add(new String[]{ "새 시즌", String.format(java.util.Locale.US, "%d→%d", li.lp0, li.lp1),
+                    "LP 를 반쯤 내리고 승패 0부터 · " + li.label0 + " → " + li.label1 });
+        }
+        if (li.canSeason) {
+            rows.add(new int[]{ LG_RESTART });
+            rl.add(new String[]{ "처음부터 다시", "배치부터", "배치 5판부터 · 지금 기록은 보관해요" });
+        }
+        if (li.canMain) {
+            rows.add(new int[]{ LG_MAIN });
+            rl.add(new String[]{ "내 캐릭터", li.mainLabel != null ? li.mainLabel : "고르기", "내 캐릭터부터 다시 고르고 상대를 찾아요" });
+        }
+        rows.add(new int[]{ LG_NAME });
+        rl.add(new String[]{ "내 이름", li.name, "이름표·VS 띠·결판·순위표에 나와요" });
+        for (int k = 0; k < rows.size(); k++) {
+            int r = 4 + 2 * k, y = r * 8, id = rows.get(k)[0];
+            String[] t = rl.get(k);
+            cv.cellPal(0, r, 19, r + 1, D_INK);
+            cv.fill(0, y + 1, 159, y + 15, 3);
+            cv.text(t[0], 12, y + 3, 1, ink.g11);
+            String rt = t[1] != null ? t[1] : "";
+            if (mini3able(rt.replace("→", "/"))) {
+                String[] lr = rt.split("→");
+                cv.mini3(lr[lr.length - 1], 156, y + 6, 2, TileCanvas.RIGHT);
+                if (lr.length > 1) { cv.text("→", 156 - TileCanvas.mini3W(lr[1]) - 9, y + 3, 2, ink.g7); cv.mini3(lr[0], 156 - TileCanvas.mini3W(lr[1]) - 11, y + 6, 2, TileCanvas.RIGHT); }
+            } else cv.text(fit(cover7(rt), 84, ink.g7), 156, y + 5, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
+            Row row = new Row();
+            row.id = id; row.c0 = 0; row.r0 = r; row.c1 = 19; row.r1 = r + 1; row.palOn = id == confirmId ? D_PULSE : D_SEL; row.palOff = D_INK;
+            row.quadX = 2; row.quadY = y + 4; row.enabled = true; row.desc = t[2];
+            int sr = 21 + k;
+            cv.cellPal(0, sr, 19, sr, D_INK);
+            cv.text(fit(t[2], 156, ink.g7), 80, sr * 8 + 1, 2, ink.g7, -1, TileCanvas.CENTER, 0);
+            row.descC = confirmId != 0 ? -1 : 0; row.descR = sr; row.descW = 20; row.descDstC = 0; row.descDstR = 12;
+            s.rows.add(row);
+        }
+        int c0 = 0;
+        for (int k = 0; k < rows.size(); k++) if (rows.get(k)[0] == confirmId) c0 = k;
+        cv.cellPal(0, 12, 19, 12, D_INK);
+        cv.text(fit(rl.get(c0)[2], 156, ink.g7), 80, 97, 2, ink.g7, -1, TileCanvas.CENTER, 0);
+        /* 아래(r17–18) — 보통: 목록 넘기기 안내 · 펼침: 무엇이 바뀌나 + «A 한 번 더» */
+        cv.cellPal(0, 17, 19, 17, confirmId != 0 ? D_SEL : D_INK);
+        cv.cellPal(0, 18, 19, 18, D_INK);
+        if (confirmId != 0) {
+            boolean ns = confirmId == LG_NEW_SEASON;
+            String what = li.openVs != null ? "멈춘 경기는 기권패로 닫고 " + (ns ? "새 시즌" : "처음부터") + " · vs " + li.openVs   /* 넘치면 닉이 잘린다(할 일이 먼저) */
+                    : ns ? "시즌 " + (li.season + 1) + " · LP " + li.lp0 + "→" + li.lp1 + " · 승패 0부터" : "배치 5판부터 · 지금 기록은 보관";
+            cv.text(fit(cover7(what), 156, ink.g7), 80, 137, 1, ink.g7, -1, TileCanvas.CENTER, 0);
+            cv.text(fit(ns ? "A 한 번 더 = 새 시즌 · B 취소" : "A 한 번 더 = 처음부터 · B 취소", 156, ink.g7), 80, 145, 2, ink.g7, -1, TileCanvas.CENTER, 0);
+        } else {
+            cv.text("▼ 끝에서 더 = 아래 목록", 80, 137, 2, ink.g7, -1, TileCanvas.CENTER, 0);
+            cv.text("▲▼ 고르기  A 결정  ◀▶ 탭  B 뒤로", 80, 145, 2, ink.g7, -1, TileCanvas.CENTER, 0);
+        }
+        katanaStore(cv, D_SEL);
+        s.base(B_FILL, Emu.OV_BASE_FILL, 0, 151, 152, 0x012);
+        s.scene().defaultRow = c0;
+        Scene sc = s.finish(TileCanvas.RIGHT);
+        /* 아래 목록(L) — r13–16(4줄 보임) */
+        java.util.List<String[]> lines = new java.util.ArrayList<>();       /* {글, 칠(g=금 · d=흐림 · n=보통)} */
+        lines.add(new String[]{ "시즌 " + li.season + (li.since != null ? " · " + li.since : "") + " · " + li.wld, "g" });
+        for (String r : li.pastRows) lines.add(new String[]{ r, "d" });
+        if (li.cheatGames > 0) lines.add(new String[]{ "이번 시즌 치트 판 " + li.cheatGames, "n" });
+        if (li.openVs != null) lines.add(new String[]{ "멈춘 경기 · vs " + li.openVs + " · 타이틀에서 A", "n" });
+        if (li.holds.length > 0) { lines.add(new String[]{ "보류·무효", "g" }); for (String h : li.holds) lines.add(new String[]{ h, "d" }); }
+        lines.add(new String[]{ "규칙", "g" });
+        for (String r : li.rules) lines.add(new String[]{ r, "n" });
+        sc.l = textList(lines);
+        sc.lClipY0 = 104; sc.lClipY1 = 135;
+        int min = -104, max = Math.max(min, 8 * (lines.size() - 4) - 104);
+        sc.lScrollMin = min; sc.lScrollMax = max; sc.lScrollY = min;
+        int[] vis = { 0, 0, 19, Math.min(3, lines.size() - 1) };
+        drawerCues(sc, vis, false);
+        if (confirmId != 0) {                                              /* 펼침 — 아래 띠 휘두름 · 맥박 */
+            Cue q = new Cue().wipe(0, SWING, Cue.W, 0, 17, 19, 18, 2, false, D_GOLD, 1, Cue.EASE_LINEAR);
+            q.palCycle(0, Cue.AMBIENT, Cue.W, D_PULSE, 3, 0x46E, 0x239, 16, false);
+            ambient(q, 0, D_SEL);
+            sc.swapCue = concat(snap(sc.cue), q.build());
+        }
+        sc.revealCue = concat(snap(sc.cue), new Cue().wipe(0, SWING, Cue.L, vis[0], vis[1], vis[2], vis[3], 2, false, 0, 0, Cue.EASE_LINEAR).build());
+        sc.tab = MenuModel.Prefs.TAB_LEAGUE;
+        return sc;
+    }
+    /** 글 목록(L 층 20×n) — 줄마다 갈무리7 한 줄(156px «…») · 칠 g 금 · d 흐림 · n 보통 */
+    private TileCanvas.Encoded[] textList(java.util.List<String[]> lines) {
+        TileCanvas cv = new TileCanvas(20, Math.max(1, lines.size()));
+        int ink0 = cv.pal(C_INK[0], C_INK[1], C_INK[2]), gold = cv.pal(C_GOLD[0], C_GOLD[1], C_GOLD[2]);
+        for (int k = 0; k < lines.size(); k++) {
+            String[] l = lines.get(k);
+            boolean g = "g".equals(l[1]);
+            cv.cellPal(0, k, 19, k, g ? gold : ink0);
+            cv.text(fit(cover7(l[0]), g ? 150 : 152, ink.g7), g ? 2 : 6, k * 8, "d".equals(l[1]) ? 2 : 1, ink.g7);
+        }
+        return cv.encodeBands(0, TileCanvas.MAX_CHUNK, 2048);
+    }
+
     private static void drawerPals(TileCanvas cv) {
         setPal(cv, D_INK, C_INK); setPal(cv, D_GOLD, C_GOLD); setPal(cv, D_SEL, C_SEL); setPal(cv, D_SEAL, C_SEAL);
         setPal(cv, D_PLATE1, C_PLATE1); setPal(cv, D_PLATEM, C_PLATEM); setPal(cv, D_WOOD, C_WOOD); setPal(cv, D_CLOTH, C_CLOTH);
@@ -1262,21 +1537,22 @@ final class LgmPages {
             cv.fill(cx, 3, cx + 18, 12, 2);
             cv.text("CPU", cx + 2, 4, 3, ink.g7);
         }
-        cv.cellPal(11, 0, 19, 0, D_INK);
-        cv.text(fit(right1, 70, ink.g7), 157, 0, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
+        cv.cellPal(11, 0, 19, 0, D_INK);                                   /* 168: 69px — 오른쪽 끝 157 에서 칸 11(x 88) 안으로(70 이면 x 87 = 팔레트 없는 칸 10 에 잉크 · 리그 탭 «시즌 12 · 10월 31일부터») */
+        cv.text(fit(right1, 69, ink.g7), 157, 0, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
         cv.cellPal(11, 1, 19, 1, r2pal);
-        cv.text(fit(right2, 70, ink.g7), 157, 8, r2pal == D_INK ? 2 : 1, ink.g7, -1, TileCanvas.RIGHT, 0);
+        cv.text(fit(right2, 69, ink.g7), 157, 8, r2pal == D_INK ? 2 : 1, ink.g7, -1, TileCanvas.RIGHT, 0);
     }
-    /** 탭 줄(r2) — 157-A 는 순위 · 전적 · 설정 셋만(없는 탭을 보이지 않음) · 지금 탭 = 주홍 칩 */
+    /** 탭 줄(r2) — 168: 순위 · 전적 · 리그 · 설정 넷(보이는 차례 MenuModel.Prefs.TAB_ORDER) · 지금 탭 = 주홍 칩 */
     private void tabRow(Sb s, int cur) {
         TileCanvas cv = s.cv;
-        String[] names = { "순위", "전적", "설정" };
-        int[] cols = { 4, 9, 14 };
+        String[] names = { "순위", "전적", "리그", "설정" };
+        int[] ids = MenuModel.Prefs.TAB_ORDER;
+        int[] cols = { 3, 7, 11, 15 };
         java.util.List<Row> tabs = new java.util.ArrayList<>();
-        for (int k = 0; k < 3; k++) {
+        for (int k = 0; k < names.length; k++) {
             int c = cols[k], w = (cv.textW(names[k], ink.g7) + 7) / 8;
             w = Math.max(2, w);
-            if (k == cur) {
+            if (ids[k] == cur) {
                 cv.cellPal(c, 2, c + w - 1, 2, D_SEL);
                 cv.fill(c * 8, 16, (c + w) * 8 - 1, 23, 3);
                 cv.fill(c * 8, 23, (c + w) * 8 - 1, 23, 2);
@@ -1286,7 +1562,7 @@ final class LgmPages {
                 cv.text(names[k], c * 8 + (w * 8 - cv.textW(names[k], ink.g7)) / 2, 16, 2, ink.g7);
             }
             Row t = new Row();
-            t.id = k; t.c0 = c; t.r0 = 2; t.c1 = c + w - 1; t.r1 = 2; t.enabled = true;
+            t.id = ids[k]; t.c0 = c; t.r0 = 2; t.c1 = c + w - 1; t.r1 = 2; t.enabled = true;
             t.rc0 = c - 1; t.rr0 = 2; t.rc1 = c + w; t.rr1 = 2;
             tabs.add(t);
         }

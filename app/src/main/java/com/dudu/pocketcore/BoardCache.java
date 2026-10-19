@@ -123,8 +123,9 @@ final class BoardCache {
             long seed = League.rankSeed(); int day = League.today(); RankCore.Book bk = League.book();
             long mk = League.myKey(me);
             b.rank = RankCore.rankOf(seed, day, bk, mk);
-            b.rows = RankCore.unmodifiable(around ? RankCore.around(seed, day, bk, mk, "나", k) : RankCore.top(seed, day, k, bk, mk, "나"));
-            b.top3 = RankCore.unmodifiable(RankCore.top(seed, day, 3, bk, mk, "나"));
+            String nick = League.myNick();                       /* 168(11) 내 이름 — 순위표 내 줄(바꾸면 invalidate) */
+            b.rows = RankCore.unmodifiable(around ? RankCore.around(seed, day, bk, mk, nick, k) : RankCore.top(seed, day, k, bk, mk, nick));
+            b.top3 = RankCore.unmodifiable(RankCore.top(seed, day, 3, bk, mk, nick));
             if (avatars) warmAvatars(c, b);                    /* 프로필·아바타도 미리 */
         } catch (Exception e) {
             b.rows = RankCore.unmodifiable(new java.util.ArrayList<RankCore.Row>());
