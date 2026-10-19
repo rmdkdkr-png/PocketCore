@@ -3,7 +3,10 @@
    치트를 가장 뒤에 두는 까닭: 리그·연습이 같은 바이트를 쓰는 세션이면 치트는 «막혔을 때 아예 안 쓴다»로 정리되고,
    막히지 않았을 땐 리그·연습이 그 바이트를 안 쓰는 상황이다.
 
-     막기   랭크전·게임 속 리그(허브 종류 0) 세션이면 아무것도 안 쓴다(기록이 깨끗해야 한다 — Java 도 잠그지만 C 가 허브 종류를 보고 한 번 더).
+     리그   168: 랭크전·게임 속 리그(허브 종류 0) 세션에서도 쓴다(유저 «리그 때도 쓸 수 있게») — 막힌 이유 v[7] = 4(«리그에서 먹음» 표시만).
+            그 판에 실제로 쓴 치트는 MB(1 << CH_*)에 모아 Java 가 경기 기록에 «치트»로 남긴다(cheat_match_bits — 무장 때 비움).
+            리그가 같은 바이트(CPU 손잡이·실효 시간)를 먼저 쓰고 치트가 그 뒤에 덮는다 — 정산 검사는 MB 가 설명하는 것만 면제(League.settle).
+     막기   잠금(cheat_lock — 시험용, Java 는 이제 안 부른다)이면 아무것도 안 쓴다.
             연습 대전 흐름(허브 종류 1 의 상대 고르기 → 내 캐릭터 → 연습 경기)이면 경기 치트(시간·체력·분노·상대·세기·공격력)는 쉰다 —
             연습이 시간·체력 바닥·분노·더미 CPU 비트·CPU 배율을 매 프레임 맡고, 경기 전에 쓴 공격 배율(0x57D8)은 연습이 안 고쳐 연습 경기까지 샌다.
             올카드·유가는 연습에서도 먹는다(연습 상대 고르기는 허브가 A 를 받아 게임이 확정하지 않으므로 유가 판정에 안 걸린다).
@@ -74,6 +77,7 @@ static struct {
    int atk_base, atk_last;           /* P1 공격 배율 기준(게임이 정한 값) · 마지막으로 쓴 값(−1 없음) */
    int diff_prev;
    int used, why;
+   unsigned mb;                      /* 168: 마지막 cheat_match_bits(1) 뒤 실제로 쓴 치트(1 << CH_*) — 경기 치트는 라운드 중(live) 쓴 것만, 올카드·유가는 쓴 순간 */
    int sv_atk, sv_cpu, sv_nextt;     /* 상태 저장 동안 원래 값으로 돌려 둔 경기 치트 값(−1 없음) — 저장 뒤 cheat_after_save 가 되쓴다 */
    unsigned f;
 } S = { .atk_last = -1, .perm_saved = -1, .sv_atk = -1, .sv_cpu = -1, .sv_nextt = -1 };
@@ -100,6 +104,13 @@ static void clear_max(uint8_t *ram, int p)
    ram[b + O_FLAGS] &= (uint8_t)~0x04; wr16(ram, b + O_MAXT, 0); ram[b + O_RAGE] = 0; ram[b + O_DRAGE] = 0;
 }
 
+/* 소유 개수에 8 이 아닌 칸이 있나 — 올카드가 «실제로 바꿨나»(MB) */
+static int own_lt8(const uint8_t *ram)
+{
+   for (int i = 0; i < 120; i++) if (ram[R_OWN + i] < 8) return 1;
+   return 0;
+}
+
 static void cards_restore(uint8_t *ram)
 {
    if (S.win && ram) memcpy(ram + R_OWN, S.snap, 120);
@@ -119,6 +130,7 @@ static void cards_tick(uint8_t *ram, int mode, int prog, int sub)
       if (S.win) { memcpy(S.perm_snap, S.snap, 120); S.perm_ok = 1; S.win = 0; }   /* 이번만 창 안에서 바꿨다 — 램은 이미 8, 원래 값은 창 보관본 */
       if (prog != 0) {
          if (!S.perm_ok || reread) { memcpy(S.perm_snap, ram + R_OWN, 120); S.perm_ok = 1; }
+         if (own_lt8(ram)) S.mb |= 1u << CH_CARDS;
          memset(ram + R_OWN, 8, 120);
       }
       S.perm_on = 1;
@@ -132,6 +144,7 @@ static void cards_tick(uint8_t *ram, int mode, int prog, int sub)
             && (((prog == 0x06 || prog == 0x0C) && (sub == 0x06 || sub == 0x08 || sub == 0x0A)) || prog == 0x12);
    if (inwin) {
       if (!S.win) { memcpy(S.snap, ram + R_OWN, 120); S.win = 1; }
+      if (own_lt8(ram)) S.mb |= 1u << CH_CARDS;           /* 리그는 고르기 화면에서 이미 8(올카드 규칙) — 그때는 바뀐 게 없어 표시 안 함 */
       memset(ram + R_OWN, 8, 120);
    } else if (S.win) cards_restore(ram);
 }
@@ -143,6 +156,7 @@ static void yuga_tick(uint8_t *ram, int mode, int prog, int sub)
    if (S.prev_sub == 0x06 && sub == 0x08) S.yuga_pick = CV[CH_YUGA] && S.hover == 60;   /* 캐릭터 확정 순간 */
    if (sub == 0x06) return;                                 /* 다시 고르는 중(이어하기 포함) — 확정 때 다시 정한다 */
    if (S.yuga_pick && CV[CH_YUGA] && ram[R_P1CH] != 255) {   /* 가운데 칸은 게임이 검질 확정 뒤 캐릭터·검질을 굴려 정한다 — 그 값을 유가로(전투 로드 전) */
+      if (ram[R_P1CH] != 14) S.mb |= 1u << CH_YUGA;
       ram[R_P1CH] = 14; ram[R_P1STY] = (uint8_t)(CV[CH_YUGA] == 2);
    }
 }
@@ -167,7 +181,7 @@ static void fight_tick(uint8_t *ram, int mode, int prog)
       지금 라운드는 ∞ 그대로 — 다음 라운드부터 원래 시간 */
    if (CV[CH_TIME] && ours) {
       ram[R_NEXTT] = 0x80; S.time_on = 1;
-      if (live) { ram[R_TIMER] = 0xFF; ram[R_TIMER + 1] = 0xFF; }
+      if (live) { ram[R_TIMER] = 0xFF; ram[R_TIMER + 1] = 0xFF; S.mb |= 1u << CH_TIME; }
    } else if (S.time_on) {
       if (ours) ram[R_NEXTT] = prog == 0x0C ? 0x80 : ram[R_OPTT];
       S.time_on = 0;
@@ -178,6 +192,7 @@ static void fight_tick(uint8_t *ram, int mode, int prog)
       const uint16_t *t = DIFF_T[CV[CH_DIFF]];
       ram[R_CPULV] = (uint8_t)t[0]; ram[R_CPUCAP] = (uint8_t)t[1]; wr16(ram, R_CPUATK, t[2]); wr16(ram, R_CPUDEF, t[3]);
       if (live && S.diff_prev != CV[CH_DIFF]) ram[R_P2LV] = (uint8_t)t[0];   /* 라운드 중에 바꾸면 지금 단계도 */
+      if (live) S.mb |= 1u << CH_DIFF;
    }
    S.diff_prev = live ? CV[CH_DIFF] : S.diff_prev;
 
@@ -189,7 +204,7 @@ static void fight_tick(uint8_t *ram, int mode, int prog)
          int cur = rd16(ram, R_P1ATK);
          if (S.atk_last < 0 || cur != S.atk_last) S.atk_base = cur;
          int v = S.atk_base * POW_K[CV[CH_POW]] >> 8; if (v > 0x7FFF) v = 0x7FFF;
-         wr16(ram, R_P1ATK, v); S.atk_last = v;
+         wr16(ram, R_P1ATK, v); S.atk_last = v; S.mb |= 1u << CH_POW;
       } else if (S.atk_last >= 0) {
          if (rd16(ram, R_P1ATK) == S.atk_last) wr16(ram, R_P1ATK, S.atk_base);   /* 게임이 그사이 새로 썼으면 그 값 그대로 */
          S.atk_last = -1;
@@ -198,7 +213,7 @@ static void fight_tick(uint8_t *ram, int mode, int prog)
 
    /* 상대 가만히 — CPU 비트를 끈다(사람 갈래 · 패드 0 — 가드도 안 함). 끄면 한 번 다시 켬 */
    if (live) {
-      if (CV[CH_CPU]) { ram[PB(1) + O_CPU] &= (uint8_t)~1; S.cpu_off = 1; }
+      if (CV[CH_CPU]) { ram[PB(1) + O_CPU] &= (uint8_t)~1; S.cpu_off = 1; S.mb |= 1u << CH_CPU; }
       else if (S.cpu_off) { ram[PB(1) + O_CPU] |= 1; S.cpu_off = 0; }
    }
 
@@ -208,6 +223,7 @@ static void fight_tick(uint8_t *ram, int mode, int prog)
       한 방: 이번 프레임에 깎였으면 0(게임이 다음 틱에 KO 로 끝낸다 — 가드 깎임에도) */
    for (int p = 0; p < 2; p++) {
       int b = PB(p), hp = ram[b + O_HP], mode_hp = CV[CH_HP1 + p];
+      if (mode_hp) S.mb |= 1u << (CH_HP1 + p);
       if (mode_hp == 1 && hp < 128) { ram[b + O_HP] = 128; ram[b + O_DHP] = 128; S.hp_fixes++; hp = 128; }
       else if (mode_hp == 2 && hp > 0 && hp < S.prev_hp[p]) { ram[b + O_HP] = 0; S.last_ko = (int)S.f; hp = 0; }
       S.prev_hp[p] = hp;
@@ -218,6 +234,7 @@ static void fight_tick(uint8_t *ram, int mode, int prog)
    for (int p = 0; p < 2; p++) {
       int b = PB(p), act = ram[b + O_CTRL] == 0, ground = rd16(ram, b + O_Y) == 128;
       if (CV[CH_RAGE1 + p]) {
+         S.mb |= 1u << (CH_RAGE1 + p);
          if (!(ram[b + O_FLAGS] & 0x04)) { if (act) set_max(ram, p); }
          else if (rd16(ram, b + O_MAXT) < 0x1000) wr16(ram, b + O_MAXT, 0x3000);
          if ((ram[b + O_SECRET] & 0x80) && act && ground && !(ram[b + O_FLAGS] & 0x04)) ram[b + O_SECRET] &= (uint8_t)~0x80;
@@ -237,8 +254,8 @@ void cheat_tick(uint8_t *ram, size_t n, int input)
    pthread_mutex_lock(&C_mu);
    S.f++;
    int mode = ram[R_MODE], prog = ram[R_PROG], sub = ram[R_SUB];
-   int why = locked ? 1 : own == 1 ? 2 : own == 2 ? 3 : 0;
-   if (why == 1 || why == 2) {                      /* 아무것도 안 쓴다 — 혹시 남은 창이 있으면 되돌린다 */
+   int why = locked ? 1 : own == 2 ? 3 : own == 1 ? 4 : 0;   /* 168: 리그(4)도 쓴다 — 0 과 같은 갈래, 표시만 다르게 */
+   if (why == 1) {                                  /* 아무것도 안 쓴다 — 혹시 남은 창이 있으면 되돌린다 */
       cards_restore(ram);
       fight_release(ram);
    } else {
@@ -269,7 +286,7 @@ void cheat_set(int key, int value)
 void cheat_reset_all(void)
 {
    pthread_mutex_lock(&C_mu);
-   memset(CV, 0, sizeof CV); memset(&S, 0, sizeof S); S.atk_last = -1; S.perm_saved = -1; S.sv_atk = S.sv_cpu = S.sv_nextt = -1; locked = 0;
+   memset(CV, 0, sizeof CV); memset(&S, 0, sizeof S); S.atk_last = -1;   /* S.mb 도 0 */ S.perm_saved = -1; S.sv_atk = S.sv_cpu = S.sv_nextt = -1; locked = 0;
    pthread_mutex_unlock(&C_mu);
 }
 
@@ -319,6 +336,15 @@ void cheat_after_save(uint8_t *ram)
    pthread_mutex_unlock(&C_mu);
 }
 
+unsigned cheat_match_bits(int clear)
+{
+   pthread_mutex_lock(&C_mu);
+   unsigned b = S.mb;
+   if (clear) S.mb = 0;
+   pthread_mutex_unlock(&C_mu);
+   return b;
+}
+
 void cheat_status(int v[CHEAT_NSTAT])
 {
    pthread_mutex_lock(&C_mu);
@@ -339,6 +365,10 @@ JNI(void, nativeCheatSet)(JNIEnv *env, jclass cls, jint key, jint value)
 
 JNI(void, nativeCheatLock)(JNIEnv *env, jclass cls, jboolean on)
 { (void)env; (void)cls; cheat_lock(on ? 1 : 0); }
+
+/* 168: 이 판에 실제로 쓴 치트 비트(1 << CH_*) — clear 면 0 으로. 무장(league.c arm_locked)이 비운다 */
+JNI(jint, nativeCheatMatch)(JNIEnv *env, jclass cls, jboolean clear)
+{ (void)env; (void)cls; return (jint)cheat_match_bits(clear ? 1 : 0); }
 
 JNI(jintArray, nativeCheatStatus)(JNIEnv *env, jclass cls)
 {

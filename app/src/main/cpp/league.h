@@ -43,6 +43,11 @@ void league_cpu(int lv, int cap, int atk, int dfn, int floor);
 int  league_hub_autopick(int on, int cell, int sty, int b2p, int k1, int k2, int flags);
 #define LEAGUE_NMYPICK 8
 void league_hub_mypick(int v[LEAGUE_NMYPICK]);     /* [있음, 칸, 캐릭터, 검질, 2P색, 카드 1, 2, 경기 컬러] */
+/* 168 랭크 «내 캐릭터 먼저» — 상대 없이(무장 안 함) 1인 대전 고르기(허브 상태 9). 이야기가 시작되면 고른 것은 league_hub_mypick 에(그 뒤 입력을 막고 멈춰 둠).
+   1 = 받음(허브 종류 0 · 타이틀·찾기). 상태 [요청 대기, 고르는 판, 고른 것을 남김, 그 판 프레임(−1)] */
+#define LEAGUE_NPO 4
+int  league_hub_pick_only(void);
+void league_hub_pick_only_status(int v[LEAGUE_NPO]);
 #define LEAGUE_NAUTO 5
 void league_hub_autostatus(int v[LEAGUE_NAUTO]);   /* [단계 0~8(6 무대 인트로 · 8 막힘), go 뒤 프레임, go→장면, go→첫 라운드, 막힌 단계] */
 /* 153: native.c 가 프레임마다(잠금 없이) — 1 = 코어 4배속(pace 배속) · 1 = 게임 소리를 버린다(자동 진행 단계 1~5 · −4 리셋부터, autopick flags 4) */

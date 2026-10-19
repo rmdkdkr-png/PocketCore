@@ -33,6 +33,7 @@
 #include "vpanel.h"
 #include "hub_glyphs.h"
 #include "vsband.h"
+#include "cheat.h"
 #define PG_WANT_MENU
 #include "practice_glyphs.h"
 
@@ -174,7 +175,10 @@ static int look_stage = -1, look_color = 0;   /* 다음 무장에 쓸 배경(lea
    ←→ 로 «연습 대전» ↔ «리그 대전»을 바꾼다(sel). 이 판의 종류(kind)와 같은 쪽에서 A 면 위 흐름 그대로, 다른 쪽이면 A 를 받아 두고
    handoff 를 세운다 — 리그는 따로 세이브·고정 롬·동봉 코어로 돌아야 해서(랭크전 판) Java 가 판을 갈아 끼우고(일반 세션 ↔ 리그 세션)
    새 판은 league_hub_go 로 로고·메뉴를 넘겨 바로 상대 선택까지 간다(전원부터 1초 남짓 — 실측 61프레임). */
-enum { H_OFF = 0, H_TITLE, H_PICK_OPP, H_PICK_ME, H_MATCH, H_RETURN, H_SEARCH, H_PICK_ME1 };
+enum { H_OFF = 0, H_TITLE, H_PICK_OPP, H_PICK_ME, H_MATCH, H_RETURN, H_SEARCH, H_PICK_ME1, H_PICK_SOLO = 9 };
+/* H_PICK_SOLO (168 랭크 «내 캐릭터 먼저») 상대 없이(L 무장 안 함) 1인 대전 캐릭터 고르기 → 검질 → 카드를 사용자가 고른다. 이야기가 시작되면 고른 것을 MY 에 남기고
+              (PO.done) 게임 입력을 모두 막은 채 이야기를 넘기지 않는다(序章 ≥ 1700프레임 — Java 가 그 안에 남긴 걸 pref.main 으로 굳히고 −4 로 상대를 붙인다).
+              번호 9 — 8 은 연습 검질 고르기(H_PICK_STY1, 다른 묶음) 자리. .prac 은 H_MATCH 만 저장하니 새 번호와 무관. 그 전에 타이틀로 나가면 H_TITLE */
 /* H_PICK_ME1 (연습만) 내 캐릭터 먼저 — 게임 머리말 «캐릭터 선택» 그대로, 컬러(OPTION)·2P색 표시(B)는 look(ctx HOLD). A·B 는 허브가 받아 두고
               H_PICK_OPP(«상대 선택»)로. 상대를 고르면 커서를 내 캐릭터 칸으로 되돌려(nav 4) A 를 대신 눌러 확정 → H_PICK_ME(검질·카드는 게임 그대로).
               연습 메뉴 «상대 고르기»는 내 캐릭터를 둔 채 바로 H_PICK_OPP(무작위 칸이었으면 뽑힌 캐릭터로 — 더미만 바뀐다). 번호는 뒤에 붙여 다른 상태 번호는 그대로 */
@@ -506,6 +510,8 @@ static struct {
    unsigned f0, fs, navf, csel_f;                 /* go(−4 는 리셋) · 이 단계 시작 · nav 건 때 · 고르기 화면 프레임 (허브 프레임) */
 } AP;
 static struct { int valid, cell, ch, sty, b2p, k1, k2, color, r_cell, r_sty, done; } MY = { .r_cell = -1, .r_sty = -1 };
+/* 168 내 캐릭터만 고르는 판(H_PICK_SOLO) — H 밖(리그 판 전용 · .prac 크기 무관). req = Java 요청(타이틀·찾기에서 메뉴가 뜨면) · on = 그 판 · done = 고른 것을 MY 에 남김 */
+static struct { int req, on, done; unsigned f0; } PO;
 /* 1 = native.c 가 코어를 4배속(pace 배속)으로 · 1 = 오디오가 소리를 버린다 — 자동 진행 단계 1~5(flags 4) · −4 리셋부터 */
 volatile int league_ff = 0;
 static int auto_active(void) { return AP.fixed && H.kind == 0 && H.st == H_PICK_ME && AP.ph >= AP_BOOT && AP.ph <= AP_SCENE; }
@@ -607,6 +613,13 @@ static void my_commit(const uint8_t *ram, int fight)
    if (fight) b = ram[R_P1BLK];
    else {
       ch = MY.r_cell == 15 ? ram[A(0x57D5)] : MY.r_cell;   /* 0x57D5/D6 = P1 캐릭터·검질 — 검질 확정 ~96프레임 뒤(u149 e5) */
+      if (MY.r_cell == 15 && (ch < 0 || ch > 13)) {       /* 168: 무작위 칸인데 유가 치트(14) — 칸 15 로만 남긴다(ch −1 · 자동 진행이 다시 굴림, 유가 치트면 다시 유가) */
+         look_status(lv);
+         MY.ch = -1; MY.sty = ram[A(0x57D6)] & 1; MY.cell = 15; MY.k1 = MY.k2 = -1;
+         MY.b2p = lv[0] && lv[6]; MY.color = lv[0] && lv[4] > 0 ? lv[4] : 0;
+         MY.valid = 1; MY.done = 1;
+         return;
+      }
       if (ch < 0 || ch > 13) return;
       b = (ch << 4) | ((MY.r_cell == 15 || MY.r_sty < 0 ? ram[A(0x57D6)] : MY.r_sty) & 1) << 3;
    }
@@ -653,6 +666,22 @@ static void hub_go_fixed(uint8_t *ram)       /* 정해진 상대로 1인 대전 
    MY.r_cell = -1; MY.r_sty = -1; MY.done = 0; MY.valid = 0;   /* 내 고르기 기록은 이 판 것만(Java 는 단계 5 부터 읽는다) */
 }
 
+/* 168 내 캐릭터만 고르는 판으로(메뉴 · 커서 2 에서만 부른다 — hub_go_fixed 와 같은 자리) — 상대 없음(L 무장 안 함) */
+static void hub_go_pick_only(uint8_t *ram)
+{
+   ram[R_MCUR] = 0; H.nav = 1; H.nav_f = H.f; H.st = H_PICK_SOLO; H.picked = -1; H.seen_csel = 0; H.go = 0; H.ev = 0; H.hold_a = 1;
+   L.armed = 0; auto_clear(); vs_reset_locked(1);
+   memset(&MY, 0, sizeof MY); MY.r_cell = -1; MY.r_sty = -1;
+   PO.req = 0; PO.on = 1; PO.done = 0; PO.f0 = H.f;
+}
+/* 메뉴가 떠 있고 대신 누르기 없음 — 커서가 2 가 아니면 이 프레임에 2 를 쓰고(게임이 안 받은 A 뒤 되돌리기와 같은 길) 다음 프레임에 go */
+static int menu_cursor2(uint8_t *ram)
+{
+   if (ram[R_MCUR] == 2) return 1;
+   ram[R_MCUR] = 2;
+   return 0;
+}
+
 /* 고른 상대로 무장하기 직전 — 배경(−1 상대 기본 · −2 무작위 · 0~7)과 컬러를 다음 무장에 넘긴다 */
 static void hub_set_look(int picked)
 {
@@ -689,9 +718,10 @@ static void hub_tick(uint8_t *ram, int input)
    } else if (H.nav == 2) {                           /* 리셋 뒤: A 로 로고·인트로를 넘겨 메뉴까지(메뉴가 뜬 뒤엔 A 를 안 준다) */
       unsigned d = H.f + 1 - H.nav_f;
       league_ovr_on = 1;
-      int fast = auto_fast_boot();                   /* 153: 자동 진행·tail 재대결·다음 상대(−4) — 로고를 더 일찍 넘긴다(A@8 — 실측 A@8·A@16 이 가장 빠름) */
+      int fast = auto_fast_boot() || (H.rematch == -5 && H.kind == 0);   /* 153: 자동 진행·tail 재대결·다음 상대(−4) — 로고를 더 일찍 넘긴다(A@8 — 실측 A@8·A@16 이 가장 빠름) · 168: −5 도 */
       league_ovr_mask = (!menu && ((d >= (fast ? 8u : 20u) && d < (fast ? 12u : 24u)) || (d >= 200 && d < 204) || (d >= 380 && d < 384))) ? IN_A : 0;
-      if (menu && fast) { H.nav = 0; league_ovr_on = 0; league_ovr_mask = 0; H.repick = 0; H.rematch = -1; hub_go_fixed(ram); }   /* 셋째 줄로 안 내리고 바로 1인 대전(커서 0) */
+      if (menu && fast && H.rematch != -5) { H.nav = 0; league_ovr_on = 0; league_ovr_mask = 0; H.repick = 0; H.rematch = -1; hub_go_fixed(ram); }   /* 셋째 줄로 안 내리고 바로 1인 대전(커서 0) */
+      else if (menu && H.rematch == -5 && H.kind == 0) { H.nav = 0; league_ovr_on = 0; league_ovr_mask = 0; H.repick = 0; H.rematch = -1; hub_go_pick_only(ram); }   /* 168 «새 캐릭터» — 바로 내 캐릭터 고르기 */
       else if (menu) { H.nav = 3; H.nav_f = H.f; H.downs = 2; league_ovr_mask = 0; }
       else if (d > 900) { H.nav = 0; league_ovr_on = 0; league_ovr_mask = 0; H.st = H_TITLE; if (AP.pre && AP.ph == AP_BOOT) auto_fail(ram, AP_BOOT); }
    } else if (H.nav == 4) {                           /* 고르기 커서를 nav_ch 칸으로 — 이웃 칸을 써 두고 그쪽으로 한 번 톡(게임이 미리보기·이름을 스스로 바꿈 ·
@@ -727,6 +757,8 @@ static void hub_tick(uint8_t *ram, int input)
             H.rematch = -1;
          } else if (H.rematch == -4 && H.fx_on && menu && ram[R_MCUR] == 2) {   /* 랭크 재대결: 같은 상대·같은 손잡이로 바로 내 캐릭터 고르기 */
             hub_go_fixed(ram); H.rematch = -1;
+         } else if (H.rematch == -5 && H.kind == 0 && menu && ram[R_MCUR] == 2) {   /* 168 «새 캐릭터»(느린 길) */
+            hub_go_pick_only(ram); H.rematch = -1;
          } else if (H.repick == 2 && menu && ram[R_MCUR] == 2) {   /* 랭크 «다음 상대»·갈아탄 리그 판: 메뉴에서 바로 상대 찾기 */
             H.st = H_SEARCH; H.ev = 0; H.go = 0;
          } else if (H.repick && menu && ram[R_MCUR] == 2) {   /* 연습 «상대 고르기»·리그 «다른 상대»·갈아탄 새 판: 바로 상대 선택 */
@@ -739,6 +771,11 @@ static void hub_tick(uint8_t *ram, int input)
 
    switch (H.st) {
    case H_TITLE:
+      if (menu && PO.req && !H.nav && H.kind == 0) {  /* 168 내 캐릭터 먼저(Java) — 커서 2 를 맞춘 다음 프레임에 */
+         block = IN_GAME_ALL; menu_relabel(mk, 0); H.label_menu = mk;
+         if (menu_cursor2(ram)) hub_go_pick_only(ram);
+         break;
+      }
       if (menu) {
          H.focus = ram[R_MCUR] == 2 && !H.nav;
          if (!H.focus && !H.handoff) H.sel = H.kind;    /* 커서가 셋째 줄을 떠나면 이 판의 종류로(다른 줄에서 본 글자·안내가 어긋나지 않게) */
@@ -772,7 +809,8 @@ static void hub_tick(uint8_t *ram, int input)
       if ((input & IN_DOWN) && !(H.prev_in2 & IN_DOWN)) H.ev |= 64;
       if (menu) {
          H.focus = 0; menu_relabel(mk, 0); H.label_menu = mk;   /* 찾는 동안은 ◀▶ 없이(바꿀 수 없음) */
-         if (H.go && H.fx_on && ram[R_MCUR] == 2) hub_go_fixed(ram);
+         if (PO.req && !H.nav) { if (menu_cursor2(ram)) hub_go_pick_only(ram); }   /* 168 내 캐릭터 먼저 */
+         else if (H.go && H.fx_on && !H.nav && menu_cursor2(ram)) hub_go_fixed(ram);   /* 168: 커서가 2 가 아니면(대기 메뉴에서 연 찾기) 2 를 쓰고 다음 프레임 */
       } else if (!H.nav) { H.st = H_TITLE; H.go = 0; }   /* 메뉴가 사라졌다(있을 수 없는 일 — 안전하게 타이틀 상태로) */
       break;
    case H_RETURN:                                    /* 돌아가는 중에도 메뉴가 뜨면 셋째 줄 글자를 바로(원래 «2 인 대전»이 잠깐 보이지 않게) */
@@ -890,6 +928,17 @@ static void hub_tick(uint8_t *ram, int input)
          if (H.kind == 0) { vs_reset_locked(1); auto_clear(); }   /* 153 */
       }
       break;
+   case H_PICK_SOLO:                                 /* 168 내 캐릭터만 — 고르기는 게임 그대로(사용자 · 컬러는 look), 이야기가 시작되면 남기고 멈춰 둠 */
+      if (csel) H.seen_csel = 1;
+      if (ram[R_MODE] == 240 && (ram[R_SCR] == 2 || ram[R_SCR] == 4)) memset(ram + R_OWN, 8, 120);   /* 올카드(무장의 allcards 와 같은 창) — 무장이 없으니 허브가 */
+      if (!PO.done) {
+         my_track(ram);
+         if (!MY.done && story_start(ram)) { my_commit(ram, 0); PO.done = MY.valid; }
+      }
+      if (PO.done) { block = IN_GAME_ALL; league_in_or = 0; }   /* 이야기를 넘기지 않는다 — Java 가 남긴 걸 가져가 −4 로 */
+      else if (menu && !H.nav && H.seen_csel) { H.st = H_TITLE; H.seen_csel = 0; H.vp_on = 0; PO.on = 0; PO.done = 0; }   /* 고르기에서 뒤로 나감 */
+      else if (menu && !H.nav && !H.seen_csel && H.f - H.nav_f > 90) { H.st = H_TITLE; ram[R_MCUR] = 2; PO.on = 0; }   /* 대신 누른 A 를 게임이 안 받았다 */
+      break;
    case H_MATCH:
       if (H.kind == 1 && menu && !H.nav) { L.armed = 0; H.st = H_TITLE; H.picked = -1; H.seen_csel = 0; H.vp_on = 0; }   /* 연습 경기가 게임 쪽에서 끝나 타이틀로 왔다 */
       break;
@@ -919,6 +968,7 @@ void league_hub(int on, const signed char *sty, const signed char *dif)
    league_in_block = 0; league_ovr_on = 0; league_ovr_mask = 0; league_in_or = 0;
    vsband_forget(); vs_reset_locked(0);              /* 153: 새 허브 — 띠도 잊는다(코어를 새로 올린 판) */
    auto_clear(); memset(&MY, 0, sizeof MY); MY.r_cell = -1; MY.r_sty = -1;   /* 153: 자동 진행·내 고르기 기록도 */
+   memset(&PO, 0, sizeof PO);                        /* 168 */
    if (!on) memset(&APC, 0, sizeof APC);            /* 끔(코어 올림·내림)이면 설정도 — 켠 뒤엔 Java 가 다시 넣는다(켜기 앞뒤 어느 쪽이어도) */
    pthread_mutex_unlock(&L_mu);
 }
@@ -1125,11 +1175,12 @@ void league_hub_return(int rematch)
       H.st = H_RETURN; H.nav = 2; H.nav_f = H.f; H.picked = -1; H.hdr_saved = 0; H.vp_on = 0; H.hold_b = 0;
       H.sel = H.kind; H.handoff = 0; H.menu_saved = 0; H.focus = 0;
       hub_gen++;
-      H.rematch = (rematch >= 0 && rematch < 15 && H.sty[rematch] >= 0) ? rematch : (rematch == -4 && H.fx_on) ? -4 : -1;
+      H.rematch = (rematch >= 0 && rematch < 15 && H.sty[rematch] >= 0) ? rematch : (rematch == -4 && H.fx_on) ? -4 : (rematch == -5 && H.kind == 0) ? -5 : -1;
       H.repick = rematch == -2 ? 1 : rematch == -3 ? 2 : 0;    /* −2 상대 선택 · −3 랭크 «다음 상대»(바로 상대 찾기) · −4 랭크 재대결(정해진 상대) */
       H.go = 0; H.ev = 0;
    }
    auto_clear();                                      /* 153: 이 판의 자동 진행은 끝(설정 APC·내 고르기 MY 는 그대로 — 다음 go 에서 다시) */
+   memset(&PO, 0, sizeof PO);                         /* 168: 내 캐릭터만 고르던 판도 끝(남긴 MY 는 그대로 — Java 가 이미 가져갔다) */
    if (rematch == -4 && H.st == H_RETURN && H.kind == 0 && H.fx_on && APC.on) {   /* −4 자동 진행: 리셋부터 단계 1(Java 겹창의 셈도 여기부터) · 4배속·소리 끔(flags 4) */
       AP.pre = 1; AP.ph = AP_BOOT; AP.f0 = AP.fs = H.f;
       league_ff = league_mute = APC.ff;
@@ -1146,11 +1197,30 @@ void league_hub_cancel(void)
    if (H.st != H_OFF) { vp_restore(); H.st = H_TITLE; H.picked = -1; H.hold_b = 0; H.go = 0; H.ev = 0; }
    vs_reset_locked(0);                               /* 153: 띠·자동 진행도(커서 옮기던 nav 4 는 손 뗌) */
    auto_clear(); if (H.nav == 4) H.nav = 0;
+   memset(&PO, 0, sizeof PO);
    league_in_block = 0; league_ovr_on = 0; league_ovr_mask = 0; league_in_or = 0;
    pthread_mutex_unlock(&L_mu);
 }
 
-/* [허브 상태(0 꺼짐·1 타이틀·2 상대 고르기·3 내 캐릭터·4 경기·5 타이틀로 돌아가는 중·6 랭크 상대 찾기·7 연습 내 캐릭터 먼저), 커서 캐릭터, 고른 상대 캐릭터, 허브 프레임,
+/* 168 «내 캐릭터 먼저» 요청 — 타이틀·찾기에서 메뉴가 뜨면(대신 누르기 없음) 커서 2 를 맞춘 뒤 1인 대전 고르기(상대 없음 · H_PICK_SOLO).
+   리그 랭크 판(허브 종류 0)일 때만 받는다(1). 그 밖·이미 고르는 중이면 0 */
+int league_hub_pick_only(void)
+{
+   int ok = 0;
+   pthread_mutex_lock(&L_mu);
+   if (H.kind == 0 && (H.st == H_TITLE || H.st == H_SEARCH)) { PO.req = 1; PO.on = 0; PO.done = 0; ok = 1; }
+   pthread_mutex_unlock(&L_mu);
+   return ok;
+}
+/* [요청 대기, 고르는 판(H_PICK_SOLO), 고른 것을 남김(MY), 그 판 프레임(−1 아님)] — LEAGUE_NHUB(15) 는 안 늘린다 */
+void league_hub_pick_only_status(int v[LEAGUE_NPO])
+{
+   pthread_mutex_lock(&L_mu);
+   v[0] = PO.req; v[1] = PO.on && H.st == H_PICK_SOLO; v[2] = PO.done; v[3] = PO.on ? (int)(H.f - PO.f0) : -1;
+   pthread_mutex_unlock(&L_mu);
+}
+
+/* [허브 상태(0 꺼짐·1 타이틀·2 상대 고르기·3 내 캐릭터·4 경기·5 타이틀로 돌아가는 중·6 랭크 상대 찾기·7 연습 내 캐릭터 먼저·9 랭크 내 캐릭터만(168)), 커서 캐릭터, 고른 상대 캐릭터, 허브 프레임,
     메뉴 글자 바꿈, 머리말 글자 바꿈, 재대결 상대, 대신 누르기 단계, 타이틀로 돌려보낸 횟수, 고른 배경(−1 상대 기본·−2 무작위·0~7),
     고르기 화면에 보이는 컬러(0~17 — look_cur), 무장한 경기의 배경(−1 없음)] */
 void league_hub_status(int v[LEAGUE_NHUB])
@@ -1444,6 +1514,8 @@ static void arm_locked(int opp, int sty, int diff, int points, int timev, int fl
    L.stage = look_stage; L.color = look_color;
    if (H.nav == 0) { league_ovr_on = 0; league_ovr_mask = 0; }   /* 허브가 대신 누르는 중이면 그대로 */
    L.armed = 1;
+   memset(&PO, 0, sizeof PO);                         /* 168: 무장 = 상대가 붙었다 — 내 캐릭터만 고르던 판은 끝 */
+   cheat_match_bits(1);                               /* 168: 이 판에 먹은 치트는 여기부터 센다(L_mu → C_mu — 허용된 순서) */
 }
 
 void league_arm(int opp, int sty, int diff, int points, int timev, int flags)
@@ -1576,6 +1648,19 @@ JNI(jintArray, nativeHubAutoStatus)(JNIEnv *env, jclass cls)
    for (int i = 0; i < LEAGUE_NAUTO; i++) jv[i] = v[i];
    jintArray a = (*env)->NewIntArray(env, LEAGUE_NAUTO);
    if (a) (*env)->SetIntArrayRegion(env, a, 0, LEAGUE_NAUTO, jv);
+   return a;
+}
+
+JNI(jboolean, nativeHubPickOnly)(JNIEnv *env, jclass cls)
+{ (void)env; (void)cls; return league_hub_pick_only() ? JNI_TRUE : JNI_FALSE; }
+JNI(jintArray, nativeHubPickOnlyStatus)(JNIEnv *env, jclass cls)
+{
+   (void)cls;
+   int v[LEAGUE_NPO]; jint jv[LEAGUE_NPO];
+   league_hub_pick_only_status(v);
+   for (int i = 0; i < LEAGUE_NPO; i++) jv[i] = v[i];
+   jintArray a = (*env)->NewIntArray(env, LEAGUE_NPO);
+   if (a) (*env)->SetIntArrayRegion(env, a, 0, LEAGUE_NPO, jv);
    return a;
 }
 
