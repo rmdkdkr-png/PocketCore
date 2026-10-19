@@ -742,7 +742,7 @@ public class EmuActivity extends Activity {
         Emu.nativeSetPaused(true);
         gl.queueEvent(() -> {
             if (live && (!loaded || !leagueSaveCkpt())) {
-                h.post(() -> { leagueChoosing = false; toast("저장하지 못했어요 — 그대로 둡니다"); Emu.nativeSetPaused(pad.isBarOpen()); });
+                h.post(() -> { leagueChoosing = false; toast("저장하지 못했어요 — 그대로 둡니다"); Emu.nativeSetPaused(barOpen()); });
                 return;
             }
             final int cb = live ? cb0 | cheatMatch() : 0;
@@ -1610,7 +1610,7 @@ public class EmuActivity extends Activity {
             final String id0 = leagueId;
             gl.queueEvent(() -> { final boolean ok = loaded && leagueSaveCkpt(); h.post(() -> {
                 if (leagueDone || !id0.equals(leagueId)) return;
-                if (!ok || !League.suspendUser(id0, why, cheatBitsNow())) { toast("저장하지 못했어요 — 경기를 계속해요"); Emu.nativeSetPaused(pad.isBarOpen()); return; }
+                if (!ok || !League.suspendUser(id0, why, cheatBitsNow())) { toast("저장하지 못했어요 — 경기를 계속해요"); Emu.nativeSetPaused(barOpen()); return; }
                 leagueDone = true; Emu.nativeLeagueDisarm(); leagueExit(null);
             }); });
             return;
@@ -1645,7 +1645,7 @@ public class EmuActivity extends Activity {
                     if (ok) League.ckpt(id).delete();                       /* 기록이 못 따라왔다 — 남은 체크포인트로 되감지 않게 */
                     toast("저장하지 못했어요 — 경기를 계속해요");
                     lgmCloseNow();
-                    Emu.nativeSetPaused(pad.isBarOpen());
+                    Emu.nativeSetPaused(barOpen());
                     return;
                 }
                 leagueCheatSeen = 0;
@@ -1676,10 +1676,11 @@ public class EmuActivity extends Activity {
         Emu.nativeSetPaused(true);                                          /* hubStartAgain 과 같은 까닭: 불러오기 → 배경·CPU → 무장이 프레임 사이에 갈라지지 않게 */
         leagueId = open.optString("id"); leagueArmed = false; leagueDone = false; leagueStarted = false; leagueRetry = 0;
         leagueStart();                                                      /* 체크포인트 불러오기 · FROM_CKPT · 이름표 · poll — 막히면 기존 막힘 카드 */
-        if (!leaving && hubCard == null && !lgmShown && ask == null) Emu.nativeSetPaused(pad.isBarOpen());
+        if (!leaving && hubCard == null && !lgmShown && ask == null) Emu.nativeSetPaused(barOpen());
         return true;
     }
     private boolean hubResumePending = false;
+    private boolean barOpen() { return pad != null && pad.isBarOpen(); }
 
     /** 리그 화면으로 — 결과가 있으면 그 결과 창을 띄운다. 코어는 GL 스레드에서 내린다(goList 와 같은 이유, 내릴 때 native 가 무장도 푼다). */
     private void leagueExit(final String resultId) {
@@ -3962,7 +3963,7 @@ public class EmuActivity extends Activity {
         Emu.nativeSetPaused(true);
         sheet = LaunchSheet.showCheats(this, game, orig != null ? new File(orig) : null, ranked());
         sheet.onClose = new Runnable() { @Override public void run() {
-            Emu.nativeSetPaused(pad.isBarOpen() || hubCard != null || lgmShown);
+            Emu.nativeSetPaused(barOpen() || hubCard != null || lgmShown);
             if (sheet != null && sheet.cheatsChanged() && pushCheats()) toast("치트 적용");
         } };
     }
