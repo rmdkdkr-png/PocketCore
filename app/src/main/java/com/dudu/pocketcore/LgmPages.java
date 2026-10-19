@@ -1605,11 +1605,21 @@ final class LgmPages {
      *  라운드 표지 P1 x0..12(이기면 ★ x0..6) · P2 x146..158(★ x152..158) · 히트 수 P1 x34..63 · P2 x98..127(그때는 native 가 비켜 줌).
      *  P1 = 표지 뒤 x16 부터 왼쪽 맞춤 · P2 = 표지 앞 x142 까지 오른쪽 맞춤 · 한쪽 62px(가운데 80 을 안 넘음) */
     static final int TAG_Y = 24, TAG_X_P1 = 16, TAG_X1_P2 = 142, TAG_MAXW = 62, HUD_GAP = 3;
+    /** 176 — 치트 «대미지 미터» 숫자 칸(practice.c dig_draw: 줄 3 칸 8~10 = 게임 x 64~87, 칸 10 오른쪽 맞춤 — 한 자리 x80.. · 두 자리 x72.. · 세 자리 x64..,
+     *  같은 줄 24~31). 켜져 있으면 이름표를 숫자 칸과 안 겹치는 폭으로 — native 비켜 주기 살핌이 이름표 둘레 1px 까지 보므로 그 1px 도 비운다:
+     *  P1 x16..70(55 — 두 자리까지) · P2 x89..142(54). 세 자리(100 넘는 콤보 — 드묾)는 P1 이름표가 비켜 주기로 잠깐 숨는다 */
+    static final int DMG_X2 = 72, DMG_X1 = 87;
+    static int tagRoom(boolean opp, boolean dmg) {
+        if (!dmg) return TAG_MAXW;
+        return Math.min(TAG_MAXW, opp ? TAG_X1_P2 - (DMG_X1 + 1) : (DMG_X2 - 1) - TAG_X_P1);
+    }
     /** 강조(라운드 시작 2초) 닉 금빛 · 보통 닉 밝은 회색 */
     static final int TAG_NICK_EMPH = 0x7DF, TAG_NICK = 0xBBB;
     /** 이름표 «검객★1 닉…» — 티어 이름(갈무리7) + 작은 별(STAR5)·숫자(mini3)로 짧게(닉 자리를 늘림) · 티어 빛(배치는 수련생 빛 «배치» · 무쌍 «무쌍») ·
      *  닉은 남는 폭에 «…»로. 강조(라운드 시작 2초) = 닉 금빛 · 티어 제 빛 → 보통 = 닉 밝은 회색 · 티어 빛을 그림자 쪽으로 ⅓. opp = 오른쪽(P2) */
-    HudTag hudTag(MenuModel.Side s, boolean opp) {
+    HudTag hudTag(MenuModel.Side s, boolean opp) { return hudTag(s, opp, TAG_MAXW); }
+    /** maxW = 이름표 폭 상한(176: 대미지 미터를 켜면 tagRoom) */
+    HudTag hudTag(MenuModel.Side s, boolean opp, int maxW) {
         if (s == null) return null;
         TileCanvas cv = new TileCanvas(8, 1);
         int t = s.placement ? 0 : Math.max(0, Math.min(7, s.tier));
@@ -1623,7 +1633,7 @@ final class LgmPages {
             label = name + "★" + st;
         }
         String nick = null;
-        int nx = x + HUD_GAP, room = TAG_MAXW - nx;
+        int nx = x + HUD_GAP, room = maxW - nx;
         if (room >= 12 && s.nick != null && !s.nick.isEmpty()) {
             nick = fit(cover7(s.nick), room, ink.g7);
             cv.text(nick, nx, 1, 2, ink.g7);
@@ -1631,7 +1641,7 @@ final class LgmPages {
         int w = 0;
         for (int yy = 0; yy < 8; yy++) for (int xx = 0; xx < 64; xx++) if (cv.get(xx, yy) != 0 && xx + 1 > w) w = xx + 1;
         if (w <= 0) return null;
-        w = Math.min(w, TAG_MAXW);
+        w = Math.min(w, maxW);
         HudTag g = new HudTag();
         g.w = w; g.h = 8; g.y = TAG_Y; g.x = opp ? TAG_X1_P2 + 1 - w : TAG_X_P1;
         g.px = new byte[w * 8];

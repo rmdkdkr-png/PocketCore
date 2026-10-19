@@ -16,6 +16,8 @@ import java.util.Map;
  * 마스터(«치트» 켬/끔, 기본 켬)를 끄면 native 에 모두 0 을 넣는다 — 고른 값은 그대로 남아 다시 켜면 돌아온다. 하나하나는 기본 끔.
  * 168: 리그 판(랭크전·게임 속 리그)에서도 먹는다(유저 «리그 때도 쓸 수 있게») — 그 판에 실제로 먹은 치트(native cheat_match_bits)는 경기 기록에 «치트»로 남고,
  * 정산 검사는 그 치트가 설명하는 것만 면제한다(시간 무한 → 실효 시간 · CPU 세기 → 손잡이). 연습 대전 흐름은 예전처럼 경기 치트를 쉰다.
+ * 176: 보기 둘(«프레임 표시»·«대미지 미터» — 연습 대전의 미터·숫자 그대로, native practice.c)은 게임을 안 바꾼다 — 리그 판에서도 보이고
+ * «치트» 기록·«치트 ON»·정산 면제에 안 든다(activeMask·native cheat_match_bits 둘 다). 창에선 마스터 바로 밑(ORDER).
  */
 final class Cheats {
 
@@ -26,19 +28,21 @@ final class Cheats {
     static final String GROUP = "치트";
 
     /** native CH_* 순서 (cheat.h) */
-    static final String[] KEYS = { "cards", "time", "hp1", "hp2", "rage1", "rage2", "cpu", "diff", "pow", "yuga" };
-    static final int CARDS = 0, TIME = 1, HP1 = 2, HP2 = 3, RAGE1 = 4, RAGE2 = 5, CPU = 6, DIFF = 7, POW = 8, YUGA = 9;
+    static final String[] KEYS = { "cards", "time", "hp1", "hp2", "rage1", "rage2", "cpu", "diff", "pow", "yuga", "fd", "dmg" };
+    static final int CARDS = 0, TIME = 1, HP1 = 2, HP2 = 3, RAGE1 = 4, RAGE2 = 5, CPU = 6, DIFF = 7, POW = 8, YUGA = 9, FD = 10, DMG = 11;
+    /** 176 — 창에 보이는 차례(native 번호와 따로): 보기 둘을 마스터 바로 밑에 */
+    static final int[] ORDER = { FD, DMG, CARDS, TIME, HP1, HP2, RAGE1, RAGE2, CPU, DIFF, POW, YUGA };
     static final String CARDS_KEY = PREFIX + "cards", CARDS_TEMP = "temp", CARDS_SAVE = "save";
 
     private static final String[] OFF_INF = { "off", "inf" }, HP = { "off", "inf", "one" }, OFF_MAX = { "off", "max" };
     private static final String[] HP_K = { "보통", "무한", "한 방" }, MAX_K = { "보통", "MAX" };
     static final String[][] VALS = {
         { "off", CARDS_TEMP, CARDS_SAVE }, OFF_INF, HP, HP, OFF_MAX, OFF_MAX, { "off", "idle" },
-        { "game", "vease", "easy", "normal", "hard", "max" }, { "1", "1.5", "2", "3" }, { "off", "shura", "rasetsu" } };
+        { "game", "vease", "easy", "normal", "hard", "max" }, { "1", "1.5", "2", "3" }, { "off", "shura", "rasetsu" }, { "off", "on" }, { "off", "on" } };
     static final String[][] NAMES = {
         { "끔", "이번만", "세이브에 남기기" }, { "보통", "무한" }, HP_K, HP_K, MAX_K, MAX_K, { "보통", "가만히" },
-        { "게임대로", "아주 쉬움", "하", "중", "상", "최강" }, { "보통", "1.5배", "2배", "3배" }, { "끔", "수라", "나찰" } };
-    static final String[] LABELS = { "올카드", "시간", "내 체력", "상대 체력", "내 분노", "상대 분노", "상대", "CPU 세기", "내 공격력", "유가" };
+        { "게임대로", "아주 쉬움", "하", "중", "상", "최강" }, { "보통", "1.5배", "2배", "3배" }, { "끔", "수라", "나찰" }, { "끔", "켬" }, { "끔", "켬" } };
+    static final String[] LABELS = { "올카드", "시간", "내 체력", "상대 체력", "내 분노", "상대 분노", "상대", "CPU 세기", "내 공격력", "유가", "프레임 표시", "대미지 미터" };
     /* 설명 — 짧게, 게임 말투. 올카드는 게임이 언제 저장하는지까지(사용자가 «세이브에 남기기» 뒤 바로 남기는 법을 알게) */
     static final String[] HELPS = {
         "이번만 = 고르는 동안만 120장 다 가진 걸로, 세이브엔 안 남아요. 세이브에 남기기 = 게임이 다음에 저장할 때(게임 오버·스토리 클리어·무한 대전 끝·게임 설정 저장) 모두 8장으로 남아요."
@@ -51,7 +55,9 @@ final class Cheats {
         "CPU 가 움직이지 않아요(막지도 않아요).",
         "게임 설정은 그대로 — 공격·방어 배율과 AI 단계만 게임 표 값으로. 게임대로로 돌리면 다음 상대부터.",
         "카드 효과에 곱해져요.",
-        "캐릭터 선택 가운데(쿠로코) 칸이 유가가 돼요. 수라·나찰은 여기서 골라요." };
+        "캐릭터 선택 가운데(쿠로코) 칸이 유가가 돼요. 수라·나찰은 여기서 골라요.",
+        "경기 중 게임 화면 밖에 연습 대전과 같은 프레임 미터(발동·지속·경직·유불리). 끌어서 옮기기 · 톡 = 색 설명 · 두 번 톡 = 기본 자리. 보기만 해서 리그 기록에 «치트»로 안 남아요.",
+        "연습 대전처럼 체력 막대 아래 가운데에 콤보 대미지 숫자(체력 128 기준). 다음 라운드에 지워져요. 보기만 해서 리그 기록에 «치트»로 안 남아요." };
     /** 치트 창 끝 한 줄 — 기록 경고 */
     static final String WARN = "치트로 이겨도 스토리 클리어·연승·카드 상은 세이브에 남아요. 리그 대전에서도 먹어요 — 그 판은 기록에 «치트»로 남아요.";
     /** 168 — 먹은 치트 비트(1 << 번호) → «시간·CPU 세기·상대 체력» (없으면 빈 글) */
@@ -66,8 +72,10 @@ final class Cheats {
         Settings.Item[] out = new Settings.Item[KEYS.length + 1];
         out[0] = new Settings.Item(MASTER, "치트", "끄면 아래 것을 다 쉬어요(고른 건 그대로).",
                 new String[]{ "enabled", "disabled" }, new String[]{ "켬", "끔" }, "enabled").g(GAME);
-        for (int i = 0; i < KEYS.length; i++)
-            out[i + 1] = new Settings.Item(PREFIX + KEYS[i], LABELS[i], HELPS[i], VALS[i], NAMES[i], VALS[i][0]).g(GAME);
+        for (int k = 0; k < ORDER.length; k++) {
+            int i = ORDER[k];
+            out[k + 1] = new Settings.Item(PREFIX + KEYS[i], LABELS[i], HELPS[i], VALS[i], NAMES[i], VALS[i][0]).g(GAME);
+        }
         return out;
     }
 
@@ -86,12 +94,15 @@ final class Cheats {
     /** 켜진(먹는) 치트 수 — 고리 글 «치트 · 3개 켬». 마스터 끔이면 0 */
     static int count(Map<String, String> m) { int n = 0; for (int x : values(m)) if (x != 0) n++; return n; }
     static boolean any(Map<String, String> m) { return count(m) > 0; }
-    /** 168 고침 — 먹는 치트 비트(1 << 번호). league = 리그 판: 올카드는 빼고(리그는 늘 카드 전부 열림 · pushCheats 가 0 을 넣는다) */
+    /** 168 고침 — 먹는 치트 비트(1 << 번호). league = 리그 판: 올카드는 빼고(리그는 늘 카드 전부 열림 · pushCheats 가 0 을 넣는다).
+     *  176: 보기(프레임 표시·대미지 미터)는 게임을 안 바꾸니 안 든다(«치트 ON»·리그 첫 라운드 한 줄 없음) */
     static int activeMask(Map<String, String> m, boolean league) {
         int[] v = values(m); int b = 0;
-        for (int i = 0; i < v.length; i++) if (v[i] != 0 && !(league && i == CARDS)) b |= 1 << i;
+        for (int i = 0; i < FD; i++) if (v[i] != 0 && !(league && i == CARDS)) b |= 1 << i;
         return b;
     }
+    /** 176 — 보기 비트: 1 프레임 표시 · 2 대미지 미터(마스터 끔이면 0 — values 가 이미) */
+    static int views(Map<String, String> m) { int[] v = values(m); return (v[FD] != 0 ? 1 : 0) | (v[DMG] != 0 ? 2 : 0); }
     /** 경기 치트(시간~공격력)가 하나라도 켜졌나 — 연습 대전 중엔 이것들이 쉰다(띠 안내) */
     static boolean fight(Map<String, String> m) { int[] v = values(m); for (int i = TIME; i <= POW; i++) if (v[i] != 0) return true; return false; }
     /** native 에 값만 넣는다(코어를 다시 올리지 않음 — 다음 진짜 프레임부터 먹는다). 168: 리그 판도 먹는다(why 4) — 올카드만 EmuActivity.pushCheats 가 0 으로 덮음 */
