@@ -666,7 +666,7 @@ public class LeagueActivity extends Activity {
             .setPositiveButton("시작", (x, y) -> {
                 if (League.season() != p.season) { render(); return; }   /* 그사이 이미 바뀌었다 — 미리보기도 옛것 */
                 String why = League.resetBlockedWhy();
-                if (why != null) { toast(why); render(); return; }
+                if (why != null) { if (!League.liveHub) toast(why); render(); return; }   /* 168 M2: 그사이 리그 판이 떴으면 글 없이(줄이 숨는다) */
                 if (!League.newSeason()) toast("저장하지 못했어요 — 기록은 그대로예요");
                 else toast("시즌 " + League.season() + " 시작!");
                 afterReset();
@@ -684,7 +684,7 @@ public class LeagueActivity extends Activity {
             .setPositiveButton("처음부터", (x, y) -> {
                 if (League.season() != s0) { render(); return; }         /* 그사이 이미 바뀌었다 */
                 String why = League.resetBlockedWhy();
-                if (why != null) { toast(why); render(); return; }
+                if (why != null) { if (!League.liveHub) toast(why); render(); return; }   /* 168 M2: 그사이 리그 판이 떴으면 글 없이(줄이 숨는다) */
                 if (!League.restartRanked()) toast("저장하지 못했어요 — 기록은 그대로예요");
                 else toast("시즌 " + League.season() + " — 배치 경기부터 시작해요");
                 afterReset();
