@@ -61,6 +61,8 @@ public class EmuActivity extends Activity {
     static final String EXTRA_HUB_GO = "hub_go", EXTRA_FROM_GAME = "hub_from_game";   /* FROM_GAME = 일반 판에서 갈아타 왔다(리그를 못 열면 그 게임으로 돌려보낸다) */
     /* 168 K4 — 리그 화면 «멈춘 경기 이어서 하기»로 연 판: 사용자가 멈춘 경기(리셋·«나중에»)도 타이틀에서 기다리지 않고 바로 이어 한다 */
     static final String EXTRA_RESUME_NOW = "hub_resume_now";
+    /* 168 §10 — 경기 밖에서 설정을 다시 올린 판: 로고만 넘겨 타이틀(리그 켠 채)로(찾기는 안 함) */
+    static final String EXTRA_HUB_TITLE = "hub_title";
     private boolean practiceDual = false, hubDual = false, hubGoUsed = false, dualWarned = false;
     private int[] hubDualV;
     private boolean dualHintShown = false;
@@ -751,6 +753,7 @@ public class EmuActivity extends Activity {
                 if (live && id != null) League.orCheat(id, cb); else cancelReady("설정 다시 올리기 — 대진 전");
                 leaving = true; liveHubOff(); lgmReset(); MainActivity.forgetLast(this);   /* 코어는 내렸다 — 덧판은 새 창이 새로 */
                 Intent i = new Intent(this, EmuActivity.class).putExtra("rom", orig).putExtra(EXTRA_LEAGUE_HUB, true);
+                if (!live) i.putExtra(EXTRA_HUB_TITLE, true);                /* 경기 밖 — 새 창은 로고만 넘겨 타이틀로(이어 할 경기는 hubStart 가 먼저 본다) */
                 if (fromGame()) i.putExtra(EXTRA_FROM_GAME, true);
                 try { startActivity(i); } catch (Exception e) { android.util.Log.w("PocketCore", "reloadLeague: " + e); }
                 overridePendingTransition(0, 0);
@@ -2064,10 +2067,16 @@ public class EmuActivity extends Activity {
             if (League.userSuspended(open) && !now) waitOpen = true;      /* 168 K4: 사용자가 멈춘 경기(리셋·«나중에») — 타이틀에서 A(대기 «이어서 하기»)를 기다린다 */
             else { leagueId = open.optString("id"); leagueStart(); resumeOpen = true; }   /* 내려간 경기(앱 멈춤·백그라운드·설정 다시 올리기) — 체크포인트로 바로 이어 하고, 결판 뒤 허브로 */
         }
-        if (!resumeOpen && !hubGoUsed && getIntent().getBooleanExtra(EXTRA_HUB_GO, false)) {
-            hubGoUsed = true; Emu.nativeHubGo();                         /* 로고·메뉴를 넘겨 바로 상대 찾기까지 */
-            if (!waitOpen && (League.main() != null || !pickOnlyOk())) rankSearchStart();   /* 153: 로고가 도는 동안부터 찾기 겹창 — 허브가 찾기(6)에 닿으면 바로 go ·
-                                                                              168: 멈춘 경기면 찾기(6)에서 이어 하기 · 내 캐릭터가 없으면 찾기(6)에서 내 캐릭터부터(rankTick) */
+        boolean toTitle = getIntent().getBooleanExtra(EXTRA_HUB_TITLE, false);
+        if (!resumeOpen && !hubGoUsed && (toTitle || getIntent().getBooleanExtra(EXTRA_HUB_GO, false))) {
+            hubGoUsed = true;
+            if (waitOpen || toTitle) hubReturn(-1);                      /* 168 K4·D7: 사용자가 멈춘 경기 — 로고만 넘겨 타이틀(리그 켠 채)에서 A·대기 «이어서 하기»를 기다린다 ·
+                                                                              설정 다시 올리기(경기 밖)도 타이틀로 */
+            else {
+                Emu.nativeHubGo();                                       /* 로고·메뉴를 넘겨 바로 상대 찾기까지 */
+                if (League.main() != null || !pickOnlyOk()) rankSearchStart();   /* 153: 로고가 도는 동안부터 찾기 겹창 — 허브가 찾기(6)에 닿으면 바로 go ·
+                                                                              168: 내 캐릭터가 없으면 찾기(6)에서 내 캐릭터부터(rankTick) */
+            }
         }
         if (hubOn() && !hubDual && !dualHintShown) { dualHintShown = true; toast("이 롬 사본에선 연습이 안 켜져서 셋째 줄은 리그 대전만 돼요 — 조작 패치를 끄면 둘 다"); }
         h.postDelayed(hubPoll, 200);
@@ -2112,7 +2121,10 @@ public class EmuActivity extends Activity {
             return;
         }
         /* 168 K2: 미뤄 둔 이어 하기 — 허브가 타이틀·찾기에 서고 대신 누르기가 끝난 뒤 */
-        if (hubResumePending && (st == 1 || st == 6) && hs[7] == 0 && leagueId == null && !leaving) { hubResumeOpen(); hubLastState = st; lgmEligibleSync(); return; }
+        if (hubResumePending && (st == 1 || st == 6) && hs[7] == 0 && leagueId == null && !leaving) {
+            hubResumeOpen();
+            if (leagueId != null) { hubLastState = st; lgmEligibleSync(); return; }   /* 이어 했다 — 아니면(카드·덧판이 아직) 평소 틱 */
+        }
         if (rankPickOnly) rankPickOnlyTick(st);                         /* 168 §6 내 캐릭터 먼저 — 다 골랐으면 그다음 상대 */
         /* 168 §10·M10: 경기 동안 미뤄 둔 «다시 올리기»(언어 등) — 타이틀 메뉴에 섰고 열린 것이 없을 때 한 번 */
         if (cfgReloadPending && st == 1 && hs[7] == 0 && leagueId == null && hubCard == null && !lgmShown && ask == null && rankQ == null && !rankPickOnly
@@ -3803,8 +3815,7 @@ public class EmuActivity extends Activity {
     }
     /** 168(11) «내 이름» — 게임 위 카드에 글 칸(덧판·코어는 멈춘 채). 정하면 기록(me.name — 글꼴에 있는 글자만 · 비우면 «나») → 리그 탭·대기 다시 그림 */
     private void askName() {
-        final LeagueMenu mm = lgm;
-        if (ask != null || root == null) return;
+        if (ask != null || root == null) { lgmDrawer(MenuModel.Prefs.TAB_LEAGUE); return; }   /* 카드를 못 띄움 — 서랍을 다시 그려 바쁨을 푼다 */
         final android.widget.EditText e = new android.widget.EditText(this);
         e.setSingleLine(true);
         e.setText(League.myNick());

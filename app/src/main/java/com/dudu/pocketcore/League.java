@@ -399,15 +399,16 @@ final class League {
     }
     /** 168(11) 내 이름 길이 — 이름표(62px)·순위표(54px) 칸에 «…» 없이 드는 갈무리 글자 수 근처 */
     static final int NAME_MAX = 8;
-    /** 내 이름으로 쓸 수 있는 글자만 — 한글 음절·영문·숫자·밑줄·붙임표·마침표(픽셀 글꼴 갈무리7·11 에 다 있는 것) · 앞뒤·겹친 빈칸 정리 · NAME_MAX 자.
-     *  다른 글자(이모지·한자·자모 따로 등)는 뺀다 — 덧판·VS 띠가 그리지 못하면 «?» 가 되기 때문 */
+    /** 내 이름으로 쓸 수 있는 글자만 — KS X 1001 한글 2,350자·영문·숫자·밑줄·붙임표·마침표(앱 픽셀 글꼴 갈무리7·11·11B 가 다 가진 것 —
+     *  assets/fonts/README: «ASCII + KS X 1001 한글 2,350자») · 앞뒤·겹친 빈칸 정리 · NAME_MAX 자.
+     *  다른 글자(KS X 1001 밖 음절 «똠»·이모지·한자·자모 따로 등)는 뺀다 — 덧판·이름표는 «?», VS 띠는 시스템 글꼴로 그려져 픽셀 글꼴이 깨지기 때문 */
     static String cleanName(String raw) {
         if (raw == null) return "";
         StringBuilder b = new StringBuilder();
         boolean sp = false;
         for (int i = 0; i < raw.length() && b.length() < NAME_MAX; ) {
             int cp = raw.codePointAt(i); i += Character.charCount(cp);
-            boolean ok = (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z') || (cp >= '0' && cp <= '9')
+            boolean ok = (cp >= 0xAC00 && cp <= 0xD7A3 && ksHangul(cp)) || (cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z') || (cp >= '0' && cp <= '9')
                     || cp == '_' || cp == '-' || cp == '.';
             if (cp == ' ' || cp == 0x3000) { if (b.length() > 0) sp = true; continue; }
             if (!ok) continue;
@@ -416,6 +417,11 @@ final class League {
             b.appendCodePoint(cp);
         }
         return b.toString().trim();
+    }
+    /** KS X 1001 완성형 한글 2,350자인가(EUC-KR 로 쓸 수 있는 음절) — 글꼴 셋이 모두 가진 음절. EUC-KR 이 없는 JVM 이면 모든 음절을 받는다 */
+    private static boolean ksHangul(int cp) {
+        try { return java.nio.charset.Charset.forName("EUC-KR").newEncoder().canEncode((char) cp); }
+        catch (Exception e) { return true; }
     }
     /** 내 이름 바꾸기 — 다듬은 값(비면 «나»)을 me.name 에. 같으면 파일을 안 건드린다. 저장 실패면 false(메모리는 되돌림) */
     static synchronized boolean setMyName(String raw) {
