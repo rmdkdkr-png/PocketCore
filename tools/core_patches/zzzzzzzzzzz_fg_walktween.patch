@@ -1,0 +1,197 @@
+앱 방 코어 패치 zzzzzzzzzzz_fg_walktween — CPU 걸음 장 사이에도 내 걸음과 같은 사이 그림(유저 10-19 「좀 똑같이 만드는 방법을 알아봐 줘」).
+170·171 은 CPU 가 묶인 걸음 포즈 P 에서 원작 걸음 장(②③④)만 한 걸음마다 바꿨다 — 내 걸음은 장 사이에 캐시 사이 그림 ¼½¾ 이 낀다.
+이제 같은 그림·같은 박자로: 사람 걸음의 바뀜 (seq[i] → seq[i+1]) 캐시 사이 그림(27 순환에 113개, 캐시에 다 있음)을 렌더해
+P 의 화소에서 가져오게 다시 부호화(색 번호 그대로 — 걸음 포즈는 모두 팔레트 하나)하고, 좌우는 P 쪽으로.
+캐시(19차)에 합성 항목 (P, mc_synth(P, k)) k = 1 … K 의 3장씩 = 자연 차례 장 f = 4i + q (i = 걸음 장, q = 0 그 장 · 1~3 = ¼½¾),
+f = 0 은 P 그대로. 합성 키는 짝수(진짜 포즈 지문은 늘 홀수 — 안 겹침). 꼬리 걸음 사이 표 'SS2X'(SS2G 덩어리 바로 앞,
+항목 24바이트 = u64 P, u8 n, u8 자연 방향(1 상대 쪽 · 2 멀어지며), u8 K, u8 판 2, u8 장마다 프레임 수[6], 6바이트 0).
+장은 시간으로 넘긴다 — 장 i 마다 T[i] 프레임(사람 걸음 머묾: 나코루루 8 · 리무루루 14 · 한조 10·6·10·6 등)을 넷으로(내 걸음의
+«앞·¼·½·¾ 같은 길이»와 같음). 거리로 나누면 CPU 가 2 프레임마다 3~4px 씩 가 ¼·½ 이 건너뛰어졌다. 거꾸로 가면 거꾸로(¾·½·¼).
+첫 장과 그 뒤 ¼½¾ 는 미리 보기로 묶임이 확인됐을 때(zzzzzzzzzz_fg_smoothwalk)만, 모르면 h0 까지 P 그다음 둘째 장부터.
+옛 코어(170·171)는 SS2X·합성 항목을 모르고 예전처럼(②③④). 표에 없는 포즈는 예전 3장 걸음 그림.
+호스트(봇 16판, 76,800 출력): 171 과 다른 820장 모두 CPU 걸음 장, 이상(안 움직일 때·공중·다른 포즈) 0, 걷는 상대 매끄러움 그대로.
+나코루루 CPU 걸음 한 바퀴를 내 걸음(좌우 뒤집어)과 나란히 — 같은 장·같은 차례·장마다 2 프레임씩.
+
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index a0096a1..867a3c8 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -1942,6 +1942,16 @@ static uint32_t mc_ln = 0;
+ typedef struct { uint64_t sig; uint8_t step, n, h0, ord[6]; } mc_walk_t;
+ static mc_walk_t *mc_wk = 0;
+ static uint32_t mc_wn = 0;
++/* zzzzzzzzzzz_fg_walktween: 걸음 사이 표 — CPU 걸음 장 사이에도 내 걸음과 같은 사이 그림(¼½¾). SS2G 덩어리 바로 앞에
++   [항목×24]['SS2X'][u32 개수] — 항목 = u64 포즈 P, u8 걸음 장 수 n, u8 자연 방향(1 = 상대 쪽으로 걷는 순환 · 2 = 멀어지며 · 0 = 상대 쪽으로 침),
++   u8 합성 항목 수 K, u8 판(2), u8 장마다 프레임 수[6](사람 걸음 머묾 — 나코루루 8 · 리무루루 14 · 한조 10·6·10·6 등), 6바이트 0. 포즈 오름차순.
++   그림은 합성 항목 (P, mc_synth(P, k)) k = 1 … K 의 3장씩:
++   자연 차례로 장 f = 4i + q (i = 걸음 장, q = 0 그 장 · 1~3 = 다음 장으로 가는 ¼½¾ — 사람 걸음 바뀜의 캐시 사이 그림을 P 화소로),
++   f = 0 은 P 그대로라 없고 f = 1 … 4n−1 이 차례로 3장씩. 합성 키는 짝수(진짜 포즈 지문은 늘 홀수 — 겹치지 않음) */
++typedef struct { uint64_t sig; uint8_t n, dir, K, T[6]; } mc_wx_t;
++static mc_wx_t *mc_wx = 0;
++static uint32_t mc_xn = 0;
++static uint64_t mc_synth(uint64_t P, int k) { return (P * 0x9E3779B97F4A7C15ull + (uint64_t)k * 0xD1B54A32D192ED03ull) & ~(uint64_t)1; }
+ static int      mc_on = 0;
+ #define MC_CN 16                    /* 99w: 8 → 16 */
+ static mc_ent   mc_c[MC_CN];
+@@ -1958,6 +1968,7 @@ void ss2fg_motion_close(void)
+    mc_f = 0; free(mc_ix); mc_ix = 0; mc_n = 0;
+    free(mc_lp); mc_lp = 0; mc_ln = 0;
+    free(mc_wk); mc_wk = 0; mc_wn = 0;
++   free(mc_wx); mc_wx = 0; mc_xn = 0;                       /* zzzzzzzzzzz_fg_walktween */
+    for (i = 0; i < MC_CN; i++) { free(mc_c[i].buf); memset(&mc_c[i], 0, sizeof mc_c[i]); }
+ }
+ /* 반환: 바뀜 수(0 이상), 없거나 틀리면 -1 */
+@@ -2023,6 +2034,30 @@ int ss2fg_motion_open(const char *path)
+                   }
+                   free(wb);
+                }
++               {  /* zzzzzzzzzzz_fg_walktween: 걸음 사이 표(있으면) — 걸음 표 덩어리 바로 앞 8바이트 'SS2X' u32 개수, 그 앞에 항목 */
++                  long xe = end - 20 - (long)wn * 16;
++                  uint8_t x8[8], *xb;
++                  if (mc_wn && xe >= 8 + 24 && !fseek(mc_f, xe - 8, SEEK_SET) && fread(x8, 1, 8, mc_f) == 8 && !memcmp(x8, "SS2X", 4))
++                  {
++                     uint32_t xn = mc_rd32(x8 + 4);
++                     if (xn && xn < 100000u && xe - 8 >= (long)xn * 24 && (xb = (uint8_t *)malloc((size_t)xn * 24)) != 0)
++                     {
++                        if (!fseek(mc_f, xe - 8 - (long)xn * 24, SEEK_SET) && fread(xb, 24, xn, mc_f) == xn && (mc_wx = (mc_wx_t *)malloc((size_t)xn * sizeof *mc_wx)) != 0)
++                        {
++                           for (i = 0; i < xn; i++)
++                           {
++                              mc_wx_t *x = &mc_wx[i];
++                              int k, ok = xb[i * 24 + 11] == 2;
++                              x->sig = mc_rd64(xb + i * 24); x->n = xb[i * 24 + 8]; x->dir = xb[i * 24 + 9]; x->K = xb[i * 24 + 10];
++                              for (k = 0; k < 6; k++) { x->T[k] = xb[i * 24 + 12 + k]; if (k < x->n && (x->T[k] < 2 || x->T[k] > 60)) ok = 0; }
++                              if (!ok || x->n < 2 || x->n > 6 || x->dir > 2 || x->K < 1 || x->K > 8 || (unsigned)x->K * 3u < (unsigned)x->n * 4u - 1u) x->n = 0;   /* 틀린 항목은 안 씀 */
++                           }
++                           mc_xn = xn;
++                        }
++                        free(xb);
++                     }
++                  }
++               }
+             }
+          }
+       }
+@@ -2041,6 +2076,18 @@ static uint64_t mc_loop_next(uint64_t sa, unsigned *hold)
+    }
+    return 0;
+ }
++/* zzzzzzzzzzz_fg_walktween: 걸음 사이 표에서 포즈 P — 없으면 0 */
++static const mc_wx_t *mc_wx_find(uint64_t sg)
++{
++   int lo = 0, hi = (int)mc_xn - 1;
++   while (lo <= hi)
++   {
++      int mid = (lo + hi) >> 1;
++      if (mc_wx[mid].sig == sg) return mc_wx[mid].n ? &mc_wx[mid] : 0;
++      if (mc_wx[mid].sig < sg) lo = mid + 1; else hi = mid - 1;
++   }
++   return 0;
++}
+ /* zzzzzzzzz_fg_walkcycle: 걸음 표에서 포즈 P — 없으면 0 */
+ static const mc_walk_t *mc_walk_find(uint64_t sg)
+ {
+@@ -2346,6 +2393,7 @@ static int      gl_dist[2];                  /* 그 포즈로 땅 위에서 간
+ static unsigned gl_mv[2];                    /* 마지막으로 움직인 실제 프레임 */
+ static uint8_t  gl_wx[2], gl_ct[2];
+ static uint8_t  gl_stk[2];                   /* zzzzzzzzzz_fg_smoothwalk: 이 머묾은 사람 걸음의 한 장보다 길게 감 — 멀리 미리 보기로 확인(머묾 동안 유지) */
++static int      gl_t[2], gl_t0[2];           /* zzzzzzzzzzz_fg_walktween: 이 머묾에서 걸은 실제 프레임 수 · h0 를 넘긴 때(−1 = 아직) */
+ static int      gl_stats[4];                 /* 장마다 그린 수(0 = 원래 포즈) */
+ void ss2fg_set_glide(int m) { gl_mode = m; }
+ void ss2fg_glide_stats(int *o4) { int i; for (i = 0; i < 4; i++) o4[i] = gl_stats[i]; }
+@@ -2354,7 +2402,7 @@ static void gl_observe(const ss2fg_frame *f, int p, uint64_t sg, unsigned realn)
+ {
+    int d;
+    if (!sg || !f->fight || (f->st[p] & 0xE0) != 0x20 || !gl_ctok(f->ct[p]) || sg != gl_sig[p] || f->ct[p] != gl_ct[p])
+-   { gl_sig[p] = sg; gl_ct[p] = f->ct[p]; gl_dist[p] = 0; gl_mv[p] = 0; gl_wx[p] = f->wx[p]; gl_stk[p] = 0; return; }
++   { gl_sig[p] = sg; gl_ct[p] = f->ct[p]; gl_dist[p] = 0; gl_mv[p] = 0; gl_wx[p] = f->wx[p]; gl_stk[p] = 0; gl_t[p] = 0; gl_t0[p] = -1; return; }
+    d = (int8_t)(uint8_t)(f->wx[p] - gl_wx[p]);
+    if (d && d >= -12 && d <= 12)
+    {
+@@ -2363,12 +2411,33 @@ static void gl_observe(const ss2fg_frame *f, int p, uint64_t sg, unsigned realn)
+       gl_mv[p] = realn;
+    }
+    gl_wx[p] = f->wx[p];
++   if (gl_mv[p] && realn - gl_mv[p] <= 6u) gl_t[p]++;      /* zzzzzzzzzzz_fg_walktween: 걷는 동안(걸음 사이 쉼 포함)의 시간 */
++}
++/* zzzzzzzzzzz_fg_walktween: 걸음 사이 표의 시간 tau2(반 프레임) 에 그릴 장 f(0 = P 그대로) — 자연 차례(s > 0)면 장 i 마다 T[i] 프레임을
++   «그 장 · ¼ · ½ · ¾» 넷으로, 거꾸로(s < 0)면 거꾸로 돌며 사이 그림도 ¾·½·¼(그 바뀜의 길이 T[i−1]) */
++static int gl_tframe(const mc_wx_t *xw, int s, int tau2)
++{
++   int n = xw->n, L = 0, i, d2, q;
++   for (i = 0; i < n; i++) L += 2 * xw->T[i];
++   if (L <= 0 || tau2 < 0) return 0;
++   tau2 %= L;
++   for (i = 0; i < n; i++)
++   {
++      int ib = s > 0 ? i : (n - i) % n;
++      d2 = 2 * xw->T[s > 0 ? ib : (ib + n - 1) % n];
++      if (tau2 >= d2) { tau2 -= d2; continue; }
++      q = (4 * tau2) / d2;
++      if (s > 0) return 4 * ib + q;
++      return q ? 4 * ((ib + n - 1) % n) + (4 - q) : 4 * ib;
++   }
++   return 0;
+ }
+ /* 반환: 1 = 걸음 그림을 계획함 · 0 = 해당 없음(첫 장 포함 — 하던 대로 다른 사이 그림) */
+ static int gl_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_frame *f2, unsigned realn, int slot, int p)
+ {
+    uint8_t mm[64];
+-   int k, ph, moving = 0, ax0, ay0;
++   int k, ph, moving = 0, ax0, ay0, ti = -1;
++   uint64_t eb;                                             /* 그릴 항목 (id_cur, eb) — (P, P) 또는 걸음 사이 합성 항목 */
+    mc_ent *e;
+    id_pose *A;
+    id_req_t *rq = &id_rq[slot][p];
+@@ -2404,18 +2473,45 @@ static int gl_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+          if (fut < 0) fut = -fut;
+          if (fut <= 96 && ad + fut >= h0 + st) gl_stk[p] = 1;
+       }
+-      k = gl_stk[p] ? ad / st : ad < h0 ? 0 : 1 + (ad - h0) / st;
+-      if (d < 0) k = -k;
+-      k %= nn; if (k < 0) k += nn;
+-      ph = wk->ord[k];
++      eb = id_cur[p];
++      {  /* zzzzzzzzzzz_fg_walktween: 걸음 사이 표가 있으면 내 걸음과 같게 — 걸음 장마다 «그 장 · ¼ · ½ · ¾»(한 장 길이를 넷으로,
++            내 걸음의 «앞·¼·½·¾ 같은 길이»와 같음 — zzzzz_fg_walk3). ¼½¾ 은 사람 걸음 바뀜의 캐시 사이 그림(P 화소로 옮긴 것).
++            자연 방향(그 순환을 사람이 걷는 쪽)으로 가면 장 차례대로, 거꾸로 가면 거꾸로(사이 그림도 뒤집어 ¾·½·¼).
++            첫 장(P)과 그 뒤 ¼½¾ 는 미리 보기로 묶임이 확인됐을 때만 — 모르면 예전처럼 h0 까지 P, 그 뒤 둘째 장부터 */
++         const mc_wx_t *xw = mc_xn ? mc_wx_find(id_cur[p]) : 0;
++         if (xw && xw->n == nn)
++         {
++            /* 장은 거리 말고 시간으로 — 내 걸음처럼 장마다 T 프레임, 그 안을 넷(사람 걸음 머묾 길이 그대로). CPU 는 2 프레임마다 3~4px 씩
++               툭툭 가고 걸음 사이 4 프레임 쉬어, 거리로 넷을 나누면 ¼·½ 이 건너뛰어졌다(나코루루 한 장 9px 에 한 번 3.5px) */
++            int f, s = (d >= 0 ? 1 : -1) * (xw->dir == 2 ? -1 : 1), tau2;
++            if (gl_stk[p]) tau2 = 2 * gl_t[p] + slot;
++            else if (ad < h0) { if (slot == 0) gl_stats[0]++; return 0; }
++            else
++            {  /* 묶임 확인 없이 h0 를 넘김 — 둘째 장부터 */
++               if (gl_t0[p] < 0) gl_t0[p] = gl_t[p];
++               tau2 = 2 * xw->T[s > 0 ? 0 : nn - 1] + 2 * (gl_t[p] - gl_t0[p]) + slot;
++            }
++            f = gl_tframe(xw, s, tau2);
++            if (!f) { if (slot == 0) gl_stats[0]++; return 0; }
++            if ((f - 1) / 3 + 1 > xw->K) return 0;
++            eb = mc_synth(id_cur[p], (f - 1) / 3 + 1); ti = (f - 1) % 3; ph = ti + 1;
++         }
++      }
++      if (ti < 0)
++      {
++         k = gl_stk[p] ? ad / st : ad < h0 ? 0 : 1 + (ad - h0) / st;
++         if (d < 0) k = -k;
++         k %= nn; if (k < 0) k += nn;
++         ph = wk->ord[k]; ti = ph - 1;
++      }
+    }
+    if (!ph) { if (slot == 0) gl_stats[0]++; return 0; }   /* 첫 장 동안은 하던 대로(사람 걸음의 다음 장 사이 그림 펴기를 막지 않게) */
+-   if (!(e = mc_get(id_cur[p], id_cur[p]))) return 0;
++   if (!(e = mc_get(id_cur[p], eb))) return 0;
+    A = id_find_pose(p, id_cur[p]);
+    if (!A || A->w != e->aw || A->h != e->ah || A->w != e->bw || A->h != e->bh || e->bdx || e->bdy) { mc_stats[3]++; return 0; }
+    if (!mc_top_left(f0, p, &ax0, &ay0)) { ax0 = A->ox; ay0 = A->oy; }
+    rq->on = 1; rq->kind = 1; rq->pr = 0; rq->t256 = 64 * ph;
+-   rq->e = e; rq->ti = ph - 1; rq->A = A; rq->B = A;
++   rq->e = e; rq->ti = ti; rq->A = A; rq->B = A;
+    rq->gx = ax0 + e->cx; rq->gy = ay0 + e->cy; rq->sx4 = rq->sy4 = 0;
+    rq->ax = f0->ob_x[p]; rq->ay = f0->ob_y[p];
+    rq->gw = e->w; rq->gh = e->h;

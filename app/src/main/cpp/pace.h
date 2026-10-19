@@ -32,6 +32,7 @@ typedef struct pace_t {
    int    cool_n;      /* 쉰 횟수(거듭되면 더 오래) */
    double lock_since;  /* 이번 잠금을 시작한 때 */
    long   catchup;     /* 계기: 따라잡기·건너뛰기 횟수 */
+   double lock_hzv;    /* 173: 잠글 때 정한 화면 Hz — 잠금 동안 그대로(늦은 그림에 흔들리는 실측으로 소리 늘림·놓친 칸 셈이 흔들리지 않게) */
 } pace_t;
 
 void pace_reset(pace_t *p);
