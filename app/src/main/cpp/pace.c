@@ -23,11 +23,11 @@ static double snap_hz(double hz)
    return hz;
 }
 
-/* 잠금 중 화면 Hz — Java 값이 실측과 1.5% 안이면 그것(정확), 아니면 실측을 흔한 값으로 맞춘 것 */
-static double lock_hz(const pace_t *p, double hint)
+/* 173: 잠글 때 화면 Hz — 잠금은 실측이 정수배 ±3% 안에 20 번 이어져야 걸리니, Java 값이 그 안(±3%)이면 Java 값(정확), 아니면 실측을 흔한 값으로 */
+static double lock_hz_at_lock(const pace_t *p, double hint)
 {
    double m = p->ema > 0 ? 1.0 / p->ema : 0;
-   if (hint > 1 && m > 1 && fabs(m - hint) <= hint * 0.015) return hint;
+   if (hint > 1 && m > 1 && fabs(m - hint) <= hint * LOCK_IN) return hint;
    return snap_hz(m);
 }
 
@@ -102,7 +102,7 @@ int pace_steps(pace_t *p, double t, double fps, double hz_hint, int turbo, int p
       if (p->lock_k)
       {
          if (kin && kin != p->lock_k)
-         {  /* 코어가 fps 를 바꿨다(사무쇼2 프레임 생성 60.25 ↔ 120.5) — 화면은 그대로니 바로 새 k 로 */
+         {  /* 코어가 fps 를 바꿨다(사무쇼2 프레임 생성 60.25 ↔ 120.5) — 화면은 그대로니 바로 새 k 로(화면 Hz 도 그대로) */
             p->lock_k = kin; p->streak = 0;
             p->lock_t0 = 0;
          }
@@ -114,17 +114,22 @@ int pace_steps(pace_t *p, double t, double fps, double hz_hint, int turbo, int p
       }
       else if (kin && t >= p->cool_until)
       {
-         if (++p->streak >= LOCK_WAIT) { p->lock_k = kin; p->streak = 0; p->lock_t0 = 0; p->lock_since = t; }
+         if (++p->streak >= LOCK_WAIT) { p->lock_k = kin; p->streak = 0; p->lock_t0 = 0; p->lock_since = t; p->lock_hzv = lock_hz_at_lock(p, hz_hint); }
       }
       else p->streak = 0;
    }
    if (p->lock_k)
    {
       int k = p->lock_k, step = p->since >= k;
-      double hz = lock_hz(p, hz_hint);
+      /* 173: 화면 Hz 는 잠글 때 정한 값 그대로. 예전엔 부를 때마다 실측(호출 간격 EMA)을 봐서, 그림 한 장이 vsync 를 넘기면
+         (판 시작 전 소개·멀리 미리 보기처럼 무거운 때) 실측이 117~118Hz 로 처져 Java 값(120)과 1.5% 넘게 벌어지면 그 실측을 화면 Hz 로
+         믿었다 — 소리 늘림 drc_base 가 1.004 → 최대 1.03(3% 느리게, 반음의 반)으로 튀어 «테이프 느려진 듯» 들리고
+         (유저 10-19 「타이밍이 밀리는지 소리가 늘어질 때가 있다」·「경기 초반」), 놓친 칸 셈(D)도 틀린 Hz 로 했다.
+         호스트 모의(실제 프레임 부름 6~9ms + 5% 가 10~18ms): base > 1.008 인 부름 4% · 최대 +3.2% → 0 */
+      double hz = p->lock_hzv > 1 ? p->lock_hzv : (p->lock_hzv = lock_hz_at_lock(p, hz_hint));
       p->lock_fps = hz > 1 ? hz / k : fps;
       p->drc_base = fps / p->lock_fps;      /* 소리를 만드는 속도가 fps → 화면 Hz / k 로 느려진 만큼 늘려 낸다 */
-      if (p->drc_base < 0.97 || p->drc_base > 1.03) p->drc_base = 1.0;
+      if (p->drc_base < 0.985 || p->drc_base > 1.015) p->drc_base = 1.0;   /* 173: ±3% → ±1.5% (맞는 값은 1.004 안팎) */
       /* 화면이 vsync 를 실제로 놓쳤나(큐가 비어 앞 그림을 한 번 더 냄) — 놓친 칸 D = 지난 vsync 수 − 호출 수.
          평소엔 큐 깊이(0~2칸)·깨어남 흔들림만큼 오르내리고, 한 번 늦은 호출 뒤 몰려 오는 호출에 잠깐 튄다 — 그래서 최근 64 호출의
          가운데값으로 본다. 처음 가운데값을 기준으로, 기준보다 k 칸(게임 한 프레임) 늘면 한 번 더 돌려 따라잡고, k 칸 줄면 한 번 쉰다 */
