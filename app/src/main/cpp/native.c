@@ -468,7 +468,7 @@ static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
       }
    }
    g_rd = rd;
-   uisfx_mix(out, numFrames, mute);    /* 176: 덧판 메뉴 효과음 — 고리(게임 소리) 위에. 코어가 멈춰 고리가 비어도 난다 */
+   uisfx_mix(out, numFrames, mute, ov_active() || ov_hold());   /* 176: 덧판 메뉴 효과음 — 고리(게임 소리) 위에. 코어가 멈춰 고리가 비어도 난다 · 메뉴가 사라지면 결정의 메아리는 안 냄(잠금 없는 int 둘) */
    return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 

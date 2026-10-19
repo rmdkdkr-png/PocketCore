@@ -8,6 +8,8 @@
  *   한 채널에 소리 하나: 새 소리는 우선순위가 같거나 높으면 바꾸고, 낮으면 버린다(커서 1 < 뒤로 2 < 결정 3).
  *   게임은 소리 끝 뒤 조용한 꼬리까지 막지만(결정 576ms · 뒤로 363ms), 여기서는 «머리»(결정 = 첫 메아리 전 208ms · 뒤로 = 들리는 166ms)
  *   동안만 낮은 소리를 막는다 — 결정 뒤 바로 옮긴 커서가 소리 없이 지나가지 않게.
+ *   게임은 장면이 바뀌면 0xFF 로 결정 소리를 끊는다(뒤로는 끝까지). 여기서는 메뉴가 사라지면(덧판 안 보임 · 메뉴 멈춤 풂 = 경기·다음 화면)
+ *   결정의 메아리를 내지 않는다 — 몸통(머리 208ms)은 다 내고 메아리 자리에서 4ms 로 줄여 끔(이어하기·다음 상대 뒤 경기 위로 새지 않게).
  * 합성: 표의 {샘플@44.1k, N, att} 를 출력 샘플레이트로 늘려 그대로 · PolyBLEP 사각파 · 볼륨이 바뀔 때 0.5ms 직선(딸깍 없앰) ·
  *       끌 때(STOP·음소거) 4ms 로 줄임. */
 #include "uisfx.h"
@@ -38,11 +40,12 @@ static const sfx_ev EV_BACK[] = {     /* 0x06 */
    {5676,115,10}, {5890,115,11}, {6062,115,12}, {6215,115,13}, {6790,115,14}, {7330,115,15}
 };
 #define NEV(a) ((int)(sizeof(a) / sizeof((a)[0])))
-static const struct { const sfx_ev *ev; int n, prio, head; } PROG[UISFX_N] = {
-   { NULL, 0, 0, 0 },
-   { EV_CURSOR, NEV(EV_CURSOR), 1, 8550 },
-   { EV_SELECT, NEV(EV_SELECT), 3, 9158 },
-   { EV_BACK,   NEV(EV_BACK),   2, 7330 },
+/* head = 이만큼(44.1k 샘플) 낮은 소리를 막음 · cut = 메뉴가 사라졌으면 여기서 줄여 끔(0 = 끝까지) */
+static const struct { const sfx_ev *ev; int n, prio, head, cut; } PROG[UISFX_N] = {
+   { NULL, 0, 0, 0, 0 },
+   { EV_CURSOR, NEV(EV_CURSOR), 1, 8550, 0 },
+   { EV_SELECT, NEV(EV_SELECT), 3, 9158, 9158 },
+   { EV_BACK,   NEV(EV_BACK),   2, 7330, 0 },
 };
 static const uint8_t VOL[16] = { 64, 50, 39, 31, 24, 19, 15, 12, 9, 7, 5, 4, 3, 2, 1, 0 };
 #define AMP_UNIT 33.0f
@@ -109,7 +112,7 @@ static inline float blep(double t, double dt)
    return 0.0f;
 }
 
-void uisfx_mix(int16_t *out, int frames, int mute)
+void uisfx_mix(int16_t *out, int frames, int mute, int menu)
 {
    uint32_t req = atomic_exchange_explicit(&g_req, 0, memory_order_acquire);
    if (!S.kind && (!req || mute)) return;
@@ -124,12 +127,16 @@ void uisfx_mix(int16_t *out, int frames, int mute)
    if (!S.kind) return;
    const sfx_ev *ev = PROG[S.kind].ev;
    int n = PROG[S.kind].n;
+   unsigned cut = menu ? 0u : (unsigned)PROG[S.kind].cut;
    for (int i = 0; i < frames; i++) {
       if (!S.fin) {
          unsigned at = S.pos >> 16;
-         while (S.idx + 1 < n && at >= ev[S.idx + 1].at) apply(&ev[++S.idx]);
-         if (S.idx + 1 >= n) S.fin = 1;
-         S.pos += S.step;
+         if (cut && at >= cut) stop();    /* 메뉴가 사라짐 — 메아리는 안 냄 */
+         else {
+            while (S.idx + 1 < n && at >= ev[S.idx + 1].at) apply(&ev[++S.idx]);
+            if (S.idx + 1 >= n) S.fin = 1;
+            S.pos += S.step;
+         }
       }
       if (S.ramp > 0) { S.amp += S.inc; if (--S.ramp == 0) S.amp = S.tgt; }
       double ph = S.ph, ph2 = ph + 0.5;

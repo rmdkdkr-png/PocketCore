@@ -15,7 +15,8 @@
 
 int  uisfx_request(int kind);                       /* 1 = 받음(다음 콜백이 소리 냄) · 0 = 모르는 kind */
 void uisfx_reset(int rate);                         /* 소리·요청 지움 + 출력 샘플레이트 */
-void uisfx_mix(int16_t *out, int frames, int mute); /* 스테레오 int16 위에 더함(포화) · mute = 요청 버리고 지금 소리는 짧게 줄여 끔 */
+void uisfx_mix(int16_t *out, int frames, int mute, int menu); /* 스테레오 int16 위에 더함(포화) · mute = 요청 버리고 지금 소리는 짧게 줄여 끔 ·
+                                                                menu = 덧판 메뉴가 보이거나 멈춤 중 — 0 이면 결정은 메아리 전에 줄여 끔(게임이 장면 바뀔 때 끊듯) */
 int  uisfx_active(void);                            /* 소리 나는 중(지금 kind · 0 없음) — 시험용 */
 
 #endif
