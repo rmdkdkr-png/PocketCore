@@ -1056,12 +1056,13 @@ int practice_take_exit(void)
    return e;
 }
 
+static int sv_win;                 /* 상태 저장 직전에 연습 메뉴 창이 열려 있었나 — practice_after_save 가 바로 다시 그린다 */
 void practice_forget(void)
 {
    pthread_mutex_lock(&P_mu);
    P.active = 0; P.menu = M_NONE; P.exit_req = 0; W.open = 0; W.npool = 0; W.fx_orig[0] = W.fx_orig[1] = -1;
    memset(&AV, 0, sizeof AV); AV.shown = AV.shown_side = AV.disp = -1;   /* 176 보기도 — 화면 램이 통째로 바뀌었으니 되돌리지 않고 잊는다 */
-   fd_reset(1);
+   fd_reset(1); sv_win = 0;
    practice_in_block = 0; practice_in_or = 0; practice_opt_mask = 0;
    pthread_mutex_unlock(&P_mu);
 }
@@ -1069,8 +1070,25 @@ void practice_forget(void)
 void practice_before_save(void)
 {
    pthread_mutex_lock(&P_mu);
-   if (P.active) { window_restore(); hud_restore(); }   /* 메뉴가 열린 채면 다음 프레임에 window_draw 가 다시 빌려 그린다 */
-   if (AV.active) dig_restore(&AV.dig_state, AV.dig_orig, AV.dig_ours);   /* 176 보기 숫자도 — 다음 진짜 프레임에 다시 그린다 */
+   sv_win = P.active && W.open;
+   if (P.active) { window_restore(); hud_restore(); }
+   if (AV.active) dig_restore(&AV.dig_state, AV.dig_orig, AV.dig_ours);   /* 176 보기 숫자도 */
+   pthread_mutex_unlock(&P_mu);
+}
+
+/* 상태 저장(c_serialize) 바로 뒤 — before_save 가 되돌린 창·숫자·«2P» 를 그 자리에서 다시 그린다.
+   view_tick·hud_update·window_draw 는 c_run 뒤에 돌아서, 여기서 안 그리면 저장 다음 화면 한 장(120Hz 프레임 생성이면 두 vsync)에
+   HUD 대미지 숫자·«2P»·메뉴 창이 빠졌다가 그다음 장에 돌아온다(빠른 저장마다 깜빡) — look_after_save 와 같은 뜻.
+   그리는 조건·값은 그 틱 함수들과 같다(저장 사이엔 에뮬레이션이 없어 램·화면이 저장 직전과 같다) */
+void practice_after_save(void)
+{
+   pthread_mutex_lock(&P_mu);
+   if (P.active && P.menu != M_EXIT) {
+      if (sv_win && P.menu == M_OPEN) window_draw();
+      hud_update();
+   }
+   if (AV.active) dig_draw((AV.bits & 2) && AV.disp >= 0 && hud_layout(), AV.disp, &AV.dig_state, AV.dig_orig, AV.dig_ours);
+   sv_win = 0;
    pthread_mutex_unlock(&P_mu);
 }
 

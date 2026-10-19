@@ -1337,6 +1337,7 @@ JNI(jint, nativeSaveState)(JNIEnv *env, jclass cls, jstring jpath)
    int ok = buf && c_serialize(buf, sz);
    look_after_save();                    /* 컬러: 되돌린 것을 바로 우리 것으로(다음 화면 한 프레임이 원래 색으로 안 나오게) */
    if (c_get_memory_data) cheat_after_save((uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM));   /* before_save 가 돌려 둔 치트 값을 되씀 */
+   practice_after_save();                /* 연습 창·숫자·«2P»·176 보기 숫자를 바로 다시(다음 화면 한 장이 숫자 없이 나오지 않게 — 저장된 상태는 이미 원래대로) */
    uint8_t side[PRAC_SIDE_MAX];          /* 연습 경기 중이면 허브·설정 — 같은 잠금 안에서(상태와 한 순간) */
    size_t sn = ok ? prac_side_make(side, buf, sz) : 0;
    uint8_t lside[LOOK_SIDE_MAX];         /* 경기 컬러 — 같은 잠금 안에서 */

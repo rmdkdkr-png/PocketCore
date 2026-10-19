@@ -15,8 +15,10 @@ extern volatile int practice_opt_mask;
 int  practice_take_exit(void);
 /* 리셋·상태 불러오기 뒤 — 램·화면이 통째로 바뀌었으니 되돌리지 않고 잊는다(설정은 남김) */
 void practice_forget(void);
-/* 상태 저장 직전·직후(코어 잠금 안) — 우리가 바꿔 그린 창·숫자·«2P» 를 원래대로 했다가 다음 프레임에 다시 그린다(176 보기 숫자도) */
+/* 상태 저장 직전·직후(코어 잠금 안) — 우리가 바꿔 그린 창·숫자·«2P» 를 원래대로(저장된 상태엔 원래 게임 그림) 했다가
+   c_serialize 바로 뒤 practice_after_save 가 다시 그린다(176 보기 숫자도 — 저장 다음 화면 한 장이 숫자·창 없이 나오지 않게) */
 void practice_before_save(void);
+void practice_after_save(void);
 /* 176 보기(치트 «프레임 표시»·«대미지 미터») — 진짜 프레임마다 cheat_tick 다음(코어 잠금 안): 이번 프레임에 누가 쓴 체력까지 «지난 값»으로 */
 void practice_view_post(const uint8_t *ram);
 #define PRACTICE_VSTAT 8
