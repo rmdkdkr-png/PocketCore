@@ -1673,6 +1673,20 @@ final class League {
         if (startedOpen() && !forfeitOpen) return "끝나지 않은 경기를 먼저 정리해 주세요";
         return null;
     }
+    /** 168 고침 — 런처 리그 화면(LeagueActivity) 시즌 도구: 멈춘 경기는 막지 않고 두 번 묻기 글에 «기권패로 닫고»(게임 안 리그 탭과 같게 — M1·D6).
+     *  막는 것은 기록 파일 문제·게임 속 리그가 살아 있음뿐(«먼저 정리해 주세요» 같은 글은 안 보인다 — 리셋·«나중에»마다 멈춘 경기가 생긴다) */
+    static synchronized String seasonToolWhy() { return resetBlockedWhy(false, true); }
+    /** 두 번 묻기 글 한 줄 — 멈춘 경기가 있으면 «멈춘 경기(vs 칼끝노인)는 기권패로 닫아요 · -80 LP», 없으면 null */
+    static synchronized String openForfeitLine() {
+        JSONObject open = startedOpenMatch();
+        if (open == null) return null;
+        String lp = null;
+        if (isRanked(open)) {
+            ForfeitPreview fp = forfeitPreview(open);
+            lp = fp.kind == ForfeitPreview.PLACEMENT ? "배치 1패" : fp.kind == ForfeitPreview.LP && fp.lpDelta != 0 ? signed(fp.lpDelta) + " LP" : null;
+        }
+        return "멈춘 경기(vs " + oppNick(open) + ")는 기권패로 닫아요" + (lp != null ? " · " + lp : "");
+    }
     /** 시작한(멈춘) 경기 — 진행 중·복귀 대기(새것부터 첫째). 없으면 null */
     static synchronized JSONObject startedOpenMatch() {
         JSONObject o = openMatch();

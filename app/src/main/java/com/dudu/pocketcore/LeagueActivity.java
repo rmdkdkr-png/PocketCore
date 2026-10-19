@@ -617,9 +617,9 @@ public class LeagueActivity extends Activity {
 
         /* 153: «매칭 대기»(보통·빠르게)는 뺐다 — 찾기는 늘 ~1초(RankCore.quickMs). Settings pocketcore_rank_wait 는 남아도 안 읽는다 */
 
-        /* 새 시즌 · 처음부터 — 막힘(기록 파일·게임 속 리그·끝나지 않은 경기)이면 둘 다 끄고 이유를 보인다 */
+        /* 새 시즌 · 처음부터 — 막힘(기록 파일)이면 둘 다 끄고 이유를 보인다. 168 고침: 멈춘 경기는 막지 않는다 — 두 번 묻기 글에 «기권패로 닫아요»(게임 안 리그 탭과 같게) */
         if (League.liveHub) return;                              /* 168 M2: 리그 판이 떠 있다 — 시즌 도구 줄은 숨김(글 없이 · 게임 안 «리그 메뉴» › 리그 탭에 있다) */
-        final String blk = League.resetBlockedWhy();
+        final String blk = League.seasonToolWhy();
         if (me.placementLeft > 0) {
             TextView pl = text("배치 경기를 마치면 새 시즌을 열 수 있어요", 12, DIM, false); pl.setPadding(0, dp(14), 0, 0);
             col.addView(pl);
@@ -659,16 +659,19 @@ public class LeagueActivity extends Activity {
         if (toolDlgUp()) return;
         final League.SeasonPreview p = League.newSeasonPreview();
         if (p == null) { render(); return; }                   /* 그사이 배치로 돌아갔다(처음부터 다시 등) */
-        String body = "시즌 " + p.season + " 기록은 ‘지난 시즌’에 남아요.\n"
+        final String ffLine = League.openForfeitLine();         /* 168 고침: 멈춘 경기가 있으면 기권패로 닫고 새 시즌(M1·D6) */
+        final String ffId = openStartedId();
+        String body = (ffLine != null ? ffLine + ".\n\n" : "") + "시즌 " + p.season + " 기록은 ‘지난 시즌’에 남아요.\n"
                 + String.format(java.util.Locale.KOREA, "LP %,d → %,d", p.lp0, p.lp1) + " (" + p.label0 + " → " + p.label1 + ")\n"
                 + "승패·연승은 0부터, 실력 점수와 상대 전적은 그대로라 빨리 올라와요.";
         toolDlg = new AlertDialog.Builder(this).setTitle("새 시즌을 시작할까요?").setMessage(body)
-            .setPositiveButton("시작", (x, y) -> {
+            .setPositiveButton(ffLine != null ? "기권패로 닫고 시작" : "시작", (x, y) -> {
                 if (League.season() != p.season) { render(); return; }   /* 그사이 이미 바뀌었다 — 미리보기도 옛것 */
-                String why = League.resetBlockedWhy();
+                if (!java.util.Objects.equals(ffId, openStartedId())) { render(); return; }   /* 그사이 멈춘 경기가 바뀌었다 — 물은 글과 다르다 */
+                String why = League.seasonToolWhy();
                 if (why != null) { if (!League.liveHub) toast(why); render(); return; }   /* 168 M2: 그사이 리그 판이 떴으면 글 없이(줄이 숨는다) */
-                if (!League.newSeason()) toast("저장하지 못했어요 — 기록은 그대로예요");
-                else toast("시즌 " + League.season() + " 시작!");
+                if (!League.newSeason(false, ffId != null)) toast("저장하지 못했어요 — 기록은 그대로예요");
+                else { League.sessionReset(); toast("시즌 " + League.season() + " 시작!"); }
                 afterReset();
             })
             .setNegativeButton("취소", null).show();
@@ -677,21 +680,25 @@ public class LeagueActivity extends Activity {
     private void askRestart() {
         if (toolDlgUp()) return;
         final int s0 = League.season();
+        final String ffLine = League.openForfeitLine();         /* 168 고침: 멈춘 경기가 있으면 기권패로 닫고 처음부터(M1·D6) */
+        final String ffId = openStartedId();
         toolDlg = new AlertDialog.Builder(this).setTitle("처음부터 다시 할까요?")
-            .setMessage("티어·LP·전적·상대 전적을 처음으로 돌리고 배치 경기 5판부터 시작해요.\n"
+            .setMessage((ffLine != null ? ffLine + ".\n\n" : "") + "티어·LP·전적·상대 전적을 처음으로 돌리고 배치 경기 5판부터 시작해요.\n"
                     + "지금 기록은 지우지 않고 보관 파일과 ‘지난 시즌’에 남겨요.\n"
                     + "앱 안에서 되돌릴 수는 없어요.")
-            .setPositiveButton("처음부터", (x, y) -> {
+            .setPositiveButton(ffLine != null ? "기권패로 닫고 처음부터" : "처음부터", (x, y) -> {
                 if (League.season() != s0) { render(); return; }         /* 그사이 이미 바뀌었다 */
-                String why = League.resetBlockedWhy();
+                if (!java.util.Objects.equals(ffId, openStartedId())) { render(); return; }   /* 그사이 멈춘 경기가 바뀌었다 */
+                String why = League.seasonToolWhy();
                 if (why != null) { if (!League.liveHub) toast(why); render(); return; }   /* 168 M2: 그사이 리그 판이 떴으면 글 없이(줄이 숨는다) */
-                if (!League.restartRanked()) toast("저장하지 못했어요 — 기록은 그대로예요");
+                if (!League.restartRanked(false, ffId != null)) toast("저장하지 못했어요 — 기록은 그대로예요");
                 else toast("시즌 " + League.season() + " — 배치 경기부터 시작해요");
                 afterReset();
             })
             .setNegativeButton("취소", null).show();
     }
 
+    private static String openStartedId() { JSONObject o = League.startedOpenMatch(); return o != null ? o.optString("id") : null; }
     /** 시즌을 바꾼 뒤 — 순위표 캐시(boardKey: 같은 날·같은 LP 면 다시 안 만든다)를 버리고 다시 그린다 */
     private void afterReset() {
         BoardCache.invalidate();
@@ -753,7 +760,9 @@ public class LeagueActivity extends Activity {
         i.putExtra("rom", rom);
         i.putExtra(EmuActivity.EXTRA_LEAGUE_HUB, true);
         i.putExtra(EmuActivity.EXTRA_HUB_GO, true);
-        i.putExtra(EmuActivity.EXTRA_RESUME_NOW, true);              /* 168 K4: 여기서 «멈춘 경기 이어서 하기»를 눌렀다 — 리셋·«나중에»로 멈춘 경기도 타이틀에서 기다리지 않고 바로 */
+        JSONObject om = League.openMatch();
+        if (om != null && !"ready".equals(om.optString("status")))     /* 168 K4: 여기서 «멈춘 경기 이어서 하기»를 눌렀다 — 리셋·«나중에»로 멈춘 경기도 타이틀에서 기다리지 않고 바로 */
+            i.putExtra(EmuActivity.EXTRA_RESUME_NOW, true);          /* 168 고침: 그 경기가 있을 때만(«하러 가기»·닫은 뒤 찾기엔 안 붙임 — 그 창에서 나중에 멈춘 경기가 다시 만든 창에서 바로 이어지지 않게) */
         try { startActivity(i); }
         catch (Exception e) { launching = false; toast("화면을 열지 못했어요 — 다시 눌러 주세요"); return; }
         finish();

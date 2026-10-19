@@ -236,6 +236,7 @@ static int pr_stage_keep = -2;        /* 연습 대전 스테이지 고르기(�
 static int pr_pend_on;                /* 불러온 상태의 연습 경기 허브를 다음 league_practice_hub(1, 0) 때 되돌릴 것이 있나(pr_pend) */
 volatile int league_in_block = 0;     /* 입력 콜백이 사용자 입력에서 지울 비트(허브가 대신 받는 A) */
 static int hub_scr = -1;              /* 지난 프레임 메뉴 화면(MODE 240 일 때 R_SCR: 0 타이틀 · 2 캐릭터 · 4 검질 · 6 카드 · 8 대사, 아니면 −1) — 띠 안내를 화면마다 */
+static int hub_mk = 0;                /* 168 고침(K5): 지난 프레임 타이틀 메뉴 글자가 떠 있었나(menu_kind — 0 아님 · 1 한글판 · 2 순정판). GAME OPTION·COLLECTION·인트로 그림도 SCR 0 이라 hub_scr 로는 못 가른다 */
 static unsigned hub_gen;              /* 타이틀로 돌려보낸 횟수 — Java 가 «돌려보냄이 코어에 닿았나»를 본다(닿기 전의 옛 상태로 경기 기록을 만들지 않게) */
 
 static uint8_t *hub_ram;               /* 마지막 league_tick_hub 의 램(L_mu 안에서만) */
@@ -704,6 +705,7 @@ static void hub_tick(uint8_t *ram, int input)
    H.prev_in = input;
    int mk = (ram[R_MODE] == 240 && ram[R_SCR] == 0) ? menu_kind() : 0;
    hub_scr = ram[R_MODE] == 240 ? ram[R_SCR] : -1;
+   hub_mk = mk;
    int menu = mk != 0;
    int csel = ram[R_MODE] == 240 && ram[R_SCR] == 2;
    int block = 0;
@@ -962,6 +964,7 @@ void league_hub(int on, const signed char *sty, const signed char *dif)
    post_clear_locked();
    hub_ram = NULL;                                   /* 코어를 새로 올렸을 수 있다 — 다음 틱이 다시 잡는다 */
    hub_gen = 0;                                      /* 새 화면(Java)의 셈과 같이 0 부터 */
+   hub_mk = 0;                                       /* 168 고침(K5): 다음 진짜 프레임이 메뉴를 다시 본다 */
    H.st = on ? H_TITLE : H_OFF; H.picked = -1; H.hover = -1; H.rematch = -1; H.stage_sel = -1; H.sel = 0;
    for (int i = 0; i < 15; i++) { H.sty[i] = sty ? sty[i] : -1; H.dif[i] = dif ? dif[i] : 1; H.home[i] = -1; }
    look_stage = -1; look_color = 0;
@@ -1264,6 +1267,15 @@ void league_hub_dual_status(int v[LEAGUE_NDUAL])
    pthread_mutex_lock(&L_mu);
    v[0] = H.dual; v[1] = H.sel; v[2] = H.handoff; v[3] = H.focus && H.st == H_TITLE; v[4] = H.kind; v[5] = H.st != H_OFF ? hub_scr : -1;
    pthread_mutex_unlock(&L_mu);
+}
+/* 168 고침(K5) — 지난 진짜 프레임에 타이틀 메뉴(글자 타일)가 떠 있었나: 0 아님 · 1 한글판 · 2 순정판. 허브가 꺼졌으면 0.
+   Java 의 대기 자격·«리그 메뉴»·뒤로가 «타이틀 메뉴 화면»을 이것으로 본다(LEAGUE_NHUB·LEAGUE_NDUAL 은 안 늘린다 — 새 JNI) */
+int league_hub_menu(void)
+{
+   pthread_mutex_lock(&L_mu);
+   int r = H.st != H_OFF ? hub_mk : 0;
+   pthread_mutex_unlock(&L_mu);
+   return r;
 }
 /* 갈아타기를 못 했을 때(Java) — 요청을 지우고 셋째 줄을 이 판의 종류로 */
 void league_hub_handoff_clear(void)
@@ -1596,6 +1608,9 @@ JNI(jintArray, nativeHubDualStatus)(JNIEnv *env, jclass cls)
    if (a) (*env)->SetIntArrayRegion(env, a, 0, LEAGUE_NDUAL, jv);
    return a;
 }
+
+JNI(jint, nativeHubMenu)(JNIEnv *env, jclass cls)
+{ (void)env; (void)cls; return league_hub_menu(); }
 
 JNI(void, nativeHubRanked)(JNIEnv *env, jclass cls, jboolean on)
 { (void)env; (void)cls; league_hub_ranked(on ? 1 : 0); }

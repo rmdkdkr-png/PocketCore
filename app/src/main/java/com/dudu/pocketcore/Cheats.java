@@ -86,9 +86,15 @@ final class Cheats {
     /** 켜진(먹는) 치트 수 — 고리 글 «치트 · 3개 켬». 마스터 끔이면 0 */
     static int count(Map<String, String> m) { int n = 0; for (int x : values(m)) if (x != 0) n++; return n; }
     static boolean any(Map<String, String> m) { return count(m) > 0; }
+    /** 168 고침 — 먹는 치트 비트(1 << 번호). league = 리그 판: 올카드는 빼고(리그는 늘 카드 전부 열림 · pushCheats 가 0 을 넣는다) */
+    static int activeMask(Map<String, String> m, boolean league) {
+        int[] v = values(m); int b = 0;
+        for (int i = 0; i < v.length; i++) if (v[i] != 0 && !(league && i == CARDS)) b |= 1 << i;
+        return b;
+    }
     /** 경기 치트(시간~공격력)가 하나라도 켜졌나 — 연습 대전 중엔 이것들이 쉰다(띠 안내) */
     static boolean fight(Map<String, String> m) { int[] v = values(m); for (int i = TIME; i <= POW; i++) if (v[i] != 0) return true; return false; }
-    /** native 에 값만 넣는다(코어를 다시 올리지 않음 — 다음 진짜 프레임부터 먹는다). 잠긴 세션(리그)에선 native 가 무시 */
+    /** native 에 값만 넣는다(코어를 다시 올리지 않음 — 다음 진짜 프레임부터 먹는다). 168: 리그 판도 먹는다(why 4) — 올카드만 EmuActivity.pushCheats 가 0 으로 덮음 */
     static void push(Map<String, String> m) { int[] v = values(m); for (int i = 0; i < v.length; i++) Emu.nativeCheatSet(i, v[i]); }
 
     /* ── 올카드 «세이브에 남기기» — 세이브 보관·되돌리기 ──

@@ -76,6 +76,7 @@ public class EmuActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        hubRestore(b);                                                   /* 168 고침: 다시 만든 창(설정 바뀜·프로세스가 죽은 뒤 최근 앱) — 같은 인텐트의 RESUME_NOW 를 또 쓰지 않게 */
         /* 볼륨 키 = 미디어(게임 소리) 음량 — 안 정하면 삼성은 «재생 중»을 못 알아챌 때 벨소리 음량을 바꾼다(유저 2026-10-10 「볼륨 조절이 앱에서 안 되던데」) */
         setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
         try { League.appVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionCode; } catch (Exception ignored) { }   /* 무효 «앱이 바뀜»(voidKind)·보관 파일 판 — BuildConfig 가 없어 여기서 */
@@ -735,6 +736,11 @@ public class EmuActivity extends Activity {
             String nl = langOf(now);
             if (nl.equals(lang) || !nl.equals(League.matchLang(lm(), nl))) { cfgReloadPending = true; return; }
         }
+        if (!live && !other) {                                            /* 168 고침: 경기 밖 언어만 — 멈춘 경기(리셋·«나중에»)가 있으면 새 창도 그 경기 판(matchLang)으로 고정된다.
+                                                                             그 판이 지금 창의 언어와 같으면 올려도 바뀌는 게 없다(까만 화면만) — 그 경기가 끝나 타이틀에 서면 한 번 */
+            org.json.JSONObject open = League.startedOpenMatch();
+            if (open != null && League.matchLang(open, langOf(now)).equals(lang)) { cfgReloadPending = true; return; }
+        }
         if (live && !lgmShown && lgm != null && lgm.isOpen()) lgmCloseNow();
         reloadLeague(live);
     }
@@ -1250,6 +1256,7 @@ public class EmuActivity extends Activity {
         if (st != null && st.length >= 21 && st[3] == 1) {
             leagueStarted = true;
             League.setStatus(leagueId, "playing", "");
+            cheatNotice();                                                /* 168 고침: 먹는 치트가 있으면 한 줄(한 번) */
         }
     }
 
@@ -2027,6 +2034,17 @@ public class EmuActivity extends Activity {
     }
 
     private boolean hubResumeNowUsed = false;
+    private static final String KEY_RNOW_USED = "hub_rnow_used";
+    /** 168 고침(K4·D7) — EXTRA_RESUME_NOW 는 이 인텐트로 처음 연 창에서 한 번만. 안드로이드가 창을 다시 만들면(목록에 없는 설정 바뀜 · 프로세스가 죽은 뒤 최근 앱에서)
+     *  인텐트는 그대로 오고 필드는 새로라, 리셋·«나중에»로 멈춘 경기가 타이틀에서 A 를 기다리지 않고 바로 이어졌다 → 쓴 것을 상태 묶음에 남긴다 */
+    @Override protected void onSaveInstanceState(Bundle o) {
+        super.onSaveInstanceState(o);
+        o.putBoolean(KEY_RNOW_USED, hubResumeNowUsed || !getIntent().getBooleanExtra(EXTRA_RESUME_NOW, false));
+    }
+    /** onCreate 첫머리 — 되살린 창이면(b ≠ null) 앞 창이 RESUME_NOW 를 이미 썼는지(모르면 쓴 것으로) */
+    private void hubRestore(Bundle b) {
+        if (b != null) hubResumeNowUsed = b.getBoolean(KEY_RNOW_USED, true);
+    }
     private void hubStart() {
         boolean fromGame = getIntent().getBooleanExtra(EXTRA_FROM_GAME, false);
         if (!loaded) { if (fromGame) hubBlockedBack("코어·롬을 불러오지 못했습니다."); else leagueBlocked("코어·롬을 불러오지 못했습니다."); return; }
@@ -2069,9 +2087,10 @@ public class EmuActivity extends Activity {
         while ((open = League.openMatch()) != null && "ready".equals(open.optString("status")))   /* 대진 전 경기는 모두 무효로(같은 폴더의 다른 판이 만든 것까지) — 남은 판: 잡힌 상대 miss 하나(두 번째면 풂) */
             if (!League.cancelStale(open.optString("id"), "게임 속 리그를 새로 열며 정리(대진 전)")) break;
         boolean waitOpen = false;
+        boolean now = getIntent().getBooleanExtra(EXTRA_RESUME_NOW, false) && !hubResumeNowUsed;
+        hubResumeNowUsed = true;                                         /* 168 고침: 열린 경기가 없어도 이 창에서 한 번 본 것으로(그 뒤 이 창에서 멈춘 경기가 다시 만든 창에서 바로 이어지지 않게) */
+        getIntent().removeExtra(EXTRA_RESUME_NOW);                       /* 같은 프로세스에서 다시 만든 창도 안 보게(프로세스가 죽은 뒤는 hubRestore 가) */
         if (open != null && !"ready".equals(open.optString("status"))) {
-            boolean now = getIntent().getBooleanExtra(EXTRA_RESUME_NOW, false) && !hubResumeNowUsed;
-            hubResumeNowUsed = true;
             if (League.userSuspended(open) && !now) waitOpen = true;      /* 168 K4: 사용자가 멈춘 경기(리셋·«나중에») — 타이틀에서 A(대기 «이어서 하기»)를 기다린다 */
             else { leagueId = open.optString("id"); leagueStart(); resumeOpen = true; }   /* 내려간 경기(앱 멈춤·백그라운드·설정 다시 올리기) — 체크포인트로 바로 이어 하고, 결판 뒤 허브로 */
         }
@@ -2141,7 +2160,14 @@ public class EmuActivity extends Activity {
             if (!reloadSnap().equals(cfgSnapLoaded)) { reloadLeague(false); return; }
         }
         /* 168 대기 «리그 메뉴»가 타이틀에서 열기를 기다린다(바 칸·뒤로 — 고르기·돌아가는 중에 눌렀다) */
-        if (lobbyWanted && st == 1 && hs[7] == 0) { lobbyWanted = false; if (lobbyEligible(false)) { LeagueMenu mm = lgm; if (mm != null) gl.queueEvent(mm::requestLobby); } }
+        if (lobbyWanted) {                                               /* 168 고침: 이번 틱 상태로 본다 · 못 열면 남겨 두고 다음 틱에 다시 */
+            final LeagueMenu mm = lgm;
+            boolean gone = mm == null || leaving || leagueId != null || rankPickOnly || hubResumePending || rankQ != null || lgmShown || hubCard != null
+                    || android.os.SystemClock.uptimeMillis() - lobbyWantedAt > LOBBY_WANT_MAX;   /* 경기·찾기·고르기·결판이 시작됐다 — 사용자가 다른 걸 골랐다 */
+            if (gone) lobbyUnwant();
+            else if (mm.isOpen()) lobbyUnwant();                         /* 이미 열렸다(OPTION 등) */
+            else if (st == 1 && hs[7] == 0 && lobbyEligibleAt(st, false)) { lobbyWanted = false; gl.queueEvent(mm::requestLobby); }   /* lobbyViaBack 은 lgmWantLobby 가 읽고 지운다 */
+        }
         /* 상대를 골랐다 → 경기 기록(준비). 뒤로 가기 창이 떠 있으면 창이 정한 뒤에(계속하기 → 다음 확인에서 만듦, 나가기·타이틀로 → 안 만듦) */
         if (hubRanked && st == 3 && leagueId == null && hubCard == null && !lgmShown && !(leagueDlg != null && leagueDlg.isShowing())) {
             if (!(rankQ != null && !rankQRevealed) && !rankNewMatch()) return;   /* 153: 겹창이 상대를 보인 뒤에(잡힘과 같은 때 — 보기 전에 그만두면 기록 없음) */
@@ -2325,7 +2351,7 @@ public class EmuActivity extends Activity {
         if (canRe) row.addView(hubPill("재대결", new Runnable() { @Override public void run() { hubReturn(o.optInt("char")); } }));
         if (hubRanked) row.addView(hubPill("랭크 매치", new Runnable() { @Override public void run() { rankOppV = null; hubReturn(-3); } }));   /* 리셋 뒤 바로 상대 찾기(−3) */
         else row.addView(hubPill("다른 상대", new Runnable() { @Override public void run() { hubReturn(-2); } }));   /* 리셋 뒤 바로 상대 선택(−2) */
-        row.addView(hubPill("리그 메뉴", new Runnable() { @Override public void run() { lobbyWanted = true; hubReturn(-1); } }));   /* 168 §1: 순위표는 게임 안 대기 › 서랍(리그 화면으로 안 나감) */
+        row.addView(hubPill("리그 메뉴", new Runnable() { @Override public void run() { hubReturn(-1); lobbyWant(false); } }));   /* 168 §1: 순위표는 게임 안 대기 › 서랍(리그 화면으로 안 나감) */
         card.addView(row);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 android.view.Gravity.TOP | android.view.Gravity.CENTER_HORIZONTAL);
@@ -2512,7 +2538,7 @@ public class EmuActivity extends Activity {
     private RankUi.Quick rankQFading;               /* 내려가며 사라지는 겹창(160ms) — 그동안도 입력 0 · B = 그만(아직 «B 그만두기»가 보인다) */
     private int rankQMode;
     private boolean rankQTail, rankQRevealed, rankQRematch, rankNoSearch;
-    private long rankQT0, rankQEnd, rankQRevealAt, rankQGoAt, rankQFrozenAt;
+    private long rankQT0, rankQEnd, rankQRevealAt, rankQGoAt, rankQFrozenAt, rankQNoMenuAt;
     private int rankQKeys;                          /* 지난 키(B 누름 시작만 본다) */
     private volatile boolean rankQBlock;            /* 겹창 동안 게임 입력 0 — 직접 고르는 판의 고르기 화면이 겹창 아래에서 먼저 떠도 안 눌리게 */
     /* 내 캐릭터 — native 에 넣은 것: −1 아직 · 0 옛 native(매 판 직접) · 1 tail(이번 판 직접 고르고 남김) · 2 저장한 캐릭터로 대신 */
@@ -2625,6 +2651,10 @@ public class EmuActivity extends Activity {
         long age = android.os.SystemClock.uptimeMillis() - rankPickOnlyAt;
         if (rankPickOnlySeen && st != 9 && po[1] == 0) rankPickOnly = false;              /* 고르기에서 뒤로 나감(타이틀) — 예전 캐릭터 그대로 */
         else if (!rankPickOnlySeen && po[0] == 0 && po[1] == 0 && st == 1 && age > 4000) rankPickOnly = false;   /* 요청이 사라졌다(리셋 등) */
+        else if (!rankPickOnlySeen && po[0] == 1 && st == 1 && !hubTitleMenu() && age > 2000) {   /* 168 고침(K5): 메뉴가 없는 화면(게임 옵션·데모)에서 매달린 요청 — 지운다(나중에 그 화면을 나오자 저절로 고르기로 튀지 않게) */
+            rankPickOnly = false;
+            Emu.nativeLeagueHubCancel();                                 /* 타이틀 상태 · PO 비움(경기 없음 — 무장도 없다) */
+        }
     }
 
     /** 결과 카드 «다음 상대»(change = «캐릭터 바꾸기» — 168: 내 캐릭터부터 고르고 그다음 상대 · 옛 native 면 예전처럼 내 캐릭터를 지우고 이번 판은 직접) — 상대를 바로 정해 넣고 −4 */
@@ -2712,7 +2742,7 @@ public class EmuActivity extends Activity {
         long now = android.os.SystemClock.uptimeMillis();
         RankCore.Me me = League.rankMe();
         rankQMode = mode; rankQTail = rankAuto != 2; rankQRematch = rematch;
-        rankQRevealed = false; rankQRevealAt = 0; rankQGoAt = 0; rankQFrozenAt = 0; rankNoSearch = false;
+        rankQRevealed = false; rankQRevealAt = 0; rankQGoAt = 0; rankQFrozenAt = 0; rankQNoMenuAt = 0; rankNoSearch = false;
         boolean held = rankPick != null && rankPick.pending;
         rankQT0 = now; rankQEnd = now + (rematch ? 300 : RankCore.quickMs(rankPick));
         rankQ = RankUi.quick(this, hubFont(), rankMeSide(me), rematch ? "랭크 매치 · 재대결" : "랭크 매치", "2선승 · 라운드 60초",
@@ -2825,7 +2855,7 @@ public class EmuActivity extends Activity {
         if (frozen) { if (rankQFrozenAt == 0) rankQFrozenAt = now; return; }
         if (rankQFrozenAt != 0) {
             long d = now - rankQFrozenAt; rankQFrozenAt = 0;
-            rankQT0 += d; rankQEnd += d; if (rankQRevealAt != 0) rankQRevealAt += d; if (rankQGoAt != 0) rankQGoAt += d;
+            rankQT0 += d; rankQEnd += d; if (rankQRevealAt != 0) rankQRevealAt += d; if (rankQGoAt != 0) rankQGoAt += d; if (rankQNoMenuAt != 0) rankQNoMenuAt += d;
         }
         if (rankQKey(padMask | keyMask | axisMask)) return;
         rankQ.tick(now - rankQT0);
@@ -2835,7 +2865,14 @@ public class EmuActivity extends Activity {
         if (hs == null || hs.length < 9 || hs[8] < hubWaitGen) return;     /* 돌려보내기(−4)가 아직 GL 스레드에 안 닿음 — 지난 판 값 */
         int st = hs[0];
         if (rankQMode == Q_SEARCH) {
-            if (st == 1) { Emu.nativeHubSearch(true); return; }              /* 타이틀에 섰다(찾기 전) — 찾기로 */
+            if (st == 1) {                                                   /* 타이틀에 섰다(찾기 전) — 찾기로. 168 고침(K5): 메뉴 글자가 없으면(게임 옵션·데모) 찾기가 곧 타이틀로 되돌아와
+                                                                                1→6→1 로 끝없이 돌았다 — 메뉴가 있을 때만 · 오래 없으면 겹창을 닫는다 */
+                if (hubTitleMenu()) { rankQNoMenuAt = 0; Emu.nativeHubSearch(true); }
+                else if (rankQNoMenuAt == 0) rankQNoMenuAt = now;
+                else if (now - rankQNoMenuAt > Q_GO_LOST) { rankQClose(false); rankCap = false; hubVs(null, null, 0, 0); toast("상대를 잡지 못했어요 — 다시 찾아 주세요"); }
+                return;
+            }
+            rankQNoMenuAt = 0;
             if (st == 6 && (!rankQTail || rankQRevealed)) rankQGo();         /* 대신 고르는 판은 바로(겹창 동안 4배속) · 직접 고르는 판은 상대를 보인 뒤 */
             return;
         }
@@ -3133,9 +3170,9 @@ public class EmuActivity extends Activity {
         if (mm == null || leaving) return false;
         if (mm.isOpen()) return true;
         if (lobbyEligible(true)) { lobbyViaBack = true; gl.queueEvent(mm::requestLobby); return true; }
-        if (leagueId == null && !lgmShown && hubCard == null) {           /* 타이틀 메뉴가 아니다(데모·고르기·돌아가는 중) — 타이틀로 보내고 거기서 */
-            lobbyWanted = true; lobbyViaBack = true;
-            if (hubLastState != 1 || (hubDualV != null && hubDualV.length >= 6 && hubDualV[5] != 0)) { rankOppV = null; hubReturn(-1); }
+        if (leagueId == null && !lgmShown && hubCard == null) {           /* 타이틀 메뉴가 아니다(데모·고르기·돌아가는 중·게임 옵션·컬렉션) — 타이틀로 보내고 거기서 */
+            lobbyWant(true);
+            if (hubLastState != 1 || !hubTitleMenu()) { rankOppV = null; hubReturn(-1); }
             return true;
         }
         return false;
@@ -3765,17 +3802,34 @@ public class EmuActivity extends Activity {
 
     /* ── 168 §2 대기(157-B) — 리그 타이틀 위 «리그 메뉴»: OPTION 탭 · 타이틀에서 뒤로 · 멈춤 바 «리그 메뉴» ── */
     private boolean lobbyWanted = false, lobbyViaBack = false;      /* 타이틀에 서면 대기를 연다(바 칸·뒤로를 고르기·돌아가는 중에 누름) · 뒤로로 불렀다(못 열면 예전 갈래 — K6) */
+    private long lobbyWantedAt;
+    private static final long LOBBY_WANT_MAX = 60000;               /* 그 안에 타이틀 메뉴에 못 서면 버림(데모가 끝없이 도는 등 — 늦게 저절로 열리지 않게) */
+    /** 168 고침: 대기를 타이틀에 서면 열기로 — 열리거나(hubTick) 다른 일이 시작될 때까지 남는다(전엔 돌아온 첫 타이틀 틱에서 hubLastState 가 5·9 라 버려졌다) */
+    private void lobbyWant(boolean viaBack) { lobbyWanted = true; lobbyViaBack = viaBack; lobbyWantedAt = android.os.SystemClock.uptimeMillis(); }
+    private void lobbyUnwant() { lobbyWanted = false; lobbyViaBack = false; }
     /** 대기 자격 — 리그 랭크 판 · 허브 타이틀 · 타이틀 메뉴 화면(데모 아님 — K5) · 경기 기록 없음 · 겹창·카드·창·바 없음 */
-    private boolean lobbyEligible(boolean ignoreBar) {
+    private boolean lobbyEligible(boolean ignoreBar) { return lobbyEligibleAt(hubLastState, ignoreBar); }
+    /** st = 허브 상태(hubTick 은 이번 틱 값을 — hubLastState 는 틱 끝에야 바뀐다: 돌아온 첫 타이틀 틱에 5·9 가 남아 미뤄 둔 대기가 버려졌다) */
+    private boolean lobbyEligibleAt(int st, boolean ignoreBar) {
         if (lgm == null || !leagueHub || !hubRanked || leaving || !loaded || !resumedNow) return false;
-        if (hubLastState != 1 || leagueId != null || rankPickOnly || hubResumePending || leagueChoosing) return false;
-        if (hubDualV == null || hubDualV.length < 6 || hubDualV[5] != 0) return false;
+        if (st != 1 || leagueId != null || rankPickOnly || hubResumePending || leagueChoosing) return false;
+        if (!hubTitleMenu()) return false;                               /* 168 고침(K5): 게임 메뉴 글자가 정말 떠 있다 — GAME OPTION·COLLECTION·인트로 그림도 화면 0 이다 */
         if (hubGen < hubWaitGen) return false;
         if (rankQ != null || rankQFading != null || lgmShown || hubCard != null || ask != null || lookEditor != null) return false;
         if (sheet != null && sheet.isShowing()) return false;
         return ignoreBar || !(pad != null && pad.isBarOpen());
     }
     private void lgmLobbySync() { LeagueMenu mm = lgm; if (mm != null) mm.setLobbyEligible(lobbyEligible(false)); }
+    private static boolean natHubMenu = true;
+    /** 168 고침(K5) — 타이틀 메뉴(게임 메뉴 글자)가 지난 진짜 프레임에 떠 있었나. native menu_kind — 옛 native 면 메뉴 화면 번호(0)로 */
+    private boolean hubTitleMenu() {
+        if (!loaded) return false;
+        boolean scr0 = hubDualV != null && hubDualV.length >= 6 && hubDualV[5] == 0;
+        if (natHubMenu) {
+            try { return scr0 && Emu.nativeHubMenu() != 0; } catch (UnsatisfiedLinkError e) { natHubMenu = false; }
+        }
+        return scr0;
+    }
     /** 대기 사본 — 열린 경기(시작한 것)·무효 가능 여부·내 캐릭터 */
     private MenuModel lobbyModel(int[] v) {
         org.json.JSONObject open = League.startedOpenMatch();
@@ -3818,8 +3872,8 @@ public class EmuActivity extends Activity {
         if (leagueId != null && leagueArmed && !leagueDone && leagueStarted) return;   /* 점수가 걸린 경기인데 쉼을 못 엶(승리 대사 등) — 아무 일 없음 */
         if (rankQ != null || rankQFading != null) rankQBack();
         if (lobbyEligible(true)) { gl.queueEvent(mm::requestLobby); return; }
-        lobbyWanted = true;
-        if (leagueId != null || hubLastState != 1 || (hubDualV != null && hubDualV.length >= 6 && hubDualV[5] != 0)) { rankOppV = null; hubReturn(-1); }   /* 고르기·데모 — 타이틀로(준비 기록은 무효) */
+        lobbyWant(false);
+        if (leagueId != null || hubLastState != 1 || !hubTitleMenu()) { rankOppV = null; hubReturn(-1); }   /* 고르기·데모·게임 옵션·컬렉션 — 타이틀로(준비 기록은 무효) */
     }
     /** 168(11) «내 이름» — 게임 위 카드에 글 칸(덧판·코어는 멈춘 채). 정하면 기록(me.name — 글꼴에 있는 글자만 · 비우면 «나») → 리그 탭·대기 다시 그림 */
     private void askName() {
@@ -3961,12 +4015,12 @@ public class EmuActivity extends Activity {
 
     /** 코어를 올린 뒤(loadCore — UI·GL 스레드 어느 쪽에서든) */
     private void cheatSetup() {
-        cheatOk = false;
+        cheatOk = false; cheatActiveMask = 0;
         if (!loaded) { cheatPillPost(false); return; }
         java.util.Map<String, String> m = Settings.load();
         if (game == null || !Cheats.GAME.equals(game.id)) { cheatPillPost(false); return; }
         cheatOk = ranked() ? hubVersionProblem() == null : practiceRomOk();   /* 168 §9: 리그 판도 — 리그 사본은 판정 주소를 확인한 판(허브가 이미 본다) */
-        if (!cheatOk) { if (Cheats.any(m) && !ranked()) toast("이 롬 판에선 치트가 안 켜져요"); cheatPillPost(false); return; }
+        if (!cheatOk) { if (Cheats.any(m) && !ranked()) toast("이 롬 판에선 치트가 안 켜져요"); cheatActiveMask = 0; cheatPillPost(false); return; }
         pushCheats();
         cheatPillPost(true);
         h.post(new Runnable() { @Override public void run() { h.removeCallbacks(cheatPoll); h.postDelayed(cheatPoll, 500); } });
@@ -3990,9 +4044,21 @@ public class EmuActivity extends Activity {
     private static boolean natCheatMatch = true;
     private int cheatMatch() {
         if (!natCheatMatch || !loaded) return 0;
-        try { return Emu.nativeCheatMatch(false); } catch (UnsatisfiedLinkError e) { natCheatMatch = false; return 0; }
+        int b;
+        try { b = Emu.nativeCheatMatch(false); } catch (UnsatisfiedLinkError e) { natCheatMatch = false; return 0; }
+        return ranked() ? b & ~(1 << Cheats.CARDS) : b;     /* 168 고침: 리그는 늘 카드 전부 열림 — 올카드는 게임에 차이가 없으니 «치트»로 안 적는다(안전망 · pushCheats 가 0 을 넣음) */
     }
     private int leagueCheatSeen = 0;                 /* 이 경기에 먹은 치트 — 경기 기록(cheat_bits)에 적은 것 */
+    private volatile int cheatActiveMask = 0;        /* 168 고침: 지금 먹는 치트(옵션 값 · 리그 판은 올카드 뺌) — 알약 «치트 ON» */
+    private int cheatNoticeShown = 0;                /* 이 창에서 리그 판 시작 때 한 번 알린 치트 묶음(바뀌면 다시) */
+    /** 168 고침 — 리그 판 첫 라운드가 시작될 때: 먹는 치트가 있으면 한 줄(이 창에서 그 묶음으로 한 번). 리그 판엔 왼쪽 위 «치트» 이름표가 없어(HUD 이름표와 겹침)
+     *  옵션에 남은 치트가 말없이 점수 판에 먹던 것 — 막는 글이 아니라 알림 */
+    private void cheatNotice() {
+        int m = cheatActiveMask;
+        if (!ranked() || !cheatOk || m == 0 || m == cheatNoticeShown) return;
+        cheatNoticeShown = m;
+        toast("치트가 켜져 있어요 — 쓴 판은 «치트»로 남아요");
+    }
     private int cheatBitsNow() { return leagueCheatSeen | cheatMatch(); }
     /** leaguePoll 마다 — 새로 먹은 치트가 있으면 경기 기록에 */
     private void leagueCheatSync() {
@@ -4008,7 +4074,12 @@ public class EmuActivity extends Activity {
         if (!loaded || !cheatOk) return false;
         java.util.Map<String, String> m = Settings.load();
         Cheats.push(m);
+        if (ranked()) Emu.nativeCheatSet(Cheats.CARDS, 0);  /* 168 고침: 리그 판엔 올카드를 안 넣는다 — 리그 치트 창에 그 줄이 없고(끌 수 없음) 리그는 이미 카드 전부 열림.
+                                                              넣으면 리그 세이브를 다시 읽는 순간(prog 03→06 · 카드 8 미만) 비트가 서서 매 판 «치트»로 적혔다. «세이브에 남기기»도 리그 세이브에 안 들어감 */
         cheatFight = Cheats.fight(m);
+        cheatActiveMask = Cheats.activeMask(m, ranked());
+        final boolean act = cheatActiveMask != 0;
+        h.post(new Runnable() { @Override public void run() { if (pad != null) pad.setCheatActive(act); } });   /* 168 고침: 알약 «치트 ON» — 리그 판의 경기 중 표시 */
         return true;
     }
 

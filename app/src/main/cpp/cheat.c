@@ -144,7 +144,7 @@ static void cards_tick(uint8_t *ram, int mode, int prog, int sub)
             && (((prog == 0x06 || prog == 0x0C) && (sub == 0x06 || sub == 0x08 || sub == 0x0A)) || prog == 0x12);
    if (inwin) {
       if (!S.win) { memcpy(S.snap, ram + R_OWN, 120); S.win = 1; }
-      if (own_lt8(ram)) S.mb |= 1u << CH_CARDS;           /* 리그는 고르기 화면에서 이미 8(올카드 규칙) — 그때는 바뀐 게 없어 표시 안 함 */
+      if (own_lt8(ram)) S.mb |= 1u << CH_CARDS;           /* 리그 판엔 Java 가 올카드를 0 으로 넣는다(pushCheats) — 리그 세이브를 다시 읽은 sub 06 은 league_tick 이 8 을 쓰기 전이라 여기 서면 비트가 선다 · 기록엔 cheatMatch 가 뺌 */
       memset(ram + R_OWN, 8, 120);
    } else if (S.win) cards_restore(ram);
 }

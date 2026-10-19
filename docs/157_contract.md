@@ -769,3 +769,19 @@ vsync 마다 그린 텍스처의 이름표 줄 = 날 그림 + 자바로 따로 �
 | «리그라 안 돼요» 글 | 없음(토스트·창·흐린 줄 이유 글 모두). 남은 거절 글은 저장소 실패·체크포인트 저장 실패뿐 |
 
 시험: `u168/h/menu/t/Lgm168Test.java`(대기·리그 탭·입력·두 번 묻기·탭 차례·치트 정산·표지·시즌 도구·언어·이름) · `u168/fuzz/LgmFuzz.java`(대기 셋 판 · 리그 탭 · 펼침 판) · `u168/sim/j/SimTest.java` 장면 reset · later · restart · cheat · cfg · cfgtitle · newchar · firstpick · pickback · lobby · lobbyff · k2 · name(진짜 EmuActivity + native.c + 164 코어) · `u168/nat/tests/t_po.py`·`t_cheat_league.py`.
+
+### 22-1. 168 검토 고침(결함 8개)
+
+| 무엇 | 정함 |
+|---|---|
+| 올카드는 리그 기록에 안 남음 | 리그 판 `pushCheats` 는 `Cheats.push` 뒤 `nativeCheatSet(CARDS, 0)`(리그는 늘 카드 전부 열림 · 리그 치트 창에 그 줄이 없어 끌 수도 없다 · «세이브에 남기기»도 리그 세이브에 안 들어감). 안전망 `cheatMatch()` 는 리그 판에서 올카드 비트를 뺀다(멈추기·다시 올리기·onPause·leaguePoll 모두 이 길). 전엔 리그 세이브를 다시 읽는 프레임(prog 03→06 · 카드 8 미만)에 비트가 서서 매 판 «치트»·«치» 도장 |
+| RESUME_NOW 한 번만 | LeagueActivity `goHub` 는 시작한 열린 경기가 있을 때만 붙임. EmuActivity: `hubStart` 가 읽고 `removeExtra` · `onSaveInstanceState` 에 «썼음»(`hub_rnow_used`) · `onCreate` 첫머리 `hubRestore(b)`(묶음이 있으면 앞 창 값, 모르면 썼음) — 다시 만든 창(설정 바뀜·프로세스가 죽은 뒤 최근 앱)도 사용자 멈춤 판은 타이틀에서 A 를 기다림(K4·D7) |
+| 대기 자격 = 진짜 타이틀 메뉴(K5) | 새 JNI `nativeHubMenu()`(league.c `league_hub_menu` — 지난 진짜 프레임 `menu_kind`: 0 아님 · 1 한글판 · 2 순정판 · LEAGUE_NHUB/NDUAL 그대로). `hubTitleMenu()` = 화면 0 이고 메뉴 글자 있음(옛 native 면 화면 0). `lobbyEligibleAt(st)`·`leagueMenuCell`·`lobbyFromBack` 이 이것으로 — GAME OPTION·COLLECTION·인트로 그림·데모에선 대기 자격 없음(OPTION 은 게임으로) · 바 «리그 메뉴»·뒤로는 타이틀로 돌려보낸 뒤 그 메뉴에서 대기 |
+| 찾기 겹창 안전망 | Q_SEARCH 에서 허브 1 인데 메뉴가 없으면 찾기를 안 건다(전엔 1→6→1 끝없이) · Q_GO_LOST(2.5초) 넘게 없으면 겹창 닫고 «상대를 잡지 못했어요 — 다시 찾아 주세요» · 메뉴 없는 화면에 매달린 «내 캐릭터 먼저» 요청(PO.req)은 2초 뒤 `nativeLeagueHubCancel` 로 지움(그 화면을 나오자 고르기로 튀지 않게) |
+| 미룬 대기 열기 | `lobbyWant(viaBack)` — hubTick 이 이번 틱 상태(`lobbyEligibleAt(st)`)로 보고 못 열면 남겨 둠(전엔 돌아온 첫 타이틀 틱에 hubLastState 가 5·9 라 버려졌다 — 옛 결과 카드 «리그 메뉴»·고르기의 바 «리그 메뉴»가 맨 타이틀로). 경기·찾기·고르기·결판·이어 하기가 시작되거나 60초가 지나면 `lobbyUnwant()` — 뒤로 표(lobbyViaBack)도 함께 지움(남은 표가 다른 대기를 K6 갈래로 빠뜨리지 않게) |
+| «치트» 알약 자리·차례 | 가로 기본 x = `cheatLandX(w,h)` = min(0.38, 0.50 − 0.21·짧은 변/w)(OPTION 반폭 0.10 + 치트 반폭 0.09 + 틈 0.02 — 4:3 0.342 · 3:2 0.360 · 폴드 안쪽 0.325 · 넓은 폰 0.38 그대로) · 배치 파일에 없고 안 옮겼으면 크기가 바뀔 때 다시 잡음. 누를 때 차례 `cheatTakes`: 보이는 OPTION > 보이는 치트 > OPTION 누르는 자리(48dp) > 십자 잡는 자리(1.35R) > 치트 누르는 자리 |
+| 리그 판 치트 표시 | 먹는 치트가 있으면(옵션 값 · 리그 판은 올카드 뺌 — `Cheats.activeMask`) 알약이 밝게 «치트 ON»(`PadView.setCheatActive`) · 리그 판 첫 라운드에 한 줄 «치트가 켜져 있어요 — 쓴 판은 «치트»로 남아요»(이 창에서 그 묶음으로 한 번 — 막는 글 아님). 왼쪽 위 이름표는 여전히 리그 판엔 없음 |
+| 런처 시즌 도구 | `League.seasonToolWhy()`(= resetBlockedWhy(false, true)) — 멈춘 경기로 막지 않음 · 두 번 묻기 창 첫 줄 `League.openForfeitLine()` «멈춘 경기(vs …)는 기권패로 닫아요 · −n LP» · 단추 «기권패로 닫고 시작/처음부터» → `newSeason/restartRanked(false, true)` · 물은 뒤 멈춘 경기가 바뀌었으면 다시 그림 · 새 시즌 뒤 `sessionReset` |
+| 타이틀 언어만 | 경기 밖이고 언어만 바뀌었는데 멈춘 경기가 있으면 `matchLang(그 경기, 새 언어)` 가 지금 창 언어와 같을 때 다시 올리지 않고 미룸(새 창도 그 판으로 고정이라 바뀔 게 없다) |
+
+시험: `u168/sim/j/SimTest.java` 장면 cards_off · cards_temp · cards_save · cards_nat · rnow · optlobby · optsearch · collback · bootlobby · cardlobby · barcell · backstale · actblock · cheatind · langtitle · `u168/h/pad/t/PadGeomTest.java`(기기 6종 × 세로·가로) · `Lgm168Test`(시즌 도구 글).

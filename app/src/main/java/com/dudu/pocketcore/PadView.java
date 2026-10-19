@@ -172,6 +172,8 @@ public class PadView extends View {
     private boolean rankedBar = false;
     /* 168 — «치트» 알약(사무쇼2 · 치트를 넣을 수 있는 판) */
     private boolean cheatPill = false, cheatHidden = false;     /* cheatHidden = 배치 편집에서 두 번 톡으로 숨김(방향마다 배치 파일에 «,h») */
+    private boolean cheatActive = false;                         /* 168 고침: 먹는 치트가 있다 — 알약 «치트 ON»(리그 판은 왼쪽 위 이름표가 없어 이것이 표시) */
+    private boolean cheatDefaultPos = true;                      /* 가로 치트 알약이 기본 자리(배치 파일에 없음·안 옮김) — 화면 크기가 바뀌면 비율로 다시 잡는다 */
     private int cheatPid = -1;
     private long cheatTapAt = 0;
     private final RectF cheatR = new RectF();
@@ -376,6 +378,14 @@ public class PadView extends View {
         invalidate();
     }
     /** 168(9) — «치트» 알약을 보일지(사무쇼2 · 치트를 넣을 수 있는 판) */
+    /** 168 고침 — 먹는 치트가 있으면 알약을 «치트 ON»(밝게). 리그 판에선 왼쪽 위 «치트» 이름표를 안 띄우니(HUD 이름표와 겹침) 이것이 경기 중 표시 */
+    public void setCheatActive(boolean on) {
+        if (cheatActive == on) return;
+        cheatActive = on;
+        invalidate();
+    }
+    /** 알약 글 — 배치에서 숨김 · 먹는 치트가 있으면 «치트 ON» */
+    static String cheatLabel(String base, boolean hidden, boolean active) { return hidden ? "숨김" : active ? base + " ON" : base; }
     public void setCheatPill(boolean on) {
         if (cheatPill == on) return;
         cheatPill = on;
@@ -409,13 +419,59 @@ public class PadView extends View {
     private File cfg() { return new File(MainActivity.root(), "pad_" + profName + (land ? "_land" : "") + ".txt"); }
 
     private void applyDefaults() {
-        cheatHidden = false;
+        cheatHidden = false; cheatDefaultPos = true;
         for (int i = 0; i < nC; i++) {
-            fx[i] = (Float) prof[i][3]; fy[i] = (Float) prof[i][4]; sc[i] = (Float) prof[i][5];
-            if (land) for (Object[] l : LAND)
-                if (l[0].equals(prof[i][0])) { fx[i] = (Float) l[1]; fy[i] = (Float) l[2]; }
+            float[] d = defaultPos(prof, i, land, getWidth(), getHeight());
+            fx[i] = d[0]; fy[i] = d[1]; sc[i] = d[2];
         }
     }
+    /** 168 고침 — 기본 자리 {fx, fy, 크기}(세로 표 · 가로 LAND). 가로 치트 알약은 화면 비율로(cheatLandX — 4:3·3:2·폴드에서 OPTION 과 안 겹치게) */
+    static float[] defaultPos(Object[][] prof, int i, boolean land, float w, float h) {
+        float x = (Float) prof[i][3], y = (Float) prof[i][4], s = (Float) prof[i][5];
+        if (land) for (Object[] l : LAND) if (l[0].equals(prof[i][0])) { x = (Float) l[1]; y = (Float) l[2]; }
+        if (land && (Integer) prof[i][2] == -5) x = cheatLandX(w, h, s);
+        return new float[]{ x, y, s };
+    }
+    /** 시험용 — 프로필 이름(ss2 · svc · kof · ngp)·컨트롤 이름으로 기본 자리(없으면 null) */
+    static float[] defaultPos(String profile, String name, boolean land, float w, float h) {
+        Object[][] pr = "ss2".equals(profile) ? P_SS2 : "svc".equals(profile) ? P_SVC : "kof".equals(profile) ? P_KOF : P_NGP;
+        for (int i = 0; i < pr.length; i++) if (pr[i][0].equals(name)) return defaultPos(pr, i, land, w, h);
+        return null;
+    }
+    /** 가로 치트 알약 기본 x — OPTION(가운데 0.50 · 반폭 0.10×짧은 변) 왼쪽에 치트 반폭(0.10×짧은 변×크기)과 틈(0.02×짧은 변)을 두고, 넓은 화면은 0.38 그대로.
+     *  가로에선 반폭이 높이 기준이라 w/h < 1.58 이면(4:3 태블릿 · 3:2 · 폴드 안쪽) 0.38 이 OPTION 왼쪽 끝을 덮었다(검토) */
+    static float cheatLandX(float w, float h, float cheatSc) {
+        if (w <= 0 || h <= 0) return 0.38f;
+        float s = Math.min(w, h);
+        float x = 0.50f - (0.10f * s + 0.10f * s * cheatSc + 0.02f * s) / w;
+        return Math.max(0.05f, Math.min(0.38f, x));
+    }
+    /** 알약 그림 자리 {왼, 위, 오른, 아래} — OPTION·치트 같은 공식(반폭 0.10×짧은 변×크기 · 반높이 0.021×짧은 변×크기) */
+    static float[] pillBox(float fx, float fy, float sc, float w, float h) {
+        float base = Math.min(w, h), ow2 = base * 0.10f * sc, oh2 = base * 0.021f * sc, cx = fx * w, cy = fy * h;
+        return new float[]{ cx - ow2, cy - oh2, cx + ow2, cy + oh2 };
+    }
+    /** 누르는 자리 — 그림을 48dp 이상으로(가운데 그대로) */
+    static float[] touchBox(float[] r, float min) {
+        float l = r[0], t = r[1], rr = r[2], b = r[3];
+        if (b - t < min) { float d = (min - (b - t)) / 2f; t -= d; b += d; }
+        if (rr - l < min) { float d = (min - (rr - l)) / 2f; l -= d; rr += d; }
+        return new float[]{ l, t, rr, b };
+    }
+    private static boolean in(float[] r, float x, float y) { return r != null && x >= r[0] && x < r[2] && y >= r[1] && y < r[3]; }
+    /** 168 고침 — 누름이 치트 알약 몫인가. 차례: 보이는 OPTION 알약 > 보이는 치트 알약 > OPTION 누르는 자리(48dp) > 십자 잡는 자리(1.35R) > 치트 누르는 자리(48dp).
+     *  전엔 치트를 맨 먼저 봐서, 겹치는 화면에선 OPTION(리그 경기의 쉼) 왼쪽 끝·십자 아래 잡는 자리를 눌러도 치트 창이 떴다.
+     *  optDrawn/optTouch null = OPTION 없음 · grabR ≤ 0 = 십자를 잡을 수 없음(없음·다른 손가락이 쥠) */
+    static boolean cheatTakes(float x, float y, float[] cheatDrawn, float[] cheatTouch, float[] optDrawn, float[] optTouch, float dcx, float dcy, float grabR) {
+        if (!in(cheatTouch, x, y)) return false;
+        if (in(optDrawn, x, y)) return false;
+        if (in(cheatDrawn, x, y)) return true;
+        if (in(optTouch, x, y)) return false;
+        if (grabR > 0 && Math.hypot(x - dcx, y - dcy) < grabR) return false;
+        return true;
+    }
+    /** 십자 반지름 — 짧은 쪽에 맞춤(onSizeChanged 와 같은 식) */
+    static float dpadRadius(float w, float h) { return Math.min(w * 0.17f, h * 0.44f * 0.36f); }
 
     /** 터치 버튼 숨김(위 hideMode) — 숨긴 동안은 게임 버튼·십자를 그리지 않고, 메뉴 알약과 유틸 바만 남는다. */
     public void setPhysicalMode(int mode) {
@@ -499,7 +555,7 @@ public class PadView extends View {
                         fx[i] = Float.parseFloat(kv[1]);
                         fy[i] = Float.parseFloat(kv[2]);
                         if (kv.length >= 4) sc[i] = Float.parseFloat(kv[3]);
-                        if (bitOf(i) == -5) cheatHidden = kv.length >= 5 && "h".equals(kv[4]);   /* 168 치트 알약 숨김(옛 앱은 다섯째 칸을 안 읽는다) */
+                        if (bitOf(i) == -5) { cheatHidden = kv.length >= 5 && "h".equals(kv[4]); cheatDefaultPos = false; }   /* 168 치트 알약 숨김(옛 앱은 다섯째 칸을 안 읽는다) · 저장된 자리 */
                     }
             }
         } catch (Exception ignored) { }
@@ -524,8 +580,12 @@ public class PadView extends View {
             selIdx = -1; dragIdx = -1; dragPid = -1; selScreen = false; dragScreen = false;
             if (fx != null) { applyDefaults(); load(); }
         }
+        if (land && cheatDefaultPos && fx != null) {               /* 168 고침: 가로 치트 알약이 기본 자리면 새 비율로(폴드를 펼침 등 — 회전 없이 크기만 바뀜) */
+            int ci = cheatIndex();
+            if (ci >= 0) fx[ci] = cheatLandX(w, h, sc[ci]);
+        }
         float padH = h * 0.44f;
-        dpadR = Math.min(w * 0.17f, padH * 0.36f);
+        dpadR = dpadRadius(w, h);
         btnR = Math.min(w * 0.082f, padH * 0.17f);
         layoutBar(w, h);
         skin.clear();                             /* 크기별로 구운 그림 — 새 크기로 다시 */
@@ -686,10 +746,10 @@ public class PadView extends View {
                 c.drawText("OPTION", opt.centerX(), opt.centerY() + opt.height() * 0.18f, text);
             } else if (b == -5) {                            /* 168 치트 알약 — OPTION 과 같은 모양 */
                 pillRect(i, cheatR);
-                fill.setColor(cheatHidden ? 0x14ffffff : cheatPid >= 0 ? 0x66ffffff : 0x2affffff);
+                fill.setColor(cheatHidden ? 0x14ffffff : cheatPid >= 0 ? 0x66ffffff : cheatActive ? 0x66e0a43a : 0x2affffff);
                 c.drawRoundRect(cheatR, 12, 12, fill);
                 text.setTextSize(cheatR.height() * 0.55f);
-                c.drawText(cheatHidden ? "숨김" : label(i), cheatR.centerX(), cheatR.centerY() + cheatR.height() * 0.2f, text);
+                c.drawText(cheatLabel(label(i), cheatHidden, cheatActive), cheatR.centerX(), cheatR.centerY() + cheatR.height() * 0.2f, text);
             } else if (b == -3) {                            /* 배속 */
                 float r = radOf(i);
                 fill.setColor(ffDown ? 0x88ffcc44 : 0x33ffffff);
@@ -841,7 +901,7 @@ public class PadView extends View {
         }
         if (b == -5) {                                   /* 168 치트 알약 — OPTION 그림 그대로 */
             pillRect(i, cheatR);
-            skin.pill(c, "opt", cheatR, cheatPid >= 0, false, 0, cheatHidden ? "숨김" : label(i));
+            skin.pill(c, "opt", cheatR, cheatPid >= 0, cheatActive && !cheatHidden, 0, cheatLabel(label(i), cheatHidden, cheatActive));   /* 168 고침: 먹는 치트가 있으면 밝게 «치트 ON» */
             if (cheatHidden) { fill.setColor(0x99000000); c.drawRoundRect(cheatR, 12, 12, fill); }   /* 배치 중 — 숨긴 알약은 어둡게 */
             return true;
         }
@@ -890,20 +950,28 @@ public class PadView extends View {
 
     /** 알약 자리(OPTION 과 같은 크기 공식) */
     private void pillRect(int i, RectF out) {
-        float base = Math.min(getWidth(), getHeight());
-        float ow2 = base * 0.10f * sc[i], oh2 = base * 0.021f * sc[i];
-        out.set(cx(i) - ow2, cy(i) - oh2, cx(i) + ow2, cy(i) + oh2);
+        float[] r = pillBox(fx[i], fy[i], sc[i], getWidth(), getHeight());
+        out.set(r[0], r[1], r[2], r[3]);
     }
     private int cheatIndex() { for (int i = 0; i < nC; i++) if (bitOf(i) == -5) return i; return -1; }
-    /** 치트 알약 누르는 자리 — OPTION 처럼 48dp 이상 */
+    /** 치트 알약 누르는 자리 — OPTION 처럼 48dp 이상(뗄 때 — 누를 때 이미 치트 몫으로 받았다) */
     private boolean cheatHit(float x, float y) {
         int ci = cheatIndex();
         if (ci < 0 || !cheatPill || cheatHidden || edit) return false;
-        RectF r = new RectF(); pillRect(ci, r);
+        return in(touchBox(pillBox(fx[ci], fy[ci], sc[ci], getWidth(), getHeight()), 48 * getResources().getDisplayMetrics().density), x, y);
+    }
+    /** 누를 때 — 치트 몫인가(cheatTakes 차례: OPTION·십자 잡는 자리가 먼저) */
+    private boolean cheatDownHit(float x, float y) {
+        int ci = cheatIndex();
+        if (ci < 0 || !cheatPill || cheatHidden || edit) return false;
         float min = 48 * getResources().getDisplayMetrics().density;
-        if (r.height() < min) r.inset(0, -(min - r.height()) / 2f);
-        if (r.width() < min) r.inset(-(min - r.width()) / 2f, 0);
-        return r.contains(x, y);
+        float[] cd = pillBox(fx[ci], fy[ci], sc[ci], getWidth(), getHeight());
+        float[] od = null, ot = null;
+        int oi = -1; for (int i = 0; i < nC; i++) if (bitOf(i) == -2) oi = i;
+        if (oi >= 0) { od = pillBox(fx[oi], fy[oi], sc[oi], getWidth(), getHeight()); ot = touchBox(od, min); }
+        int di = dpadIndex();
+        float gr = di >= 0 && dpadPid < 0 ? radOf(di) * 1.35f : 0f;
+        return cheatTakes(x, y, cd, touchBox(cd, min), od, ot, di >= 0 ? cx(di) : 0f, di >= 0 ? cy(di) : 0f, gr);
     }
     /** OPTION 누르는 자리 — 그림(실기처럼 작은 알약)은 그대로, 누르는 자리만 48dp 이상(135 접근성 검수: 덮개 화면에서 69×14.5dp 였다) */
     private final RectF optHitR = new RectF();
@@ -1085,7 +1153,7 @@ public class PadView extends View {
             /* 151: 물리 패드라 숨겨 둔 버튼은 화면을 만지면 다시 나오고 이 터치도 그대로 먹는다(잠그지 않음) */
             if (hideMode == 1 && !touchBack && !edit) { touchBack = true; invalidate(); }
             if (hidesTouch()) return true;            /* 「숨김」(늘)일 때만 게임 입력을 안 받는다 */
-            if (cheatPid < 0 && cheatHit(x, y)) {     /* 168 «치트» 알약 — 뗄 때 안이면 치트 창(게임 비트 없음) */
+            if (cheatPid < 0 && cheatDownHit(x, y)) { /* 168 «치트» 알약 — 뗄 때 안이면 치트 창(게임 비트 없음) · 고침: OPTION·십자 잡는 자리가 먼저(cheatTakes) */
                 cheatPid = e.getPointerId(idx);
                 invalidate();
                 return true;
@@ -1134,6 +1202,7 @@ public class PadView extends View {
                 for (int i = 0; i < e.getPointerCount(); i++) {
                     if (e.getPointerId(i) != dragPid) continue;
                     fx[dragIdx] = Math.max(0.03f, Math.min(0.97f, e.getX(i) / getWidth()));
+                    if (bitOf(dragIdx) == -5) cheatDefaultPos = false;
                     fy[dragIdx] = Math.max(0.08f, Math.min(0.985f, e.getY(i) / getHeight()));
                     invalidate();
                 }

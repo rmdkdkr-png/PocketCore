@@ -22,6 +22,7 @@ void league_hub_look(const signed char *home, int stage_sel, int color);
 #define LEAGUE_NDUAL 6
 void league_hub_dual(int on);
 void league_hub_dual_status(int v[LEAGUE_NDUAL]);
+int  league_hub_menu(void);     /* 168 고침(K5): 지난 프레임 타이틀 메뉴 글자 — 0 아님 · 1 한글판 · 2 순정판 */
 void league_hub_handoff_clear(void);
 /* 갈아탄 리그 판 — 로고·메뉴를 넘겨 바로 상대 선택까지 */
 void league_hub_go(void);

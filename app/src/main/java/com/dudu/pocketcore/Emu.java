@@ -103,6 +103,8 @@ public final class Emu {
        상태 [둘 다 켜짐, 셋째 줄에 보이는 종류(0 리그 · 1 연습), 갈아타기 요청(0 없음 · 1 리그 · 2 연습), 셋째 줄에 커서, 이 판의 종류] */
     public static native void  nativeHubDual(boolean on);
     public static native int[] nativeHubDualStatus();
+    /** 168 고침(K5) — 지난 진짜 프레임에 타이틀 메뉴(글자 타일)가 떠 있었나: 0 아님 · 1 한글판 · 2 순정판(GAME OPTION·COLLECTION·인트로 그림은 0). 옛 native 면 UnsatisfiedLinkError */
+    public static native int   nativeHubMenu();
     public static native void  nativeHubHandoffClear();
     /* 갈아탄 리그 판 — 로고·메뉴를 넘겨 바로 상대 선택까지 */
     public static native void  nativeHubGo();
