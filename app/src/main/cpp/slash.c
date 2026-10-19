@@ -98,15 +98,24 @@ void slash_build(const uint8_t *ram, int side, int preset, slash_want *w)
    add(w, side ? 10 : 11, SLASH_BA, PRE_H[preset]); /* 내가 벤 섬광 = 맞은 쪽 공용 칸(«때린 사람 색») */
 }
 
+/* 원래 색 아이콘 — +2(대부분의 칼 궤적)부터 +1·+3 순으로, 가장 밝은 색이 ICON_MIN_LUMA 이상인 첫 세트(검은 판 위에서 보이게).
+   165 리뷰: 아수라 +2 는 D02/701/000(남색·검정 테 — 판 바탕과 같아 거의 안 보임, 1인 대전 처음 커서) → +1 FBF/E6E/C0C. 다 어두우면 보통 금빛 */
+#define ICON_MIN_LUMA 6000          /* luma() 최대 15000 의 0.4 — 아수라 +2 core 2080 · 다른 캐릭터 +2 core 는 가장 어두운 것도 11744(시키 나찰) */
 void slash_icon(int preset, int look_row, int sty, uint16_t out[3])
 {
+   static const int TRY[3] = { 1, 0, 2 };
    if (preset > 0 && preset < SLASH_N) { memcpy(out, PRE_T[preset], 6); return; }
    if (look_row < 0 || look_row >= 14) { memcpy(out, ICON_GENERIC, 6); return; }
-   const uint16_t *s = SLASH_SET[(look_row << 2) | ((sty & 1) << 1)][1];   /* +2 = 대부분의 칼 궤적 */
-   if (s[0] == SLASH_NONE) { memcpy(out, ICON_GENERIC, 6); return; }
-   int ord[3];
-   rank3(s, ord);
-   for (int r = 0; r < 3; r++) out[r] = s[ord[r]];
+   for (int i = 0; i < 3; i++) {
+      const uint16_t *s = SLASH_SET[(look_row << 2) | ((sty & 1) << 1)][TRY[i]];
+      if (s[0] == SLASH_NONE) continue;
+      int ord[3];
+      rank3(s, ord);
+      if (luma(s[ord[0]]) < ICON_MIN_LUMA) continue;
+      for (int r = 0; r < 3; r++) out[r] = s[ord[r]];
+      return;
+   }
+   memcpy(out, ICON_GENERIC, 6);
 }
 
 static void pget(const uint8_t *pal, int p, uint16_t c[3]) { for (int j = 0; j < 3; j++) { const uint8_t *e = pal + p * 8 + (j + 1) * 2; c[j] = (uint16_t)((e[0] | (e[1] << 8)) & 0xFFF); } }

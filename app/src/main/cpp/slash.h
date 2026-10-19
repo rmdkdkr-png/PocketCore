@@ -18,7 +18,8 @@ int  slash_window(const uint8_t *ram);
 /* side 0 = P1(키 0x5B51 → 팔레트 1~4 · 내가 벤 섬광 11) · 1 = P2(키 0x5D51 → 6~9 · 10 — 상대 커스텀 컬러 때. 이번엔 안 부름).
    preset 0 이나 범위 밖이면 그 쪽은 비움. w 의 다른 쪽 칸은 건드리지 않는다(두 쪽을 한 표에 — 부르는 쪽이 먼저 slash_clear) */
 void slash_build(const uint8_t *ram, int side, int preset, slash_want *w);
-/* 고르기 화면 아이콘 세 색(core · mid · edge) — 프리셋 1~6 = 그 T, 0 = 그 캐릭터·검질의 원래 +2 궤적을 밝기 순으로(look_row 14·범위 밖 = 보통 금빛) */
+/* 고르기 화면 아이콘 세 색(core · mid · edge) — 프리셋 1~6 = 그 T, 0 = 그 캐릭터·검질의 원래 +2 궤적을 밝기 순으로(+2 가 어두우면 +1·+3 —
+   아수라 · look_row 14·범위 밖·모두 어두움 = 보통 금빛) */
 void slash_icon(int preset, int look_row, int sty, uint16_t out[3]);
 /* 프레임 뒤 보정 — 자리마다 지금 세 색이 그 자리의 from/to 로만 되어 있고 from 이 하나라도 있으면 to 를 쓴다(동봉 코어의 «윗바이트마다 판정»이
    표가 늦게 오거나 같은 값으로 다시 쓰일 때 to1/from2/from3 으로 굳는 것 · 불러온 상태 · 켠 순간). 돌려줌 = 고친 팔레트 수 */

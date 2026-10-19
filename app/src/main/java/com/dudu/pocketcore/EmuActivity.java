@@ -410,6 +410,9 @@ public class EmuActivity extends Activity {
         snapCoreOpts();
         romMtime = new File(romPath).lastModified();
         toast(loaded ? coreLabel : "코어/롬 로드 실패 (code " + rc + ")");
+        /* 컬러(look)는 이어하기 «앞»에 켠다 — 그래야 불러오기(look_after_load)가 경기 컬러·베기 색을 첫 프레임부터 넣는다(165 리뷰: 뒤에 켜면
+           불러온 첫 프레임이 원래 색으로 한 번 보였다). lookSetup 은 resumed·연습·리그 칸 설정과 상관없다 */
+        lookSetup();
         /* 이어하기 — 옵션 바꾸고 다시 연 경우는 그 직전 상태(resume), 아니면 나갈 때 자동 저장해 둔 자리. 로드와 같은 스레드라 안전하다. */
         String resume = getIntent().getStringExtra("resume");
         boolean resumed = false;
@@ -424,7 +427,6 @@ public class EmuActivity extends Activity {
         }
         practiceSetup(resumed);
         leagueCellSetup();
-        lookSetup();
         cheatSetup();
         /* 사무쇼2 배경음악(SS1) 결과를 알려 준다 — 「넣었는데 안 바뀐다」를 눈으로 가릴 수 있게(유저 2026-10-10).
            이어하기면 지금 울리는 곡은 저장 당시 것이라(소리칩 램에 이미 올라가 있다) 다음 장면부터 바뀐다. */
@@ -1002,7 +1004,7 @@ public class EmuActivity extends Activity {
         releasePhysical();
         try { ((android.hardware.input.InputManager) getSystemService(INPUT_SERVICE))
                 .unregisterInputDeviceListener(devListener); } catch (Exception ignored) { }
-        if (lookOn) lookSaveMem();               /* 컬러 기억 — 폴(200ms)이 아직 못 남긴 마지막 바뀜도(다시 굽기·갈아타기로 창이 닫히기 전에).
+        if (lookOn) { lookSaveMem(); lookSaveFx(); }   /* 컬러 기억·베기 색 — 폴(200ms)이 아직 못 남긴 마지막 바뀜도(다시 굽기·갈아타기·목록으로 창이 닫히기 전에).
                                                     loaded 는 안 본다: 갈아타기·다시 굽기는 GL 스레드에서 먼저 내려 이미 거짓이고, native 기억은 코어 없이도 남는다 */
         if (loaded) {
             Emu.nativeSaveSram();
@@ -3604,10 +3606,16 @@ public class EmuActivity extends Activity {
         if (m != null) Look.saveMem(m);
     }
 
+    /** A+B 로 바꾼 베기 색 — 하나로 기억(폴 · onPause: 떠나기 200ms 안에 바꾼 것도 — 165 리뷰) */
+    private void lookSaveFx() { lookSaveFx(Emu.nativeLookStatus()); }
+    private void lookSaveFx(int[] v) {
+        if (v != null && v.length >= 18 && v[15] != lookFxGen) { lookFxGen = v[15]; Look.saveFx(v[14]); }
+    }
+
     private void lookTick(int[] v) {
         lookV = v;
         if (v[2] != lookMemGen) lookSaveMem();                           /* OPTION 으로 바꾼 컬러 — 캐릭터마다 기억(다음에도 그 색) */
-        if (v.length >= 18 && v[15] != lookFxGen) { lookFxGen = v[15]; Look.saveFx(v[14]); }   /* A+B 로 바꾼 베기 색 — 하나로 기억 */
+        lookSaveFx(v);                                                   /* A+B 로 바꾼 베기 색 */
         if (v[7] != lookEditReq) {                                       /* OPTION 길게 — 컬러 만들기 */
             lookEditReq = v[7];
             if (v[1] == 1) openLookEditor(v[12], v[13]);

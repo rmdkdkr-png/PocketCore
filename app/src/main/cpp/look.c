@@ -7,6 +7,7 @@
                앞 것과 같은 색·안 만든 내 색·옛 2P색(번호 1 — 165 부터 안 고름)은 건너뛴다. 길게(40프레임째): 만들기 요청(Java 가 «컬러 만들기» 창을 연다).
                «뗄 때» 바꾸는 것은 길게 누르기와 가르려고 — 짧게 누르면 차이를 못 느낀다.
      A·B·A+B   165: 쥔 동안 플레이어의 A·B·A+B(·SP 접기) 는 게임에 안 준다. 누른 프레임부터 LOOK_AB_WIN(4) 프레임 창 안에 다른 쪽이 눌리기 시작하면
+               (창 밖부터 쥐고 있던 단추 — 앞 화면 결정에 쓴 것·오래 쥔 것 — 는 A+B 의 한쪽으로 안 셈)
                A+B = 내 베기 색 다음 것(결정 아님 — 아이콘·세로 칸 이름 1.2초), 아니면 창 끝에 결정: 다음 프레임부터 4프레임 A 를 대신 누른다
                (B 도 A 와 같은 보통 색 결정 — 게임은 플레이어의 B 결정을 못 받는다. 검질 고르기의 B 만 게임의 «뒤로»라 B 를 대신 누름).
                패드 «A+B»(비트 1 Y)·물리 X(비트 10 L)는 기다리지 않고 바로 A+B. 결정·A+B 뒤엔 셋 다 뗄 때까지 먹는다(쥐어도 되풀이 안 함 ·
@@ -83,6 +84,7 @@ static struct {
    int prev_in, owned, inj, inj_f, inj_bit, last_scr;
    int g_st, g_first, g_scr0; unsigned g_f0;   /* A·B·A+B 가르기 — 상태 · 먼저 누른 단추 · 그때 화면 · 그때 프레임 */
    int hold;                          /* 결정·A+B 뒤 뗄 때까지 막는 단추(A·B·A+B) — 쥠이 풀려도 */
+   int a_age, b_age;                  /* A·B 를 누르기 시작한 뒤 지난 프레임(255 에서 멈춤 — 쥠 밖의 누름도 센다). A+B 의 «다른 쪽»은 창 안에 눌린 것만 */
    int conf_pend, conf_n;             /* HOLD: 허브가 가져갈 결정 · 결정 횟수 */
    int toast_f;                       /* 이 프레임까지 세로 칸에 «베기 + 이름» */
    int opt_f, opt_own;                /* OPTION 누른 프레임 · 그 누름이 고르기 화면을 쥔 채 시작했나(밖에서 누른 채 들어온 것은 안 센다) */
@@ -96,7 +98,7 @@ static struct {
    const uint8_t *ram;
    int mem_gen, sel_gen, edit_req, fx_gen;    /* Java 가 보는 바뀜 셈 */
    unsigned f;
-} K = { .sel = -1, .sel_ch = -1, .sty_seen = -1, .prow = -1, .last_scr = -1 };
+} K = { .sel = -1, .sel_ch = -1, .sty_seen = -1, .prow = -1, .last_scr = -1, .a_age = 255, .b_age = 255 };
 
 void look_vram(void *chr, void *scr, void *pal) { vpanel_vram(chr, scr); vpanel_pal(pal); g_pal = (uint8_t *)pal; }
 void look_palremap_fn(void *fn) { if ((void *)g_remap != fn) rm_init = 0; *(void **)&g_remap = fn; }
@@ -209,10 +211,13 @@ static void gate_confirm(int first, int scr, int ctx, int input)
    K.hold = input & (IN_A | IN_B | IN_ABK);
    K.g_st = G_SWALLOW;
 }
-/* 쥔 고르기 화면에서 한 프레임 — a_dn·b_dn·ab_dn = 이번 프레임에 누르기 시작함 */
+/* 쥔 고르기 화면에서 한 프레임 — a_dn·b_dn·ab_dn = 이번 프레임에 누르기 시작함.
+   a·b = A+B 의 «다른 쪽»으로 칠 쥔 단추 — 창(LOOK_AB_WIN) 안에 누르기 시작했고 앞 결정·A+B 에 쓴 단추(K.hold)가 아닐 때만.
+   (165 리뷰: 결정에 쓴 A 를 쥔 채 화면이 바뀌면 gate_reset 이 G_IDLE 로 돌려, 다음 화면에서 누른 B 가 그 A 와 A+B 가 되어 «뒤로»·결정이 먹혔다) */
 static void gate_step(int input, int a_dn, int b_dn, int ab_dn, int scr, int ctx)
 {
-   int a = input & IN_A, b = input & IN_B;
+   int a = (input & IN_A) && !(K.hold & IN_A) && K.a_age < LOOK_AB_WIN;
+   int b = (input & IN_B) && !(K.hold & IN_B) && K.b_age < LOOK_AB_WIN;
    switch (K.g_st) {
    case G_IDLE:
       if (ab_dn || (a_dn && b) || (b_dn && a)) gate_chord(input);
@@ -286,6 +291,8 @@ void look_tick(uint8_t *ram, size_t n, int input, int ctx)
    int ab_dn = (input & IN_ABK) && !(K.prev_in & IN_ABK);
    int o_dn = (input & IN_OPT) && !(K.prev_in & IN_OPT), o_up = !(input & IN_OPT) && (K.prev_in & IN_OPT);
    K.prev_in = input;
+   if (a_dn) K.a_age = 0; else if (K.a_age < 255) K.a_age++;          /* 누른 뒤 지난 프레임(쥔 첫 프레임에 a_dn 을 지우기 전 — 그 누름도 창 안이면 A+B 의 한쪽) */
+   if (b_dn) K.b_age = 0; else if (K.b_age < 255) K.b_age++;
    K.hold &= input;                                                   /* 뗀 단추는 놓는다 */
    int md = ram[R_MODE], scr = ram[R_SCR];
    int title = md == 240 && scr == 0 && vpanel_menu_kind();
@@ -556,6 +563,7 @@ void look_forget(void)
    pthread_mutex_lock(&K_mu);
    K.sel = -1; K.sel_ch = -1; K.cur = 0; K.fx_sel = 0; K.edit = 0; K.owned = 0; K.inj = 0; K.hold = 0; K.prow = -1; K.opt_own = 0; K.pv_has = 0;
    K.rand_pin = 0; K.toast_f = (int)K.f; K.vp_lab = NULL; K.last_scr = -1; gate_reset();
+   K.ram = NULL;                      /* 165 고침: 코어를 내리면(load/unload_locked) 그 램도 없다 — 저장 직전 되돌리기가 옛 램을 안 읽게(다음 look_tick·look_after_load 가 다시) */
    slash_clear(&SW);
    rm_init = 0; vpanel_forget();
    look_in_block = 0; look_in_or = 0;
