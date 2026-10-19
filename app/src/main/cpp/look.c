@@ -222,7 +222,7 @@ static void gate_chord(int input)
 }
 static void gate_confirm(int first, int scr, int ctx, int input)
 {
-   if (ctx == LOOK_CTX_HOLD) K.conf_pend = 1;      /* 허브가 다음 프레임에 가져가 상대 선택으로(대신 누르지 않음) */
+   if (ctx == LOOK_CTX_HOLD) K.conf_pend = first == IN_B ? 2 : 1;   /* 허브가 다음 프레임에 가져간다(대신 누르지 않음) — 177: 1 A · 2 B(연습 검질 화면 B = 캐릭터 다시) */
    else { K.inj_bit = (scr == 4 && first == IN_B) ? IN_B : IN_A; K.inj = 1; K.inj_f = (int)K.f; }
    K.conf_n++;
    K.hold = input & (IN_A | IN_B | IN_ABK);

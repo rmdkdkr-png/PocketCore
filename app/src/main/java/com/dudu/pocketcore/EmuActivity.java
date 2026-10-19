@@ -4238,8 +4238,11 @@ public class EmuActivity extends Activity {
             if (dv != null && dv.length >= 5 && dv[0] == 1 && dv[3] == 1)
                 return "◀▶ 연습 대전 / 리그 대전  ·  A 시작" + (dv[1] == 0 ? "\n리그는 따로 세이브 판에서 해요" : "");
             return null;
-        case 2: return "A 수라 · B 나찰 · OPTION 스테이지";   /* 고르는 캐릭터 = 더미(검질은 A·B) — 머리말이 이미 «상대 선택». «상대 ·» 를 붙이면 세로 화면에서 두 줄로 꺾인다(153 에뮬 확인) */
-        case 7:   /* 내 캐릭터 먼저(캐릭터 선택 — A 결정 · OPTION 컬러 · A+B 베기 색), 그다음 상대(2) */
+        /* 177 §10-7 연습 순서 ① 내 캐릭터(7) → ② 내 검질(8 — 게임 검질 화면) → ③ 상대(2). 머리말이 이미 «내 캐릭터»·«상대 선택»이라 띠는 번호와 키만 —
+           «상대 ·» 를 붙이면 세로 화면에서 두 줄로 꺾인다(153 에뮬 확인 · K7). 세 줄 모두 한 칸 띄움으로 그 폭 안(띠 글꼴로 잼 — 지금 줄 «A 결정  ·  OPTION 컬러  ·  A+B 베기 색» 보다 짧게) */
+        case 2: return "③ A 수라 · B 나찰 · OPTION 스테이지";   /* 고르는 캐릭터 = 더미(검질은 A·B) */
+        case 7: return lookKeys ? "① A 결정 · OPTION 컬러 · A+B 베기 색" : "① A 결정";
+        case 8: return lookKeys ? "② A 결정 · B 뒤로 · OPTION 컬러" : "② A 결정 · B 뒤로";
         case 3: return myPickKeys(dv != null && dv.length >= 6 ? dv[5] : 2, false);
         case 4:   /* 좁은 띠(버튼 사이)에서도 줄이 접히지 않게 두 줄로 */
             if (ps.length > 1 && ps[1] != 0) return "↑↓ 고르기 · ←→ 바꾸기\nA 실행 · B 닫기";
