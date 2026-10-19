@@ -827,7 +827,7 @@ public class PadView extends View {
             }
         } else if (barOpen || edit) {
             fill.setColor(0x22ffffff);
-            text.setTextSize(util[0].height() * 0.5f);
+            text.setTextSize(util[UTIL_EDIT].height() * 0.5f);      /* 176: 늘 있는 「배치」 칸 높이로 — 리그 판 바는 0번(슬롯) 칸이 없어 글 크기가 0 이었다(단순 모양) */
             for (int i = 0; i < util.length; i++) {
                 if (util[i].isEmpty()) continue;                     /* 이 프로필에 없는 기능 */
                 boolean hl = (i == UTIL_EDIT && edit) || i == barSel;   /* 패드 커서 칸도 같은 강조색 */
