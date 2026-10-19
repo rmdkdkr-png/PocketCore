@@ -1538,10 +1538,10 @@ final class LgmPages {
             cv.fill(cx, 3, cx + 18, 12, 2);
             cv.text("CPU", cx + 2, 4, 3, ink.g7);
         }
-        cv.cellPal(11, 0, 19, 0, D_INK);
-        cv.text(fit(right1, 70, ink.g7), 157, 0, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
+        cv.cellPal(11, 0, 19, 0, D_INK);                                   /* 168: 69px — 오른쪽 끝 157 에서 칸 11(x 88) 안으로(70 이면 x 87 = 팔레트 없는 칸 10 에 잉크 · 리그 탭 «시즌 12 · 10월 31일부터») */
+        cv.text(fit(right1, 69, ink.g7), 157, 0, 2, ink.g7, -1, TileCanvas.RIGHT, 0);
         cv.cellPal(11, 1, 19, 1, r2pal);
-        cv.text(fit(right2, 70, ink.g7), 157, 8, r2pal == D_INK ? 2 : 1, ink.g7, -1, TileCanvas.RIGHT, 0);
+        cv.text(fit(right2, 69, ink.g7), 157, 8, r2pal == D_INK ? 2 : 1, ink.g7, -1, TileCanvas.RIGHT, 0);
     }
     /** 탭 줄(r2) — 168: 순위 · 전적 · 리그 · 설정 넷(보이는 차례 MenuModel.Prefs.TAB_ORDER) · 지금 탭 = 주홍 칩 */
     private void tabRow(Sb s, int cur) {
