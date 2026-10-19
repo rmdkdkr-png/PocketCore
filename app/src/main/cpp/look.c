@@ -114,6 +114,15 @@ static int tdist(const uint16_t a[3], const uint16_t b[3])      /* 세 색 채�
    return d;
 }
 static int opp_row(int ch) { return ch == 14 ? LOOK_ROW_YUGA : ch; }   /* 상대 ch 0~14 → 표 줄(유가 15 — 쿠로코 줄 14 는 고르기 화면 미리보기 전용) */
+/* 177 K3 ① 게임 짝 — {내 보이는 색, 상대 주 색} 이 게임 자신이 보이는 짝이면 거리와 상관없이 겹침 아님(흰옷 등 대신 색은 진짜 커스텀끼리만).
+   같은 검질: 그 검질 {기본, 2P색} 짝(거울 비트 — 게임이 P2 를 2P색으로) · 다른 검질: 둘 다 제 검질의 게임 색(기본·2P색 — 거울 비트 없이 게임은 상대 검질 기본을 보임.
+   주베이 수라↔나찰 기본 거리 7 — 177 리뷰: 같은 검질만 보던 예외라 «나 나찰 기본 vs 상대 수라 기본»에 흰옷이 나왔다) */
+static int opp_game_pair(int row, int msty, int sty, const uint16_t mine[3], const uint16_t oc[3])
+{
+   const uint16_t *b0 = LOOK_TAB[row][sty][0], *b1 = LOOK_TAB[row][sty][1];
+   if (msty == sty) return (!memcmp(mine, b0, 6) && !memcmp(oc, b1, 6)) || (!memcmp(mine, b1, 6) && !memcmp(oc, b0, 6));
+   return (!memcmp(mine, LOOK_TAB[row][msty & 1][0], 6) || !memcmp(mine, LOOK_TAB[row][msty & 1][1], 6)) && (!memcmp(oc, b0, 6) || !memcmp(oc, b1, 6));
+}
 
 void look_vram(void *chr, void *scr, void *pal) { vpanel_vram(chr, scr); vpanel_pal(pal); g_pal = (uint8_t *)pal; }
 void look_palremap_fn(void *fn) { if ((void *)g_remap != fn) rm_init = 0; *(void **)&g_remap = fn; }
@@ -296,9 +305,8 @@ static void opp_want(const uint8_t *ram, rm_t want, int write, int title)
    const uint16_t *b0 = LOOK_TAB[row][sty][0], *b1 = LOOK_TAB[row][sty][1];
    uint16_t mine[3], show[3], prev[3];
    memcpy(show, OP.c, 6);
-   if (p1_visible(ram, mine, &msty) == OP.ch && tdist(mine, OP.c) <= OPP_CLASH
-       && !(msty == sty && ((!memcmp(mine, b0, 6) && !memcmp(OP.c, b1, 6)) || (!memcmp(mine, b1, 6) && !memcmp(OP.c, b0, 6))))) {
-      /* 겹침(같은 캐릭터면 검질과 상관없이 — 두 검질이 같은 그림) — 단 같은 검질의 게임 {기본, 2P색} 짝은 겹침 아님(K3 ①: 기본↔2P 거리 7~11 인 캐릭터) */
+   if (p1_visible(ram, mine, &msty) == OP.ch && tdist(mine, OP.c) <= OPP_CLASH && !opp_game_pair(row, msty, sty, mine, OP.c)) {
+      /* 겹침(같은 캐릭터면 검질과 상관없이 — 두 검질이 같은 그림) — 단 게임 짝은 겹침 아님(K3 ①: 같은 검질 기본↔2P 거리 7~11 · 다른 검질 기본끼리 주베이 7) */
       int best = 0, bd = -1;
       for (int i = 0; i < 8; i++) {
          const uint16_t *t = LOOK_TAB[row][sty][OPP_FB[i]];
