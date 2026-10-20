@@ -46,4 +46,21 @@ int  callout_atlas(const uint8_t **rgba, int *w, int *h, int rect[CO_KINDS][4], 
 /* 시험: [0..3] 종류별 낸 수 · [4] 맞음 · [5] 라운드 · [6] 잡기 · [7] 경직 끝 → 동작 */
 void callout_stats(int v[8]);
 
+/* ── 타격 이펙트(유저 10-20 「이펙트가 1번」 — 맞을 때 불꽃·번개 같은 이펙트를 더 얹기) ──
+   같은 닿음 판정에서 맞을 때마다(히트스톱 맞음 + 히트스톱 없는 여러 번 맞음) 맞은 몸 앞(때린 쪽 7px · 몸 가운데 높이)에 이펙트 하나.
+   그림은 native.c 의 셰이더가 그린다(텍스처 없이 셈 — 반지름 r 게임 px 쿼드, 진행 0..1). 자동: COUNTER·PUNISHER = 번개 · 센 맞음(피해 12 이상·필살) = 불꽃 · 나머지 = 섬광 */
+enum { FX_IMPACT = 0, FX_FIRE, FX_ELEC, FX_KINDS };
+enum { FXM_OFF = 0, FXM_AUTO, FXM_FIRE, FXM_ELEC, FXM_IMPACT, FXM_N };
+#define FX_MAX 6
+typedef struct {
+   int kind;            /* FX_* (−1 = 빈 칸) */
+   float wx, y, r, dir; /* 무대 X(화면 x = wx − 카메라) · 화면 y · 반지름(게임 px) · 밀리는 쪽 ±1 */
+   double t0, life;     /* 시작(초) · 길이(초) */
+   float p[8][4];       /* 줄기·불씨·번개마다 무작위 값(각도 0..1 · 길이 · 위상 둘) */
+} hitfx_t;
+void callout_fx_mode(int mode);       /* FXM_* — 아무 스레드 */
+int  callout_fx_mode_get(void);
+/* 지금 보이는 이펙트(오래된 것 먼저) · cam = 지금 카메라(화면 x = wx − cam) — GL 스레드 */
+int  callout_fx_get(hitfx_t *out, int max, double now, float *cam);
+
 #endif

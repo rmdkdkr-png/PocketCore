@@ -148,6 +148,10 @@ static uint32_t  g_tph_tag = 0;
 static GLuint    g_co_prog = 0, g_co_tex = 0;
 static int       g_co_failed = 0, g_co_aw = 0, g_co_ah = 0;
 static GLint     g_co_apos, g_co_auv, g_co_utex, g_co_ualpha, g_co_uflash;
+/* 182 타격 이펙트 — 텍스처 없이 셈으로 그리는 셰이더 + 불꽃 결 잡음 텍스처(64×64, 되풀이) */
+static GLuint    g_fx_prog = 0, g_fx_noise = 0;
+static int       g_fx_failed = 0;
+static GLint     g_fx_apos, g_fx_auv, g_fx_unoise, g_fx_ut, g_fx_ukind, g_fx_udir, g_fx_ustep, g_fx_ualpha, g_fx_up;
 
 /* audio ring buffer (stereo int16) */
 #define ARING_FRAMES 16384
@@ -694,6 +698,7 @@ static void gl_setup(void)
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
    memset(g_dp, 0, sizeof(g_dp));   /* 새 컨텍스트 — 예전 프로그램은 이미 사라졌다. 쓸 때 다시 만든다 */
    g_co_prog = 0; g_co_tex = 0; g_co_failed = 0;   /* 182 타격 알림도 */
+   g_fx_prog = 0; g_fx_noise = 0; g_fx_failed = 0;  /* 182 타격 이펙트도 */
    g_gh_valid = 0;
    g_fb_dirty = 1;
    glClearColor(0.f, 0.f, 0.f, 1.f);
@@ -748,24 +753,143 @@ static int co_gl_ready(void)
    return 1;
 }
 
+/* 182 타격 이펙트 셰이더 — 쿼드 안 p(−1..1, 위 +), 진행 uT 0..1. 섬광(흰 심 + 밀리는 쪽 빛줄기 + 고리) · 불꽃(잡음 혀 + 불씨) · 번개(지그재그 갈래 + 푸른 빛).
+   색은 미리 곱한 알파로 내되 빛은 알파보다 밝게(더하기처럼 빛남), 불꽃 몸통만 알파로 바탕을 조금 가린다 */
+static const char *FS_FX =
+   "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n"
+   "varying vec2 vUV;uniform sampler2D uNoise;uniform float uT;uniform float uKind;uniform float uDir;uniform float uStep;uniform float uAlpha;uniform vec4 uP[8];"
+   "const float PI=3.14159265;"
+   "float tri(float x){return abs(fract(x)-0.5)*4.0-1.0;}"
+   "float wrapd(float d){return mod(d+PI,2.0*PI)-PI;}"
+   "void main(){"
+   "vec2 p=vec2(vUV.x*2.0-1.0,1.0-vUV.y*2.0);float r=length(p);float ang=atan(p.y,p.x);float t=uT;float u=1.0-t;"
+   "vec3 col=vec3(0.0);float a=0.0;"
+   "if(uKind<0.5){"
+     "float sp=0.0;"
+     "for(int i=0;i<8;i++){vec4 q=uP[i];float d=abs(wrapd(ang-q.x*2.0*PI));float w=0.09+0.07*q.z;sp=max(sp,(0.35+0.65*q.y)*exp(-d*d/(w*w)));}"
+     "float g=1.0-u*u*u;float edge=0.13+0.08*g+sp*(0.22+0.62*g)*(1.0-0.3*t);"
+     "float sh=clamp(1.0-r/edge,0.0,1.0);float fade=1.0-smoothstep(0.5,1.0,t);"
+     "vec3 c1=mix(vec3(1.0,0.42,0.06),vec3(1.0,0.88,0.45),smoothstep(0.0,0.4,sh));c1=mix(c1,vec3(1.0),smoothstep(0.45,0.85,sh));"
+     "float rr=0.22+0.72*g;float z=(r-rr)/(0.05*u+0.015);float ring=exp(-z*z)*u*u;"
+     "col=c1*pow(sh,0.55)*fade*1.7+vec3(1.0,0.6,0.2)*ring*0.8;a=clamp(sh*1.6,0.0,0.7)*fade;"
+   "}else if(uKind<1.5){"
+     "vec2 c=p-vec2(uDir*0.08*t,0.10*t);float rc=length(c);float ac=atan(c.y,c.x);"
+     "float tg=0.0;"
+     "for(int i=0;i<8;i++){vec4 q=uP[i];float d=abs(wrapd(ac-q.x*2.0*PI));float w=0.2+0.16*q.z;tg=max(tg,(0.45+0.55*q.y)*exp(-d*d/(w*w)));}"
+     "float up=max(c.y/max(rc,0.001),0.0);"
+     "float n=texture2D(uNoise,vec2(ac*0.477+uP[0].z,rc*0.55-t*1.1+uP[0].w)).r;"
+     "float R=(0.26+0.64*sqrt(t))*(0.55+0.45*tg+0.22*up)*(0.82+0.36*n);"
+     "float heat=clamp((1.0-rc/max(R,0.01))*1.35*(1.1-0.8*t),0.0,1.0);"
+     "vec3 fc=mix(vec3(0.5,0.05,0.0),vec3(1.0,0.4,0.05),smoothstep(0.05,0.4,heat));"
+     "fc=mix(fc,vec3(1.0,0.84,0.4),smoothstep(0.42,0.78,heat));fc=mix(fc,vec3(1.0,1.0,0.9),smoothstep(0.82,1.0,heat));"
+     "float em=0.0;"
+     "for(int i=0;i<8;i++){vec4 q=uP[i];float ai=q.x*2.0*PI;vec2 v=vec2(cos(ai),sin(ai))*(0.55+0.75*q.y)+vec2(0.0,0.35);"
+       "vec2 e=v*t+vec2(0.0,-0.75*t*t);vec2 dd=p-e;em+=exp(-dot(dd,dd)/(0.0022+0.002*q.z))*smoothstep(0.05,0.15,t);}"
+     "col=fc*heat*1.45+vec3(1.0,0.62,0.22)*em*u*1.6;a=clamp(heat*1.25,0.0,0.88)*smoothstep(0.0,0.12,heat);"
+   "}else{"
+     "float core=exp(-r*r/(0.02+0.03*t))*u*u;float grow=clamp(t*6.0,0.0,1.0);float line=0.0;float glow=0.0;"
+     "for(int i=0;i<8;i++){vec4 q=uP[i];float d=wrapd(ang-q.x*2.0*PI);float len=(0.5+0.48*q.y)*grow;"
+       "float ph=q.z+uStep*0.381966;float jag=0.11*tri(r*2.4+ph)+0.045*tri(r*5.3+q.w+uStep*0.618034);"
+       "float dist=abs(r*sin(clamp(d,-1.5,1.5))-jag*smoothstep(0.0,0.3,r));"
+       "float m=step(abs(d),1.4)*(1.0-smoothstep(len-0.1,len,r))*smoothstep(0.03,0.12,r);"
+       "line+=exp(-dist*dist/0.00045)*m;glow+=exp(-dist*dist/0.0065)*m;}"
+     "float k=u*(0.8+0.2*tri(uStep*0.37+0.25));"
+     "col=vec3(1.0)*min(line,1.5)*k*1.3+vec3(0.3,0.62,1.0)*glow*k+vec3(0.7,0.85,1.0)*core*1.5;"
+   "}"
+   "gl_FragColor=vec4(col,a)*uAlpha;}";
+
+static int fx_gl_ready(void)
+{
+   if (g_fx_prog && g_fx_noise) return 1;
+   if (g_fx_failed) return 0;
+   GLuint vs = compile_ok(GL_VERTEX_SHADER, VS), fs = compile_ok(GL_FRAGMENT_SHADER, FS_FX);
+   if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); g_fx_failed = 1; LOGE("hitfx shader: compile failed"); return 0; }
+   GLuint pr = glCreateProgram();
+   glAttachShader(pr, vs); glAttachShader(pr, fs);
+   glLinkProgram(pr);
+   glDeleteShader(vs); glDeleteShader(fs);
+   GLint ok = 0; glGetProgramiv(pr, GL_LINK_STATUS, &ok);
+   if (!ok) { char log[512]; glGetProgramInfoLog(pr, 512, NULL, log); LOGE("hitfx shader: link failed: %s", log); glDeleteProgram(pr); g_fx_failed = 1; return 0; }
+   {  /* 잡음 — 64×64 값(정해진 씨앗), 선형 거르기 + 되풀이 = 부드러운 값 잡음 */
+      static uint8_t nz[64 * 64];
+      uint32_t s = 0x2545F491u;
+      for (int i = 0; i < 64 * 64; i++) { s = s * 1664525u + 1013904223u; nz[i] = (uint8_t)(s >> 24); }
+      GLuint tx = 0;
+      glGenTextures(1, &tx);
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, tx);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+      glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 64, 64, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, nz);
+      g_fx_noise = tx;
+   }
+   g_fx_prog = pr;
+   g_fx_apos = glGetAttribLocation(pr, "aPos");    g_fx_auv = glGetAttribLocation(pr, "aUV");
+   g_fx_unoise = glGetUniformLocation(pr, "uNoise"); g_fx_ut = glGetUniformLocation(pr, "uT");
+   g_fx_ukind = glGetUniformLocation(pr, "uKind");   g_fx_udir = glGetUniformLocation(pr, "uDir");
+   g_fx_ustep = glGetUniformLocation(pr, "uStep");   g_fx_ualpha = glGetUniformLocation(pr, "uAlpha");
+   g_fx_up = glGetUniformLocation(pr, "uP");
+   LOGI("hitfx ready");
+   return 1;
+}
+
+/* 이펙트 쿼드 — 게임 사각형 기준(fx0, fy0 = 그림 안 게임 사각형 왼쪽 위, 게임 px). 가위·섞기는 부르는 쪽(hit_draw) */
+static void fx_draw(double now, float fx0, float fy0, int lw, int lh)
+{
+   static GLfloat pos[8];
+   static const GLfloat uv[8] = { 0, 1, 1, 1, 0, 0, 1, 0 };
+   hitfx_t e[FX_MAX];
+   float cam = 0.f;
+   int n = callout_fx_get(e, FX_MAX, now, &cam), i;
+   if (n <= 0 || !fx_gl_ready()) return;
+   glUseProgram(g_fx_prog);
+   glActiveTexture(GL_TEXTURE0);
+   glBindTexture(GL_TEXTURE_2D, g_fx_noise);
+   glUniform1i(g_fx_unoise, 0);
+   glUniform1f(g_fx_ualpha, 1.f);
+   glVertexAttribPointer(g_fx_apos, 2, GL_FLOAT, GL_FALSE, 0, pos);
+   glVertexAttribPointer(g_fx_auv, 2, GL_FLOAT, GL_FALSE, 0, uv);
+   glEnableVertexAttribArray(g_fx_apos);
+   glEnableVertexAttribArray(g_fx_auv);
+   for (i = 0; i < n; i++) {
+      double age = now - e[i].t0;
+      float cx = fx0 + e[i].wx - cam, cy = fy0 + e[i].y, r = e[i].r;
+      float x0 = -1.f + 2.f * (cx - r) / lw, x1 = -1.f + 2.f * (cx + r) / lw;
+      float yt = 1.f - 2.f * (cy - r) / lh, yb = 1.f - 2.f * (cy + r) / lh;
+      pos[0] = x0; pos[1] = yb; pos[2] = x1; pos[3] = yb; pos[4] = x0; pos[5] = yt; pos[6] = x1; pos[7] = yt;
+      glUniform1f(g_fx_ut, (float)(age / e[i].life));
+      glUniform1f(g_fx_ukind, (float)e[i].kind);
+      glUniform1f(g_fx_udir, e[i].dir);
+      glUniform1f(g_fx_ustep, (float)(int)(age * 30.0));
+      glUniform4fv(g_fx_up, 8, &e[i].p[0][0]);
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+   }
+   glDisableVertexAttribArray(g_fx_apos);
+   glDisableVertexAttribArray(g_fx_auv);
+}
+
 /* 뷰포트(vpx, vpy, dw, dh — glViewport 값)와 그림 칸 크기(lw × lh) 안에서 게임 사각형(160×152)을 찾아 그 좌표로 라벨을 그린다.
    가장자리에서 밀려 들어오는 동안 게임 사각형 밖(기둥·띠)으로 나가지 않게 가위로 자른다 */
 static void co_draw(double now, int vpx, int vpy, int dw, int dh, int lw, int lh)
 {
    static GLfloat pos[8], uv[8];
    callout_t c[2 * CO_ROWS];
-   int n, i, gx0 = 0, gy0 = 0, sub = 1;
-   if (!callout_enabled() || lw <= 0 || lh <= 0 || dw <= 0 || dh <= 0) return;
-   n = callout_get(c, 2 * CO_ROWS, now);
-   if (n <= 0) return;
+   int n = 0, i, gx0 = 0, gy0 = 0, sub = 1, fxon = callout_fx_mode_get() != FXM_OFF;
+   if ((!callout_enabled() && !fxon) || lw <= 0 || lh <= 0 || dw <= 0 || dh <= 0) return;
+   if (callout_enabled()) n = callout_get(c, 2 * CO_ROWS, now);
+   if (n <= 0 && !fxon) return;
    if (!ov_find_rect(g_fb_w, g_fb_h, &gx0, &gy0, &sub) || sub < 1) return;   /* 게임 사각형을 모르는 그림이면 안 그림 */
-   if (!co_gl_ready()) return;
    float fx0 = (float)gx0 / sub, fy0 = (float)gy0 / sub;
    float sx = (float)dw / lw, sy = (float)dh / lh;
    glEnable(GL_SCISSOR_TEST);
    glScissor(vpx + (int)(fx0 * sx + 0.5f), vpy + (int)((lh - fy0 - 152.f) * sy + 0.5f), (int)(160.f * sx + 0.5f), (int)(152.f * sy + 0.5f));
    glEnable(GL_BLEND);
    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+   if (fxon) fx_draw(now, fx0, fy0, lw, lh);           /* 이펙트 먼저 — 라벨이 위 */
+   if (n <= 0 || !co_gl_ready()) { glDisable(GL_BLEND); glDisable(GL_SCISSOR_TEST); return; }
    glUseProgram(g_co_prog);
    glActiveTexture(GL_TEXTURE0);
    glBindTexture(GL_TEXTURE_2D, g_co_tex);
@@ -1369,6 +1493,10 @@ JNI(void, nativeSetSoundFx)(JNIEnv *env, jclass cls, jboolean on, jint bass, jin
 /* 182 타격 알림 켬/끔 — Java 가 사무쇼2 판에서만 켠다(다른 게임 램은 뜻이 다르다). 아무 스레드 */
 JNI(void, nativeSetCallouts)(JNIEnv *env, jclass cls, jboolean on)
 { (void)env; (void)cls; callout_enable(on ? 1 : 0); }
+
+/* 182 타격 이펙트 — 0 끔 · 1 자동 · 2 불꽃 · 3 번개 · 4 섬광(FXM_*). Java 가 사무쇼2 판에서만 0 아닌 값. 아무 스레드 */
+JNI(void, nativeSetHitFx)(JNIEnv *env, jclass cls, jint mode)
+{ (void)env; (void)cls; callout_fx_mode(mode); }
 
 /* 게임 속 리그: 결판 뒤 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
 JNI(void, nativeLeagueHubReturn)(JNIEnv *env, jclass cls, jint rematch)

@@ -35,6 +35,7 @@ public final class Emu {
     /** 176 음색 다듬기(저음 보강·고음 눅이기·좌우 넓힘·방 울림) 켬/끔 — 소리 카드 콜백이 다음 묶음부터 */
     public static native void nativeSetSoundFx(boolean on, int bass, int treble, int width, int reverb, int room, boolean bgm);   /* 178: 세부 0..100(50 = 기본) · 179: bgm = 배경음만 */
     public static native void nativeRunFrames(int n); /* GL 없이 n프레임 — 썸네일 캡처용 */
+    public static native void nativeSetHitFx(int mode);        /* 182 타격 이펙트 — 0 끔 · 1 자동 · 2 불꽃 · 3 번개 · 4 섬광, 사무쇼2 판에서만 · 아무 스레드 */
     public static native void nativeSetCallouts(boolean on);   /* 182 타격 알림(COUNTER·PUNISHER·FIRST ATTACK·REVERSAL) — 사무쇼2 판에서만 켬 · 아무 스레드 */
     /* 151: 앱 보간(nativeSetFrameGen·nativeFrameGenActive) 폐기 — 120Hz 사이 칸은 코어의 프레임 패치만 */
     /** 실측 전 대용 패널 주사율(Display.getRefreshRate) — 코어의 GET_TARGET_REFRESH_RATE 답에 쓴다. */

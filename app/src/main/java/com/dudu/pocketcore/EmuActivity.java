@@ -679,7 +679,9 @@ public class EmuActivity extends Activity {
         for (int i = 0; i < fx.length; i++) fx[i] = Settings.pctOf(m, Settings.SND_FX_KEYS[i], 50);
         Emu.nativeSetSoundFx(!"disabled".equals(m.get(Settings.SND_FX)), fx[0], fx[1], fx[2], fx[3], fx[4],
                              !"all".equals(m.get(Settings.SND_FX_TARGET)));   /* 176 켬/끔 · 179 배경음만(기본) — 코어 소리 콜백이 다음 묶음부터 봄 */
-        Emu.nativeSetCallouts(!"disabled".equals(m.get(Settings.CALLOUT)) && game != null && "ss2".equals(game.id));   /* 182 타격 알림 — 사무쇼2 램만 */
+        boolean ss2 = game != null && "ss2".equals(game.id);
+        Emu.nativeSetHitFx(ss2 ? Settings.hitFxMode(m.get(Settings.HITFX)) : 0);   /* 182 타격 이펙트 — 사무쇼2 램만 */
+        Emu.nativeSetCallouts(!"disabled".equals(m.get(Settings.CALLOUT)) && ss2);   /* 182 타격 알림 — 사무쇼2 램만 */
     }
 
     /* ── 게임 중에 바로 바꿀 수 있는 코어 옵션 ──
