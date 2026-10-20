@@ -1,8 +1,9 @@
 /* 베기 색 — slash.h 참고. 표는 slash_gen.py 가 만든 slash_tab.h(롬 색 번호만), 프리셋은 아래 손 표.
    색 대응(tmap): 원래 세 색을 밝기(정수 299R+587G+114B) 큰 순으로(같으면 앞 칸 먼저) — 000(검정 테)인 칸은 000 그대로, 나머지 칸에
    차례로 core·mid·edge. 검정 테를 남기면 밝은 무대에서도 효과 모양이 잡히고, 동봉 코어의 «색 3 = 000» 저장 순서 함정이 겉으로 안 나온다(to3 = from3).
-   궤적·필살(+1~+4) = T 세 색, 내가 벤 섬광(BA) = H 세 색(FFF · T.core · T.mid — 원래처럼 밝은 번쩍 · 서리만 T).
-   짝꿍(나코루루 +4 매·늑대 · 리무루루 +3 콘루 · 갈포드 +3 분신 · +4 포피)·막기 불꽃/별/MAX 기둥(B7)·그림자·상태 이상은 표에 안 넣는다(원래 색). */
+   칼 궤적(177 부터 +2 — 아수라 +1, slash_build 앞 주석) = T 세 색, 내가 벤 섬광(BA) = H 세 색(FFF · T.core · T.mid — 원래처럼 밝은 번쩍 · 서리만 T).
+   필살 효과(+3·+4·기술 중 +1)·짝꿍(나코루루 +4 매·늑대 · 리무루루 +3 콘루 · 갈포드 +3 분신 · +4 포피)·막기 불꽃/별/MAX 기둥(B7)·그림자·상태 이상은
+   원래 색(175~176 은 +1~+4 를 다 바꿨다). */
 #include <string.h>
 #include "slash.h"
 #include "slash_tab.h"
@@ -87,14 +88,20 @@ int slash_window(const uint8_t *ram)
    return (md == 241 && !(scr == 0 && ram[R_FIGHT] == 0)) || (md == 240 && scr >= 8);
 }
 
+/* 177: 칼 궤적 칸만 — 유저 10-20 「베기 효과 바꾸니까 광범위하게 모든 효과 색이 바뀌거든」. 175 는 +1~+4 를 다 바꿔 필살기 불꽃·회오리·번개·수리검·
+   삼각형·연기까지 같은 색이 됐다. 봇 실측(14캐릭터 × 수라·나찰, 판마다 4000 프레임 — P1 액션ID 로 기본기 0x50~0xFF · 필살 ≥0x180 가름):
+   기본기 중에 나오는 칼 궤적은 +2(금빛 초승달·줄기 — 하오마루·겐쥬로·나코루루·리무루루·갈포드·샬럿·모로즈미·우쿄·주베이·시키),
+   아수라만 +1(분홍 궤적). 필살 효과는 +3·+4(와 +1). 한조는 궤적이 안 보였다(+2 그대로 둠 — 안 쓰면 아무 일 없음).
+   같은 칸을 필살이 같이 쓰는 캐릭터(카즈키 불꽃 궤적·불덩이 · 소게츠 물 궤적·물방울 · 주베이 궤적·터짐 · 시키 발톱)는 그 필살도 같이 바뀐다 —
+   팔레트 단위라 더 못 가름(조각 단위는 코어 일). 내가 벤 섬광(팔레트 11 의 BA)은 베기의 일부라 그대로 바꾼다. */
+static int trail_slot(int ch) { return ch == 8 ? 0 : 1; }   /* +1~+4 중 칼 궤적 자리(0 = +1) */
+
 void slash_build(const uint8_t *ram, int side, int preset, slash_want *w)
 {
    if (!ram || preset <= 0 || preset >= SLASH_N || side < 0 || side > 1) return;
-   int key = ram[side ? R_P2BLK : R_P1BLK] >> 2, ch = key >> 2, base = side ? 6 : 1;
+   int key = ram[side ? R_P2BLK : R_P1BLK] >> 2, ch = key >> 2, base = side ? 6 : 1, j = trail_slot(ch);
    const uint16_t *t = PRE_T[preset];
-   for (int j = 0; j < 4; j++) if (!partner(ch, j)) add(w, base + j, SLASH_SET[key][j], t);
-   if (ch == 11) add(w, base, SLASH_DYN1_UKYO, t);  /* 기술 중 +1(움직이며 쓰는 값) — 자리 1 */
-   if (ch == 6) add(w, base, SLASH_6B, t);
+   if (!partner(ch, j)) add(w, base + j, SLASH_SET[key][j], t);
    add(w, side ? 10 : 11, SLASH_BA, PRE_H[preset]); /* 내가 벤 섬광 = 맞은 쪽 공용 칸(«때린 사람 색») */
 }
 
