@@ -124,7 +124,7 @@ static const hfx_cel *fx_cels(int kind, int *n)
    case FXK_C: *n = HFX_N_C; return HFX_C;
    case FXK_D: *n = HFX_N_D; return HFX_D;
    case FXK_K: *n = HFX_N_K; return HFX_K;
-   case FXK_S: *n = HFX_N_K; return HFX_K;          /* 187 강베기 일섬 — 막타 일섬과 같은 붓 사선, 색만 칼 궤적 */
+   case FXK_S: *n = HFX_N_S; return HFX_S;          /* 192 앞 강베기 일섬 — 따로 그린 짧은 초승달(31×23, 움직임). 187~191 은 막타 일섬 그림을 썼다 */
    default:    *n = HFX_N_L; return HFX_L;
    }
 }
@@ -173,7 +173,7 @@ static void fx_spawn(const uint8_t *ram, int d, int kind, int ring)
    e->kind = kind; e->ring = ring; e->dir = dir;
    e->wx = kind == FXK_K || kind == FXK_S ? dx : dx - dir * (kind == FXK_G ? 9 : 7);
    e->y = kind == FXK_K || kind == FXK_S ? fy - 24 : fy - h;
-   e->hold = kind != FXK_T;
+   e->hold = kind != FXK_T && kind != FXK_H && kind != FXK_S;   /* 192 혜성·앞 강베기 일섬은 히트스톱 동안에도 움직임(유저 「정지화면 뚝이라 애니메이션으로」) */
    if (kind == FXK_G) memcpy(e->col, COL_G, sizeof e->col);
    else if (kind == FXK_K) memcpy(e->col, COL_K, sizeof e->col);
    else trail_colors(ram, a, e->col);
@@ -219,17 +219,19 @@ static void shake(int lv, int dir)
 }
 static void shake_advance(void) { if (SK.lv && ++SK.t >= sk_len(SK.lv)) SK.lv = 0; }
 
-/* 한 진짜 프레임 — 히트스톱 중이면 첫 컷 그대로, 아니면 2프레임마다 다음 컷 */
+/* 한 진짜 프레임 — 멈춤(hold) 이펙트는 히트스톱 중 첫 컷 그대로, 아니면 컷 길이(dur, 0 = 2 프레임)마다 다음 컷 */
 static void fx_advance(int hs)
 {
    for (int i = 0; i < FX_MAX; i++) {
-      dfx_t *e = &FX[i]; int n;
+      dfx_t *e = &FX[i]; int n, dur;
       if (!e->on) continue;
+      const hfx_cel *cs = fx_cels(e->kind, &n);
+      if (e->cel >= n) { e->on = 0; continue; }
       if (e->hold && e->cel == 0 && hs) continue;
       e->hold = 0;
-      if (++e->sub < 2) continue;
+      dur = cs[e->cel].dur ? cs[e->cel].dur : 2;
+      if (++e->sub < dur) continue;
       e->sub = 0;
-      fx_cels(e->kind, &n);
       if (++e->cel >= n) e->on = 0;
    }
 }
@@ -309,8 +311,9 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
                   앞 강베기 = 때린 쪽 ACT 0x64(내딛기)·0x68(베기) — 봇 대본 실측(아수라: 중립·뒤+A 꾹 = 0x60, 앞+A 꾹 = 0x64 → 0x68, 아래+A 꾹 = 0x6C ·
                   CPU 9: 0x68 맞음이 히트스톱 9~11 로 가장 김 — 보통 기술 ACT 칸은 캐릭터마다 같은 자리) */
                int front = !ko && (act[a] == 0x64 || act[a] == 0x68);
-               fx_spawn(ram, d, ko ? FXK_K : heavy ? FXK_H : FXK_L, ctr ? 1 : pun ? 2 : 0);   /* 185: 체력 0 = 막타 일섬 */
-               if (front) fx_spawn(ram, d, FXK_S, 0);           /* 187 강베기: 혜성 + 칼 궤적 색 일섬 */
+               /* 185: 체력 0 = 막타 일섬 · 192: 앞 강베기는 작은 일섬 하나(혜성 없이 — 191 까지 혜성 40×15 + 일섬 49×37 이 히트스톱 내내 서 있어
+                  유저 「너무 커서 … 정지화면 뚝」) */
+               fx_spawn(ram, d, ko ? FXK_K : front ? FXK_S : heavy ? FXK_H : FXK_L, ctr ? 1 : pun ? 2 : 0);
                {  /* 186 흔들림 — 필살도 센 맞음이면(그림은 절제해도 손맛은). 187: 강베기는 막타와 같은 가장 큰 흔들림 */
                   int sd = rd16(ram, OBJ(a) + 8) <= rd16(ram, OBJ(d) + 8) ? 1 : -1;
                   if (ko || heavy) shake(3, sd); else if (dmg >= 12) shake(2, sd); else if (ctr) shake(1, sd);

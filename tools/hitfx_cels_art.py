@@ -62,33 +62,37 @@ def spark_light():
     cels.append(g)
     return cels, (C, C)
 
-# ── 베기 섬광(강): 혜성 줄기(맞은 쪽 = 오른쪽으로 뻗음) + 불티  (40×15, 닿은 자리 12,7) ──
+# ── 베기 섬광(강): 맞은 쪽으로 뻗는 짧은 혜성 — 192: 작게(40×15 → 26×11) + 히트스톱 동안에도 뻗어 감(컷 길이 1·1·2·2·2·2) ──
+#    유저 10-21 「강베기 이펙트가 너무 커서 … 정지화면 뚝이라 애니메이션으로 · 크기가 작게」
 def spark_heavy():
-    W, H, X0, Y = 40, 15, 12, 7; cels = []
-    def comet(g, x0, length, th, core=True):
+    """센 맞음(강베기 등): 맞은 쪽으로 뻗는 짧은 혜성 — 24×11, 닿은 자리 7,5. 히트스톱 동안에도 뻗어 감"""
+    W, H, X0, Y = 26, 11, 7, 5
+    cels, durs = [], []
+    def comet(g, x0, length, th):
         for i in range(length):
             t = i / max(length - 1, 1)
             half = th * (1 - t) ** 0.6
             for dy in range(-int(math.ceil(half)), int(math.ceil(half)) + 1):
                 if abs(dy) <= half: put(g, x0 + i, Y + dy, 2)
-            if core and t < 0.8: put(g, x0 + i, Y, 1, over=True)
-    g = blank(W, H); disc(g, X0, Y, 2.5, 1); comet(g, X0 - 3, 12, 2.5); cels.append(outline(g, 3))          # 닿음 — 짧고 굵게(히트스톱 동안)
-    g = blank(W, H); disc(g, X0 + 2, Y, 1.5, 1); comet(g, X0 - 4, 26, 3.0)
-    for (x, y) in ((X0 + 6, Y - 5), (X0 + 9, Y + 5), (X0 + 3, Y - 6)): put(g, x, y, 1)
-    cels.append(outline(g, 3))                                                                            # 뻗음
+            if t < 0.75: put(g, x0 + i, Y, 1, over=True)
+    g = blank(W, H); disc(g, X0, Y, 1.6, 1); comet(g, X0 - 2, 6, 1.6); cels.append(outline(g, 3)); durs.append(1)
+    g = blank(W, H); disc(g, X0 + 1, Y, 1.4, 1); comet(g, X0 - 2, 12, 2.0); cels.append(outline(g, 3)); durs.append(1)
+    g = blank(W, H); disc(g, X0 + 2, Y, 1.0, 1); comet(g, X0 - 2, 17, 2.0)
+    for (x, y) in ((X0 + 5, Y - 4), (X0 + 7, Y + 4)): put(g, x, y, 1)
+    cels.append(outline(g, 3)); durs.append(2)
     g = blank(W, H)
-    for i in range(24):                                                                                   # 두 갈래로 갈라짐
-        t = i / 23; off = 1 + t * 3
-        put(g, X0 + 2 + i, int(round(Y - off)), 2 if t < 0.7 else 3); put(g, X0 + 2 + i, int(round(Y + off)), 2 if t < 0.7 else 3)
-    for (x, y) in ((X0 + 12, Y - 7), (X0 + 17, Y + 6), (X0 + 8, Y + 7)): put(g, x, y, 1); put(g, x - 1, y, 2)
-    cels.append(g)
+    for i in range(16):
+        t = i / 15; off = 1 + t * 2.2
+        put(g, X0 + 1 + i, int(round(Y - off)), 2 if t < 0.6 else 3); put(g, X0 + 1 + i, int(round(Y + off)), 2 if t < 0.6 else 3)
+    for (x, y) in ((X0 + 9, Y - 5), (X0 + 12, Y + 5)): put(g, x, y, 1); put(g, x - 1, y, 2)
+    cels.append(g); durs.append(2)
     g = blank(W, H)
-    for (x, y) in ((X0 + 16, Y - 7), (X0 + 22, Y + 6), (X0 + 11, Y + 7), (X0 + 26, Y - 2)): put(g, x, y, 2)
-    cels.append(g)
+    for (x, y) in ((X0 + 12, Y - 5), (X0 + 16, Y + 5), (X0 + 18, Y - 1)): put(g, x, y, 2)
+    cels.append(g); durs.append(2)
     g = blank(W, H)
-    for (x, y) in ((X0 + 19, Y - 7), (X0 + 25, Y + 7)): put(g, x, y, 3)
-    cels.append(g)
-    return cels, (X0, Y)
+    for (x, y) in ((X0 + 15, Y - 5), (X0 + 19, Y + 5)): put(g, x, y, 3)
+    cels.append(g); durs.append(2)
+    return cels, (X0, Y), durs
 
 # ── 반격 고리: 각진(마름모) 고리가 커지며 끊김 — 섬광 위에 겹침 (25×25, 가운데 12,12) ──
 def counter_ring():
@@ -183,3 +187,70 @@ def ko_slash():
     for (x, y) in ((C + 17, Cy - 14), (C - 19, Cy + 13), (C + 3, Cy - 3)): put(g, x, y, 3)
     cels.append(g)
     return cels, (C, Cy)
+
+# ── 192 앞 강베기 일섬: 맞은 몸 가운데를 가르는 짧은 초승달 — 그어지고(컷 1·1) 굵어졌다 가늘어지며 두 줄로 벌어지고 불티로 사라짐(31×23, 닿은 자리 15,11) ──
+#    191 까지는 막타 일섬(49×37)을 히트스톱 내내 첫 컷으로 세워 둬서 크고 멈춰 보였다(유저 「정지화면 뚝」)
+def stroke(g, P0, P1, bulge, th, t0, t1, C, Cy, gap=None, shift=0.0, core_th=0.6):
+    """P0→P1 사이 볼록한 붓 사선의 t0..t1 구간. 두께 th·sin(πt)^0.75, 법선 쪽으로 shift"""
+    (x0, y0), (x1, y1) = P0, P1
+    L = math.hypot(x1 - x0, y1 - y0)
+    ux, uy = (x1 - x0) / L, (y1 - y0) / L
+    nx, ny = uy, -ux                                   # 법선(오른쪽 위로)
+    n = int(L * 3) + 1
+    for i in range(n + 1):
+        t = i / n
+        if t < t0 or t > t1: continue
+        if gap and any(a <= t <= b for a, b in gap): continue
+        half = th * math.sin(math.pi * min(max(t, 0.03), 0.97)) ** 0.75
+        b = bulge * math.sin(math.pi * t) + shift
+        cx = C + x0 + (x1 - x0) * t + nx * b
+        cy = Cy + y0 + (y1 - y0) * t + ny * b
+        r = max(half, 0.35)
+        for k in range(-int(math.ceil(r)) - 1, int(math.ceil(r)) + 2):
+            if abs(k) > r: continue
+            put(g, int(round(cx + nx * k)), int(round(cy + ny * k)), 1 if abs(k) <= core_th and half > 0.9 else 2)
+
+def front_slash():
+    """앞 강베기: 맞은 몸 가운데를 가르는 짧은 초승달 베기 — 그어지고(1·1·1) 벌어지며 사라짐 + 불티. 31×23, 닿은 자리 15,11"""
+    W, H, C, Cy = 31, 23, 15, 11
+    P0, P1 = (-11, -8), (11, 8)
+    cels, durs = [], []
+    def sparks(g, k, col):
+        # 닿은 자리에서 법선 양쪽·앞으로 튀는 불티 6
+        base = [(-0.62, -0.78, 1.0), (0.55, 0.83, 1.0), (0.95, -0.3, 1.3), (-0.9, 0.42, 0.8), (0.3, -0.95, 0.7), (-0.25, 0.97, 0.9)]
+        for (vx, vy, sp) in base:
+            d = 3 + k * 2.6 * sp
+            x, y = C + vx * d, Cy + vy * d
+            put(g, int(round(x)), int(round(y)), col)
+            if col == 1: put(g, int(round(x - vx)), int(round(y - vy)), 2)
+    # 0: 닿음 — 가운데 섬광 + 선이 35% 그어짐
+    g = blank(W, H); disc(g, C, Cy, 1.2, 1)
+    for a in (0, 90, 180, 270): ray(g, C, Cy, math.radians(a + 35), 1, 3, 2)
+    stroke(g, P0, P1, 2.2, 1.0, 0.0, 0.40, C, Cy); cels.append(outline(g, 3)); durs.append(1)
+    # 1: 75% · 섬광 커짐
+    g = blank(W, H); disc(g, C, Cy, 1.6, 1)
+    for a in (0, 90, 180, 270): ray(g, C, Cy, math.radians(a + 35), 2, 4, 2)
+    stroke(g, P0, P1, 2.2, 1.8, 0.0, 0.78, C, Cy); cels.append(outline(g, 3)); durs.append(1)
+    # 2: 다 그어짐(가장 굵게)
+    g = blank(W, H); stroke(g, P0, P1, 2.2, 2.0, 0.0, 1.0, C, Cy); sparks(g, 0, 1); cels.append(outline(g, 3)); durs.append(2)
+    # 3: 가늘어짐 · 불티 퍼짐
+    g = blank(W, H); stroke(g, P0, P1, 2.2, 1.3, 0.0, 1.0, C, Cy); sparks(g, 1, 1); cels.append(outline(g, 3)); durs.append(2)
+    # 4: 두 가는 줄로 벌어짐(베인 자리) — 테두리 없이 1px
+    g = blank(W, H)
+    stroke(g, P0, P1, 2.2, 0.3, 0.06, 0.94, C, Cy, shift=-1.5, gap=[(0.46, 0.54)])
+    stroke(g, P0, P1, 2.2, 0.3, 0.06, 0.94, C, Cy, shift=1.5, gap=[(0.30, 0.37), (0.63, 0.70)])
+    sparks(g, 2, 1); cels.append(g); durs.append(2)
+    # 5: 끊어진 조각(어두운 색)
+    g = blank(W, H)
+    stroke(g, P0, P1, 2.2, 0.3, 0.12, 0.88, C, Cy, shift=-2.4, gap=[(0.22, 0.42), (0.52, 0.76)])
+    stroke(g, P0, P1, 2.2, 0.3, 0.12, 0.88, C, Cy, shift=2.4, gap=[(0.30, 0.52), (0.62, 0.82)])
+    for y in range(H):
+        for x in range(W):
+            if g[y][x]: g[y][x] = 3
+    sparks(g, 3, 2)
+    cels.append(g); durs.append(2)
+    # 6: 남은 점
+    g = blank(W, H); sparks(g, 4, 3)
+    for (x, y) in ((C - 9, Cy - 9), (C + 10, Cy + 6)): put(g, x, y, 3)
+    cels.append(g); durs.append(2)
+    return cels, (C, Cy), durs
