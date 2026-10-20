@@ -212,4 +212,8 @@ public final class Emu {
        아무 스레드 · 옛 native 면 UnsatisfiedLinkError(부르는 쪽이 받아 소리 없이) */
     public static final int UI_SFX_STOP = 0, UI_SFX_CURSOR = 1, UI_SFX_SELECT = 2, UI_SFX_BACK = 3;
     public static native boolean nativeUiSfx(int kind);
+    /** 182: 앱 화면 메뉴(확인 카드·내 이름 카드·찾기 겹창)가 떠 있나 — 메뉴 효과음 문을 열고 결정의 메아리를 끝까지 */
+    public static native void nativeSetAppMenu(boolean on);
+    /** 182: 지금 멈춤(nativeSetPaused)이 곡을 이어도 되는 멈춤인가 — 게임 안 «설정» 창만(소리 CPU 만 돌린다, 옛 코어면 조용) */
+    public static native void nativeSetPauseBgm(boolean on);
 }

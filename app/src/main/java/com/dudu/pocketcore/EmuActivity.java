@@ -413,6 +413,7 @@ public class EmuActivity extends Activity {
                 (ranked() ? League.saveDir() : MainActivity.saveDir()).getAbsolutePath(),
                 MainActivity.optsFile().getAbsolutePath());
         loaded = rc == 0;
+        appMenuOn = false; appMenuSync();      /* 182: native 는 올릴 때 앱 메뉴 표시를 지운다 — 카드가 떠 있던 채 다시 올렸으면 다시 연다 */
         snapCoreOpts();
         romMtime = new File(romPath).lastModified();
         /* 175: 리그 판(ranked)은 코어 이름 알림(«… · 동봉 코어(리그)»)을 안 띄운다 — 리그 판을 열 때·경기 중 설정 «적용하고 이어하기»로 다시 올릴 때마다
@@ -576,6 +577,7 @@ public class EmuActivity extends Activity {
             /* 창이 떠 있는 동안 게임을 멈춘다 — 전엔 뒤에서 게임이 계속 돌고, 쥐고 있던 버튼이 눌린 채 남았다 */
             padMask = 0; releasePhysical();
             Emu.nativeSetPaused(true);
+            pauseBgm(true);                                    /* 182: 창이 떠 있는 동안 곡은 그대로(원작 PAUSE 처럼) — 게임은 멈춘 채 */
             cfgSnap = reloadSnap();                            /* 168 §10: 리그 판은 다시 올려야 먹는 값(원버튼·컬러 고르기)이 바뀐 때만 체크포인트 길 */
             sheet = LaunchSheet.showInGame(this, game, game != null ? game.ko : new File(orig).getName(),
                     new Runnable() { @Override public void run() { if (ranked()) applyLiveLeague(orig); else applyLive(orig); } },
@@ -586,6 +588,7 @@ public class EmuActivity extends Activity {
             if (game != null && Cheats.GAME.equals(game.id) && !cheatOk) sheet.cheatOff = "이 롬 판에선 치트가 안 켜져요";
             final int[] cg0 = cheatGame();
             sheet.onClose = new Runnable() { @Override public void run() {
+                pauseBgm(false);
                 Emu.nativeSetPaused(pad.isBarOpen());          /* 메뉴가 아직 열려 있으면 계속 멈춤 */
                 applyDisplay(); pushCoreOpts();
                 cheatClose(cg0, false); } };                   /* 치트 창에서 바꾼 값 — 다시 열지 않고 바로 · 175: 리그 판은 글 없음(알약 «치트 ON») */
@@ -2446,7 +2449,8 @@ public class EmuActivity extends Activity {
         private int sel = -1;
         private Runnable onDismiss;
         private Ask under;                           /* 이 카드가 뜰 때 떠 있던 카드 — 닫으면 그 카드가 다시 맨 위(먼저 카드를 닫지 않는다: 그 닫힘 리스너가 경기를 풀지 않게) */
-        private boolean sfx;                         /* 176: 덧판 메뉴 위 카드(내 이름) — 단추 옮김 = 커서 · 첫 단추 = 결정 · 다른 단추·취소 = 뒤로(메뉴 효과음) */
+        private boolean sfx = true;                  /* 176: 덧판 메뉴 위 카드(내 이름) — 단추 옮김 = 커서 · 첫 단추 = 결정 · 다른 단추·취소 = 뒤로(메뉴 효과음).
+                                                        182: 모든 확인 카드(«기권할까요?»·«리그 경기 중»·«끝나지 않은 경기가 있어요» 등 7 개)도 같은 소리 — 유저 고름 */
         Ask(String title, String msg) {
             float dp = getResources().getDisplayMetrics().density;
             scrim = new FrameLayout(EmuActivity.this);
@@ -2500,7 +2504,7 @@ public class EmuActivity extends Activity {
         }
         Ask cancelable(boolean c) { cancelable = c; return this; }
         Ask sfx() { sfx = true; return this; }
-        private void sfx(int kind) { LeagueMenu mm = lgm; if (sfx && mm != null) mm.sfxNow(kind); }
+        private void sfx(int kind) { if (sfx) uiSfx(kind); }
         /** 168(11) 글 칸 — 단추 줄 위에. 글자 키는 칸이 받는다(dispatchKeyEvent) · 키보드 «완료» = 첫 단추 */
         private android.widget.EditText field;
         Ask field(android.widget.EditText e) {
@@ -2522,6 +2526,7 @@ public class EmuActivity extends Activity {
             releasePhysical();                       /* 쥐고 있던 패드 키가 게임에 남지 않게(창이 포커스를 가져갈 때와 같게) */
             root.addView(scrim, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
             showing = true; ask = this;
+            appMenuSync();                           /* 182: 카드가 떠 있는 동안 메뉴 효과음 문을 연다 */
             return this;
         }
         boolean isShowing() { return showing; }
@@ -2530,6 +2535,7 @@ public class EmuActivity extends Activity {
             showing = false;
             root.removeView(scrim);
             if (ask == this) { ask = under; while (ask != null && !ask.showing) ask = ask.under; }   /* 아래 카드 중 아직 떠 있는 것 */
+            appMenuSync();
             if (onDismiss != null) onDismiss.run();
         }
         void cancel() { if (cancelable) { sfx(Emu.UI_SFX_BACK); dismiss(); } }
@@ -2570,6 +2576,25 @@ public class EmuActivity extends Activity {
         }
     }
     private Ask ask(String title, String msg) { return new Ask(title, msg); }
+
+    /** 182 메뉴 효과음(앱 화면 쪽) — 확인 카드·찾기 겹창. 덧판 메뉴가 있으면 그 길(같은 native 문), 없으면 바로. 옛 native 면 소리 없이 */
+    private void uiSfx(int kind) {
+        LeagueMenu mm = lgm;
+        if (mm != null) { mm.sfxNow(kind); return; }
+        try { Emu.nativeUiSfx(kind); } catch (UnsatisfiedLinkError e) { /* 옛 native */ }
+    }
+    private boolean appMenuOn;
+    /** 182: 카드·찾기 겹창이 떠 있는 동안 native 메뉴 효과음 문을 연다(그 밖엔 native 가 버린다 — 메뉴가 없으면 소리도 없다) */
+    private void appMenuSync() {
+        boolean on = ask != null || rankQ != null || rankQFading != null;
+        if (on == appMenuOn) return;
+        appMenuOn = on;
+        try { Emu.nativeSetAppMenu(on); } catch (UnsatisfiedLinkError e) { /* 옛 native */ }
+    }
+    /** 182: 게임 안 «설정» 창 멈춤 동안 곡을 잇는다(native 가 소리 CPU 만 돌림 · 옛 코어면 조용) — 유저 고름 «메뉴 중 배경음 유지» */
+    private void pauseBgm(boolean on) {
+        try { Emu.nativeSetPauseBgm(on); } catch (UnsatisfiedLinkError e) { /* 옛 native */ }
+    }
 
     private TextView hubPill(String s, final Runnable r) {
         float dp = getResources().getDisplayMetrics().density;
@@ -2831,6 +2856,7 @@ public class EmuActivity extends Activity {
         rankQPlaceLp(lp);
         root.addView(rankQ.root, Math.min(1, root.getChildCount()), lp);
         rankQBlock = true;
+        appMenuSync();                                                   /* 182: 겹창 B(그만두기) = 뒤로 소리 */
         rankQKeys = padMask | keyMask | axisMask;                       /* 쥐고 있던 B 는 안 센다 */
         if (rankPick != null && !rematch) rankQReelLoad(rankPick, rankQ);
         h.removeCallbacks(rankQPoll); h.postDelayed(rankQPoll, 50);
@@ -2854,13 +2880,15 @@ public class EmuActivity extends Activity {
         h.removeCallbacks(rankQPoll);
         final RankUi.Quick q = rankQ, f = rankQFading;
         rankQ = null; rankQMode = 0;
-        if (fade && q == null) return;
+        if (fade && q == null) { appMenuSync(); return; }
         if (f != null) { f.root.animate().cancel(); root.removeView(f.root); rankQFading = null; }   /* cancel — 끝 동작(입력 풂)은 안 돈다 */
-        if (!fade) { rankQBlock = false; if (q != null) root.removeView(q.root); return; }
+        if (!fade) { rankQBlock = false; if (q != null) root.removeView(q.root); appMenuSync(); return; }
         rankQFading = q;
+        appMenuSync();
         q.root.animate().alpha(0f).setDuration(160).withEndAction(new Runnable() { @Override public void run() {
             root.removeView(q.root);
             if (rankQFading == q) { rankQFading = null; if (rankQ == null) rankQBlock = false; }
+            appMenuSync();
         } }).start();
         h.postDelayed(rankQPoll, 50);                                    /* 사라지는 동안도 물리 패드 B 를 본다 */
     }
@@ -3006,6 +3034,7 @@ public class EmuActivity extends Activity {
      *  내려가며 사라지는 중(rankQFading — 늘 go 뒤 · 상대를 보인 뒤)도 같다: 고르기 화면·인트로에 B 가 새어 기본 캐릭터로 골라지지 않게 */
     private void rankQBack() {
         if (rankQ == null && rankQFading == null) return;
+        uiSfx(Emu.UI_SFX_BACK);                                          /* 182: 그만두기 = 뒤로(겹창이 떠 있는 동안이라 native 문이 열려 있다) */
         boolean search = rankQMode == Q_SEARCH;
         rankQClose(false);
         rankCap = false;

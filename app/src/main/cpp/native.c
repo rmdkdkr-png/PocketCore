@@ -56,6 +56,8 @@ static void (*c_fg_state)(int *, int *, unsigned *);   /* retro_ngp_fg_state —
 static const uint8_t *(*c_fg_phase)(unsigned *, unsigned *, unsigned *);   /* retro_ngp_fg_phase — 4배 그림의 화소마다 원래 모눈 어긋남(코어 zzz_fg_phase) */
 static void  *(*c_charram)(void), *(*c_scrollram)(void), *(*c_palram)(void);   /* 사무쇼2 코어의 K1GE 문자·스크롤·팔레트 램(가상 리그가 화면 글자·컬러를 바꿀 때) */
 static void  *(*c_spriteram)(void);   /* K1GE 스프라이트 램 — 연습 메뉴 창이 빌릴 타일을 고를 때(스프라이트가 가리키는 타일은 안 빌림) */
+static void (*c_sndonly)(int);   /* retro_ngp_sndonly_run — 182: 메인 CPU 를 세운 채 소리 CPU(Z80·소리 칩)만 retro_run n 번 몫(코어 패치 zzzzzzzzzzzzz_snd_only, 옛 코어엔 없음) */
+static void (*c_snd_div)(int);   /* retro_ngp_snd_div — 182: 소리만 1/d 빠르기(4배속 자동 진행 동안 4 — 곡이 보통 빠르기) */
 static size_t (*c_get_memory_size)(unsigned);
 static size_t (*c_serialize_size)(void);
 static bool   (*c_serialize)(void *, size_t);
@@ -438,18 +440,42 @@ static const int16_t *fx_apply(const int16_t *src, size_t n)
    return g_fx_buf;
 }
 
+static int g_audio_rate = 44100;            /* 지금 스트림 빠르기(audio_start) — 182: 딸깍 없애기 10ms 길이도 이것으로 */
 static int g_mute_drop = 0;                 /* 153: 소리를 버리던 중 — 풀리면 늘림(drc)을 새로(버린 앞 샘플과 잇지 않게) */
+/* 182: 게임 소리를 버리나 — 랭크 자동 진행(4배속, league_mute) 동안 옛 코어(snd_div 없음)만. 새 코어는 소리만 1/4 로 돌려(nativeFrame) 곡이 보통 빠르기로 난다.
+   메뉴 효과음(uisfx)은 늘 그대로(«결정» 이 4배속 들어갈 때 잘리지 않게 — mute 는 게임 소리만) */
+static inline int game_mute(void) { return league_mute && !c_snd_div; }
+/* 182 딸깍 없애기 — 코어가 멈췄다(덧판·창·걸쇠, 소리만 돌리기 없이) 다시 돌 때: 다시 난 첫 10ms 를 0 에서 키운다(멈춘 칩이 사각파 중간에서 이어 나와 «딸깍»).
+   멈출 때는 nativeFrame 이 음색 다듬기 울림 꼬리를 마저 내보낸다(꼬리 첫머리 = 마지막 소리 g_last_in 에서 0 으로 10ms 직선 — 마른 소리가 한 샘플에 0 으로 떨어지지 않게).
+   음색 다듬기가 꺼져 있으면 꼬리 없이 고리가 마르고 — 소리 카드 콜백이 마르기 전 10ms 를 줄인다(audio_cb). GL 스레드만(코어 소리 콜백·nativeFrame) */
+static int16_t g_last_in[2];                /* 마지막으로 받은 코어 소리(음색 다듬기 앞) */
+static int     g_in_ramp = 0, g_in_ramp_len = 441;   /* 다시 난 소리 키움 — 남은 프레임 · 길이(10ms) */
+static int16_t g_ramp_buf[4096 * 2];
+static volatile int g_pause_bgm = 0;   /* Java: 이 멈춤(설정 창)은 곡을 이어도 된다 */
+static int g_snd_div_cur = 1;          /* 지금 코어에 건 snd_div */
+static int g_frozen_prev = 0;          /* 지난 vsync 에 코어를 통째로 세웠나(소리도 없이) */
+static int g_tail_left = 0, g_tail_ramp = 0;   /* 182 멈춘 동안 음색 다듬기 울림 꼬리 — 남은 프레임 · 첫머리 직선 */
 static size_t cb_audio_batch(const int16_t *data, size_t frames)
 {
    size_t done = 0;
-   if (league_mute) { g_mute_drop = 1; g_fx_cur = 0; return frames; }   /* 153: 랭크 자동 진행(4배속) 동안 — 고리에 안 넣는다(배속 소리가 남아 뒤에 나오지 않게) · 179 풀리면 음색 다듬기 꼬리 없이 */
+   if (game_mute()) { g_mute_drop = 1; g_fx_cur = 0; return frames; }   /* 153: 랭크 자동 진행(4배속) 동안 — 고리에 안 넣는다(배속 소리가 남아 뒤에 나오지 않게) · 179 풀리면 음색 다듬기 꼬리 없이 · 182 옛 코어만 */
    if (g_mute_drop) { g_mute_drop = 0; drc_reset(&g_drc); }
+   if (frames) { g_last_in[0] = data[(frames - 1) * 2]; g_last_in[1] = data[(frames - 1) * 2 + 1]; }
    while (done < frames) {                       /* 큰 묶음은 나눠서(출력 칸 8192) */
       size_t n = frames - done > 4096 ? 4096 : frames - done;
       uint32_t fill = (g_wr - g_rd + ARING_FRAMES) % ARING_FRAMES;
       unsigned cb = (unsigned)g_cb_frames, target = cb + 700;
       if (target < 900) target = 900;
       const int16_t *src = fx_apply(data + done * 2, n);  /* 176·178·179 음색 다듬기 — 코어가 준 자리 그대로 넘겨야 잡음 칸을 찾는다 */
+      if (g_in_ramp > 0) {                       /* 182: 멈췄다 다시 난 첫 10ms — 0 에서 키움(음색 다듬기 뒤: 꼬리는 이미 거의 0) */
+         size_t i;
+         for (i = 0; i < n; i++) {
+            int k = g_in_ramp > 0 ? g_in_ramp_len - g_in_ramp-- : g_in_ramp_len;
+            g_ramp_buf[i * 2]     = (int16_t)(src[i * 2] * k / g_in_ramp_len);
+            g_ramp_buf[i * 2 + 1] = (int16_t)(src[i * 2 + 1] * k / g_in_ramp_len);
+         }
+         src = g_ramp_buf;
+      }
       if (g_turbo_audio) ring_push(src, n);   /* 배속 중엔 그대로(넘치면 버림 — 예전과 같다) */
       else {
          size_t w = drc_run(&g_drc, src, n, g_drc_out, 8192, drc_ratio(g_pace.drc_base, fill, target));
@@ -484,25 +510,52 @@ static int16_t cb_input_state(unsigned port, unsigned device, unsigned index, un
 /* ------------------------------------------------------------------ */
 /* audio                                                               */
 /* ------------------------------------------------------------------ */
+/* 182: 메뉴 효과음을 받나·결정의 메아리를 끝까지 내나 — 덧판이 보이거나 멈춤 · 앱 카드(확인 카드 7 개·내 이름)·찾기 겹창(nativeSetAppMenu) ·
+   연습 메뉴(practice.c) · 랭크 자동 진행(찾기 겹창 뒤 4배속 — «결정»을 누른 그 소리가 끝까지) */
+static volatile int g_app_menu = 0;
+static int ui_menu_open(void) { return ov_active() || ov_hold() || g_app_menu || practice_menu_up || league_ff; }
+/* 182 딸깍 없애기(소리 카드 콜백 쪽) — 고리 샘플에 곱하는 크기(0..1, 샘플마다 1/10ms 씩만 바뀜):
+   · 코어가 멈춘 동안(g_core_frozen — nativeFrame) 고리에 남은 것이 10ms 아래면 남은 만큼으로 줄여 마지막 샘플에서 0(마르는 자리 «딸깍» 없음)
+   · 게임 소리를 버리는 동안(옛 코어 4배속) 0 으로 줄임 · 고리가 말랐다(언더런) 다시 차면 0 에서 키움
+   · 예상 못 한 언더런은 마지막 샘플에서 0 까지 10ms 직선(뚝 0 대신). 소리 카드 스레드만 만진다(audio_start 가 콜백 전 지움) */
+static volatile int g_core_frozen = 0;
+static float g_ac_gain = 0.f, g_ac_prev[2], g_ac_dec[2];
+static int   g_ac_decn = 0, g_ac_under = 1;
+static void declick_reset(void) { g_ac_gain = 0.f; g_ac_prev[0] = g_ac_prev[1] = 0.f; g_ac_decn = 0; g_ac_under = 1; }
 static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
                                               void *audioData, int32_t numFrames)
 {
    (void)s; (void)ud;
    int16_t *out = (int16_t *)audioData;
-   uint32_t rd = g_rd;
+   uint32_t rd = g_rd, wr = g_wr;
    if (numFrames > g_cb_frames && numFrames < 8192) g_cb_frames = numFrames;
-   int mute = league_mute;             /* 153: 랭크 자동 진행이 찾기 겹창 뒤에서 고르기·이야기를 밟는 동안 — 고리에 남은 것도 무음으로 비운다(새 소리는 cb_audio_batch 가 버림) */
+   int mute = game_mute();             /* 153: 랭크 자동 진행이 찾기 겹창 뒤에서 고르기·이야기를 밟는 동안 — 고리에 남은 것도 무음으로 비운다(새 소리는 cb_audio_batch 가 버림) · 182 옛 코어만 */
+   int frozen = g_core_frozen, L = g_audio_rate / 100;
+   float step;
+   if (L < 1) L = 1;
+   step = 1.f / (float)L;
    for (int32_t i = 0; i < numFrames; i++) {
-      if (rd == g_wr) {                /* underrun: hold silence */
-         out[i * 2] = 0; out[i * 2 + 1] = 0;
-      } else {
-         out[i * 2]     = mute ? 0 : g_ring[rd * 2];
-         out[i * 2 + 1] = mute ? 0 : g_ring[rd * 2 + 1];
+      float o0 = 0.f, o1 = 0.f;
+      if (g_ac_decn > 0) { float k = (float)g_ac_decn-- / (float)(L + 1); o0 = g_ac_dec[0] * k; o1 = g_ac_dec[1] * k; }
+      if (rd != wr) {
+         uint32_t left = (wr - rd + ARING_FRAMES) % ARING_FRAMES;
+         float tgt = mute ? 0.f : (frozen && left < (uint32_t)L) ? (float)left / (float)L : 1.f;
+         if (g_ac_gain < tgt) { g_ac_gain += step; if (g_ac_gain > tgt) g_ac_gain = tgt; }
+         else if (g_ac_gain > tgt) { g_ac_gain -= step; if (g_ac_gain < tgt) g_ac_gain = tgt; }
+         o0 += g_ring[rd * 2] * g_ac_gain; o1 += g_ring[rd * 2 + 1] * g_ac_gain;
          rd = (rd + 1) % ARING_FRAMES;
+         g_ac_under = 0;
+      } else if (!g_ac_under) {        /* underrun — 마지막 샘플에서 0 까지 10ms(그 뒤 조용) · 다시 차면 0 에서 키움 */
+         g_ac_under = 1; g_ac_gain = 0.f;
+         g_ac_dec[0] = g_ac_prev[0]; g_ac_dec[1] = g_ac_prev[1]; g_ac_decn = L;
+         { float k = (float)g_ac_decn-- / (float)(L + 1); o0 = g_ac_dec[0] * k; o1 = g_ac_dec[1] * k; }
       }
+      g_ac_prev[0] = o0; g_ac_prev[1] = o1;
+      out[i * 2]     = (int16_t)(o0 > 32767.f ? 32767 : o0 < -32768.f ? -32768 : (int)lrintf(o0));
+      out[i * 2 + 1] = (int16_t)(o1 > 32767.f ? 32767 : o1 < -32768.f ? -32768 : (int)lrintf(o1));
    }
    g_rd = rd;
-   uisfx_mix(out, numFrames, mute, ov_active() || ov_hold());   /* 176: 덧판 메뉴 효과음 — 고리(게임 소리) 위에. 179: 음색 다듬기는 코어 소리 콜백(고리 앞)으로 옮겨 가 메뉴 소리엔 안 얹힘(«배경음만»과 같은 뜻 — 효과음은 원래대로). 코어가 멈춰 고리가 비어도 난다 · 메뉴가 사라지면 결정의 메아리는 안 냄 */
+   uisfx_mix(out, numFrames, 0, ui_menu_open());   /* 176: 덧판 메뉴 효과음 — 고리(게임 소리) 위에. 179: 음색 다듬기는 코어 소리 콜백(고리 앞)으로 옮겨 가 메뉴 소리엔 안 얹힘(«배경음만»과 같은 뜻 — 효과음은 원래대로). 코어가 멈춰 고리가 비어도 난다 · 메뉴가 사라지면 결정의 메아리는 안 냄 · 182 4배속 자동 진행에도 안 끔 */
    return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
@@ -510,7 +563,6 @@ static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
    AAudio 가 에러 콜백으로 알려 준다. 콜백 안에서는 그 스트림을 닫으면 안 되므로
    표시만 남기고, 프레임 루프(GL 스레드)가 새 스트림으로 다시 연다. */
 static volatile int g_audio_dead = 0;
-static int g_audio_rate = 44100;
 
 static void audio_err_cb(AAudioStream *s, void *ud, aaudio_result_t err)
 {
@@ -526,6 +578,7 @@ static void audio_start(int rate)
    g_audio_rate = rate;
    g_audio_dead = 0;
    uisfx_reset(rate);                  /* 176: 콜백이 돌기 전 — 닫히기 전(onPause·끊김) 남은 효과음·요청은 버림 */
+   declick_reset();                    /* 182: 새 스트림은 0 에서 키워 시작 */
    if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) { pthread_mutex_unlock(&g_audio_mx); return; }
    AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_I16);
    AAudioStreamBuilder_setChannelCount(b, 2);
@@ -945,6 +998,8 @@ static int bind_core(void)
    *(void **)&c_fg_state        = dlsym(g_lib, "retro_ngp_fg_state");
    *(void **)&c_fg_phase        = dlsym(g_lib, "retro_ngp_fg_phase");   /* 없으면(옛 코어·다른 게임) 업스케일러는 예전처럼 1배로 줄여서 */
    *(void **)&c_snd_noise       = dlsym(g_lib, "retro_ngp_snd_noise");  /* 179 음색 다듬기 «배경음만» — 없으면(SVC 코어·옛 코어) 통째로 */
+   *(void **)&c_sndonly         = dlsym(g_lib, "retro_ngp_sndonly_run");   /* 182 메뉴 중 배경음 — 없으면(SVC 코어·옛 코어) 멈춘 동안 예전처럼 조용 */
+   *(void **)&c_snd_div         = dlsym(g_lib, "retro_ngp_snd_div");       /* 182 4배속 자동 진행 소리 — 없으면 예전처럼 그동안 소리를 버림 */
    return 1;
 }
 
@@ -1013,6 +1068,8 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
    jstr(env, jopts, opts, sizeof(opts));
 
    load_options(opts);
+   g_snd_div_cur = 1; g_pause_bgm = 0; g_frozen_prev = 0; g_core_frozen = 0; g_tail_left = 0; g_in_ramp = 0; g_app_menu = 0;   /* 182: 새 코어는 d 1 · 멈춤 표시 없음 */
+   practice_sfx_fn(uisfx_request);       /* 182: 연습 메뉴 효과음(practice.c — 커서·결정·뒤로) */
 
    g_lib = dlopen(core, RTLD_LAZY | RTLD_LOCAL);
    if (!g_lib) { LOGE("dlopen failed: %s", dlerror()); return -1; }
@@ -1117,6 +1174,39 @@ static double now_s(void)
    return (double)ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
+/* 182 «메뉴 중 배경음 유지»(유저 고름) — 덧판 메뉴가 게임을 세운 동안(쉼·쉼 확인·서랍·대기 = ov_hold) · 게임 안 «설정» 창(168 — Java 가 그 멈춤만
+   nativeSetPauseBgm 로 표시) 동안 원작 PAUSE 처럼 곡을 잇는다: 메인 CPU 는 세운 채 소리 CPU(Z80 + 소리 칩)만 코어 fps 로(c_sndonly — retro_run 과 같은
+   박자·같은 소리 길: 음색 다듬기 → 늘림 → 고리). 결판 걸쇠(승리 대사 끝 — 게임이 원래 조용한 자리)·그 밖의 멈춤(불러오기 사이·카드만)은 예전처럼 세운다.
+   세운 동안 만든 체크포인트엔 Z80 만 앞선다 — 메인 CPU 쪽은 세운 순간 그대로(호스트 시험: 불러와 이어 돌림 = 바로 이어 돌림, 바이트까지). 옛 코어면 조용 */
+/* 182: 코어가 멈춘 동안 음색 다듬기(방 울림)의 꼬리를 마저 — 0 을 넣어 돌린 것을 고리에(고리를 «소리 카드 한 번 + 700» 까지만 채움).
+   첫머리 10ms 는 마지막 소리에서 0 으로 직선(마른 소리가 한 샘플에 0 으로 떨어지지 않게). 꼬리가 다 줄면(10ms 묶음 꼭대기 < 3) 그만 · 길어도 2 초.
+   음색 다듬기가 꺼져 있으면 할 일 없음(고리가 마르는 자리는 audio_cb 가 줄인다). CORE_LOCK 아래(fx_apply 는 코어 소리 콜백과 같은 잠금) */
+static void tail_feed(void)
+{
+   static int16_t z[512 * 2];
+   uint32_t fill = (g_wr - g_rd + ARING_FRAMES) % ARING_FRAMES;
+   unsigned cb = (unsigned)g_cb_frames, target = cb + 700;
+   int L = g_audio_rate / 100;
+   if (target < 900) target = 900;
+   if (L < 1) L = 1;
+   if (!atomic_load_explicit(&g_fx_on, memory_order_relaxed) || !g_fx || !g_fx_cur) { g_tail_left = 0; return; }
+   while (g_tail_left > 0 && fill < target) {
+      int n = (int)(target - fill), i, pk = 0;
+      const int16_t *o;
+      if (n > 512) n = 512;
+      if (n > g_tail_left) n = g_tail_left;
+      for (i = 0; i < n; i++) {
+         int k = g_tail_ramp > 0 ? --g_tail_ramp : 0;
+         z[i * 2] = (int16_t)(g_last_in[0] * k / L); z[i * 2 + 1] = (int16_t)(g_last_in[1] * k / L);
+      }
+      o = fx_apply(z, (size_t)n);
+      for (i = 0; i < n * 2; i++) { int v = o[i] < 0 ? -o[i] : o[i]; if (v > pk) pk = v; }
+      ring_push(o, (size_t)n);
+      fill += (uint32_t)n; g_tail_left -= n;
+      if (pk < 3 && g_tail_ramp == 0) g_tail_left = 0;
+   }
+}
+
 JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
 {
    (void)env; (void)cls;
@@ -1141,16 +1231,36 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
          g_vsync_ema = g_vsync_ema > 0.0 ? g_vsync_ema * 0.9 + iv * 0.1 : iv;
    }
    g_last_vsync = t;
-   g_turbo_audio = g_turbo;
+   /* 182: 세우는 조건 그대로(hold) — 그중 덧판 메뉴 멈춤·설정 창 멈춤은 소리 CPU 만 돌린다(snd_hold). 결판 걸쇠는 늘 통째로 */
+   int hold = g_paused || !g_loaded || league_post_hold() || ov_hold();
+   int snd_hold = hold && g_loaded && c_sndonly && !league_post_hold() && (ov_hold() || (g_paused && g_pause_bgm));
+   int frozen = hold && !snd_hold && g_loaded;
+   g_turbo_audio = g_turbo && !snd_hold;
    /* 153: 리그 결판 뒤 승리 대사가 끝난 프레임(0x5825)에 league.c 가 세운 걸쇠 — Java 의 멈춤 풀기(바 닫기·창 닫기)와 상관없이
       리셋(nativeLeagueHubReturn)·새 무장·코어 내림 전까지 게임을 한 프레임도 더 돌리지 않는다(다음 장·이어하기 화면으로 안 감).
       멈춤과 같게 마지막 진짜 프레임(g_fb)만 그린다 */
    /* 153: 랭크 자동 진행(찾기 겹창 뒤 고르기·이야기, autopick flags 4)은 배속(▶▶)과 같은 4배 — 소리는 league_mute 로 버린다 */
    /* 157: 덧판 메뉴 멈춤(ov_hold) — g_paused 와 따로(Java 가 바·창을 닫을 때 nativeSetPaused 로 덮어써도 안 풀린다) */
-   nsteps = pace_steps(&g_pace, t, fps, g_panel_hz_hint, g_turbo || league_ff, g_paused || !g_loaded || league_post_hold() || ov_hold());
+   /* 182: 소리만 돌리는 동안도 박자(잠금·소리 늘림)는 이어서 — 멈춤으로 세지 않는다. 배속은 안 받는다(곡이 4배로 나지 않게) */
+   nsteps = pace_steps(&g_pace, t, fps, g_panel_hz_hint, (g_turbo || league_ff) && !snd_hold, hold && !snd_hold);
+   /* 182 딸깍 없애기: 통째로 세우기 시작 — 음색 다듬기 꼬리(첫머리는 마지막 소리에서 0 으로) · 다시 돌기 시작 — 첫 10ms 키움(늘림도 새로) */
+   if (frozen && !g_frozen_prev) { g_tail_left = g_audio_rate * 2; g_tail_ramp = g_audio_rate / 100; }
+   if (!frozen && g_frozen_prev) { g_tail_left = 0; g_tail_ramp = 0; g_in_ramp_len = g_audio_rate / 100 > 0 ? g_audio_rate / 100 : 1; g_in_ramp = g_in_ramp_len; drc_reset(&g_drc); }
+   g_frozen_prev = frozen; g_core_frozen = frozen;
+   if (frozen && g_tail_left > 0) { CORE_LOCK(); if (g_loaded) tail_feed(); CORE_UNLOCK(); }
+   while (snd_hold && steps < nsteps) {   /* 182: 소리 CPU 만 — 허브·연습·치트·덧판 셈은 안 돈다(게임이 멈춰 있다) */
+      CORE_LOCK();
+      if (g_loaded) c_sndonly(1);
+      CORE_UNLOCK();
+      steps++;
+   }
    while (steps < nsteps) {
       int stop = 0;
       CORE_LOCK();                       /* retro_run 한 번 단위 — 그 사이에 UI 스레드의 저장이 끼어들 수 있게 */
+      if (g_loaded && c_snd_div) {        /* 182: 랭크 자동 진행(4배속) 동안 소리만 1/4 — 곡이 보통 빠르기·음높이(league_ff 는 허브가 프레임마다 다시 정한다) */
+         int want = league_ff ? 4 : 1;
+         if (want != g_snd_div_cur) { c_snd_div(want); g_snd_div_cur = want; }
+      }
       if (g_loaded) {
          /* 코어가 2배 출력(120Hz) 중이면 호출 두 번에 한 번은 «합성» — 에뮬레이션도 입력 읽기도 없다(코어 retro_run: fg_active && fg_phase == 1).
             그때 허브·연습을 돌리면 프레임 셈이 두 배로 가고, 다음 프레임에 줄 입력(대신 누름)이 게임이 읽기 전에 바뀐다 — 진짜 프레임 뒤에만 돌린다 */
@@ -1200,6 +1310,14 @@ JNI(jdouble, nativeCoreFps)(JNIEnv *env, jclass cls) { (void)env; (void)cls; ret
 JNI(void, nativeSetPaused)(JNIEnv *env, jclass cls, jboolean on)
 { (void)env; (void)cls; g_paused = on ? 1 : 0; }
 
+/* 182: 지금 멈춤(nativeSetPaused)이 곡을 이어도 되는 멈춤인가 — 게임 안 «설정» 창(168)만 Java 가 켠다(불러오기 사이·카드의 멈춤은 그대로 통째로) */
+JNI(void, nativeSetPauseBgm)(JNIEnv *env, jclass cls, jboolean on)
+{ (void)env; (void)cls; g_pause_bgm = on ? 1 : 0; }
+
+/* 182: 앱 화면 쪽 메뉴(확인 카드 7 개·내 이름 카드 · «상대 찾는 중/상대 발견!» 찾기 겹창)가 떠 있나 — 메뉴 효과음 문(nativeUiSfx)을 열고 결정의 메아리를 끝까지 */
+JNI(void, nativeSetAppMenu)(JNIEnv *env, jclass cls, jboolean on)
+{ (void)env; (void)cls; g_app_menu = on ? 1 : 0; }
+
 JNI(void, nativeSetPanelHz)(JNIEnv *env, jclass cls, jfloat hz)
 { (void)env; (void)cls; g_panel_hz_hint = hz; }
 
@@ -1225,11 +1343,12 @@ JNI(void, nativeAudioResume)(JNIEnv *env, jclass cls)
 { (void)env; (void)cls; if (g_loaded && !g_stream) audio_start(g_audio_rate); }
 
 /* 176: 덧판 메뉴 효과음(uisfx.c — 사무쇼2 메뉴 소리 합성) — kind 1 커서 · 2 결정 · 3 뒤로 · 0 줄여 끔. 아무 스레드.
-   메뉴가 보이거나(OVF_VISIBLE) 메뉴 멈춤(ov_hold) 중일 때만 받는다 — 메뉴가 없으면 소리도 없다. 소리는 오디오 콜백이 낸다(스트림이 닫혀 있으면 안 남) */
+   메뉴가 보이거나(OVF_VISIBLE) 메뉴 멈춤(ov_hold) 중일 때만 받는다 — 메뉴가 없으면 소리도 없다. 소리는 오디오 콜백이 낸다(스트림이 닫혀 있으면 안 남)
+   182: 앱 카드·찾기 겹창이 떠 있을 때(nativeSetAppMenu)도 받는다 — 그 밖엔 여전히 버린다 */
 JNI(jboolean, nativeUiSfx)(JNIEnv *env, jclass cls, jint kind)
 {
    (void)env; (void)cls;
-   if (kind != UISFX_STOP) {
+   if (kind != UISFX_STOP && !g_app_menu) {
       int v[OV_NSTAT];
       ov_status(v);
       if (!(v[OVS_FLAGS] & (OVF_VISIBLE | OVF_HOLD))) return JNI_FALSE;

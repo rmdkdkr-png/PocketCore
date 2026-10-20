@@ -11,6 +11,9 @@ void practice_tick(uint8_t *ram, size_t n, int input);
 extern volatile int practice_in_block, practice_in_or;
 /* 입력 콜백: 사용자 입력에 Option 이 있으면 이 비트도 지운다(Option 과 같은 프레임에 누른 방향·A·B — 경기 중 메뉴가 닫혀 있을 때만 0 아님) */
 extern volatile int practice_opt_mask;
+/* 182 연습 메뉴 효과음 — 소리 함수(native.c: uisfx_request · 없으면 조용) · 메뉴가 열려 있나(오디오 콜백이 결정의 메아리를 끝까지 — 잠금 없이 읽음) */
+void practice_sfx_fn(int (*fn)(int));
+extern volatile int practice_menu_up;
 /* 메뉴에서 나가기를 골랐나 — 1 «타이틀로» · 2 «다시 고르기» (한 번 읽으면 지운다). native.c 가 같은 잠금 안에서 리셋 → league_practice_return */
 int  practice_take_exit(void);
 /* 리셋·상태 불러오기 뒤 — 램·화면이 통째로 바뀌었으니 되돌리지 않고 잊는다(설정은 남김) */

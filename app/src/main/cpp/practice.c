@@ -32,6 +32,7 @@
 #include "cheat.h"
 #define PG_WANT_WINDOW
 #include "practice_glyphs.h"
+#include "uisfx.h"                                  /* 182: 효과음 종류 번호만(소리는 native.c 가 건 함수로 — 시험 빌드는 uisfx.c 없이도 된다) */
 
 #define RAM_BASE 0x4000
 #define A(x) ((x) - RAM_BASE)
@@ -95,6 +96,13 @@ static const int CAM[3] = { A(0x5FA0), A(0x576C), A(0x4880) };   /* 카메라 �
 #define P_ALL    0x0FFF
 
 volatile int practice_in_block = 0, practice_in_or = 0, practice_opt_mask = 0;
+/* 182 연습 메뉴 효과음(유저 고름 «연습 메뉴·나머지 메뉴 효과음») — 덧판 메뉴와 같은 사무쇼2 메뉴 소리: ↑↓ 커서 · A·←→ 값 바꿈 = 결정(게임 GAME OPTION 처럼) ·
+   «지금 리셋»·«상대 고르기» = 결정 · «타이틀로»·B·Option 닫기 = 뒤로. 소리 함수는 native.c 가 건다(practice_sfx_fn — 없으면 조용).
+   practice_menu_up: 메뉴가 열려 있는 동안 1 — 오디오 콜백이 결정의 메아리를 끝까지 낸다(잠금 없이 읽음) */
+volatile int practice_menu_up = 0;
+static int (*p_sfx)(int) = NULL;
+void practice_sfx_fn(int (*fn)(int)) { p_sfx = fn; }
+static void psfx(int kind) { if (p_sfx) p_sfx(kind); }
 static pthread_mutex_t P_mu = PTHREAD_MUTEX_INITIALIZER;
 static uint8_t *v_chr, *v_scr, *v_pal, *v_spr;
 
@@ -844,11 +852,11 @@ static void menu_exit(int code)
    window_restore(); hud_restore();
    P.exit_req = code; P.menu = M_EXIT; P.rq = 0;
 }
-static void change_value(int r, int d)
+static int change_value(int r, int d)              /* 182: 보이는 값이 바뀌었나(효과음) */
 {
    int n = r < PG_ROWS ? PG_NVAL[r] : 0;
-   if (n <= 0) return;
-   int v = row_value(r);
+   if (n <= 0) return 0;
+   int v = row_value(r), v0 = v;
    v = (v + n + d) % n;
    switch (r) {
    case 0: PS.dummy_cpu = P.cpu_ok ? v : 0; break;              /* 싸우지 않는 조합은 CPU 를 못 고른다 */
@@ -863,6 +871,7 @@ static void change_value(int r, int d)
    case 6: { static const int NUM[4] = { 0, 1, 0, 1 }, FDV[4] = { 0, 1, 1, 0 }; PS.num = NUM[v]; PS.fd = FDV[v]; } break;
    default: break;
    }
+   return row_value(r) != v0;
 }
 static void menu_input(int input, int edge)
 {
@@ -872,17 +881,20 @@ static void menu_input(int input, int edge)
    int dirs = input & P_DIRS & ~P.dir_lock, go = edge & P_DIRS & ~P.dir_lock;
    if (dirs && dirs == P.rep_bit) { if (P.f - P.rep_f >= 18 && ((P.f - P.rep_f - 18) % 5) == 0) go |= dirs; }
    else { P.rep_bit = dirs; P.rep_f = P.f; }
-   if (go & IN_U) P.row = (P.row + PG_ROWS - 1) % PG_ROWS;
-   if (go & IN_D) P.row = (P.row + 1) % PG_ROWS;
-   if (go & IN_L) change_value(P.row, -1);
-   if (go & IN_R) change_value(P.row, +1);
+   int moved = 0, changed = 0;
+   if (go & IN_U) { P.row = (P.row + PG_ROWS - 1) % PG_ROWS; moved = 1; }
+   if (go & IN_D) { P.row = (P.row + 1) % PG_ROWS; moved = 1; }
+   if (go & IN_L) changed |= change_value(P.row, -1);
+   if (go & IN_R) changed |= change_value(P.row, +1);
    if (edge & IN_A) {
-      if (PG_NVAL[P.row]) change_value(P.row, +1);
-      else if (P.row == 7) { menu_close(); request_reset(PS.rpos); return; }   /* 지금 리셋 — 멈춘 동안엔 동작을 끊을 수 없어 닫고 중립에서 */
-      else if (P.row == 8) { menu_exit(2); return; }                          /* 상대 고르기(예전 «다시 고르기») */
-      else if (P.row == 9) { menu_exit(1); return; }                          /* 타이틀로 */
+      if (PG_NVAL[P.row]) changed |= change_value(P.row, +1);
+      else if (P.row == 7) { psfx(UISFX_SELECT); menu_close(); request_reset(PS.rpos); return; }   /* 지금 리셋 — 멈춘 동안엔 동작을 끊을 수 없어 닫고 중립에서 */
+      else if (P.row == 8) { psfx(UISFX_SELECT); menu_exit(2); return; }                          /* 상대 고르기(예전 «다시 고르기») */
+      else if (P.row == 9) { psfx(UISFX_BACK); menu_exit(1); return; }                            /* 타이틀로(그만하기 — 덧판 «그만»처럼 뒤로) */
    }
-   if (edge & (IN_B | IN_OPT)) menu_close();
+   if (edge & (IN_B | IN_OPT)) { psfx(UISFX_BACK); menu_close(); return; }
+   if (changed) psfx(UISFX_SELECT);                  /* 182: 같은 프레임에 옮김과 값 바꿈이 겹치면 결정(센 쪽) */
+   else if (moved) psfx(UISFX_CURSOR);
 }
 
 static void activate(const uint8_t *ram, int dummy, int dsty)
@@ -958,7 +970,7 @@ void practice_tick(uint8_t *ram, size_t n, int input)
    g_ram = ram;
    if (!match || dummy < 0 || dummy > 14) {
       if (P.active) { P.active = 0; W.open = 0; }   /* 게임 쪽에서 경기가 끝남 — 화면이 이미 바뀌었으니 되돌리지 않는다 */
-      practice_in_block = 0; practice_in_or = 0; practice_opt_mask = 0;
+      practice_in_block = 0; practice_in_or = 0; practice_opt_mask = 0; practice_menu_up = 0;
       view_tick(ram, vbits, own);                   /* 176 보기(치트) */
       pthread_mutex_unlock(&P_mu);
       return;
@@ -1029,6 +1041,7 @@ void practice_tick(uint8_t *ram, size_t n, int input)
    /* 다음 프레임 입력 콜백: Option 을 이번에 막 눌렀다면 같은 프레임의 방향·A·B 도 게임에 안 준다(Option+↑ 가 한 프레임 점프로 새지 않게).
       practice_in_block 은 Option 을 본 다음 프레임부터라 한 프레임 늦다 — 리뷰 */
    practice_opt_mask = (P.menu == M_NONE && lv && !paused) ? P_GAME : 0;
+   practice_menu_up = P.menu == M_OPENING || P.menu == M_OPEN || P.menu == M_CLOSING;
    pthread_mutex_unlock(&P_mu);
 }
 
@@ -1063,7 +1076,7 @@ void practice_forget(void)
    P.active = 0; P.menu = M_NONE; P.exit_req = 0; W.open = 0; W.npool = 0; W.fx_orig[0] = W.fx_orig[1] = -1;
    memset(&AV, 0, sizeof AV); AV.shown = AV.shown_side = AV.disp = -1;   /* 176 보기도 — 화면 램이 통째로 바뀌었으니 되돌리지 않고 잊는다 */
    fd_reset(1); sv_win = 0;
-   practice_in_block = 0; practice_in_or = 0; practice_opt_mask = 0;
+   practice_in_block = 0; practice_in_or = 0; practice_opt_mask = 0; practice_menu_up = 0;
    pthread_mutex_unlock(&P_mu);
 }
 
