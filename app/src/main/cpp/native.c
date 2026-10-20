@@ -16,6 +16,7 @@
 #include "libretro.h"
 #include "pace.h"
 #include "sndfx.h"
+#include <stdatomic.h>
 #include "league.h"
 #include "practice.h"
 #include "look.h"
@@ -451,11 +452,23 @@ static int16_t cb_input_state(unsigned port, unsigned device, unsigned index, un
 /* audio                                                               */
 /* ------------------------------------------------------------------ */
 /* 176 음색 다듬기(sndfx.c — 저음 보강·고음 눅이기·좌우 넓힘·방 울림, 유저 「2 가 나은 방식이네」). 소리 카드 콜백에서 고리에서 꺼낸 소리에 —
-   게임 프레임 시간에 안 들어간다. g_fx 는 스트림이 없을 때(audio_start)만 만들고 바꾼다(콜백과 안 겹침). 켬/끔은 Java(nativeSetSoundFx) */
-static sndfx_t *g_fx = NULL;
-static int g_fx_rate = 0;
-static volatile int g_fx_on = 1;
+   게임 프레임 시간에 안 들어간다. 켬/끔·세부 값은 Java(nativeSetSoundFx).
+   178 세부 값(「조절해 보게 해 줘」): 값이 바뀌면 UI 스레드가 새 fx 를 다 만들어 g_fx_next 에 두고, 콜백이 다음 묶음 머리에서 바꿔 낀다(락 없음).
+   내려놓은 옛것은 g_fx_old 에 — 푸는 건 fx_gc(UI·GL 스레드). 콜백은 g_fx_old 가 비었을 때만 바꿔 낀다(못 푼 옛것을 덮지 않게).
+   스트림이 없을 때는 audio_start 가 g_audio_mx 아래에서 바로 고친다(콜백이 안 돈다). */
+static sndfx_t *g_fx = NULL;                /* 콜백이 쓰는 것 — 스트림이 돌 때는 콜백만 바꾼다 */
+static sndfx_t *_Atomic g_fx_next = NULL;   /* UI 스레드가 새로 만든 것 */
+static sndfx_t *_Atomic g_fx_old = NULL;    /* 콜백이 내려놓은 옛것 */
+static sndfx_params g_fxp;                  /* 바라는 값 · g_fxb = 마지막으로 만든(올린) 것의 값과 빠르기 — g_audio_mx 아래 */
+static sndfx_params g_fxb;
+static int g_fxb_rate = 0, g_fxp_set = 0;
+static atomic_int g_fx_on = 1;              /* UI 스레드가 쓰고 콜백이 읽는다 */
 static int g_fx_cur = 0;                    /* 콜백만 쓴다 — 지난 콜백에 돌렸나(꺼졌다 켜질 때 꼬리를 비우고 시작) */
+static void fx_gc(void)
+{
+   sndfx_t *o = atomic_exchange_explicit(&g_fx_old, NULL, memory_order_acq_rel);
+   if (o) sndfx_free(o);
+}
 
 static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
                                               void *audioData, int32_t numFrames)
@@ -476,8 +489,13 @@ static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
    }
    g_rd = rd;
    {
-      sndfx_t *fx = g_fx;
-      int on = g_fx_on && fx && !mute;      /* 무음 중엔 안 돌리고, 풀리면 꼬리 없이 새로 */
+      sndfx_t *fx;
+      if (!atomic_load_explicit(&g_fx_old, memory_order_acquire)) {   /* 178: 새 값 — 갓 만든 것(비어 있음)으로 바꿔 낀다. 켜진 채면 꼬리만 끊기고 비울 일은 없다 */
+         sndfx_t *nx = atomic_exchange_explicit(&g_fx_next, NULL, memory_order_acq_rel);
+         if (nx) { atomic_store_explicit(&g_fx_old, g_fx, memory_order_release); g_fx = nx; }
+      }
+      fx = g_fx;
+      int on = atomic_load_explicit(&g_fx_on, memory_order_relaxed) && fx && !mute;      /* 무음 중엔 안 돌리고, 풀리면 꼬리 없이 새로 */
       if (on) { if (!g_fx_cur) sndfx_reset(fx); sndfx_run(fx, out, (size_t)numFrames); }
       g_fx_cur = on;
    }
@@ -503,7 +521,14 @@ static void audio_start(int rate)
    if (g_stream) { pthread_mutex_unlock(&g_audio_mx); return; }   /* 이미 열려 있다 — 두 번 열면 앞 스트림이 샌다 */
    g_audio_rate = rate;
    g_audio_dead = 0;
-   if (!g_fx || g_fx_rate != rate) { sndfx_free(g_fx); g_fx = sndfx_new(rate); g_fx_rate = rate; }   /* 176 — 스트림이 없을 때만(콜백이 안 돈다) */
+   {  /* 176 — 스트림이 없을 때만(콜백이 안 돈다). 178: 올려 두고 못 바꿔 낀 것·내려놓은 것을 정리하고, 빠르기·값이 다르면 새로 */
+      sndfx_t *nx = atomic_exchange_explicit(&g_fx_next, NULL, memory_order_acq_rel);
+      if (!g_fxp_set) { sndfx_defaults(&g_fxp); g_fxp_set = 1; }
+      fx_gc();
+      if (nx) { sndfx_free(g_fx); g_fx = nx; }
+      if (!sndfx_same(g_fx, rate, &g_fxp)) { sndfx_free(g_fx); g_fx = sndfx_new(rate, &g_fxp); }
+      g_fxb = g_fxp; g_fxb_rate = rate;
+   }
    g_fx_cur = 0;
    if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) { pthread_mutex_unlock(&g_audio_mx); return; }
    AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_I16);
@@ -527,6 +552,7 @@ static void audio_stop(void)
       AAudioStream_close(g_stream);
       g_stream = NULL;
    }
+   fx_gc();                                  /* 178 */
    pthread_mutex_unlock(&g_audio_mx);
 }
 
@@ -1103,6 +1129,9 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
       audio_stop();
       audio_start(g_audio_rate);
    }
+   if (atomic_load_explicit(&g_fx_old, memory_order_relaxed)) {   /* 178: 콜백이 내려놓은 옛 음색 다듬기 */
+      pthread_mutex_lock(&g_audio_mx); fx_gc(); pthread_mutex_unlock(&g_audio_mx);
+   }
    /* 화면 vsync(60/120Hz)마다 불리지만, 코어는 게임 fps 로만 돌린다 —
       120Hz 폰에서 두 배속으로 돌던 문제의 수정. 150: 몇 번 돌릴지는 pace.c — 화면 vsync 수가 게임 프레임의 정수배면
       «k 번에 한 번»을 세어(예전 «시계가 마감을 넘었나»는 깨어나는 때가 조금만 흔들려도 한 번 거르고 두 번 돌았다),
@@ -1198,9 +1227,29 @@ JNI(void, nativeAudioPause)(JNIEnv *env, jclass cls)
 JNI(void, nativeAudioResume)(JNIEnv *env, jclass cls)
 { (void)env; (void)cls; if (g_loaded && !g_stream) audio_start(g_audio_rate); }
 
-/* 176 음색 다듬기 켬/끔 — 소리 카드 콜백이 다음 묶음부터 본다 */
-JNI(void, nativeSetSoundFx)(JNIEnv *env, jclass cls, jboolean on)
-{ (void)env; (void)cls; g_fx_on = on ? 1 : 0; }
+/* 176 음색 다듬기 켬/끔 — 소리 카드 콜백이 다음 묶음부터 본다.
+   178 세부 값(설정 0..100, 50 = 들어 보기 ②): 바뀌었으면 여기(UI 스레드)서 새 fx 를 만들어 올린다 — 콜백이 다음 묶음에 바꿔 낀다.
+   스트림이 없으면 값만 두고 audio_start 가 만든다 */
+JNI(void, nativeSetSoundFx)(JNIEnv *env, jclass cls, jboolean on, jint bass, jint treble, jint width, jint reverb, jint room)
+{
+   sndfx_params p;
+   (void)env; (void)cls;
+   sndfx_from_pct(&p, bass, treble, width, reverb, room);
+   pthread_mutex_lock(&g_audio_mx);
+   fx_gc();
+   g_fxp = p; g_fxp_set = 1;
+   if (g_stream && !(g_fxb_rate == g_audio_rate && g_fxb.bass_db == p.bass_db && g_fxb.treble_db == p.treble_db
+                     && g_fxb.width == p.width && g_fxb.mix == p.mix && g_fxb.rt == p.rt)) {
+      sndfx_t *nf = sndfx_new(g_audio_rate, &p), *stale;
+      if (nf) {
+         stale = atomic_exchange_explicit(&g_fx_next, nf, memory_order_acq_rel);   /* 콜백이 아직 안 가져간 앞엣것은 한 번도 안 쓰였다 */
+         sndfx_free(stale);
+         g_fxb = p; g_fxb_rate = g_audio_rate;
+      }
+   }
+   pthread_mutex_unlock(&g_audio_mx);
+   atomic_store_explicit(&g_fx_on, on ? 1 : 0, memory_order_relaxed);
+}
 
 /* 게임 속 리그: 결판 뒤 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
 JNI(void, nativeLeagueHubReturn)(JNIEnv *env, jclass cls, jint rematch)
