@@ -1823,9 +1823,14 @@ final class League {
        남기는 것(앱 설정): 내 이름(me.name) · pref 의 lgm(메뉴 설정)·stage(배경 고르기)·last_rom(리그를 연 롬)·color(옛 값 — Look.migrate 가 한 번 읽음) ·
        리그 롬(rom/)·리그 세이브(saves/ — 게임 쪽 세이브, 기록 아님). 몸 컬러·베기 색은 Look(앱 설정)이라 여기 없음.
        죽어도 안전: ① 새 기록을 .wipe 에 원자 저장 — 여기서 실패면 아무것도 안 바뀜 ② league.json·.bak 을 새 기록으로(원자 이름 바꾸기 — 여기서 실패면
-       .wipe 를 지우고 그대로) ③ 남은 옛 파일을 .trash/ 로 옮김 ④ .wipe 지움 ⑤ .trash 지움. ②~⑤ 사이에 죽으면 다음 db() 가 .wipe 를 보고
-       ②~⑤ 를 마저 한다(같은 내용 · 여러 번 해도 같다). .wipe 없이 .trash 만 남았으면 지운다. */
+       .wipe 를 지우고 그대로) ③ 리그 폴더에서 남길 것(WIPE_KEEP) 밖은 모두 .trash/ 로 옮김 ④ .wipe 지움 ⑤ .trash 지움. ②~⑤ 사이에 죽으면 다음 db() 가
+       .wipe 를 보고 ②~⑤ 를 마저 한다(같은 내용 · 여러 번 해도 같다). .wipe 없이 .trash 만 남았으면 지운다.
+       리그 폴더를 통째로 .trash 로 옮기지 않는 것은 롬·세이브를 두려고(경기 중 서랍에서 부르면 게임이 그 세이브 폴더를 쥐고 있다) — 그 밖은 통째와 같다. */
     static final String WIPE_MARK = ".wipe", WIPE_TRASH = ".trash";
+    /** 초기화가 리그 폴더에 남기는 것 — 새 기록 둘 · 리그 롬(rom/) · 리그 세이브(saves/ — 게임 쪽) · 초기화 표·쓰레기 자리.
+     *  그 밖(경기 기록 임시·체크포인트·.look·보관 archive/·못 읽은 옛 파일·끊긴 .wipe.tmp·모르는 파일)은 모두 옛 리그 것으로 지운다 */
+    private static final java.util.Set<String> WIPE_KEEP = new java.util.HashSet<>(java.util.Arrays.asList(
+            "league.json", "league.json.bak", "rom", "saves", WIPE_MARK, WIPE_TRASH));
     /** 초기화한 기록 — 첫 설치와 같은 길(fresh → upgrade → upgradeRanked: 새 SecureRandom 씨앗 · 배치 5판 · LP 0)에 내 이름·앱 설정 칸만 옮긴다 */
     static JSONObject wipedDb(JSONObject old) throws Exception {
         JSONObject j = fresh();
@@ -1865,7 +1870,7 @@ final class League {
         BoardCache.invalidate();
         return true;
     }
-    /** .bak 을 새 기록으로(못 쓰면 옛 .bak 을 치움 — 본 파일이 깨질 때 옛 기록이 되살아나지 않게) · 옛 파일을 .trash 로 · .wipe 지움 · .trash 지움 */
+    /** .bak 을 새 기록으로(못 쓰면 옛 .bak 을 치움 — 본 파일이 깨질 때 옛 기록이 되살아나지 않게) · WIPE_KEEP 밖을 .trash 로 · .wipe 지움 · .trash 지움 */
     private static void wipeTail(byte[] b) {
         File d = dir(), trash = new File(d, WIPE_TRASH);
         if (!atomicWrite(bak(), b)) { bak().delete(); new File(bak().getPath() + ".tmp").delete(); }
@@ -1873,9 +1878,7 @@ final class League {
         File[] fs = d.listFiles();
         for (int i = 0; fs != null && i < fs.length; i++) {
             String nm = fs[i].getName();
-            boolean old = nm.equals("archive") || nm.startsWith("ckpt_") || nm.startsWith("league.json.unreadable-") || nm.startsWith("league.json.bak.unreadable-")
-                    || nm.equals("league.json.tmp") || nm.equals("league.json.bak.tmp");
-            if (!old) continue;
+            if (WIPE_KEEP.contains(nm)) continue;                                      /* 남길 것 밖은 모두 옛 리그 것(통째 옮기기와 같게) */
             File to = new File(trash, nm);
             if (to.exists()) rmTree(to);
             if (!fs[i].renameTo(to)) rmTree(fs[i]);                               /* 옮기지 못하면 그 자리에서 지움 */
@@ -1897,9 +1900,12 @@ final class League {
             } catch (Exception e) { mark.delete(); }
         } else if (trash.exists()) rmTree(trash);
     }
+    /** 지우기 — 바로가기(심볼 링크)는 링크만 지우고 따라 들어가지 않는다(리그 폴더 밖을 지우지 않게) */
     private static void rmTree(File f) {
-        if (f == null || !f.exists()) return;
-        File[] fs = f.isDirectory() ? f.listFiles() : null;
+        if (f == null) return;
+        boolean link = java.nio.file.Files.isSymbolicLink(f.toPath());
+        if (!link && !f.exists()) return;
+        File[] fs = !link && f.isDirectory() ? f.listFiles() : null;
         for (int i = 0; fs != null && i < fs.length; i++) rmTree(fs[i]);
         f.delete();
     }
