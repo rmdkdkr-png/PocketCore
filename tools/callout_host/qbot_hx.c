@@ -7,7 +7,8 @@
          OPTS="k=v,…" · HZ · FAKECLK(속도 감시 시계 = 호출 / HZ) · HASHALL(hash.txt) · WHITELOG(«W 호출 흰 화소 수») · APPCOMP(앱 모드에서 앱식 이펙트 합성 뒤 해시)
          DUMP=a-b · DUMPLIST=파일 · DUMPEV=n(사건마다 n 호출 PPM, DUMPMAX) · SAVETEST(번쩍 다음 호출 앞 저장 — 상태에 흰 몸 없나·팔레트 그대로인가)
          LOADAT=f(그 프레임 상태 떠 두고 f+300 에 불러옴) · FRA(프론트엔드 런어헤드 1 흉내: 숨은 호출 → 저장 → 보이는 호출 → 불러오기)
-         STYLE=under,alpha(193 이펙트 그리는 법 — 기본 1,0 = 내 캐릭터 밑 · 컷 값마다 반투명, 0,256 = 192 식. 코어 retro_ngp_hit_style 과 APPCOMP 합성 둘 다)
+         STYLE=under,alpha(193·194 이펙트 그리는 법 — 기본 1,0 = 때린 몸 밑 · 컷 값마다 반투명, 0,256 = 192 식. 코어 retro_ngp_hit_style 과 APPCOMP 합성 둘 다)
+         OWNDUMP=호출,호출…(그 호출의 그린 쪽 지도 own_호출.pgm — 0 판·창 · 스프라이트 팔레트 + 1)
          코어 모드 ev.txt 에 «HITPOS 호출 p1 x,y p2 x,y cam 콤보 act 히트스톱» — 맞음마다 두 몸 자리
          OBJLOG · RAMLOG · STY(조사용)
    ⚠ 롬 RTC 가 벽시계를 읽는다 — 견줄 판은 같은 초에 띄울 것(qbot_hx_par.sh). 앱 libretro.h 의 GET_AUDIO_VIDEO_ENABLE 값은 틀려서 여기선 47|0x10000 을 직접 쓴다. */
@@ -60,19 +61,19 @@ static void hash_frame(void)
 }
 static uint32_t rgb12(int c) { uint32_t r = (c & 15) * 17, g = ((c >> 4) & 15) * 17, b = ((c >> 8) & 15) * 17; return r | g << 8 | b << 16 | 0xFF000000u; }
 /* APPCOMP: 앱처럼 이펙트를 그림 줄에 얹는다(callout_fx_draw — RGBA) → 565 로 되돌려 g_frame 에 */
-/* 193: 코어처럼 내 캐릭터(P1 스프라이트 팔레트 0~4) 밑 · 컷 값마다 불투명도(흰 심 224 · 가운데 176 · 테두리 112 /256) — 따로 짠 같은 식.
+/* 193·194: 코어처럼 때린 몸(P1 스프라이트 팔레트 0~4 · P2 5~9) 밑 · 컷 값마다 불투명도(흰 심 224 · 가운데 176 · 테두리 112 /256) — 따로 짠 같은 식.
    STYLE=under,alpha(기본 1,0 — alpha 0 = 값마다 · 1~256 = 한 값) */
 static const uint8_t *(*g_owner)(void); static int st_u = 1, st_a = 0;
 static uint16_t mix565h(uint16_t s, uint16_t d, int a) { int na = 256 - a;
   int r = (((s >> 11) & 31) * a + ((d >> 11) & 31) * na + 128) >> 8, g = (((s >> 5) & 63) * a + ((d >> 5) & 63) * na + 128) >> 8, b = ((s & 31) * a + (d & 31) * na + 128) >> 8;
   return (uint16_t)(r << 11 | g << 5 | b); }
 typedef struct { int sub; const uint8_t *own; } hctx;
-static void hput(void *ctx, int gx, int gy, uint16_t c12, int v)
+static void hput(void *ctx, int gx, int gy, uint16_t c12, int v, int att)
 {
   const hctx *h = ctx; uint32_t c = rgb12(c12);
   int r = c & 255, g = (c >> 8) & 255, b = (c >> 16) & 255, a = st_a ? st_a : v == 1 ? 224 : v == 2 ? 176 : 112;
   uint16_t s = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
-  if (h->own && h->own[gy * 160 + gx] >= 1 && h->own[gy * 160 + gx] <= 5) return;
+  if (h->own && att >= 0) { int o = h->own[gy * 160 + gx], lo = att == 1 ? 6 : 1; if (o >= lo && o < lo + 5) return; }   /* 194 때린 몸 밑 */
   for (int y = 0; y < h->sub; y++) for (int x = 0; x < h->sub; x++) { uint16_t *d = &g_frame[(gy * h->sub + y) * g_w + gx * h->sub + x]; *d = a >= 256 ? s : mix565h(s, *d, a); }
 }
 static void app_composite(void)
@@ -166,6 +167,10 @@ static void run1(void) {
     if (!ri) { ri = 1; if (getenv("RAMLOG")) rl = fopen(getenv("RAMLOG"), "wb"); }
     if (rl && g_ram && (g_calls % 8) == 0) { uint32_t c = (uint32_t)g_calls, m = (uint32_t)mask; fwrite(&c, 4, 1, rl); fwrite(&m, 4, 1, rl); fwrite(g_ram, 1, 16384, rl); }
   }
+  if (getenv("OWNDUMP") && g_owner) {   /* OWNDUMP=호출,호출… — 그 호출의 그린 쪽 지도(160×152, 값 그대로) → own_호출.pgm */
+    char t[256]; snprintf(t, sizeof t, ",%s,", getenv("OWNDUMP")); char k[32]; snprintf(k, sizeof k, ",%ld,", g_calls);
+    if (strstr(t, k)) { char q[700]; snprintf(q, sizeof q, "%s/own_%06ld.pgm", outdir, g_calls); FILE *o = fopen(q, "wb");
+      if (o) { fprintf(o, "P5 160 152 255\n"); fwrite(g_owner(), 1, 160 * 152, o); fclose(o); } } }
   if (mode == 0 && getenv("APPCOMP")) app_composite();
   hash_frame();
   if (getenv("WHITELOG") && g_frame_ok) fprintf(evf, "W %ld %d\n", g_calls, white_px());

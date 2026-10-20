@@ -55,6 +55,7 @@ typedef struct {
    int cel, sub, hold;          /* 지금 컷 · 컷 안 프레임 · 히트스톱 동안 첫 컷 유지 */
    uint16_t col[3];             /* 12비트 0x0BGR — 1 흰 심 · 2 가운데 · 3 테두리(때린 쪽 칼 궤적 색) */
    uint32_t seq;                /* 낸 차례(다 차면 가장 오래된 것) */
+   int att;                     /* 194 때린 쪽(0 P1 · 1 P2 · −1 없음 — 칼 부딪힘·흙먼지) — 코어가 그 몸 밑 · 맞은 몸 위로 그린다 */
 } dfx_t;
 enum { FXK_L = 0, FXK_H, FXK_T, FXK_G, FXK_C, FXK_D, FXK_K, FXK_S };   /* 섬광 약·강·작은 것 · 185: 가드 반달 · 칼 부딪힘 · 넘어짐 먼지 · 막타 일섬 · 187: 강베기 일섬(칼 궤적 색) */
 static dfx_t FX[FX_MAX];
@@ -155,7 +156,7 @@ static dfx_t *fx_new(void)
 {
    if (atomic_load(&fx_mode) == FXM_OFF) return NULL;
    memset(FX, 0, sizeof FX);
-   FX[0].on = 1; FX[0].seq = ++fx_seq;
+   FX[0].on = 1; FX[0].seq = ++fx_seq; FX[0].att = -1;
    return &FX[0];
 }
 
@@ -192,7 +193,7 @@ static void fx_spawn(const uint8_t *ram, int d, int kind, int ring)
    (void)ring;                                      /* 193: 반격 고리 안 얹음(한 번에 하나) */
    impact(ram, d, &ix, &iy, &dir);
    int dx = rd16(ram, OBJ(d) + 8), fy = rd16(ram, OBJ(d) + 0xA);
-   e->kind = kind; e->ring = 0; e->dir = dir;
+   e->kind = kind; e->ring = 0; e->dir = dir; e->att = a;
    e->wx = kind == FXK_K ? dx : kind == FXK_G ? dx - dir * 9 : kind == FXK_S ? dx + dir * 4 : ix;   /* 193 일섬은 맞은 몸 가운데 4px 뒤 — 31px 초승달이 때린 몸을 덮지 않게(유저 「위치 조정」) */
    e->y = kind == FXK_K ? fy - 24 : iy;
    e->hold = kind != FXK_T && kind != FXK_H && kind != FXK_S;   /* 192 혜성·앞 강베기 일섬은 히트스톱 동안에도 움직임(유저 「정지화면 뚝이라 애니메이션으로」) */
@@ -597,9 +598,10 @@ void callout_fx_draw(uint8_t *rows, uint8_t *ph, int row0, int nrows, int fbw, i
 
 int callout_fx_count(void) { int n = 0; for (int i = 0; i < FX_MAX; i++) n += FX[i].on; return n; }
 
-/* 191 코어용(같은 파일을 코어도 쓴다) — 지금 이펙트의 화소마다 put(ctx, gx, gy, c12, v): 게임 좌표(놀이 칸 안·화면 안만) · 12비트 0x0BGR · 193 v = 컷 값(1 흰 심 · 2 가운데 · 3 테두리).
+/* 191 코어용(같은 파일을 코어도 쓴다) — 지금 이펙트의 화소마다 put(ctx, gx, gy, c12, v, att): 게임 좌표(놀이 칸 안·화면 안만) · 12비트 0x0BGR · 193 v = 컷 값(1 흰 심 · 2 가운데 · 3 테두리) ·
+   194 att = 때린 쪽(0 P1 · 1 P2 · −1 없음).
    먼저 낸 것부터(나중 것이 위) — callout_fx_draw 와 같은 차례·같은 자리 */
-void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12, int v), void *ctx)
+void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12, int v, int att), void *ctx)
 {
    if (!put || atomic_load(&fx_mode) == FXM_OFF) return;
    int idx[FX_MAX], n = 0;
@@ -620,7 +622,7 @@ void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12, int v)
                if (!v) continue;
                int gx = flip[l] ? sx + c->ax - xx : sx - c->ax + xx;
                if (gx < 0 || gx > 159) continue;
-               put(ctx, gx, gy, pal[l][v - 1], v);
+               put(ctx, gx, gy, pal[l][v - 1], v, e->att);
             }
          }
       }

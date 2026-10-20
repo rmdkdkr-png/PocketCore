@@ -20,6 +20,8 @@
   (0 = 판·창 · 스프라이트 팔레트 + 1)을 떠 두고(그림·게임 영향 없음, 런어헤드면 보여 줄 프레임 것) 이펙트는 내 캐릭터(P1 팔레트 0~4) 화소를 건너뜀(그 밑) ·
   컷 값마다 반투명(흰 심 88% · 가운데 69% · 테두리 44%) · 앞 강베기 일섬 자리 = 맞은 몸 가운데 4px 뒤. retro_ngp_hit_style(under, alpha)·retro_ngp_hit_owner() 는 시험용.
   봇 판 그림 해시 = 같은 식을 따로 짠 앱식 합성과 같음(1배 · 4배 서기 그리기 · 런어헤드 2), (0, 256) = 192 식 그림과도 같음.
+194: 유저 「아니 피격자 위 공격자 아래로 하잔 말임」 — 이펙트를 늘 P1 밑이 아니라 때린 몸(P1 팔레트 0~4 · P2 5~9) 밑 · 맞은 몸 위로(193 은 CPU 에게 맞을 때
+  이펙트가 내 몸 밑이라 거의 안 보였다). callout_fx_each 가 때린 쪽(att, 칼 부딪힘·흙먼지는 −1 = 맨 위)을 넘김. 봇 판 그림 해시 = 앱식 합성(1배·4배·런어헤드 2) 그대로 같음.
 
 diff --git a/src/Makefile.common b/src/Makefile.common
 index 970f27f..5d4e952 100644
@@ -39,10 +41,10 @@ index 970f27f..5d4e952 100644
  SOURCES_C += \
 diff --git a/src/callout.c b/src/callout.c
 new file mode 100644
-index 0000000..13cb7ce
+index 0000000..8272344
 --- /dev/null
 +++ b/src/callout.c
-@@ -0,0 +1,642 @@
+@@ -0,0 +1,644 @@
 +/* 타격 알림 — 설명은 callout.h. 램 주소·칸 규칙은 practice.c(연습 대전 프레임 미터)와 같은 것만 쓴다. */
 +#include "callout.h"
 +#include "callout_atlas.h"
@@ -100,6 +102,7 @@ index 0000000..13cb7ce
 +   int cel, sub, hold;          /* 지금 컷 · 컷 안 프레임 · 히트스톱 동안 첫 컷 유지 */
 +   uint16_t col[3];             /* 12비트 0x0BGR — 1 흰 심 · 2 가운데 · 3 테두리(때린 쪽 칼 궤적 색) */
 +   uint32_t seq;                /* 낸 차례(다 차면 가장 오래된 것) */
++   int att;                     /* 194 때린 쪽(0 P1 · 1 P2 · −1 없음 — 칼 부딪힘·흙먼지) — 코어가 그 몸 밑 · 맞은 몸 위로 그린다 */
 +} dfx_t;
 +enum { FXK_L = 0, FXK_H, FXK_T, FXK_G, FXK_C, FXK_D, FXK_K, FXK_S };   /* 섬광 약·강·작은 것 · 185: 가드 반달 · 칼 부딪힘 · 넘어짐 먼지 · 막타 일섬 · 187: 강베기 일섬(칼 궤적 색) */
 +static dfx_t FX[FX_MAX];
@@ -200,7 +203,7 @@ index 0000000..13cb7ce
 +{
 +   if (atomic_load(&fx_mode) == FXM_OFF) return NULL;
 +   memset(FX, 0, sizeof FX);
-+   FX[0].on = 1; FX[0].seq = ++fx_seq;
++   FX[0].on = 1; FX[0].seq = ++fx_seq; FX[0].att = -1;
 +   return &FX[0];
 +}
 +
@@ -237,7 +240,7 @@ index 0000000..13cb7ce
 +   (void)ring;                                      /* 193: 반격 고리 안 얹음(한 번에 하나) */
 +   impact(ram, d, &ix, &iy, &dir);
 +   int dx = rd16(ram, OBJ(d) + 8), fy = rd16(ram, OBJ(d) + 0xA);
-+   e->kind = kind; e->ring = 0; e->dir = dir;
++   e->kind = kind; e->ring = 0; e->dir = dir; e->att = a;
 +   e->wx = kind == FXK_K ? dx : kind == FXK_G ? dx - dir * 9 : kind == FXK_S ? dx + dir * 4 : ix;   /* 193 일섬은 맞은 몸 가운데 4px 뒤 — 31px 초승달이 때린 몸을 덮지 않게(유저 「위치 조정」) */
 +   e->y = kind == FXK_K ? fy - 24 : iy;
 +   e->hold = kind != FXK_T && kind != FXK_H && kind != FXK_S;   /* 192 혜성·앞 강베기 일섬은 히트스톱 동안에도 움직임(유저 「정지화면 뚝이라 애니메이션으로」) */
@@ -642,9 +645,10 @@ index 0000000..13cb7ce
 +
 +int callout_fx_count(void) { int n = 0; for (int i = 0; i < FX_MAX; i++) n += FX[i].on; return n; }
 +
-+/* 191 코어용(같은 파일을 코어도 쓴다) — 지금 이펙트의 화소마다 put(ctx, gx, gy, c12, v): 게임 좌표(놀이 칸 안·화면 안만) · 12비트 0x0BGR · 193 v = 컷 값(1 흰 심 · 2 가운데 · 3 테두리).
++/* 191 코어용(같은 파일을 코어도 쓴다) — 지금 이펙트의 화소마다 put(ctx, gx, gy, c12, v, att): 게임 좌표(놀이 칸 안·화면 안만) · 12비트 0x0BGR · 193 v = 컷 값(1 흰 심 · 2 가운데 · 3 테두리) ·
++   194 att = 때린 쪽(0 P1 · 1 P2 · −1 없음).
 +   먼저 낸 것부터(나중 것이 위) — callout_fx_draw 와 같은 차례·같은 자리 */
-+void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12, int v), void *ctx)
++void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12, int v, int att), void *ctx)
 +{
 +   if (!put || atomic_load(&fx_mode) == FXM_OFF) return;
 +   int idx[FX_MAX], n = 0;
@@ -665,7 +669,7 @@ index 0000000..13cb7ce
 +               if (!v) continue;
 +               int gx = flip[l] ? sx + c->ax - xx : sx - c->ax + xx;
 +               if (gx < 0 || gx > 159) continue;
-+               put(ctx, gx, gy, pal[l][v - 1], v);
++               put(ctx, gx, gy, pal[l][v - 1], v, e->att);
 +            }
 +         }
 +      }
@@ -687,7 +691,7 @@ index 0000000..13cb7ce
 +}
 diff --git a/src/callout.h b/src/callout.h
 new file mode 100644
-index 0000000..89a5b43
+index 0000000..65ecdb9
 --- /dev/null
 +++ b/src/callout.h
 @@ -0,0 +1,82 @@
@@ -763,7 +767,7 @@ index 0000000..89a5b43
 +   sub = 게임 화소당 텍셀 · rgb = 12비트 0x0BGR → 메모리 R,G,B,A 순 32비트(ov_rgb) · ph = 같은 줄의 쪽지(NULL 가능) — 이펙트 텍셀은 0. GL 스레드 */
 +void callout_fx_draw(uint8_t *rows, uint8_t *ph, int row0, int nrows, int fbw, int ox, int oy, int sub, uint32_t (*rgb)(int c12));   /* rows NULL = 쪽지만 */
 +int  callout_fx_count(void);          /* 시험 — 지금 이펙트 수 */
-+void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12, int v), void *ctx);   /* 191 코어 — 이펙트 화소마다(게임 좌표·12비트 색 · 193 v = 1 흰 심 · 2 가운데 · 3 테두리 — 코어가 값마다 불투명도를 다르게) */
++void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12, int v, int att), void *ctx);   /* 191 코어 — 이펙트 화소마다(게임 좌표·12비트 색 · 193 v = 1 흰 심 · 2 가운데 · 3 테두리 — 코어가 값마다 불투명도를 다르게 · 194 att = 때린 쪽 0/1, 없으면 −1 — 코어가 그 몸 밑으로) */
 +/* 186 몸 번쩍 — 이번 tick 에 앞 강베기 맞음(189·190)이 있었으면 맞은 쪽 + 1(가져가면 0). callout_flash_enable 로 켰을 때만(191 — 전엔 이펙트를 켰을 때).
 +   native.c(앱)·ss2hit.c(코어)가 callout_tick 바로 뒤 → hitflash_start */
 +int  callout_flash_take(void);
@@ -2141,10 +2145,10 @@ index 0ffcb2a..11280ee 100644
  #ifdef __cplusplus
 diff --git a/src/ss2hit.c b/src/ss2hit.c
 new file mode 100644
-index 0000000..0c5defa
+index 0000000..3822d8b
 --- /dev/null
 +++ b/src/ss2hit.c
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,235 @@
 +/* ss2hit — 설명은 ss2hit.h. callout.c·hitflash.c(앱 Legacito 원본 그대로)를 코어의 프레임·그림·팔레트에 잇는다.
 + *
 + * 시계: 라벨 움직임은 진짜 프레임 수 / 60 초(앱은 vsync 시각 — 60Hz 게임에선 같다). 120Hz 합성 호출은 반 프레임 뒤.
@@ -2152,9 +2156,10 @@ index 0000000..0c5defa
 + * 몸 번쩍: 실제 팔레트 램에 흰색 + gfx.c 번쩍 층(게임이 맞은 지 2 프레임 뒤 몸 팔레트를 다시 쓰는 것도 흰색으로 — 런어헤드에서도 보이게).
 + * 그림: 이펙트는 게임 화소(4배 그림이면 4×4, 쪽지 0) · 라벨은 4배 아틀라스(앱 GL 과 같은 그림) — 4배 그림엔 텍셀 그대로,
 + *       1배 그림엔 4×4 텍셀 평균(넓이 거르기). 놀이 칸·게임 사각형 밖은 안 그린다.
-+ * 193: 이펙트는 내 캐릭터(P1 — 스프라이트 팔레트 0~4) 밑 · 반투명(흰 심 88% · 가운데 69% · 테두리 44%) — 유저 10-21 「베기 효과가 내 캐릭터를 너무 가림 /
-+ *       반투명 적용 안 되나 위치 조정이랑 / 내 캐릭터 레이어 아래에 놓든지」. 화소마다 누가 그렸나는 gfx.c 가 마지막으로 그린 프레임 것
-+ *       (런어헤드면 보여 줄 프레임 D — 숨은 프레임 중 그 하나만 그린다).
++ * 193: 반투명(흰 심 88% · 가운데 69% · 테두리 44%) — 유저 10-21 「베기 효과가 내 캐릭터를 너무 가림 / 반투명 적용 안 되나 위치 조정이랑 /
++ *       내 캐릭터 레이어 아래에 놓든지」. 194: 「피격자 위 공격자 아래로 하잔 말임」 — 이펙트는 때린 몸(P1 스프라이트 팔레트 0~4 · P2 5~9) 밑 ·
++ *       맞은 몸 위(193 은 늘 P1 밑이라 CPU 에게 맞을 때 거의 안 보였다). 칼 부딪힘·흙먼지는 맨 위. 화소마다 누가 그렸나는 gfx.c 가 마지막으로
++ *       그린 프레임 것(런어헤드면 보여 줄 프레임 D — 숨은 프레임 중 그 하나만 그린다).
 + */
 +#include <stdlib.h>
 +#include <string.h>
@@ -2167,7 +2172,7 @@ index 0000000..0c5defa
 +const uint8_t *ngpgfx_owner_map(void);                                        /* mednafen/ngp/gfx.c — 193 */
 +
 +static const int FX_A[4] = { 256, 224, 176, 112 };   /* 193 컷 값마다 불투명도(/256) — 흰 심 88% · 가운데 69% · 테두리 44%(테두리가 옅어 덜 덮고 심은 또렷) */
-+static int h_under = 1, h_alpha = 0;   /* 시험(retro_ngp_hit_style): alpha 0 = 값마다(기본) · 1~256 = 한 값(256 = 192 까지처럼 다 가림) */
++static int h_under = 1, h_alpha = 0;   /* 시험(retro_ngp_hit_style): under 1 = 때린 몸 밑(기본) · alpha 0 = 값마다(기본) · 1~256 = 한 값(256 = 192 까지처럼 다 가림) */
 +
 +static unsigned h_rf;                 /* 진짜 프레임 수(라벨 시계) */
 +static int      h_lead = -1;          /* 지난 판정의 앞선 프레임 수 */
@@ -2273,14 +2278,14 @@ index 0000000..0c5defa
 +   return (uint16_t)(r << 11 | g << 5 | b);
 +}
 +
-+static void fx_put(void *ctx, int gx, int gy, uint16_t c12, int val)
++static void fx_put(void *ctx, int gx, int gy, uint16_t c12, int val, int att)
 +{
 +   const dctx *c = (const dctx *)ctx;
 +   uint16_t v = (uint16_t)c->cmap[c12 & 0xFFF];
 +   int a = h_alpha ? h_alpha : FX_A[val & 3];
-+   if (c->own) {
-+      unsigned o = c->own[gy * 160 + gx];
-+      if (o >= 1 && o <= 5) return;      /* 193 내 캐릭터(P1 스프라이트 팔레트 0~4)가 그린 화소 — 이펙트는 그 밑 */
++   if (c->own && att >= 0) {
++      unsigned o = c->own[gy * 160 + gx], lo = att ? 6u : 1u;
++      if (o >= lo && o <= lo + 4) return;   /* 194 때린 몸(P1 팔레트 0~4 · P2 5~9)이 그린 화소 — 이펙트는 그 밑, 맞은 몸 위 */
 +   }
 +   for (int ty = 0; ty < c->sub; ty++) {
 +      size_t o = (size_t)(c->oy + gy * c->sub + ty) * (size_t)c->pitch + (size_t)(c->ox + gx * c->sub);
@@ -2381,7 +2386,7 @@ index 0000000..0c5defa
 +}
 diff --git a/src/ss2hit.h b/src/ss2hit.h
 new file mode 100644
-index 0000000..66f7a92
+index 0000000..b53a6b9
 --- /dev/null
 +++ b/src/ss2hit.h
 @@ -0,0 +1,29 @@
@@ -2410,7 +2415,7 @@ index 0000000..66f7a92
 +void ss2hit_save_end(uint8_t *pal);
 +/* 시험 — v[0..7] = callout_stats · [8] 지금 이펙트 수 · [9] 번쩍 비트 · [10] 낸 번쩍 수 */
 +void ss2hit_debug(int v[11]);
-+/* 시험 — 193 이펙트 그리는 법: under = 내 캐릭터(P1) 밑으로(1, 기본) · alpha = 0 컷 값마다(기본) · 1~256 한 불투명도. (0, 256) = 192 까지 그림 */
++/* 시험 — 193·194 이펙트 그리는 법: under = 때린 몸 밑으로(1, 기본) · alpha = 0 컷 값마다(기본) · 1~256 한 불투명도. (0, 256) = 192 까지 그림 */
 +void ss2hit_style(int under, int alpha);
 +
 +#endif

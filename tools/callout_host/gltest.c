@@ -95,8 +95,8 @@ static void make_frame(unsigned fw, unsigned fh)
 }
 
 static uint32_t rgb12_test(int c) { uint32_t r = (c & 15) * 17, g = ((c >> 4) & 15) * 17, b = ((c >> 8) & 15) * 17; return r | g << 8 | b << 16 | 0xFF000000u; }
-static int put_badv;   /* 193 v(컷 값)가 1~3 이 아니거나 흰 심(1)이 흰색이 아님 */
-static void put_test(void *ctx, int gx, int gy, uint16_t c12, int v) { uint32_t c = rgb12_test(c12); if (v < 1 || v > 3 || (v == 1) != (c12 == 0xFFF)) put_badv++; memcpy((uint8_t *)ctx + ((size_t)gy * 160 + gx) * 4, &c, 4); }
+static int put_badv, put_att = -2;   /* 193 v(컷 값)가 1~3 이 아니거나 흰 심(1)이 흰색이 아님 · 194 마지막으로 받은 때린 쪽 */
+static void put_test(void *ctx, int gx, int gy, uint16_t c12, int v, int att) { uint32_t c = rgb12_test(c12); if (v < 1 || v > 3 || (v == 1) != (c12 == 0xFFF)) put_badv++; put_att = att; memcpy((uint8_t *)ctx + ((size_t)gy * 160 + gx) * 4, &c, 4); }
 
 int main(int argc, char **argv)
 {
@@ -428,6 +428,7 @@ int main(int argc, char **argv)
          TICK6();
       }
       CHECK(same && cnt > 0 && !put_badv, "191 fx_each = fx_draw(화소 %d 개, 14 프레임) · 193 컷 값 v 맞음(틀림 %d)", cnt, put_badv);
+      CHECK(put_att == 1, "194 fx_each 때린 쪽 = P2(맞은 몸 P1 — 받은 att %d)", put_att);
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
    }
    /* ── 192·193 강베기 일섬: 히트스톱 동안에도 움직임(7컷 12 프레임) · 크기 31×23 안 · 약 섬광은 그대로 멈춤 ·
