@@ -406,20 +406,52 @@ static void ring_push(const int16_t *data, size_t frames)
    g_wr = wr;
 }
 
+/* 176 음색 다듬기(sndfx.c — 저음 보강·고음 눅이기·좌우 넓힘·방 울림, 유저 「2 가 나은 방식이네」) · 178 세부 값(「조절해 보게 해 줘」).
+   179 배경음만(유저 「음색 다듬기 에러 심하면 배경음만 하던지」): 동봉 사무쇼2 코어(snd_noise 패치)가 잡음 칸(ch3)만 따로 주면(retro_ngp_snd_noise)
+   «소리 − 잡음»(사각파 셋 = 곡)에만 하고 잡음(대전 효과음 — 효과음은 대전 중 잡음 칸만 쓴다)은 그대로 더한다. 그래서 이제 코어 소리 콜백
+   (cb_audio_batch — retro_run 안, CORE_LOCK 아래)에서 늘림(drc) 앞에 돈다 — 소리 카드 콜백(실시간 스레드)은 고리에서 꺼내기만.
+   새 값은 UI 스레드(nativeSetSoundFx)가 다 만들어 g_fx_next 로 넘기고, 여기서 바꿔 끼우며 옛것을 푼다 */
+static sndfx_t *g_fx = NULL;                /* fx_apply 만 만진다(CORE_LOCK 아래) */
+static sndfx_t *_Atomic g_fx_next = NULL;   /* UI 스레드가 새로 만든 것 */
+static pthread_mutex_t g_fx_mx = PTHREAD_MUTEX_INITIALIZER;
+static sndfx_params g_fxb;                  /* 마지막으로 만든(올린) 것의 값·빠르기 — g_fx_mx 아래 */
+static int g_fxb_rate = 0, g_fxb_set = 0;
+static atomic_int g_fx_on = 1, g_fx_bgm = 1;   /* UI 스레드가 쓰고 fx_apply 가 읽는다 */
+static int g_fx_cur = 0;                    /* fx_apply 만 — 지난 묶음에 돌렸나(꺼졌다 켜질 때·무음 뒤엔 꼬리를 비우고 시작) */
+static const int16_t *(*c_snd_noise)(const int16_t *, unsigned) = NULL;   /* 코어의 잡음 칸(없으면 통째로) */
+static int16_t g_fx_buf[4096 * 2];
+static int16_t clamp16(int v) { return (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v); }
+static const int16_t *fx_apply(const int16_t *src, size_t n)
+{
+   sndfx_t *nx = atomic_exchange_explicit(&g_fx_next, NULL, memory_order_acq_rel);
+   const int16_t *nz;
+   size_t i;
+   if (nx) { sndfx_free(g_fx); g_fx = nx; }     /* 갓 만든 것(비어 있음) — 켜진 채면 꼬리만 끊긴다 */
+   if (!atomic_load_explicit(&g_fx_on, memory_order_relaxed) || !g_fx || n > 4096) { g_fx_cur = 0; return src; }
+   if (!g_fx_cur) { sndfx_reset(g_fx); g_fx_cur = 1; }
+   nz = atomic_load_explicit(&g_fx_bgm, memory_order_relaxed) && c_snd_noise ? c_snd_noise(src, (unsigned)n) : NULL;
+   if (nz) for (i = 0; i < n * 2; i++) g_fx_buf[i] = clamp16(src[i] - nz[i]);
+   else memcpy(g_fx_buf, src, n * 2 * sizeof(int16_t));
+   sndfx_run(g_fx, g_fx_buf, n);
+   if (nz) for (i = 0; i < n * 2; i++) g_fx_buf[i] = clamp16(g_fx_buf[i] + nz[i]);
+   return g_fx_buf;
+}
+
 static int g_mute_drop = 0;                 /* 153: 소리를 버리던 중 — 풀리면 늘림(drc)을 새로(버린 앞 샘플과 잇지 않게) */
 static size_t cb_audio_batch(const int16_t *data, size_t frames)
 {
    size_t done = 0;
-   if (league_mute) { g_mute_drop = 1; return frames; }   /* 153: 랭크 자동 진행(4배속) 동안 — 고리에 안 넣는다(배속 소리가 남아 뒤에 나오지 않게) */
+   if (league_mute) { g_mute_drop = 1; g_fx_cur = 0; return frames; }   /* 153: 랭크 자동 진행(4배속) 동안 — 고리에 안 넣는다(배속 소리가 남아 뒤에 나오지 않게) · 179 풀리면 음색 다듬기 꼬리 없이 */
    if (g_mute_drop) { g_mute_drop = 0; drc_reset(&g_drc); }
    while (done < frames) {                       /* 큰 묶음은 나눠서(출력 칸 8192) */
       size_t n = frames - done > 4096 ? 4096 : frames - done;
       uint32_t fill = (g_wr - g_rd + ARING_FRAMES) % ARING_FRAMES;
       unsigned cb = (unsigned)g_cb_frames, target = cb + 700;
       if (target < 900) target = 900;
-      if (g_turbo_audio) ring_push(data + done * 2, n);   /* 배속 중엔 그대로(넘치면 버림 — 예전과 같다) */
+      const int16_t *src = fx_apply(data + done * 2, n);  /* 176·178·179 음색 다듬기 — 코어가 준 자리 그대로 넘겨야 잡음 칸을 찾는다 */
+      if (g_turbo_audio) ring_push(src, n);   /* 배속 중엔 그대로(넘치면 버림 — 예전과 같다) */
       else {
-         size_t w = drc_run(&g_drc, data + done * 2, n, g_drc_out, 8192, drc_ratio(g_pace.drc_base, fill, target));
+         size_t w = drc_run(&g_drc, src, n, g_drc_out, 8192, drc_ratio(g_pace.drc_base, fill, target));
          ring_push(g_drc_out, w);
       }
       done += n;
@@ -451,25 +483,6 @@ static int16_t cb_input_state(unsigned port, unsigned device, unsigned index, un
 /* ------------------------------------------------------------------ */
 /* audio                                                               */
 /* ------------------------------------------------------------------ */
-/* 176 음색 다듬기(sndfx.c — 저음 보강·고음 눅이기·좌우 넓힘·방 울림, 유저 「2 가 나은 방식이네」). 소리 카드 콜백에서 고리에서 꺼낸 소리에 —
-   게임 프레임 시간에 안 들어간다. 켬/끔·세부 값은 Java(nativeSetSoundFx).
-   178 세부 값(「조절해 보게 해 줘」): 값이 바뀌면 UI 스레드가 새 fx 를 다 만들어 g_fx_next 에 두고, 콜백이 다음 묶음 머리에서 바꿔 낀다(락 없음).
-   내려놓은 옛것은 g_fx_old 에 — 푸는 건 fx_gc(UI·GL 스레드). 콜백은 g_fx_old 가 비었을 때만 바꿔 낀다(못 푼 옛것을 덮지 않게).
-   스트림이 없을 때는 audio_start 가 g_audio_mx 아래에서 바로 고친다(콜백이 안 돈다). */
-static sndfx_t *g_fx = NULL;                /* 콜백이 쓰는 것 — 스트림이 돌 때는 콜백만 바꾼다 */
-static sndfx_t *_Atomic g_fx_next = NULL;   /* UI 스레드가 새로 만든 것 */
-static sndfx_t *_Atomic g_fx_old = NULL;    /* 콜백이 내려놓은 옛것 */
-static sndfx_params g_fxp;                  /* 바라는 값 · g_fxb = 마지막으로 만든(올린) 것의 값과 빠르기 — g_audio_mx 아래 */
-static sndfx_params g_fxb;
-static int g_fxb_rate = 0, g_fxp_set = 0;
-static atomic_int g_fx_on = 1;              /* UI 스레드가 쓰고 콜백이 읽는다 */
-static int g_fx_cur = 0;                    /* 콜백만 쓴다 — 지난 콜백에 돌렸나(꺼졌다 켜질 때 꼬리를 비우고 시작) */
-static void fx_gc(void)
-{
-   sndfx_t *o = atomic_exchange_explicit(&g_fx_old, NULL, memory_order_acq_rel);
-   if (o) sndfx_free(o);
-}
-
 static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
                                               void *audioData, int32_t numFrames)
 {
@@ -488,17 +501,6 @@ static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
       }
    }
    g_rd = rd;
-   {
-      sndfx_t *fx;
-      if (!atomic_load_explicit(&g_fx_old, memory_order_acquire)) {   /* 178: 새 값 — 갓 만든 것(비어 있음)으로 바꿔 낀다. 켜진 채면 꼬리만 끊기고 비울 일은 없다 */
-         sndfx_t *nx = atomic_exchange_explicit(&g_fx_next, NULL, memory_order_acq_rel);
-         if (nx) { atomic_store_explicit(&g_fx_old, g_fx, memory_order_release); g_fx = nx; }
-      }
-      fx = g_fx;
-      int on = atomic_load_explicit(&g_fx_on, memory_order_relaxed) && fx && !mute;      /* 무음 중엔 안 돌리고, 풀리면 꼬리 없이 새로 */
-      if (on) { if (!g_fx_cur) sndfx_reset(fx); sndfx_run(fx, out, (size_t)numFrames); }
-      g_fx_cur = on;
-   }
    return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
@@ -521,15 +523,6 @@ static void audio_start(int rate)
    if (g_stream) { pthread_mutex_unlock(&g_audio_mx); return; }   /* 이미 열려 있다 — 두 번 열면 앞 스트림이 샌다 */
    g_audio_rate = rate;
    g_audio_dead = 0;
-   {  /* 176 — 스트림이 없을 때만(콜백이 안 돈다). 178: 올려 두고 못 바꿔 낀 것·내려놓은 것을 정리하고, 빠르기·값이 다르면 새로 */
-      sndfx_t *nx = atomic_exchange_explicit(&g_fx_next, NULL, memory_order_acq_rel);
-      if (!g_fxp_set) { sndfx_defaults(&g_fxp); g_fxp_set = 1; }
-      fx_gc();
-      if (nx) { sndfx_free(g_fx); g_fx = nx; }
-      if (!sndfx_same(g_fx, rate, &g_fxp)) { sndfx_free(g_fx); g_fx = sndfx_new(rate, &g_fxp); }
-      g_fxb = g_fxp; g_fxb_rate = rate;
-   }
-   g_fx_cur = 0;
    if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) { pthread_mutex_unlock(&g_audio_mx); return; }
    AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_I16);
    AAudioStreamBuilder_setChannelCount(b, 2);
@@ -552,7 +545,6 @@ static void audio_stop(void)
       AAudioStream_close(g_stream);
       g_stream = NULL;
    }
-   fx_gc();                                  /* 178 */
    pthread_mutex_unlock(&g_audio_mx);
 }
 
@@ -949,6 +941,7 @@ static int bind_core(void)
    c_palremap                   = dlsym(g_lib, "retro_ngp_palremap");
    *(void **)&c_fg_state        = dlsym(g_lib, "retro_ngp_fg_state");
    *(void **)&c_fg_phase        = dlsym(g_lib, "retro_ngp_fg_phase");   /* 없으면(옛 코어·다른 게임) 업스케일러는 예전처럼 1배로 줄여서 */
+   *(void **)&c_snd_noise       = dlsym(g_lib, "retro_ngp_snd_noise");  /* 179 음색 다듬기 «배경음만» — 없으면(SVC 코어·옛 코어) 통째로 */
    return 1;
 }
 
@@ -1129,9 +1122,6 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
       audio_stop();
       audio_start(g_audio_rate);
    }
-   if (atomic_load_explicit(&g_fx_old, memory_order_relaxed)) {   /* 178: 콜백이 내려놓은 옛 음색 다듬기 */
-      pthread_mutex_lock(&g_audio_mx); fx_gc(); pthread_mutex_unlock(&g_audio_mx);
-   }
    /* 화면 vsync(60/120Hz)마다 불리지만, 코어는 게임 fps 로만 돌린다 —
       120Hz 폰에서 두 배속으로 돌던 문제의 수정. 150: 몇 번 돌릴지는 pace.c — 화면 vsync 수가 게임 프레임의 정수배면
       «k 번에 한 번»을 세어(예전 «시계가 마감을 넘었나»는 깨어나는 때가 조금만 흔들려도 한 번 거르고 두 번 돌았다),
@@ -1227,27 +1217,27 @@ JNI(void, nativeAudioPause)(JNIEnv *env, jclass cls)
 JNI(void, nativeAudioResume)(JNIEnv *env, jclass cls)
 { (void)env; (void)cls; if (g_loaded && !g_stream) audio_start(g_audio_rate); }
 
-/* 176 음색 다듬기 켬/끔 — 소리 카드 콜백이 다음 묶음부터 본다.
-   178 세부 값(설정 0..100, 50 = 들어 보기 ②): 바뀌었으면 여기(UI 스레드)서 새 fx 를 만들어 올린다 — 콜백이 다음 묶음에 바꿔 낀다.
-   스트림이 없으면 값만 두고 audio_start 가 만든다 */
-JNI(void, nativeSetSoundFx)(JNIEnv *env, jclass cls, jboolean on, jint bass, jint treble, jint width, jint reverb, jint room)
+/* 176 음색 다듬기 켬/끔 · 178 세부 값(설정 0..100, 50 = 들어 보기 ②) · 179 배경음만(bgm) — 코어 소리 콜백이 다음 묶음부터 본다.
+   값이 바뀌었으면 여기(UI 스레드)서 새 fx 를 만들어 올린다(fx_apply 가 바꿔 끼운다) — 코어가 없을 때도(먼저 만들어 둔다) */
+JNI(void, nativeSetSoundFx)(JNIEnv *env, jclass cls, jboolean on, jint bass, jint treble, jint width, jint reverb, jint room, jboolean bgm)
 {
    sndfx_params p;
+   int rate;
    (void)env; (void)cls;
    sndfx_from_pct(&p, bass, treble, width, reverb, room);
-   pthread_mutex_lock(&g_audio_mx);
-   fx_gc();
-   g_fxp = p; g_fxp_set = 1;
-   if (g_stream && !(g_fxb_rate == g_audio_rate && g_fxb.bass_db == p.bass_db && g_fxb.treble_db == p.treble_db
-                     && g_fxb.width == p.width && g_fxb.mix == p.mix && g_fxb.rt == p.rt)) {
-      sndfx_t *nf = sndfx_new(g_audio_rate, &p), *stale;
+   pthread_mutex_lock(&g_audio_mx); rate = g_audio_rate; pthread_mutex_unlock(&g_audio_mx);
+   pthread_mutex_lock(&g_fx_mx);
+   if (!g_fxb_set || g_fxb_rate != rate || g_fxb.bass_db != p.bass_db || g_fxb.treble_db != p.treble_db
+       || g_fxb.width != p.width || g_fxb.mix != p.mix || g_fxb.rt != p.rt) {
+      sndfx_t *nf = sndfx_new(rate, &p), *stale;
       if (nf) {
-         stale = atomic_exchange_explicit(&g_fx_next, nf, memory_order_acq_rel);   /* 콜백이 아직 안 가져간 앞엣것은 한 번도 안 쓰였다 */
+         stale = atomic_exchange_explicit(&g_fx_next, nf, memory_order_acq_rel);   /* 아직 안 가져간 앞엣것은 한 번도 안 쓰였다 */
          sndfx_free(stale);
-         g_fxb = p; g_fxb_rate = g_audio_rate;
+         g_fxb = p; g_fxb_rate = rate; g_fxb_set = 1;
       }
    }
-   pthread_mutex_unlock(&g_audio_mx);
+   pthread_mutex_unlock(&g_fx_mx);
+   atomic_store_explicit(&g_fx_bgm, bgm ? 1 : 0, memory_order_relaxed);
    atomic_store_explicit(&g_fx_on, on ? 1 : 0, memory_order_relaxed);
 }
 
