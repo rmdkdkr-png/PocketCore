@@ -4026,11 +4026,18 @@ public class EmuActivity extends Activity {
             final int a = act == android.view.MotionEvent.ACTION_DOWN ? LeagueMenu.TOUCH_DOWN : act == android.view.MotionEvent.ACTION_UP ? LeagueMenu.TOUCH_UP
                     : act == android.view.MotionEvent.ACTION_MOVE ? LeagueMenu.TOUCH_MOVE : act == android.view.MotionEvent.ACTION_CANCEL ? LeagueMenu.TOUCH_CANCEL : -1;
             if (a < 0) return true;
-            if (a == LeagueMenu.TOUCH_DOWN && !mm.hitTest(gx, gy)) return false;
+            if (a == LeagueMenu.TOUCH_DOWN && (padOwnsDown(v, e) || !mm.hitTest(gx, gy))) return false;   /* u177(B): 그림 위에 놓인 패드 단추(십자·버튼·알약)는 패드가 먼저 — 덧판은 그 밖만 */
             if (a != LeagueMenu.TOUCH_MOVE) gl.queueEvent(() -> mm.onTouch(gx, gy, a));
             return true;
         }
     };
+
+    /** u177(B) — 이 누름을 패드가 받을 자리인가. 패드는 root 를 꽉 채우고(0,0) 덧판 터치 층은 그림 자리에 놓이므로 패드 좌표 = 층 좌표 + 층 자리.
+     *  세로에서 그림을 키우거나 패드를 올리면 ▲ 등이 그림 안에 들어오는데, 쉼·대기의 «칼집 밖 탭 = 이어하기»가 그 누름을 먹어 메뉴가 닫혔다 */
+    private boolean padOwnsDown(View v, android.view.MotionEvent e) {
+        PadView p = pad;
+        return p != null && p.getVisibility() == View.VISIBLE && p.ownsDown(e.getX() + v.getLeft(), e.getY() + v.getTop());
+    }
 
     /* ── 치트(cheat.c · Cheats) ─────────────────────────────────────────
        일반 세션이고 사무쇼2이며 판정 주소를 확인한 롬 판(연습과 같은 판 확인 — practiceRomOk)이면 options 값을 native 에 넣는다.
