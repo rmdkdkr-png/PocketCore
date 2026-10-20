@@ -3826,6 +3826,7 @@ public class EmuActivity extends Activity {
             }
             BoardCache.invalidate();
             if (kind != 3) League.sessionReset();
+            else { lgmMeBefore = null; lgmMeAfter = null; rankPick = null; }  /* 179: 옛 리그의 나·뽑은 상대 사본 버림(대기 사본이 새 씨앗 순위표를 옛 LP 로 데우지 않게) */
             hubResumePending = false;                                         /* 175: 알림 글 없음 */
             if (inMatch) {                                                    /* 179: 이 판의 경기는 닫혔거나(기권패·결판) 지워졌다 — 무장 풀고 타이틀로 */
                 leagueDone = true; Emu.nativeLeagueDisarm();

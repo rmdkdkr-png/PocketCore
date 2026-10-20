@@ -1505,7 +1505,8 @@ final class LgmPages {
         lines.add(new String[]{ "시즌 " + li.season + (li.since != null ? " · " + li.since : "") + " · " + li.wld, "g" });
         for (String r : li.pastRows) lines.add(new String[]{ r, "d" });
         if (li.cheatGames > 0) lines.add(new String[]{ "이번 시즌 치트 판 " + li.cheatGames, "n" });
-        if (li.openVs != null) lines.add(new String[]{ "멈춘 경기 · vs " + li.openVs + " · 타이틀에서 A", "n" });
+        String ol = openLine(li);
+        if (ol != null) lines.add(new String[]{ ol, "n" });
         if (li.holds.length > 0) { lines.add(new String[]{ "보류·무효", "g" }); for (String h : li.holds) lines.add(new String[]{ h, "d" }); }
         lines.add(new String[]{ "규칙", "g" });
         for (String r : li.rules) lines.add(new String[]{ r, "n" });
@@ -1524,6 +1525,12 @@ final class LgmPages {
         sc.revealCue = concat(snap(sc.cue), new Cue().wipe(0, SWING, Cue.L, vis[0], vis[1], vis[2], vis[3], 2, false, 0, 0, Cue.EASE_LINEAR).build());
         sc.tab = MenuModel.Prefs.TAB_LEAGUE;
         return sc;
+    }
+    /** 아래 목록의 열린 경기 줄(없으면 null) — 179: 쉼 서랍(그 경기가 지금 이 판 · openLive)은 «지금 경기 · vs …»(175 는 지금 하는 경기에도
+     *  «멈춘 경기 · … · 타이틀에서 A» — 유저 화면), 대기·결판 서랍은 예전대로 «멈춘 경기 · vs … · 타이틀에서 A» */
+    static String openLine(MenuModel.LeagueInfo li) {
+        if (li.openVs == null) return null;
+        return li.openLive ? "지금 경기 · vs " + li.openVs : "멈춘 경기 · vs " + li.openVs + " · 타이틀에서 A";
     }
     /** 두 번 묻기 펼침 아래 띠 첫 줄 — 무엇이 바뀌나. 열린 경기가 있으면 그 경기 몫이 먼저(넘치면 닉이 잘린다 — 할 일이 먼저):
      *  새 시즌·처음부터 = «지금 경기는(쉼에서 연 서랍)/멈춘 경기는 기권패로 닫고 …» · 리그 초기화 = «지금/멈춘 경기도 함께 지워요» */
