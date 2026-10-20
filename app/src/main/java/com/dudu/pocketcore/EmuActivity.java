@@ -501,7 +501,7 @@ public class EmuActivity extends Activity {
         gl.queueEvent(new Runnable() { @Override public void run() {
             final boolean backed = Emu.nativeSaveState(undoPath().getAbsolutePath()) == 0;
             work.run();
-            toast(done);
+            if (done != null) toast(done);              /* null = 글은 work 가 알아서(실패면 «실패» 하나만) */
             if (backed) h.post(new Runnable() { @Override public void run() { pad.offerUndo(); } });
         }});
     }
@@ -541,8 +541,8 @@ public class EmuActivity extends Activity {
         case PadView.ACT_LOAD: {
             final File st = statePath();
             if (!st.exists()) { toast("슬롯 " + slot + "은 비어 있어요"); break; }
-            withUndo("불러옴 · 슬롯 " + slot, new Runnable() { @Override public void run() {
-                if (Emu.nativeLoadState(st.getAbsolutePath()) != 0) toast("불러오기 실패");
+            withUndo(null, new Runnable() { @Override public void run() {
+                toast(Emu.nativeLoadState(st.getAbsolutePath()) != 0 ? "불러오기 실패" : "불러옴 · 슬롯 " + slot);
             }});
             break; }
         case PadView.ACT_UNDO:

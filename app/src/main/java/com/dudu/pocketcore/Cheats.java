@@ -163,7 +163,7 @@ final class Cheats {
             return false;
         }
         String rn = new File(romPath).getName();
-        for (String sfx : new String[]{ ".state.auto", ".state.auto.prac" }) {
+        for (String sfx : new String[]{ ".state.auto", ".state.auto.prac", ".state.auto.look" }) {   /* .look(경기 컬러·베기 색)도 같이 — 비켜 둔 상태가 제 색을 잃지 않게 */
             File a = new File(saveDir, rn + sfx);
             if (!a.exists()) continue;
             File to = new File(saveDir, rn + sfx.replace(".state.auto", ".state.auto.cheat"));
