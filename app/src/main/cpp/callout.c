@@ -56,7 +56,7 @@ typedef struct {
    uint16_t col[3];             /* 12비트 0x0BGR — 1 흰 심 · 2 가운데 · 3 테두리(때린 쪽 칼 궤적 색) */
    uint32_t seq;                /* 낸 차례(다 차면 가장 오래된 것) */
 } dfx_t;
-enum { FXK_L = 0, FXK_H, FXK_T, FXK_G, FXK_C, FXK_D, FXK_K };   /* 섬광 약·강·작은 것 · 185: 가드 반달 · 칼 부딪힘 · 넘어짐 먼지 · 막타 일섬 */
+enum { FXK_L = 0, FXK_H, FXK_T, FXK_G, FXK_C, FXK_D, FXK_K, FXK_S };   /* 섬광 약·강·작은 것 · 185: 가드 반달 · 칼 부딪힘 · 넘어짐 먼지 · 막타 일섬 · 187: 강베기 일섬(칼 궤적 색) */
 static dfx_t FX[FX_MAX];
 static uint32_t fx_seq;
 static struct { uint8_t on, ctrl[2]; uint16_t y[2]; uint32_t f, last[2]; } DU;   /* 185 넘어짐 먼지 — 라운드 조작 밖(KO 뒤 쓰러짐)에서도 보려고 따로 센다 */
@@ -76,6 +76,9 @@ void callout_enable(int on)
 int  callout_enabled(void) { return atomic_load(&co_on); }
 
 void callout_reset(void) { atomic_store(&co_reset_req, 1); }
+/* 187 보는 램이 바뀜(런어헤드 앞선 프레임 수가 바뀜·코어가 이번엔 보여 준 프레임 사본을 못 줌) — 앞 프레임 값으로 닿음을 판정하지 않게.
+   이펙트·흔들림·라벨은 그대로 둔다 */
+void callout_resync(void) { S.have_prev = 0; DU.on = 0; }
 
 void callout_fx_pal(const uint8_t *pal) { fx_pal = pal; }
 
@@ -111,6 +114,7 @@ static const hfx_cel *fx_cels(int kind, int *n)
    case FXK_C: *n = HFX_N_C; return HFX_C;
    case FXK_D: *n = HFX_N_D; return HFX_D;
    case FXK_K: *n = HFX_N_K; return HFX_K;
+   case FXK_S: *n = HFX_N_K; return HFX_K;          /* 187 강베기 일섬 — 막타 일섬과 같은 붓 사선, 색만 칼 궤적 */
    default:    *n = HFX_N_L; return HFX_L;
    }
 }
@@ -157,8 +161,8 @@ static void fx_spawn(const uint8_t *ram, int d, int kind, int ring)
    int dx = rd16(ram, OBJ(d) + 8), ax = rd16(ram, OBJ(a) + 8), fy = rd16(ram, OBJ(d) + 0xA), st = ram[PB(d) + O_STANCE];
    int dir = ax <= dx ? 1 : -1, h = (st & 0x40) ? 15 : fy < 128 ? 22 : 25;
    e->kind = kind; e->ring = ring; e->dir = dir;
-   e->wx = kind == FXK_K ? dx : dx - dir * (kind == FXK_G ? 9 : 7);
-   e->y = kind == FXK_K ? fy - 24 : fy - h;
+   e->wx = kind == FXK_K || kind == FXK_S ? dx : dx - dir * (kind == FXK_G ? 9 : 7);
+   e->y = kind == FXK_K || kind == FXK_S ? fy - 24 : fy - h;
    e->hold = kind != FXK_T;
    if (kind == FXK_G) memcpy(e->col, COL_G, sizeof e->col);
    else if (kind == FXK_K) memcpy(e->col, COL_K, sizeof e->col);
@@ -290,11 +294,14 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
             {  /* 강(혜성) = 보통 기술로 피해 12 이상(약베기 6~11 · 강베기 14~21 실측 — 닿은 프레임에 바로 줄어듦).
                   필살(ACT ≥ 0x180, 177 실측)은 원작이 불·감전 해골·큰 초승달을 이미 그려서 작은 섬광만(절제 — 봇 판 그림에서 겹쳐 지저분했음) */
                int dmg = S.p_hp[d] > ram[PB(d) + O_HP] ? S.p_hp[d] - ram[PB(d) + O_HP] : 0;
-               fx_spawn(ram, d, ram[PB(d) + O_HP] == 0 ? FXK_K : dmg >= 12 && act[a] < 0x180 ? FXK_H : FXK_L, ctr ? 1 : pun ? 2 : 0);   /* 185: 체력 0 = 막타 일섬 */
-               {  /* 186 흔들림 — 필살도 센 맞음이면(그림은 절제해도 손맛은) */
+               int ko = ram[PB(d) + O_HP] == 0, heavy = dmg >= 12 && act[a] < 0x180;   /* 187 강베기(보통 기술 센 맞음) — 유저 「앞강베기 타격효과가 가장 강렬해야」 */
+               fx_spawn(ram, d, ko ? FXK_K : heavy ? FXK_H : FXK_L, ctr ? 1 : pun ? 2 : 0);   /* 185: 체력 0 = 막타 일섬 */
+               if (heavy && !ko) fx_spawn(ram, d, FXK_S, 0);    /* 187 강베기: 혜성 + 칼 궤적 색 일섬 */
+               {  /* 186 흔들림 — 필살도 센 맞음이면(그림은 절제해도 손맛은). 187: 강베기는 막타와 같은 가장 큰 흔들림 */
                   int sd = rd16(ram, OBJ(a) + 8) <= rd16(ram, OBJ(d) + 8) ? 1 : -1;
-                  if (ram[PB(d) + O_HP] == 0) shake(3, sd); else if (dmg >= 12) shake(2, sd); else if (ctr) shake(1, sd);
+                  if (ko || heavy) shake(3, sd); else if (dmg >= 12) shake(2, sd); else if (ctr) shake(1, sd);
                }
+               if ((heavy || ko) && atomic_load(&fx_mode) != FXM_OFF) flash_req = d + 1;   /* 187 강베기·막타도 맞은 몸 번쩍(186 은 COUNTER 만) */
             }
          }
       }
@@ -485,7 +492,7 @@ static int fx_layers(const dfx_t *e, const hfx_cel **cel, uint16_t pal[2][3], in
       cel[k] = &HFX_R[e->cel]; flip[k] = 0;
       pal[k][0] = 0xFFF; pal[k][1] = e->ring == 1 ? 0x4EF : 0x46F; pal[k][2] = e->ring == 1 ? 0x08F : 0x10B; k++;
    }
-   cel[k] = &cs[e->cel]; flip[k] = (e->kind == FXK_H || e->kind == FXK_G || e->kind == FXK_K) && e->dir < 0; memcpy(pal[k], e->col, sizeof pal[k]); k++;
+   cel[k] = &cs[e->cel]; flip[k] = (e->kind == FXK_H || e->kind == FXK_G || e->kind == FXK_K || e->kind == FXK_S) && e->dir < 0; memcpy(pal[k], e->col, sizeof pal[k]); k++;
    *nl = k;
    return 1;
 }

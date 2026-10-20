@@ -57,6 +57,7 @@ static void  *c_palremap;   /* retro_ngp_palremap — 게임이 팔레트를 쓰
 static void (*c_fg_state)(int *, int *, unsigned *);   /* retro_ngp_fg_state — 코어 2배 출력(120Hz) 중 이번 호출이 «합성»(에뮬레이션 없음)인가 */
 static const uint8_t *(*c_fg_phase)(unsigned *, unsigned *, unsigned *);   /* retro_ngp_fg_phase — 4배 그림의 화소마다 원래 모눈 어긋남(코어 zzz_fg_phase) */
 static void  *(*c_charram)(void), *(*c_scrollram)(void), *(*c_palram)(void);   /* 사무쇼2 코어의 K1GE 문자·스크롤·팔레트 램(가상 리그가 화면 글자·컬러를 바꿀 때) */
+static const uint8_t *(*c_shown_ram)(int *, const uint8_t **);   /* 187 retro_ngp_shown_ram — 런어헤드로 보여 준 프레임(N + ra)의 작업 램·팔레트 사본(없으면 NULL) */
 static void  *(*c_spriteram)(void);   /* K1GE 스프라이트 램 — 연습 메뉴 창이 빌릴 타일을 고를 때(스프라이트가 가리키는 타일은 안 빌림) */
 static void (*c_sndonly)(int);   /* retro_ngp_sndonly_run — 182: 메인 CPU 를 세운 채 소리 CPU(Z80·소리 칩)만 retro_run n 번 몫(코어 패치 zzzzzzzzzzzzz_snd_only, 옛 코어엔 없음) */
 static void (*c_snd_div)(int);   /* retro_ngp_snd_div — 182: 소리만 1/d 빠르기(4배속 자동 진행 동안 4 — 곡이 보통 빠르기) */
@@ -1174,6 +1175,7 @@ static int bind_core(void)
    *(void **)&c_snd_noise       = dlsym(g_lib, "retro_ngp_snd_noise");  /* 179 음색 다듬기 «배경음만» — 없으면(SVC 코어·옛 코어) 통째로 */
    *(void **)&c_sndonly         = dlsym(g_lib, "retro_ngp_sndonly_run");   /* 182 메뉴 중 배경음 — 없으면(SVC 코어·옛 코어) 멈춘 동안 예전처럼 조용 */
    *(void **)&c_snd_div         = dlsym(g_lib, "retro_ngp_snd_div");       /* 182 4배속 자동 진행 소리 — 없으면 예전처럼 그동안 소리를 버림 */
+   *(void **)&c_shown_ram       = dlsym(g_lib, "retro_ngp_shown_ram");  /* 187 타격 알림·이펙트 — 없으면(옛 코어·SVC 코어) 실제 램 */
    return 1;
 }
 
@@ -1467,8 +1469,18 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             /* 치트(일반 세션) — 가장 뒤. 리그 세션이면 아무것도 안 쓰고, 연습 대전 흐름이면 올카드·유가만 */
             cheat_tick(ram, ramsz, in);
             practice_view_post(ram);         /* 176 보기(치트 «대미지 미터») — 치트가 쓴 체력까지 지난 값으로 */
-            callout_fx_pal((const uint8_t *)pal); /* 184 타격 이펙트 — 칼 궤적 색을 팔레트 램에서 */
-            callout_tick(ram, ramsz, t);         /* 182 타격 알림 — 램 읽기만(Java 가 사무쇼2 판에서만 켬). t = 이 vsync 시각(그리기와 같은 시계) */
+            {  /* 182 타격 알림 · 184 이펙트 — 램 읽기만(Java 가 사무쇼2 판에서만 켬). t = 이 vsync 시각(그리기와 같은 시계).
+                  187: «보이는 프레임»의 램으로 — 런어헤드면 실제 N 이 아니라 코어가 숨겨 돌려 보여 준 N + ra 의 사본(retro_ngp_shown_ram).
+                  실제 램으로 보면 이펙트·흔들림·번쩍이 보이는 맞음보다 ra(기본 2) 프레임 늦었다(120Hz 4배 예측도 런어헤드가 같이 돈다).
+                  사본이 없으면(런어헤드 끔·옛 코어) 실제 램 = 보이는 프레임. 사본 ↔ 실제·앞선 수가 바뀌면 한 번 판정 없이(시간줄이 뛴다) */
+               int lead = 0; const uint8_t *spal = NULL;
+               const uint8_t *sram = c_shown_ram ? c_shown_ram(&lead, &spal) : NULL;
+               static int co_lead = -1;
+               if (!sram) lead = 0;
+               if (lead != co_lead) { callout_resync(); co_lead = lead; }
+               callout_fx_pal(spal ? spal : (const uint8_t *)pal);   /* 칼 궤적 색도 보이는 프레임 것 */
+               callout_tick(sram ? sram : ram, ramsz, t);
+            }
             { int fs = callout_flash_take(); if (fs) { hitflash_start((uint8_t *)pal, fs - 1); look_flash_sync(); } }   /* 186 반격 맞음 → 맞은 몸 하얗게(팔레트 + 코어 표 — 런어헤드에서도) */
             int ex = practice_take_exit();
             if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); cheat_forget(); callout_reset(); hitflash_forget(); }

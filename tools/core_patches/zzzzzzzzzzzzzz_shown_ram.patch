@@ -1,0 +1,63 @@
+앱 방 코어 패치 zzzzzzzzzzzzzz_shown_ram — 런어헤드로 «보여 준 프레임»(N + ra)의 작업 램·팔레트 램 사본을 앱에 내준다(앱 188 타격 알림·이펙트·몸 번쩍·흔들림).
+유저 10-20 「120hz는 런어헤드가 꺼진다고???」 → 다시 봄: 꺼지는 건 2배 프레임 생성(fg_mult 2)뿐이고 4배 예측(앱 프레임 패치)은 120Hz 에서도 런어헤드가 같이 돈다.
+앱은 실제 N 의 램으로 판정해 이펙트·흔들림·몸 번쩍이 보이는 맞음보다 ra(기본 2) 프레임 늦었다.
+- fg_hidden 이 keep(보여 줄 D — fg_predict4·ra_plain·fg_hybrid4 모두 D = N + ra) 프레임을 돌린 바로 뒤 CPUExRAM(16KB)·ColorPaletteRAM(512B)을 뜬다.
+  실제 호출(합성·프론트엔드 숨은 호출 아님)마다 먼저 비운다 — ra = 0(런어헤드 끔·링크·2배)이면 안 떠서 앱은 실제 램.
+- retro_ngp_shown_ram(&lead, &pal): 이번 실제 호출의 사본(16KB) · lead = ra · pal = 팔레트 사본. 없으면 NULL.
+호스트: 4배 예측 + 서기 그리기 + 런어헤드 2 봇 7054 프레임 그림 해시가 179 코어와 바이트 같음(사본만 뜸).
+봇 판(앱 callout·hitflash 그대로 넣은 시험기): 런어헤드 0·1·2 에서 이펙트·흰 몸이 같은 «보이는 프레임»에 — 셋 다 맞은 프레임에 이펙트, 다음 두 프레임 흰 몸.
+188: 다른 세션의 zzzzzzzzzzzzz_snd_only(메뉴 중 배경음) 뒤에 얹히게 이름을 z 14 개로 — 그 판 위에서 다시 뜸.
+diff --git a/src/libretro.c b/src/libretro.c
+index a8f3772..1ac4e50 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -666,6 +666,13 @@ static int fg_pb_load(void)
+ }
+ static void fg_hidden(int n, int keep);
+ static uint16_t fg_pb_pix[FB_WIDTH * FB_HEIGHT];
++/* zzzzzzzzzzzzzz_shown_ram(앱 방 코어 패치): 런어헤드로 «보여 줄 프레임» D(숨은 프레임의 keep — fg_predict4·ra_plain·fg_hybrid4 모두 D = N + ra)의
++   작업 램·팔레트 램을 떠 둔다. 앱의 타격 알림·이펙트·몸 번쩍·흔들림이 실제 N 대신 보이는 그림과 같은 프레임을 보게 — 런어헤드 2 면
++   보이는 그림보다 2 프레임 늦게 떴다(앱 186, 120Hz 4배 예측도 런어헤드가 같이 돈다). 실제 호출마다 비우고(retro_run) keep 프레임을
++   돌린 바로 뒤 뜬다. ra = 0(런어헤드 끔·링크·2배)이면 안 떠서 앱은 실제 램을 그대로 본다. 게임·그림·소리는 안 바뀐다 */
++static uint8_t  shown_ram[16384];
++static uint8_t  shown_pal[0x200];
++static int      shown_ok = 0, shown_lead = 0;
+ /* 99v: 대전 밖에서 제자리 몸이 오래 머물면 실제 프레임마다 4 프레임씩 더 몰래 돌려 다음 포즈가 나오는 때·그림을 찾아 둔다(다음 실제 프레임의 계획에 씀).
+    지금 숨은 프레임이 끝난 자리(D+2(+2))에서 시작해 따로 떠 둔 상태로 이어 간다. 그림 칸(surf)은 되돌려 놓는다 */
+ static void fg_probe_step(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_frame *f2, int extra)
+@@ -704,6 +711,12 @@ static void fg_hidden(int n, int keep)
+       ngp_fg_skipdraw = k != keep;
+       Emulate(&ps, fg_scratch_snd);                /* 입력은 마지막 실제 프레임 값 그대로(붙잡고 있다고 가정) */
+       if (k == keep) memcpy(fg_real, surf->pixels, sizeof fg_real);
++      if (k == keep && keep > 0)
++      {  /* zzzzzzzzzzzzzz_shown_ram */
++         memcpy(shown_ram, CPUExRAM, sizeof shown_ram);
++         if (NGPGfx) memcpy(shown_pal, NGPGfx->ColorPaletteRAM, sizeof shown_pal);
++         shown_ok = NGPGfx != NULL; shown_lead = keep;
++      }
+    }
+    ngp_fg_skipdraw = 0;
+    ngp_fg_mute = 0; ngp_fg_predict = 0;
+@@ -1867,6 +1880,7 @@ void retro_run(void)
+ 
+    ss2_paused = ss2comm_overlay_active();
+ 
++   if (!synth && !hidden) shown_ok = 0;                  /* zzzzzzzzzzzzzz_shown_ram: 이 실제 호출의 보여 줄 프레임은 아래 숨은 프레임이 다시 뜬다 */
+    if (!ss2_paused && !synth)
+    {
+       Emulate(&spec, sound_buf);
+@@ -2297,6 +2311,14 @@ void *retro_ngp_palram(void)
+ {
+    return NGPGfx ? NGPGfx->ColorPaletteRAM : NULL;
+ }
++/* zzzzzzzzzzzzzz_shown_ram: 이번 실제 호출이 보여 준 프레임(N + ra)의 작업 램(16KB, 0x4000~)·팔레트 램(0x8200~ 512B) 사본.
++   *lead = ra(앞선 프레임 수). 런어헤드가 안 돌았으면 NULL(*lead 0, *pal NULL) — 그때는 실제 램이 보이는 프레임이다. 앱이 retro_run 바로 뒤에 */
++const uint8_t *retro_ngp_shown_ram(int *lead, const uint8_t **pal)
++{
++   if (lead) *lead = shown_ok ? shown_lead : 0;
++   if (pal) *pal = shown_ok ? shown_pal : NULL;
++   return shown_ok ? shown_ram : NULL;
++}
+ 
+ size_t retro_get_memory_size(unsigned type)
+ {

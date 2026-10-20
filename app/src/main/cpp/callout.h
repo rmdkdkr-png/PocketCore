@@ -32,6 +32,7 @@ typedef struct { int kind, side, row; double t0; } callout_t;
 void callout_enable(int on);          /* 아무 스레드 */
 int  callout_enabled(void);
 void callout_reset(void);             /* 코어 올림·내림·상태 불러오기·리셋 — 아무 스레드(다음 tick·get 이 지운다) */
+void callout_resync(void);            /* 187 보는 램이 바뀜(런어헤드 사본 ↔ 실제 램·앞선 프레임 수) — 다음 tick 은 판정 없이 기록만. 코어 잠금 안 */
 /* 진짜 프레임마다(합성 호출 아님) — ram = 시스템 램(CPU 0x4000~), now = 초 */
 void callout_tick(const uint8_t *ram, size_t ramsz, double now);
 /* 지금 보이는 라벨(수명 안) — 그릴 차례(오래된 것 먼저) */
