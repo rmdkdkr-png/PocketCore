@@ -3,7 +3,7 @@
    게임 그림(160×152 · 서기 그리기 4배 640×608) 위에 그려 읽어 낸다 — 라벨 자리 색, 뷰포트·게임 사각형 밖은 그대로, 수명 뒤엔 게임 그림과 같음.
      J=/usr/lib/jvm/java-21-openjdk-amd64/include; C=app/src/main/cpp; L=/usr/lib/x86_64-linux-gnu
      gcc -std=gnu17 -O1 -g -w -I tools/sndfx_host/inc -I $C -I $J -I $J/linux tools/callout_host/gltest.c \
-         $C/pace.c $C/sndfx.c $C/league.c $C/practice.c $C/look.c $C/slash.c $C/vpanel.c $C/vsband.c $C/cheat.c $C/ovplane.c $C/uisfx.c $C/callout.c \
+         $C/pace.c $C/sndfx.c $C/league.c $C/practice.c $C/look.c $C/slash.c $C/vpanel.c $C/vsband.c $C/cheat.c $C/ovplane.c $C/uisfx.c $C/callout.c $C/hitflash.c \
          $L/libGLESv2.so.2 $L/libEGL.so.1 -lm -ldl -lpthread -o gltest
      ./gltest out_dir      (PPM 그림 + 검사 결과, 실패면 1) */
 #include "native.c"

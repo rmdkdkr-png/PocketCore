@@ -24,6 +24,7 @@
 #include "ovplane.h"
 #include "uisfx.h"
 #include "callout.h"
+#include "hitflash.h"
 #include "display_shaders.h"
 #include <math.h>
 
@@ -848,6 +849,7 @@ static void co_draw(double now, int vpx, int vpy, int dw, int dh, int lw, int lh
    glDisable(GL_SCISSOR_TEST);
 }
 
+static volatile int g_paused;           /* 아래(프레임 돌리기 앞)에서 정의 — 186 흔들림이 멈춤 중엔 안 흔들게 */
 static void gl_draw(void)
 {
    if (!g_fb || !g_fb_w) return;
@@ -1027,7 +1029,18 @@ static void gl_draw(void)
    glVertexAttribPointer(au, 2, GL_FLOAT, GL_FALSE, 0, uv);
    glEnableVertexAttribArray(ap);
    glEnableVertexAttribArray(au);
-   glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+   {  /* 186 화면 흔들림 — 게임 그림(이펙트 합성 포함)만 뷰포트째 화면 px 정수로 옮긴다(셰이더는 텍스처 좌표만 써서 그림은 그대로).
+         라벨·터치 자리는 원래 뷰포트. 덧판 메뉴·멈춤 중엔 안 흔듦. 빈 가장자리는 이 vsync 의 glClear 검정 */
+      float gx = 0.f, gy = 0.f;
+      int shx = 0, shy = 0;
+      if (!ob && !g_paused && callout_shake(&gx, &gy)) {
+         shx = (int)lroundf(gx * (float)dw / (float)lw);
+         shy = (int)lroundf(gy * (float)dh / (float)lh);
+      }
+      if (shx || shy) glViewport(vpx + shx, vpy - shy, dw, dh);   /* GL 은 아래가 원점 — 게임 y(아래 +)는 빼기 */
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+      if (shx || shy) glViewport(vpx, vpy, dw, dh);
+   }
    if (!ob) co_draw(g_last_vsync, vpx, vpy, dw, dh, lw, lh);   /* 182 타격 알림 — 덧판 메뉴가 떠 있으면 안 그림 */
 }
 
@@ -1157,7 +1170,7 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
    league_disarm();                      /* 새 게임은 무장 없이 시작 — 랭크전이면 Java 가 로드 뒤에 다시 무장한다 */
    ov_clear(OV_CLR_ALL);                 /* 157 덧판: 코어 상태가 통째로 바뀜 — 메뉴·대본·멈춤·막기 모두(상태용 램 포인터는 올린 뒤 새로) */
    ov_tag_clear();                       /* 157 post: HUD 이름표도(메뉴 닫기는 안 지움 — 여기 다섯 곳만) */
-   callout_reset();                      /* 182 타격 알림도 같은 다섯 곳 */
+   callout_reset(); hitflash_forget();                      /* 182 타격 알림도 같은 다섯 곳 */
    callout_fx_pal(NULL);
    ov_game_ram(NULL, 0);
    league_hub(0, NULL, NULL);            /* 게임 속 리그도 끈 채로 — 허브로 켠 화면만 로드 뒤에 다시 켠다(앞 세션의 허브가 자유 플레이로 새지 않게) */
@@ -1240,7 +1253,7 @@ static void unload_locked(void)
    league_disarm();                      /* 코어가 내려가면 랭크전 무장은 무조건 끝 — 다음 게임으로 새지 않게 */
    ov_clear(OV_CLR_ALL);                 /* 157 덧판 지움 · 상태용 램 포인터도 버림(코어가 내려감 — dlclose 뒤 읽지 않게) */
    ov_tag_clear();
-   callout_reset();
+   callout_reset(); hitflash_forget();
    callout_fx_pal(NULL);                 /* 184: 내린 코어의 팔레트 램을 안 읽게(코어 잠금 안 — tick 도 잠금 안) */
    ov_game_ram(NULL, 0);
    league_hub(0, NULL, NULL);
@@ -1326,6 +1339,7 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             uint8_t *ram = (uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM);
             size_t ramsz = c_get_memory_size(RETRO_MEMORY_SYSTEM_RAM);
             int in = g_input;                    /* 이번 프레임 사용자 입력 — 허브·연습이 같은 값을 본다 */
+            hitflash_tick((uint8_t *)pal);      /* 186 COUNTER 몸 번쩍 — 다 됐으면(아직 우리 흰색이면) 몸 팔레트를 되돌린다. 무엇보다 먼저(허브·컬러가 되돌린 색을 보게) */
             league_vram(chr, scr, pal);
             league_spr(c_spriteram ? c_spriteram() : NULL);   /* 153: VS 띠가 스프라이트 타일과 겹치는지 보려고 */
             league_palremap_fn(c_palremap);
@@ -1343,8 +1357,9 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             practice_view_post(ram);         /* 176 보기(치트 «대미지 미터») — 치트가 쓴 체력까지 지난 값으로 */
             callout_fx_pal((const uint8_t *)pal); /* 184 타격 이펙트 — 칼 궤적 색을 팔레트 램에서 */
             callout_tick(ram, ramsz, t);         /* 182 타격 알림 — 램 읽기만(Java 가 사무쇼2 판에서만 켬). t = 이 vsync 시각(그리기와 같은 시계) */
+            { int fs = callout_flash_take(); if (fs) { hitflash_start((uint8_t *)pal, fs - 1); look_flash_sync(); } }   /* 186 반격 맞음 → 맞은 몸 하얗게(팔레트 + 코어 표 — 런어헤드에서도) */
             int ex = practice_take_exit();
-            if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); cheat_forget(); callout_reset(); }
+            if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); cheat_forget(); callout_reset(); hitflash_forget(); }
             stop = league_post_hold();       /* 153: 걸쇠가 이 진짜 프레임에 섰다(합성 호출에선 안 선다) */
          }
       }
@@ -1436,7 +1451,7 @@ JNI(void, nativeSetHitFx)(JNIEnv *env, jclass cls, jint mode)
 
 /* 게임 속 리그: 결판 뒤 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
 JNI(void, nativeLeagueHubReturn)(JNIEnv *env, jclass cls, jint rematch)
-{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); look_forget(); cheat_forget(); ov_clear(OV_CLR_ALL); ov_tag_clear(); callout_reset(); CORE_UNLOCK(); }
+{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); look_forget(); cheat_forget(); ov_clear(OV_CLR_ALL); ov_tag_clear(); callout_reset(); hitflash_forget(); CORE_UNLOCK(); }
 
 JNI(void, nativeReset)(JNIEnv *env, jclass cls)
 {
@@ -1449,7 +1464,7 @@ JNI(void, nativeReset)(JNIEnv *env, jclass cls)
    cheat_forget();                               /* 치트: 보관한 카드는 되돌리지 않고 버린다(램이 새로 시작) */
    ov_clear(OV_CLR_ALL);                         /* 157 덧판: 코어가 새로 시작 — 메뉴·멈춤·막기 지움 */
    ov_tag_clear();
-   callout_reset();
+   callout_reset(); hitflash_forget();
    CORE_UNLOCK();
 }
 
@@ -1566,6 +1581,7 @@ JNI(jint, nativeSaveState)(JNIEnv *env, jclass cls, jstring jpath)
    if (!g_loaded || !c_serialize_size) { CORE_UNLOCK(); return -1; }
    practice_before_save();               /* 연습 메뉴 창·대미지 숫자·«2P» 그림, 허브 머리말·세로 칸을 원래대로 — 저장된 상태에 우리 그림이 안 섞이게(다음 프레임에 다시 그린다) */
    league_hub_before_save();
+   if (hitflash_active()) { hitflash_end(c_palram ? (uint8_t *)c_palram() : NULL); look_flash_sync(); }   /* 186 몸 번쩍 중이면 지금 되돌리고 끝(표의 흰색도) — 저장된 상태에 흰 몸이 안 들어가게(컬러보다 먼저) */
    look_before_save();                   /* 컬러: 세로 칸·아이콘·몸 팔레트 0·베기 색 팔레트를 원래 색으로(저장 직후 look_after_save 가 다시) */
    if (c_get_memory_data) cheat_before_save((uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM));   /* 올카드(이번만)로 8 을 쓴 소유 개수를 원래 값으로 — 저장된 상태에 8 이 안 실리게 */
    size_t sz = c_serialize_size();
@@ -1611,6 +1627,7 @@ JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
    int ok = g_loaded && c_unserialize(buf, (size_t)sz);
    if (ok) {
       core_ptrs(1);                                  /* 165 고침: 아래 look_after_load 가 쓰는 화면 램·팔레트·바꿔 쓰기 함수 = 지금 코어 것(첫 프레임 전이어도) */
+      hitflash_forget();                             /* 186 몸 번쩍: 팔레트가 통째로 바뀜 — 아래 look_after_load 가 표를 새로 넣기 전에(번쩍을 안 얹게) */
       practice_forget(); league_practice_title();   /* 연습 대전: 램·화면이 통째로 바뀜 — 지금 것은 되돌리지 않고 잊는다 */
       prac_side_apply(side, sn);                     /* 연습 경기 중에 저장한 상태면 그 연습 경기로(아니면 기다리던 것도 버림) */
       look_forget();                                /* 컬러: 화면 칸은 잊고, 경기 컬러는 .look 이 맞을 때만(아니면 버림) */
@@ -1620,7 +1637,7 @@ JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
       cheat_forget();                                /* 치트: 램이 통째로 바뀜 — 보관한 카드는 버리고 다음 프레임부터 새로 */
       ov_clear(OV_CLR_ALL);                          /* 157 덧판: 코어 상태가 통째로 바뀜 */
       ov_tag_clear();
-      callout_reset();
+      callout_reset(); hitflash_forget();
    }
    CORE_UNLOCK();
    free(buf);

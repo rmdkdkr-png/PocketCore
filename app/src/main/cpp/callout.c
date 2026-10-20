@@ -60,6 +60,14 @@ enum { FXK_L = 0, FXK_H, FXK_T, FXK_G, FXK_C, FXK_D, FXK_K };   /* 섬광 약·�
 static dfx_t FX[FX_MAX];
 static uint32_t fx_seq;
 static struct { uint8_t on, ctrl[2]; uint16_t y[2]; uint32_t f, last[2]; } DU;   /* 185 넘어짐 먼지 — 라운드 조작 밖(KO 뒤 쓰러짐)에서도 보려고 따로 센다 */
+static int flash_req;                           /* 186 COUNTER 몸 번쩍 — 맞은 쪽 + 1(native.c 가 callout_tick 바로 뒤 가져가 hitflash_start) */
+/* 186 화면 흔들림 — 게임 그림을 몇 진짜 프레임 좌우로(막타는 위아래도) 흔든다(native.c gl_draw 가 뷰포트를 옮김 — 라벨·터치 자리는 그대로).
+   세기 1 = 칼 부딪힘·약한 COUNTER · 2 = 센 맞음(피해 12 이상) · 3 = 막타. 값은 ¼ 게임 px, 첫 칸은 맞은 쪽이 밀리는 쪽으로. 더 센 것이 도는 중이면 약한 것은 무시 */
+static const int8_t SK_X1[] = { 4, -4, 2, -2 };
+static const int8_t SK_X2[] = { 6, -6, 5, -5, 3, -3, 2, -2, 1 };
+static const int8_t SK_X3[] = { 10, -10, 8, -8, 6, -6, 4, -4, 3, -3, 2, -1 };
+static const int8_t SK_Y3[] = { -4, 4, -3, 3, -2, 2, -1, 1, 0, 0, 0, 0 };
+static struct { int lv, t, dir; } SK;
 
 void callout_enable(int on)
 {
@@ -88,6 +96,8 @@ static void reset_now(void)
    for (int s = 0; s < 2; s++) for (int r = 0; r < CO_ROWS; r++) { L[s][r].t0 = -1e9; L[s][r].kind = -1; L[s][r].side = s; L[s][r].row = r; }
    memset(FX, 0, sizeof FX);
    memset(&DU, 0, sizeof DU);
+   flash_req = 0;
+   memset(&SK, 0, sizeof SK);
 }
 
 static int rd16(const uint8_t *ram, int o) { return ram[o] | (ram[o + 1] << 8); }
@@ -187,6 +197,14 @@ static void dust_tick(const uint8_t *ram)
    DU.on = (uint8_t)fight;
 }
 
+static int sk_len(int lv) { return lv == 3 ? (int)sizeof SK_X3 : lv == 2 ? (int)sizeof SK_X2 : lv == 1 ? (int)sizeof SK_X1 : 0; }
+static void shake(int lv, int dir)
+{
+   if (atomic_load(&fx_mode) == FXM_OFF || (SK.lv > lv && SK.t < sk_len(SK.lv))) return;
+   SK.lv = lv; SK.t = 0; SK.dir = dir < 0 ? -1 : 1;
+}
+static void shake_advance(void) { if (SK.lv && ++SK.t >= sk_len(SK.lv)) SK.lv = 0; }
+
 /* 한 진짜 프레임 — 히트스톱 중이면 첫 컷 그대로, 아니면 2프레임마다 다음 컷 */
 static void fx_advance(int hs)
 {
@@ -222,6 +240,7 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
    if (atomic_exchange(&co_reset_req, 0)) reset_now();
    if ((!atomic_load(&co_on) && !atomic_load(&fx_mode)) || !ram || ramsz < (size_t)RAM_NEED) return;
    fx_advance(ram[R_HSTOP]);                             /* 이펙트는 판이 끝나는 중(KO·대사)에도 끝까지 */
+   shake_advance();                                      /* 186 흔들림도 판 끝(KO) 중에 끝까지 */
    if (atomic_load(&fx_mode) != FXM_OFF) dust_tick(ram);
    S.cam = ram[R_CAMX];
    live = ram[R_MODE] == 241 && ram[R_FIGHT] == 1 && ram[R_RES] == 0 && ram[R_RES2] == 0 && ram[R_PAUSE] != 1;
@@ -266,18 +285,25 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
          if (!S.first_done) { S.first_done = 1; emit(CO_FIRST, a, now); }
          if (kind == C_HIT) {
             int ctr = S.cls[d] == K_STARTUP || S.cls[d] == K_ACTIVE, pun = S.cls[d] == K_RECOVERY;
-            if (ctr) emit(CO_COUNTER, a, now);
+            if (ctr) { emit(CO_COUNTER, a, now); if (atomic_load(&fx_mode) != FXM_OFF) flash_req = d + 1; }   /* 186 맞은 몸 번쩍 */
             else if (pun) emit(CO_PUNISH, a, now);
             {  /* 강(혜성) = 보통 기술로 피해 12 이상(약베기 6~11 · 강베기 14~21 실측 — 닿은 프레임에 바로 줄어듦).
                   필살(ACT ≥ 0x180, 177 실측)은 원작이 불·감전 해골·큰 초승달을 이미 그려서 작은 섬광만(절제 — 봇 판 그림에서 겹쳐 지저분했음) */
                int dmg = S.p_hp[d] > ram[PB(d) + O_HP] ? S.p_hp[d] - ram[PB(d) + O_HP] : 0;
                fx_spawn(ram, d, ram[PB(d) + O_HP] == 0 ? FXK_K : dmg >= 12 && act[a] < 0x180 ? FXK_H : FXK_L, ctr ? 1 : pun ? 2 : 0);   /* 185: 체력 0 = 막타 일섬 */
+               {  /* 186 흔들림 — 필살도 센 맞음이면(그림은 절제해도 손맛은) */
+                  int sd = rd16(ram, OBJ(a) + 8) <= rd16(ram, OBJ(d) + 8) ? 1 : -1;
+                  if (ram[PB(d) + O_HP] == 0) shake(3, sd); else if (dmg >= 12) shake(2, sd); else if (ctr) shake(1, sd);
+               }
             }
          }
       }
-      if (d >= 0 && kind == C_MULTI) fx_spawn(ram, d, ram[PB(d) + O_HP] == 0 ? FXK_K : FXK_T, 0);
+      if (d >= 0 && kind == C_MULTI) {
+         fx_spawn(ram, d, ram[PB(d) + O_HP] == 0 ? FXK_K : FXK_T, 0);
+         if (ram[PB(d) + O_HP] == 0) shake(3, rd16(ram, OBJ(1 - d) + 8) <= rd16(ram, OBJ(d) + 8) ? 1 : -1);   /* 186 연타 막타도 */
+      }
       if (d >= 0 && kind == C_BLOCK) fx_spawn(ram, d, FXK_G, 0);          /* 185 가드 반달 */
-      if (kind == C_OTHER && d < 0) fx_clash(ram);                         /* 185 칼 부딪힘(튕겨내기 비트가 선 것은 빼고) */   /* 히트스톱 없는 여러 번 맞음(장풍·연타 필살) — 큰 섬광은 첫 타만, 나머지는 작은 것 */
+      if (kind == C_OTHER && d < 0) { fx_clash(ram); shake(1, 1); }      /* 185 칼 부딪힘(튕겨내기 비트가 선 것은 빼고) · 186 작은 흔들림 */   /* 히트스톱 없는 여러 번 맞음(장풍·연타 필살) — 큰 섬광은 첫 타만, 나머지는 작은 것 */
       if (kind != C_NONE && d >= 0) { S.mode[d] = 2; S.stun[d] = kind == C_BLOCK ? C_BLOCK : C_HIT; }
       /* 장풍 arm — 주인이 동작 중에 켠 공격 상자만 */
       for (int k = 4; k < 32; k++) {
@@ -525,3 +551,15 @@ void callout_fx_draw(uint8_t *rows, uint8_t *ph, int row0, int nrows, int fbw, i
 }
 
 int callout_fx_count(void) { int n = 0; for (int i = 0; i < FX_MAX; i++) n += FX[i].on; return n; }
+
+int callout_flash_take(void) { int r = flash_req; flash_req = 0; return r; }
+
+int callout_shake(float *gx, float *gy)
+{
+   int lv = SK.lv, t = SK.t;
+   if (!lv || t < 0 || t >= sk_len(lv) || atomic_load(&fx_mode) == FXM_OFF) return 0;
+   const int8_t *X = lv == 3 ? SK_X3 : lv == 2 ? SK_X2 : SK_X1;
+   *gx = SK.dir * X[t] / 4.f;
+   *gy = lv == 3 ? SK_Y3[t] / 4.f : 0.f;
+   return 1;
+}

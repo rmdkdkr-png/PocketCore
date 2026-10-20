@@ -3,7 +3,7 @@
    게임 그림(160×152 · 서기 그리기 4배 640×608) 위에 그려 읽어 낸다 — 라벨 자리 색, 뷰포트·게임 사각형 밖은 그대로, 수명 뒤엔 게임 그림과 같음.
      J=/usr/lib/jvm/java-21-openjdk-amd64/include; C=app/src/main/cpp; L=/usr/lib/x86_64-linux-gnu
      gcc -std=gnu17 -O1 -g -w -I tools/sndfx_host/inc -I $C -I $J -I $J/linux tools/callout_host/gltest.c \
-         $C/pace.c $C/sndfx.c $C/league.c $C/practice.c $C/look.c $C/slash.c $C/vpanel.c $C/vsband.c $C/cheat.c $C/ovplane.c $C/uisfx.c $C/callout.c \
+         $C/pace.c $C/sndfx.c $C/league.c $C/practice.c $C/look.c $C/slash.c $C/vpanel.c $C/vsband.c $C/cheat.c $C/ovplane.c $C/uisfx.c $C/callout.c $C/hitflash.c \
          $L/libGLESv2.so.2 $L/libEGL.so.1 -lm -ldl -lpthread -o gltest
      ./gltest out_dir      (PPM 그림 + 검사 결과, 실패면 1) */
 #include "native.c"
@@ -74,6 +74,14 @@ static double frac_diff(int x0, int y0, int x1, int y1, const uint8_t bg[3])
 }
 
 static int fails = 0;
+/* 186 가짜 코어 바꿔 쓰기 표(retro_ngp_palremap 과 같은 꼴) — FR[칸][자리] = {from, to}, from −1 = 비움 */
+static int FR[256][2][2];
+static void fake_remap(int idx, int slot, int from, int to)
+{
+   if (idx < 0) { for (int i = 0; i < 256; i++) for (int k = 0; k < 2; k++) FR[i][k][0] = -1; return; }
+   if (idx > 255 || slot < 0 || slot > 1) return;
+   FR[idx][slot][0] = from < 0 ? -1 : from; FR[idx][slot][1] = to;
+}
 static int fx_count_ok(void) { return callout_fx_count() == 1; }
 static const uint8_t *blk_c(void) { static const uint8_t b[3] = { 0, 0, 0 }; return b; }
 static const char *KN[CO_KINDS] = { "FIRST ATTACK", "COUNTER", "PUNISHER", "REVERSAL" };
@@ -200,7 +208,7 @@ int main(int argc, char **argv)
       double fr = frac_diff(vx + 85 * 6, vy + 96 * 6, vx + 120 * 6, vy + 110 * 6, bg);
       CHECK(fx_count_ok(), "fx 하나");
       CHECK(fr > 0.05, "%s %s 이펙트 그려짐(자리 안 %.0f%%)", fi ? "4x" : "1x", mode == 0 ? "보통" : mode == 1 ? "잔상" : "쪽지", fr * 100);
-      CHECK(frac_diff(vx, vy, vx + 960, vy + 32 * 6, bg) == 0 && frac_diff(vx, vy + 136 * 6, vx + 960, vy + dh, bg) == 0, "%s 놀이 칸 밖(위·아래 HUD 줄) 그대로", fi ? "4x" : "1x");
+      CHECK(frac_diff(vx + 20, vy, vx + 940, vy + 32 * 6, bg) == 0 && frac_diff(vx + 20, vy + 136 * 6, vx + 940, vy + dh, bg) == 0, "%s 놀이 칸 밖(위·아래 HUD 줄) 그대로(186 센 맞음 흔들림 9 px 띠는 빼고)", fi ? "4x" : "1x");
       CHECK(frac_diff(0, 0, W, vy, blk_c()) == 0 && frac_diff(0, vy + dh, W, H, blk_c()) == 0, "%s 뷰포트 밖 그대로", fi ? "4x" : "1x");
       HS = 0;
       for (int i = 0; i < 20; i++) TICK2();
@@ -222,6 +230,136 @@ int main(int argc, char **argv)
      glClear(GL_COLOR_BUFFER_BIT); gl_draw(); grab();
      int vx = 60, dh = 912, vy = H - (H - dh - (int)(H * 0.07f)) - dh; const uint8_t bg[3] = { 0x40, 0x60, 0x80 };
      CHECK(frac_diff(vx, vy, vx + 960, vy + dh, bg) == 0, "이펙트 끄면 바로 되돌림"); }
+   /* ── 186 COUNTER 몸 번쩍 — 반격 맞음이면 맞은 쪽 + 1 · 몸 팔레트(0 P1 · 5 P2) 밝은 두 색만 흰색 · 2 진짜 프레임 뒤 되돌림 ·
+         그 사이 게임이 다시 쓰면 게임 것 그대로 · 저장 직전 되돌림 · 잊기(불러온 상태) · 윗 4비트 · 이펙트 끄면 부탁 없음 ── */
+   {
+      static uint8_t PB2[16 * 8];
+      const uint16_t body0[3] = { 0xBDF, 0x00D, 0x005 }, body5[3] = { 0xCDF, 0x980, 0x230 }, tint[3] = { 0xFFF, 0xF9B, 0xF58 };
+      #define PSET(pp, c) do { for (int j_ = 0; j_ < 3; j_++) { PB2[(pp) * 8 + (j_ + 1) * 2] = (uint8_t)(c)[j_]; PB2[(pp) * 8 + (j_ + 1) * 2 + 1] = (uint8_t)((c)[j_] >> 8); } } while (0)
+      #define PGET(pp, j) ((uint16_t)(PB2[(pp) * 8 + ((j) + 1) * 2] | PB2[(pp) * 8 + ((j) + 1) * 2 + 1] << 8))
+      PSET(0, body0); PSET(5, body5);
+      hitflash_forget();
+      double T4 = 700.0; int f4 = 0;
+      #define TICK4() do { f4++; callout_fx_pal(PB2); callout_tick(RAM, sizeof RAM, T4 + f4 / 60.0); } while (0)
+      #define COUNTER_SEQ() do { callout_reset(); base(); TICK4(); CTRL(1) = 0x02; TICK4(); HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; TICK4(); } while (0)
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+      callout_reset(); base(); TICK4(); CTRL(1) = 0x02; TICK4();
+      CHECK(callout_flash_take() == 0, "몸 번쩍: 닿기 전엔 부탁 없음");
+      HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; TICK4();       /* P1 이 발동 중인 P2 를 — COUNTER */
+      int fs = callout_flash_take();
+      CHECK(fs == 2, "몸 번쩍: 반격 맞음 → 맞은 쪽 P2(+1) = %d", fs);
+      CHECK(callout_flash_take() == 0, "몸 번쩍: 가져가면 0");
+      hitflash_start(PB2, fs - 1);
+      CHECK(PGET(5, 0) == 0xFFF && PGET(5, 1) == 0xFFF && PGET(5, 2) == 0x230 && PGET(0, 0) == 0xBDF && PGET(0, 1) == 0x00D,
+            "몸 번쩍: P2 팔레트 5 = 흰·흰·테두리 그대로(%03X %03X %03X), P1 팔레트 0 그대로", PGET(5, 0), PGET(5, 1), PGET(5, 2));
+      hitflash_tick(PB2);
+      CHECK(hitflash_active() == 2 && PGET(5, 0) == 0xFFF, "몸 번쩍: 1 프레임 뒤 아직 흰색");
+      hitflash_tick(PB2);
+      CHECK(hitflash_active() == 0 && PGET(5, 0) == 0xCDF && PGET(5, 1) == 0x980 && PGET(5, 2) == 0x230, "몸 번쩍: 2 프레임 뒤 원래 색");
+      hitflash_start(PB2, 1); PSET(5, tint); hitflash_tick(PB2); hitflash_tick(PB2);
+      CHECK(hitflash_active() == 0 && PGET(5, 0) == 0xFFF && PGET(5, 1) == 0xF9B && PGET(5, 2) == 0xF58, "몸 번쩍: 그 사이 게임이 쓴 물들임은 그대로");
+      PSET(5, body5);
+      hitflash_start(PB2, 0);
+      CHECK(PGET(0, 0) == 0xFFF && PGET(0, 1) == 0xFFF && PGET(0, 2) == 0x005, "몸 번쩍: P1 팔레트 0 흰색");
+      hitflash_start(PB2, 0); hitflash_tick(PB2);
+      CHECK(hitflash_active() == 1 && PGET(0, 0) == 0xFFF, "몸 번쩍: 번쩍이는 중 또 반격 — 길이만 다시(흰색을 원래 색으로 저장하지 않음)");
+      hitflash_end(PB2);
+      CHECK(hitflash_active() == 0 && PGET(0, 0) == 0xBDF && PGET(0, 1) == 0x00D && PGET(0, 2) == 0x005, "몸 번쩍: 저장 직전 되돌림");
+      hitflash_start(PB2, 0); hitflash_forget(); hitflash_tick(PB2); hitflash_tick(PB2);
+      CHECK(PGET(0, 0) == 0xFFF && hitflash_active() == 0, "몸 번쩍: 잊으면 안 되돌림(불러온 상태가 팔레트를 덮음)");
+      PSET(0, body0);
+      PB2[5 * 8 + 3] |= 0x30;                               /* 팔레트 5 색 1 윗바이트의 쓰지 않는 4비트 */
+      hitflash_start(PB2, 1); hitflash_tick(PB2); hitflash_tick(PB2);
+      CHECK(PGET(5, 0) == 0x3CDF, "몸 번쩍: 윗 4비트까지 되돌림(%04X)", PGET(5, 0));
+      PSET(5, body5);
+      { uint16_t in[3] = { 0x00D, 0xBDF, 0x005 }, out[3]; hitflash_colors(in, out);
+        CHECK(out[0] == 0xFFF && out[1] == 0xFFF && out[2] == 0x005, "몸 번쩍: 가장 어두운 칸만 남김(칸 순서 무관)"); }
+      { uint16_t in[3] = { 0x111, 0xFFF, 0x888 }, out[3]; hitflash_colors(in, out);
+        CHECK(out[0] == 0x111 && out[1] == 0xFFF && out[2] == 0xFFF, "몸 번쩍: 어두운 칸이 앞이어도"); }
+      { static uint8_t Z[16 * 8]; hitflash_start(Z, 1); CHECK(hitflash_active() == 0 && !Z[5 * 8 + 2], "몸 번쩍: 빈 팔레트는 안 씀"); }
+      hitflash_start(NULL, 0); CHECK(hitflash_active() == 0, "몸 번쩍: 팔레트 없음 무시");
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
+      Java_com_dudu_pocketcore_Emu_nativeSetCallouts(NULL, NULL, 1);
+      COUNTER_SEQ(); callout_stats(st);
+      CHECK(callout_flash_take() == 0, "몸 번쩍: 이펙트 끄면(라벨만 켬) 부탁 없음");
+      Java_com_dudu_pocketcore_Emu_nativeSetCallouts(NULL, NULL, 0);
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+      COUNTER_SEQ(); callout_reset(); TICK4();
+      CHECK(callout_flash_take() == 0, "몸 번쩍: 지우기(리셋) 뒤엔 부탁 없음");
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
+      /* 코어 바꿔 쓰기 표 겹치기(look.c) — 번쩍 동안만 팔레트 5 자리 0 = «번쩍 전 세 색 → 흰색», 끝나면 look 이 바란 표로 */
+      look_palremap_fn((void *)fake_remap);
+      look_vram(NULL, NULL, PB2);
+      base(); look_tick(RAM, sizeof RAM, 0, LOOK_CTX_FREE);
+      CHECK(FR[21][0][0] < 0 && FR[1][0][0] < 0, "표: 번쩍 전엔 몸 팔레트 줄 없음");
+      hitflash_start(PB2, 1); look_flash_sync();
+      CHECK(FR[21][0][0] == 0xCDF && FR[21][0][1] == 0xFFF && FR[22][0][0] == 0x980 && FR[22][0][1] == 0xFFF && FR[23][0][0] == 0x230 && FR[23][0][1] == 0x230,
+            "표: 번쩍 시작 → 팔레트 5 «CDF 980 230 → FFF FFF 230»");
+      PSET(5, body5);                                        /* 게임이 다시 씀 — 코어라면 표가 흰색으로 바꿔 넣는다(여기선 가짜라 직접) */
+      { uint16_t w5[3] = { 0xFFF, 0xFFF, 0x230 }; PSET(5, w5); }
+      hitflash_tick(PB2); look_tick(RAM, sizeof RAM, 0, LOOK_CTX_FREE);
+      CHECK(hitflash_active() == 2 && FR[21][0][0] == 0xCDF, "표: 1 프레임 뒤 look_tick 도 번쩍 줄 유지");
+      hitflash_tick(PB2); look_tick(RAM, sizeof RAM, 0, LOOK_CTX_FREE);
+      CHECK(hitflash_active() == 0 && FR[21][0][0] < 0 && FR[22][0][0] < 0 && FR[23][0][0] < 0 && PGET(5, 0) == 0xCDF, "표: 끝나면 줄 빠지고 팔레트 원래 색");
+      hitflash_start(PB2, 0); look_flash_sync();
+      CHECK(FR[1][0][0] == 0xBDF && FR[1][0][1] == 0xFFF && FR[3][0][1] == 0x005, "표: P1 팔레트 0 도");
+      hitflash_end(PB2); look_flash_sync();
+      CHECK(FR[1][0][0] < 0 && PGET(0, 0) == 0xBDF, "표: 저장 직전 끝 → 줄 빠지고 팔레트 원래 색");
+      hitflash_start(PB2, 0); look_flash_sync(); hitflash_forget(); look_forget(); look_flash_sync();
+      CHECK(FR[1][0][0] == 0xBDF, "표: look_forget 뒤엔 다음 look_tick 까지 안 건드림(표 통째로 다시 넣기 전)");
+      base(); look_tick(RAM, sizeof RAM, 0, LOOK_CTX_FREE);
+      CHECK(FR[1][0][0] < 0, "표: 다음 look_tick 에 통째로 비우고 다시(번쩍 줄 없음)");
+      PSET(0, body0);
+      look_palremap_fn(NULL); look_vram(NULL, NULL, NULL); look_forget();
+   }
+   /* ── 186 화면 흔들림 — 센 맞음 2 · 막타 3 · 약한 COUNTER·칼 부딪힘 1 · 센 것 도는 중 약한 것 무시 · 이펙트 끄면 없음 · gl_draw 가 게임 그림만 옮김 ── */
+   {
+      float gx = 0.f, gy = 0.f, seq[40];
+      int n5;
+      double T5 = 900.0; int f5 = 0;
+      #define TICK5() do { f5++; callout_fx_pal(NULL); callout_tick(RAM, sizeof RAM, T5 + f5 / 60.0); } while (0)
+      #define RUNSHAKE() do { n5 = 0; while (n5 < 40 && callout_shake(&gx, &gy)) { seq[n5++] = gx; TICK5(); } } while (0)
+      #define HEAVY_SEQ(hp) do { callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128; \
+                                 TICK5(); TICK5(); HS = 8; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = (hp); TICK5(); } while (0)
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+      callout_reset(); base(); TICK5(); TICK5();
+      CHECK(!callout_shake(&gx, &gy), "흔들림: 맞기 전엔 없음");
+      HEAVY_SEQ(108);                                       /* P2(70) 가 P1(100)을 — 피해 20 */
+      CHECK(callout_shake(&gx, &gy) && gx == 1.5f && gy == 0.f, "흔들림: 센 맞음 → 맞은 쪽이 밀리는 오른쪽으로 1.5 px 먼저(%.2f, %.2f)", gx, gy);
+      RUNSHAKE();
+      CHECK(n5 == 9 && seq[1] == -1.5f && seq[8] == 0.25f, "흔들림: 센 맞음 9 프레임 좌우 번갈아 줄어듦(%d, %.2f … %.2f)", n5, seq[1], seq[n5 > 0 ? n5 - 1 : 0]);
+      HEAVY_SEQ(0);                                         /* 막타 */
+      CHECK(callout_shake(&gx, &gy) && gx == 2.5f && gy == -1.f, "흔들림: 막타 2.5 px + 위아래(%.2f, %.2f)", gx, gy);
+      RUNSHAKE();
+      CHECK(n5 == 12, "흔들림: 막타 12 프레임(%d)", n5);
+      callout_reset(); base(); TICK5(); CTRL(1) = 0x02; TICK5(); HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; TICK5();   /* 피해 없는 반격(약) */
+      CHECK(callout_shake(&gx, &gy) && gx == 1.f, "흔들림: 약한 COUNTER 1 px(%.2f)", gx);
+      RUNSHAKE();
+      CHECK(n5 == 4, "흔들림: 약한 것 4 프레임(%d)", n5);
+      HEAVY_SEQ(0); TICK5();                                /* 막타 흔들림 도는 중(2칸째)에 약한 반격 */
+      CTRL(1) = 0x02; TICK5(); HS = 0; TICK5(); HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; TICK5();
+      CHECK(callout_shake(&gx, &gy) && (gx == 6 / 4.f || gx == -6 / 4.f || gx == 2.f || gx == -2.f), "흔들림: 센 것 도는 중 약한 것은 무시(%.2f)", gx);
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
+      CHECK(!callout_shake(&gx, &gy), "흔들림: 이펙트 끄면 바로 없음");
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+      /* gl_draw — 1배 160×152, 정수배 6: 1.5 px → 화면 9 px 오른쪽. 왼쪽 9 줄은 검정(glClear), 오른쪽 밖 9 줄에 게임 그림 */
+      make_frame(160, 152);
+      HEAVY_SEQ(108);
+      int vx = 60, dw = 960, dh = 912, vy = H - (H - dh - (int)(H * 0.07f)) - dh;
+      const uint8_t bg[3] = { 0x40, 0x60, 0x80 };
+      g_fb_dirty = 1; glClear(GL_COLOR_BUFFER_BIT); gl_draw(); grab();
+      save(dir, "shake_1x");
+      CHECK(frac_diff(vx, vy + 10, vx + 9, vy + dh - 10, blk_c()) == 0 && frac_diff(vx + dw, vy + 10, vx + dw + 9, vy + dh - 10, bg) == 0
+            && frac_diff(vx + 9, vy + 40 * 6, vx + 9 + 60, vy + 90 * 6, bg) == 0,
+            "흔들림: gl_draw 가 게임 그림을 9 px 오른쪽으로(왼쪽 띠 검정 · 오른쪽 밖에 그림)");
+      CHECK(glGetError() == GL_NO_ERROR, "흔들림: GL 오류 없음");
+      g_paused = 1; glClear(GL_COLOR_BUFFER_BIT); gl_draw(); grab();
+      CHECK(frac_diff(vx, vy + 10, vx + 9, vy + dh - 10, bg) == 0 && frac_diff(vx + dw, vy + 10, vx + dw + 9, vy + dh - 10, blk_c()) == 0, "흔들림: 멈춤 중엔 제자리");
+      g_paused = 0;
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
+      glClear(GL_COLOR_BUFFER_BIT); gl_draw(); grab();
+      CHECK(frac_diff(vx, vy + 10, vx + 9, vy + dh - 10, bg) == 0, "흔들림: 끄면 제자리");
+   }
    fprintf(stderr, "%s (%d 실패)\n", fails ? "실패" : "통과", fails);
    return fails ? 1 : 0;
 }
