@@ -1,0 +1,222 @@
+앱 방 코어 패치 zzzzzzzzzzzzz_snd_only — 메인 CPU 를 세운 채 소리 CPU 만 돌리기 + 소리만 1/d 빠르기(앱 182 «메뉴 중 배경음 유지» · «4배속 넘김에도 소리»).
+유저 10-20 소리 빈 시간 조사(u181s) 뒤 고름: 사무쇼2 원래 PAUSE 는 곡이 계속 나는데 앱의 쉼·서랍·대기(덧판이 코어를 통째로 세움)는 조용했다 —
+덧판이 게임을 세운 동안 소리 CPU(Z80 + T6W28)만 코어 fps 로 돌려 곡을 잇는다. 랭크 «상대 발견!» 뒤 4배속 자동 진행 동안은 소리를 버렸다 —
+소리만 1/4 로 돌려 곡을 보통 빠르기로 낸다.
+- retro_ngp_sndonly_run(n): retro_run n 번 몫(한 번 = 515×199 틱 · 2배 출력 중엔 반 프레임)의 시간 동안 Z80·소리 칩만. 메인 CPU(TLCS-900h)·그림·입력·
+  진짜 타이머·인터럽트·마이크로 DMA 는 안 건드린다 — 타이머 2·3(타이머 3 = Z80 IRQ)은 그림자 사본으로 센다(진짜 타이머가 바뀌면 거기서 다시 잡음).
+  Z80 이 메인 CPU 에 거는 인터럽트(0xC000)는 받아 두었다가 다음 실제 프레임 첫 틱에(사무쇼2 는 안 씀 — 시험 0 번). 소리는 audio_batch 콜백으로,
+  snd_noise(«배경음만») 잡음 칸도 같이(rr_sound_buf · NoiseTarget). 해설 음성은 이어서 섞는다.
+- retro_ngp_snd_div(d): 소리 시각(ngpc_soundTS)·Z80 IRQ 를 d 번에 한 번, Z80 명령 값을 d 배(나머지는 z80_runtime — 상태 안). d = 1 이면 원래 코드 그대로.
+  나머지 셈(소리 시각·IRQ)은 상태 밖 — 숨은 프레임(ngp_fg_mute: 프레임 생성·런어헤드)은 따로 세어 실제 프레임의 셈을 안 건드린다.
+- retro_ngp_sndonly_info(v[6]): 시험용(돈 횟수 · 받아 둔 인터럽트 · d · 그림자 다시 잡음 · 2배 출력 · 반 프레임 차례).
+상태 형식·크기 그대로(새 칸 없음). 앱은 dlsym 으로 찾고 없으면(옛 코어) 예전처럼 조용.
+호스트(core181 + 이 패치 = u182 core182, t_core182.py 45/45): 경기 중 소리만 10 s — 곡이 정상 진행과 같은 음(가장 센 음 줄 0.985 · 지연 0 · 소리 양 같음) ·
+상태 칸을 하나하나 견줘 바뀐 것은 Z80·Z80 램(0x7000~)·CommByte·z80_runtime·소리 칩뿐(메인 램·TLCS·타이머·인터럽트·그림 그대로) · 그 뒤 600 프레임이
+안 세운 판과 메인 램까지 같음 · 세운 동안 저장한 상태 → 불러와 이어 돌림 = 바로 이어 돌림(600 프레임 메인 램 · 끝 상태 바이트까지) ·
+4배속 + d 4 = 곡 보통 빠르기(0.975 · 음높이 787.4 Hz 그대로 · 소리 양 같음) · 전원 → 고르기 → 이야기 → 경기가 d 1 과 같은 프레임(장면 바이트 매 프레임 같음 ·
+메인 CPU 스택 쪽만 다름 — 게임이 Z80 대답을 기다리며 도는 수) · 런어헤드 2 · 프레임 생성 2배 출력에서도 같음 · Z80→메인 인터럽트 0 번.
+diff --git a/src/libretro.c b/src/libretro.c
+index c4ad38e..a8f3772 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -105,6 +105,7 @@ static int32 z80_runtime;
+ static FG_TLS int fg_state_skip = 0;
+ 
+ extern int32_t ngpc_soundTS;
++extern int ngp_snd_div;                 /* snd_only(앱 방 코어 패치): 소리만 1/d 빠르기 — interrupt.c */
+ 
+ static void Emulate(EmulateSpecStruct *espec, int16_t *sound_buf)
+ {
+@@ -135,7 +136,7 @@ static void Emulate(EmulateSpecStruct *espec, int16_t *sound_buf)
+             break;
+          }
+ 
+-         z80_runtime -= z80rantime << 1;
++         z80_runtime -= (z80rantime << 1) * ngp_snd_div;   /* snd_only: d > 1 이면 Z80 도 1/d 빠르기(나머지는 z80_runtime — 상태 안) */
+ 
+       }
+    }while(!MeowMeow);
+@@ -2334,3 +2335,59 @@ void MDFN_MakeFName(uint8_t type, char *s, size_t len,
+ void retro_ngp_fx_stats(int *out8) { ss2fg_fx_stats(out8); }
+ /* debug export: 포즈 섞기 계기 4칸 (시험 하네스) */
+ void retro_ngp_pose_stats(int *out4) { ss2fg_pose_stats(out4); }
++
++/* ── 앱 방 코어 패치 zzzzzzzzzzzzz_snd_only ──────────────────────────────────────────────────────────────
++   retro_ngp_sndonly_run(n): 메인 CPU(TLCS-900h)·그림·입력은 세운 채 소리 CPU(Z80)와 소리 칩(T6W28)만 retro_run n 번 몫 돌려 소리를
++   audio_batch 콜백으로 낸다(앱: 덧판 메뉴가 게임을 세운 동안 — 원작 PAUSE 처럼 배경음이 이어진다). 한 번 = retro_run 한 번의 시간
++   (보통 한 프레임 515×199 틱 · 2배 출력(120Hz) 중엔 반 프레임씩 — 앱은 retro_run 과 같은 박자로 부른다). 메인 CPU 의 램·레지스터·
++   타이머·인터럽트는 그대로 — 바뀌는 것은 Z80(레지스터·Z80 램 0x7000~·CommByte·z80_runtime)과 소리 칩뿐. 해설 음성은 이어서 섞는다.
++   retro_ngp_snd_div(d): 소리(Z80 박자·IRQ·소리 시각)만 1/d — 앱이 4배속 자동 진행 동안 4 로(곡이 보통 빠르기 · 음높이 그대로).
++   retro_ngp_sndonly_info(v[6]): 시험용 — 돈 횟수 · 받아 둔 Z80→메인 인터럽트 · d · 그림자 타이머 다시 잡은 횟수 · 지금 2배 출력 · 반 프레임 차례 */
++extern void ngp_sndonly_ticks(int cputicks);
++extern void ngp_snd_div_set(int d);
++extern int ngp_sndonly_on, ngp_sndonly_int;
++extern unsigned ngp_sndonly_ints, ngp_sndonly_resync;
++#define SO_FRAME_TICKS (515 * 199)
++#define SO_STEP        12                /* 틱 — TLCS 명령 하나 크기쯤(타이머·Z80 IRQ 위치가 이만큼 안에서 맞는다) */
++static int16_t  so_buf[0x4000];
++static int      so_half = 0;
++static unsigned so_runs = 0;
++void retro_ngp_sndonly_run(int frames)
++{
++   int f;
++   if (!audio_batch_cb) return;
++   for (f = 0; f < frames; f++)
++   {
++      int32_t ticks = SO_FRAME_TICKS, done = 0, n, total = 0;
++      if (fg_active) { ticks = so_half ? ticks - ticks / 2 : ticks / 2; so_half ^= 1; }
++      else so_half = 0;
++      ngp_sndonly_on = 1;
++      ngpc_soundTS = 0;
++      rr_sound_buf = so_buf;                          /* snd_noise(«배경음만»): 이 버퍼의 잡음 칸을 앱이 찾게 */
++      MDFNNGPCSOUND_NoiseTarget(so_buf);
++      while (done < ticks)
++      {
++         int step = ticks - done < SO_STEP ? (int)(ticks - done) : SO_STEP;
++         ngp_sndonly_ticks(step);
++         z80_runtime += step;
++         while (z80_runtime > 0)
++         {
++            int r = Z80_RunOP();
++            if (r < 0) { z80_runtime = 0; break; }
++            z80_runtime -= r << 1;
++         }
++         done += step;
++      }
++      ngp_sndonly_on = 0;
++      n = MDFNNGPCSOUND_Flush(so_buf, (int32_t)(sizeof(so_buf) / 4));
++      ss2voice_mix(so_buf, n);
++      so_runs++;
++      while (total < n) total += audio_batch_cb(so_buf + total * 2, n - total);
++   }
++}
++void retro_ngp_snd_div(int div) { ngp_snd_div_set(div); }
++void retro_ngp_sndonly_info(int *v)
++{
++   v[0] = (int)so_runs; v[1] = (int)ngp_sndonly_ints; v[2] = ngp_snd_div; v[3] = (int)ngp_sndonly_resync;
++   v[4] = fg_active; v[5] = so_half;
++}
+diff --git a/src/mednafen/ngp/Z80_interface.c b/src/mednafen/ngp/Z80_interface.c
+index a93d23e..20d54ca 100644
+--- a/src/mednafen/ngp/Z80_interface.c
++++ b/src/mednafen/ngp/Z80_interface.c
+@@ -114,7 +114,12 @@ static void NGP_z80_writebyte(uint16_t address, uint8_t value)
+          Write_SoundChipRight(value);
+          break;
+       case 0xC000:
+-         TestIntHDMA(6, 0x0C);
++         {  /* snd_only(앱 방 코어 패치): 메인 CPU 를 세운 동안이면 받아 두었다가 다음 실제 프레임에 */
++            extern int ngp_sndonly_on, ngp_sndonly_int;
++            extern unsigned ngp_sndonly_ints;
++            if (ngp_sndonly_on) { ngp_sndonly_int = 1; ngp_sndonly_ints++; }
++            else TestIntHDMA(6, 0x0C);
++         }
+          break;
+    }
+ 
+diff --git a/src/mednafen/ngp/interrupt.c b/src/mednafen/ngp/interrupt.c
+index 8275291..b646f58 100644
+--- a/src/mednafen/ngp/interrupt.c
++++ b/src/mednafen/ngp/interrupt.c
+@@ -262,11 +262,38 @@ void TestIntHDMA(int bios_num, int vec_num)
+ 
+ extern int32_t ngpc_soundTS;
+ 
++/* 앱 방 코어 패치 zzzzzzzzzzzzz_snd_only — 소리만 1/d 빠르기(retro_ngp_snd_div: 앱의 4배속 자동 진행에서 곡을 보통 빠르기로).
++   d 가 1 이면 원래 그대로. d > 1: 소리 시각(ngpc_soundTS)·Z80 IRQ(타이머 3)를 d 번에 한 번만, Z80 명령 값은 d 배(libretro.c Emulate).
++   나머지 셈은 상태 밖이라 숨은 프레임(프레임 생성·런어헤드 — ngp_fg_mute)은 따로 세어 실제 프레임의 셈을 건드리지 않는다
++   (숨은 프레임은 끝나면 상태를 되돌린다 — 따로 센 것은 버린다) */
++extern int ngp_fg_mute;
++int ngp_snd_div = 1;
++static int snd_div_ts[2], snd_div_irq[2];    /* [0] 실제 프레임 · [1] 숨은 프레임 */
++void ngp_snd_div_set(int d)
++{
++   if (d < 1) d = 1;
++   if (d > 8) d = 8;
++   if (d != ngp_snd_div) { snd_div_ts[0] = snd_div_ts[1] = 0; snd_div_irq[0] = snd_div_irq[1] = 0; }
++   ngp_snd_div = d;
++}
++/* snd_only: 메인 CPU 를 세운 채 소리 CPU 만 돌리는 동안 Z80 이 메인 CPU 에 건 인터럽트(0xC000) — 세운 CPU·마이크로 DMA 를
++   건드리지 않게 받아 두었다가 다음 실제 프레임 첫 틱에 건다(사무쇼2 는 안 쓴다 — 시험에서 0 번) */
++int ngp_sndonly_on = 0, ngp_sndonly_int = 0;
++unsigned ngp_sndonly_ints = 0;
++
+ bool updateTimers(void *data, int cputicks)
+ {
+    bool ret = false;
+ 
+-   ngpc_soundTS += cputicks;
++   if (ngp_sndonly_int && !ngp_fg_mute) { ngp_sndonly_int = 0; TestIntHDMA(6, 0x0C); }
++   if (ngp_snd_div <= 1) ngpc_soundTS += cputicks;
++   else
++   {
++      int h = ngp_fg_mute ? 1 : 0;
++      snd_div_ts[h] += cputicks;
++      ngpc_soundTS += snd_div_ts[h] / ngp_snd_div;
++      snd_div_ts[h] %= ngp_snd_div;
++   }
+ 
+    /* increment H-INT timer */
+    timer_hint += cputicks;
+@@ -480,7 +507,12 @@ bool updateTimers(void *data, int cputicks)
+       {
+          timer[3] = 0;
+ 
+-         Z80_irq();
++         if (ngp_snd_div <= 1) Z80_irq();
++         else
++         {
++            int h = ngp_fg_mute ? 1 : 0;
++            if (++snd_div_irq[h] >= ngp_snd_div) { snd_div_irq[h] = 0; Z80_irq(); }
++         }
+          TestIntHDMA(10, 0x13);
+       }
+    }
+@@ -596,3 +628,47 @@ int int_timer_StateAction(void *data, int load, int data_only)
+ 
+    return 1;
+ }
++
++/* ── 앱 방 코어 패치 zzzzzzzzzzzzz_snd_only: 메인 CPU(TLCS-900h)를 세운 채 소리 CPU 박자만 ──
++   앱의 덧판 메뉴가 게임을 세운 동안(쉼·서랍·대기) 원작 PAUSE 처럼 배경음을 잇는다. 타이머 2·3(타이머 3 = Z80 IRQ 4.08ms)을
++   «그림자» 사본으로 센다 — 진짜 타이머·인터럽트·마이크로 DMA·그림은 한 비트도 안 바뀐다(세운 동안 저장한 상태 = 세운 순간의 메인 CPU).
++   진짜 타이머가 바뀌었으면(실제 프레임·상태 불러오기·리셋) 그림자를 거기서 다시 잡는다. 소리 시각은 늘 보통 빠르기(snd_div 무관) */
++static uint32_t so_clk[2], so_ref_clk[2];
++static uint8_t so_tm[2], so_ref_tm[2];
++static int so_valid = 0;
++unsigned ngp_sndonly_resync = 0;
++void ngp_sndonly_ticks(int cputicks)
++{
++   bool t2 = false;
++   if (!so_valid || so_ref_clk[0] != timer_clock[2] || so_ref_clk[1] != timer_clock[3] || so_ref_tm[0] != timer[2] || so_ref_tm[1] != timer[3])
++   {
++      so_clk[0] = so_ref_clk[0] = timer_clock[2]; so_clk[1] = so_ref_clk[1] = timer_clock[3];
++      so_tm[0] = so_ref_tm[0] = timer[2]; so_tm[1] = so_ref_tm[1] = timer[3];
++      so_valid = 1; ngp_sndonly_resync++;
++   }
++   ngpc_soundTS += cputicks;
++   so_clk[0] += cputicks;
++   so_clk[1] += cputicks;
++   if ((TRUN & 0x04))
++   {
++      switch (T23MOD & 0x03)
++      {
++         case 1: while (so_clk[0] >= TIMER_T1_RATE / 2) { so_tm[0]++; so_clk[0] -= TIMER_T1_RATE / 2; } break;
++         case 2: while (so_clk[0] >= TIMER_T4_RATE) { so_tm[0]++; so_clk[0] -= TIMER_T4_RATE; } break;
++         case 3: while (so_clk[0] >= TIMER_T16_RATE) { so_tm[0]++; so_clk[0] -= TIMER_T16_RATE; } break;
++         default: break;
++      }
++      if (timer_threshold[2] && so_tm[0] >= timer_threshold[2]) { so_tm[0] = 0; t2 = true; }
++   }
++   if ((TRUN & 0x08))
++   {
++      switch ((T23MOD & 0x0C) >> 2)
++      {
++         case 0: if (t2) { so_tm[1] += t2; so_clk[1] = 0; } break;
++         case 1: while (so_clk[1] >= TIMER_T1_RATE) { so_tm[1]++; so_clk[1] -= TIMER_T1_RATE; } break;
++         case 2: while (so_clk[1] >= TIMER_T16_RATE) { so_tm[1]++; so_clk[1] -= TIMER_T16_RATE; } break;
++         case 3: while (so_clk[1] >= TIMER_T256_RATE) { so_tm[1]++; so_clk[1] -= TIMER_T256_RATE; } break;
++      }
++      if (timer_threshold[3] && so_tm[1] >= timer_threshold[3]) { so_tm[1] = 0; Z80_irq(); }
++   }
++}
