@@ -140,3 +140,46 @@ def dust():
                         put(g, xx, yy, 1 if (d < rr * rr * 0.35 and k < 2) else 2 if d < rr * rr * 0.75 else 3)
         cels.append(g)
     return cels, (C, B)
+
+# ── 2단계(185) ──────────────────────────────────────────────────────────────
+# 가드 섬광: 때린 쪽(왼쪽 = 기본, 반대면 좌우 뒤집음)으로 볼록한 푸른 반달 방패 (17×21, 닿은 자리 8,10)
+def guard_arc():
+    W, H, C, Cy = 17, 21, 12, 10; cels = []
+    for k, (r, th, br) in enumerate(((6, 2, 0), (8, 2, 1), (9, 1, 2))):
+        g = blank(W, H)
+        for i in range(-60, 61, 3):
+            a = math.radians(180 + i)
+            for t in range(th):
+                rr = r - t
+                x = int(round(C + math.cos(a) * rr)); y = int(round(Cy - math.sin(a) * rr))
+                if br == 2 and (i // 9) % 2: continue
+                if br == 1 and abs(i) > 50 and (i // 6) % 2: continue
+                put(g, x, y, 1 if (t == 0 and k == 0 and abs(i) < 35) else 2)
+        cels.append(outline(g, 3) if k < 2 else g)
+    return cels, (C - 4, Cy)
+
+# 막타 일섬: 맞은 몸을 위에서 아래로 가로지르는 붓 사선(때린 쪽 위 → 맞은 쪽 아래), 흰 심 + 빨강 + 검붉은 테 (49×37, 가운데 24,18)
+def ko_slash():
+    W, H, C, Cy = 49, 37, 24, 18; cels = []
+    def stroke(g, L, th, x0=-1.0, gap=None):
+        ang = math.atan2(-14, 20)                      # 오른쪽 아래로
+        for i in range(int(L * 2) + 1):
+            t = i / (L * 2)
+            if gap and any(a <= t <= b for a, b in gap): continue
+            half = th * math.sin(math.pi * min(max(t, 0.02), 0.98)) ** 0.7
+            cx = C + (t - 0.5) * L * math.cos(ang) * 2 * 0.5 * 2 * 0.5 * 2
+            cy = Cy - (t - 0.5) * L * math.sin(ang) * 2 * 0.5 * 2 * 0.5 * 2
+            for d in range(-int(math.ceil(half)), int(math.ceil(half)) + 1):
+                if abs(d) > half: continue
+                nx, ny = -math.sin(ang) * d, -math.cos(ang) * d
+                put(g, int(round(cx + nx)), int(round(cy + ny)), 1 if abs(d) <= 0.6 else 2)
+    g = blank(W, H); stroke(g, 26, 2.6); cels.append(outline(g, 3))
+    g = blank(W, H); stroke(g, 30, 2.2); cels.append(outline(g, 3))
+    g = blank(W, H); stroke(g, 30, 1.6, gap=[(0.30, 0.38), (0.62, 0.70)]); cels.append(outline(g, 3))
+    g = blank(W, H); stroke(g, 30, 1.0, gap=[(0.18, 0.34), (0.46, 0.56), (0.70, 0.86)])
+    for (x, y) in ((C + 14, Cy - 12), (C - 16, Cy + 11)): put(g, x, y, 2)
+    cels.append(g)
+    g = blank(W, H)
+    for (x, y) in ((C + 17, Cy - 14), (C - 19, Cy + 13), (C + 3, Cy - 3)): put(g, x, y, 3)
+    cels.append(g)
+    return cels, (C, Cy)

@@ -97,12 +97,12 @@ int main(int argc, char **argv)
    palset(7, 0x0FF, 0x06F, 0x00C);   /* P2 칼 궤적(+2) 카즈키 불꽃 */
    Java_com_dudu_pocketcore_Emu_nativeSetCallouts(NULL, NULL, 0);
    Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
-   static const char *CASE[4] = { "light", "heavy", "counter", "punish" };
+   static const char *CASE[8] = { "light", "heavy", "counter", "punish", "guard", "clash", "ko", "dust" };
    for (int sub = 1; sub <= 4; sub += 3) {
       free(g_fb); g_fb = malloc((size_t)fw * sub * fh * sub * 4);
       for (int y = 0; y < fh * sub; y++) for (int x = 0; x < fw * sub; x++) { const uint8_t *s = rgb + ((size_t)(y / sub) * fw + x / sub) * 3; uint8_t *d = g_fb + ((size_t)y * fw * sub + x) * 4; d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = 255; }
       g_fb_w = fw * sub; g_fb_h = fh * sub; g_fb_dirty = 1;
-      for (int c = 0; c < 4; c++) {
+      for (int c = 0; c < 8; c++) {
          callout_reset();
          double T = 10.0 * (c + 1); int fr = 0;
          #define TICK() do { fr++; callout_fx_pal(PAL); callout_tick(RAM, sizeof RAM, T + fr / 60.0); } while (0)
@@ -110,7 +110,11 @@ int main(int argc, char **argv)
          if (c == 2) CTRL(0) = 0x02;                             /* COUNTER: 맞은 쪽(P1)이 발동 중 */
          if (c == 3) { CTRL(0) = 0x02; TICK(); BOX(0) = 0x10; TICK(); BOX(0) = 0xFF; TICK(); TICK(); }   /* PUNISHER: 상자 켰다 끈 뒤(경직) */
          TICK();
-         HS = 8; COMBO(0) = 1; CTRL(0) = 0x0A; HP(0) = (uint8_t)(128 - (c == 1 || c == 3 ? 20 : 6)); TICK();   /* 닿음 — P2 가 P1 을 */
+         if (c < 4 || c == 6) { HS = 8; COMBO(0) = 1; CTRL(0) = 0x0A; HP(0) = (uint8_t)(c == 6 ? 0 : 128 - (c == 1 || c == 3 ? 20 : 6)); }   /* 닿음 — P2 가 P1 을(6 = 막타) */
+         else if (c == 4) { HS = 8; RAM[RA(0x5980) + 0x49] = 0x30; CTRL(0) = 0x12; }   /* 가드 */
+         else if (c == 5) { HS = 8; }                                                  /* 맞음·가드 없이 히트스톱만 = 칼 부딪힘 */
+         else { CTRL(0) = 0x10; }                                                      /* 다운 시작 = 먼지 */
+         TICK();
          char pre[700]; snprintf(pre, sizeof pre, "%s_s%d", argv[5], sub);
          int k = 0; shot(pre, CASE[c], k++);
          for (int i = 0; i < 3; i++) { TICK(); shot(pre, CASE[c], k++); }            /* 히트스톱 — 첫 컷 그대로 */
