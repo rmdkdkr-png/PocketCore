@@ -1529,7 +1529,7 @@ final class LgmPages {
      *  새 시즌·처음부터 = «지금 경기는(쉼에서 연 서랍)/멈춘 경기는 기권패로 닫고 …» · 리그 초기화 = «지금/멈춘 경기도 함께 지워요» */
     static String confirmWhat(MenuModel.LeagueInfo li, int id) {
         String which = li.openLive ? "지금 경기" : "멈춘 경기";
-        if (id == LG_WIPE) return li.openVs != null ? which + "도 함께 지워요 · vs " + li.openVs : "기록·순위·상대·시즌을 모두 지워요 · 이름은 그대로";
+        if (id == LG_WIPE) return li.openVs != null ? which + "도 함께 지워요 · vs " + li.openVs : "기록·시즌·상대 모두 지움 · 이름은 그대로";
         boolean ns = id == LG_NEW_SEASON;
         if (li.openVs != null) return which + "는 기권패로 닫고 " + (ns ? "새 시즌" : "처음부터") + " · vs " + li.openVs;
         return ns ? "시즌 " + (li.season + 1) + " · LP " + li.lp0 + "→" + li.lp1 + " · 승패 0부터" : "배치 5판부터 · 지금 기록은 보관";
