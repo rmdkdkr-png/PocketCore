@@ -252,8 +252,8 @@ int main(int argc, char **argv)
       RAM[RA(0x4E30) + 0x0E] = 0x68; RAM[RA(0x4E30) + 0x0F] = 0x00;
       HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; RAM[RA(0x5980) + 0x200 + 0xC6] = 108; TICK4();   /* P1 이 앞 강베기(ACT 0x68)로 P2 를(피해 20 · COUNTER 이기도) */
       int fs = callout_flash_take();
-      CHECK(fs == 2, "몸 번쩍: 앞 강베기 → 맞은 쪽 P2(+1) = %d", fs);
-      CHECK(callout_flash_take() == 0, "몸 번쩍: 가져가면 0");
+      CHECK(fs == 0, "193 몸 번쩍 뺌: 앞 강베기에도 부탁 없음(%d)", fs);
+      fs = 2;                                                /* 아래는 hitflash 모듈 자체 시험(코어 ss2hit 가 아직 들고 있음) */
       hitflash_start(PB2, fs - 1);
       CHECK(PGET(5, 0) == 0xFFF && PGET(5, 1) == 0xFFF && PGET(5, 2) == 0x230 && PGET(0, 0) == 0xBDF && PGET(0, 1) == 0x00D,
             "몸 번쩍: P2 팔레트 5 = 흰·흰·테두리 그대로(%03X %03X %03X), P1 팔레트 0 그대로", PGET(5, 0), PGET(5, 1), PGET(5, 2));
@@ -291,7 +291,7 @@ int main(int argc, char **argv)
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
       Java_com_dudu_pocketcore_Emu_nativeSetHitFlash(NULL, NULL, 1);
       FRONT_SEQ();
-      CHECK(callout_flash_take() == 2 && callout_fx_count() == 0, "몸 번쩍: 191 이펙트·라벨 다 꺼도 번쩍만 켜면 판정 돌고 부탁(이펙트는 없음)");
+      CHECK(callout_flash_take() == 0 && callout_fx_count() == 0, "193 몸 번쩍 뺌: 번쩍만 켜도 부탁 없음(판정만 돎, 이펙트 없음)");
       Java_com_dudu_pocketcore_Emu_nativeSetHitFlash(NULL, NULL, 0);
       FRONT_SEQ();
       CHECK(callout_flash_take() == 0, "몸 번쩍: 셋 다 끄면 판정도 안 돎");
@@ -346,13 +346,13 @@ int main(int argc, char **argv)
       CHECK(!callout_shake(&gx, &gy), "흔들림: 맞기 전엔 없음");
       HEAVY_SEQ(108);                                       /* P2(70) 가 P1(100)을 보통 기술로 — 피해 20 = 강베기 */
       CHECK(callout_shake(&gx, &gy) && gx == 2.5f && gy == -1.f, "흔들림: 강베기 → 막타와 같은 가장 큰 흔들림, 밀리는 오른쪽 2.5 px 먼저 + 위아래(%.2f, %.2f)", gx, gy);
-      CHECK(callout_flash_take() == 0 && callout_fx_count() == 1, "앞 강베기 아닌 강베기(ACT 0x100): 번쩍·일섬 없음, 혜성만(189)");
+      CHECK(callout_flash_take() == 0 && callout_fx_count() == 1, "강베기(ACT 0x100): 번쩍 없음 · 일섬 하나(193 — 모든 강베기)");
       RUNSHAKE();
       CHECK(n5 == 12 && seq[1] == -2.5f, "흔들림: 강베기 12 프레임(%d, %.2f)", n5, seq[1]);
       HIT_SEQ(108, 0x68);                                   /* 앞 강베기 */
-      CHECK(callout_flash_take() == 1 && callout_fx_count() == 1, "앞 강베기(ACT 0x68): 맞은 몸 번쩍 + 일섬 하나(192 — 혜성 없이)");
+      CHECK(callout_flash_take() == 0 && callout_fx_count() == 1, "앞 강베기(ACT 0x68): 번쩍 없음(193) · 일섬 하나");
       HIT_SEQ(100, 0x64);                                   /* 내딛는 칸(0x64)에 닿아도 */
-      CHECK(callout_flash_take() == 1 && callout_fx_count() == 1, "앞 강베기(ACT 0x64): 번쩍 + 일섬");
+      CHECK(callout_flash_take() == 0 && callout_fx_count() == 1, "앞 강베기(ACT 0x64): 번쩍 없음 · 일섬 하나");
       RUNSHAKE();
       HIT_SEQ(108, 0x1B0);                                  /* 필살로 피해 20 — 그림은 절제(작은 섬광), 흔들림은 1.5 px */
       CHECK(callout_shake(&gx, &gy) && gx == 1.5f && gy == 0.f, "흔들림: 필살 센 맞음 1.5 px(%.2f, %.2f)", gx, gy);
@@ -366,7 +366,7 @@ int main(int argc, char **argv)
       CHECK(n5 == 12, "흔들림: 막타 12 프레임(%d)", n5);
       callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x5980) + 0x200 + 0x49] = 0x40;   /* P2 앉아 강베기 */
       TICK5(); TICK5(); HS = 8; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 108; TICK5();
-      CHECK(callout_flash_take() == 0 && callout_fx_count() == 1, "앉아 강베기: 번쩍·일섬 없음(혜성만, 189)");
+      CHECK(callout_flash_take() == 0 && callout_fx_count() == 1, "앉아 강베기: 번쩍 없음 · 이펙트 하나");
       callout_reset(); base(); TICK5(); CTRL(1) = 0x02; TICK5(); HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; TICK5();
       CHECK(callout_flash_take() == 0, "약한 COUNTER: 번쩍 없음(189)");
       callout_reset(); base(); TICK5(); CTRL(1) = 0x02; TICK5(); HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; TICK5();   /* 피해 없는 반격(약) */
@@ -429,36 +429,55 @@ int main(int argc, char **argv)
       CHECK(same && cnt > 0, "191 fx_each = fx_draw(화소 %d 개, 14 프레임)", cnt);
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
    }
-   /* ── 192 강베기 이펙트가 히트스톱 동안에도 움직임(앞 강베기 일섬 7컷 12 프레임 · 혜성 6컷 10 프레임) · 약 섬광은 그대로 멈춤 ── */
+   /* ── 192·193 강베기 일섬: 히트스톱 동안에도 움직임(7컷 12 프레임) · 크기 31×23 안 · 약 섬광은 그대로 멈춤 ·
+         193 강베기 = 보통 기술 피해 12 이상 또는 히트스톱 9 이상(나찰 하오마루 0x88: 피해 8 · 히트스톱 11) · 한 번에 하나 · 타격 지점 높이 ── */
    {
       static uint8_t PB4[16 * 8];
       static uint8_t B1[160 * 152 * 4], B2[160 * 152 * 4];
       double T7 = 1300.0; int f7 = 0, changed = 0, life = 0;
       #define TICK7() do { f7++; callout_fx_pal(PB4); callout_tick(RAM, sizeof RAM, T7 + f7 / 60.0); } while (0)
       #define SNAP(B) do { memset(B, 0, sizeof B1); callout_fx_draw(B, NULL, 0, 152, 160, 0, 0, 1, rgb12_test); } while (0)
+      #define HIT7(actv, hp, hsv) do { callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128; \
+                                     RAM[RA(0x4E30) + 0x40 + 0x0E] = (uint8_t)(actv); RAM[RA(0x4E30) + 0x40 + 0x0F] = (uint8_t)((actv) >> 8); TICK7(); TICK7(); \
+                                     HS = (hsv); COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = (uint8_t)(hp); TICK7(); } while (0)
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
-      for (int kind = 0; kind < 3; kind++) {                  /* 0 앞 강베기 · 1 다른 강베기(혜성) · 2 약한 맞음(섬광 — 멈춤) */
-         callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
-         RAM[RA(0x4E30) + 0x40 + 0x0E] = kind == 0 ? 0x68 : kind == 1 ? 0x60 : 0x50; RAM[RA(0x4E30) + 0x40 + 0x0F] = 0;
-         TICK7(); TICK7();
-         HS = 10; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = kind == 2 ? 120 : 108; TICK7();   /* 히트스톱 10 */
+      static const struct { int act, hp, hs; const char *nm; int heavy; } KC[] = {
+         { 0x68, 108, 10, "앞 강베기(아수라 0x68)", 1 }, { 0x6C, 100, 11, "앞 강베기(나찰 하오마루 0x6C)", 1 },
+         { 0x88, 120, 11, "나찰 하오마루 0x88 — 피해 8 · 히트스톱 11", 1 }, { 0x50, 120, 3, "약베기", 0 }, { 0x1B0, 100, 10, "필살", 0 },
+         { 0x0C, 116, 3, "ACT 0x0C(장풍 날아가는 동안)", 0 } };
+      for (int kc = 0; kc < (int)(sizeof KC / sizeof KC[0]); kc++) {
+         HIT7(KC[kc].act, KC[kc].hp, KC[kc].hs);
          SNAP(B1); changed = 0; life = 1;
          for (int i = 0; i < 9; i++) { TICK7(); SNAP(B2); if (memcmp(B1, B2, sizeof B1)) changed++; memcpy(B1, B2, sizeof B1); if (callout_fx_count()) life++; }
-         if (kind < 2) CHECK(changed >= 5, "192 %s: 히트스톱 동안 그림이 바뀜(9 프레임 중 %d)", kind == 0 ? "앞 강베기 일섬" : "혜성", changed);
-         else          CHECK(changed == 0, "192 약 섬광: 히트스톱 동안 첫 컷 그대로(바뀐 프레임 %d)", changed);
          HS = 0;
          for (int i = 0; i < 20 && callout_fx_count(); i++) { TICK7(); if (callout_fx_count()) life++; }
-         if (kind == 0) CHECK(life == 12, "192 앞 강베기 일섬 12 프레임(%d)", life);
-         if (kind == 1) CHECK(life == 10, "192 혜성 10 프레임(%d)", life);
-         if (kind < 2) {  /* 크기: 그린 화소 상자가 이전보다 작음(일섬 49×37 → 31×23 안 · 혜성 40×15 → 26×11 안) */
-            int x0 = 999, y0 = 999, x1 = -1, y1 = -1;
-            callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
-            RAM[RA(0x4E30) + 0x40 + 0x0E] = kind == 0 ? 0x68 : 0x60; RAM[RA(0x4E30) + 0x40 + 0x0F] = 0; TICK7(); TICK7();
-            HS = 10; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 108; TICK7();
-            for (int i = 0; i < 14; i++) { SNAP(B1); for (int y = 0; y < 152; y++) for (int x = 0; x < 160; x++) if (B1[(y * 160 + x) * 4 + 3]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } TICK7(); }
-            HS = 0;
-            CHECK(x1 >= x0 && x1 - x0 + 1 <= (kind == 0 ? 31 : 26) && y1 - y0 + 1 <= (kind == 0 ? 23 : 11), "192 %s 크기 %d×%d", kind == 0 ? "일섬" : "혜성", x1 - x0 + 1, y1 - y0 + 1);
+         if (KC[kc].heavy) CHECK(changed >= 5 && life == 12, "193 %s: 일섬 — 히트스톱 동안 바뀜 %d · 길이 %d(12)", KC[kc].nm, changed, life);
+         else              CHECK(changed == 0 && life != 12, "193 %s: 작은 섬광 — 히트스톱 동안 멈춤(바뀜 %d · 길이 %d)", KC[kc].nm, changed, life);
+      }
+      {  /* 크기 — 그린 화소 상자 31×23 안 */
+         int x0 = 999, y0 = 999, x1 = -1, y1 = -1;
+         HIT7(0x68, 108, 10);
+         for (int i = 0; i < 14; i++) { SNAP(B1); for (int y = 0; y < 152; y++) for (int x = 0; x < 160; x++) if (B1[(y * 160 + x) * 4 + 3]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } TICK7(); }
+         HS = 0;
+         CHECK(x1 >= x0 && x1 - x0 + 1 <= 31 && y1 - y0 + 1 <= 23, "192 일섬 크기 %d×%d(31×23 안)", x1 - x0 + 1, y1 - y0 + 1);
+      }
+      {  /* 193 한 번에 하나 — 연달아 맞아도 이펙트 하나 */
+         HIT7(0x50, 120, 3); HS = 0; TICK7(); CTRL(0) = 0; TICK7(); TICK7();
+         HS = 3; COMBO(0) = 2; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 112; TICK7();
+         CHECK(callout_fx_count() == 1, "193 한 번에 하나(연달아 맞음 — 이펙트 %d)", callout_fx_count());
+      }
+      {  /* 193 타격 지점 높이: 서서 친 것 = 가슴(땅 위 24) · 점프 공격 = 머리(32) · 앉아 친 것 = 다리(12) — 그린 화소 가운데 y 로 */
+         int cy[3];
+         for (int v = 0; v < 3; v++) {
+            callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128;
+            RAM[RA(0x4E30) + 0x40 + 0xA] = v == 1 ? 100 : 128; RAM[RA(0x5980) + 0x200 + 0x49] = v == 1 ? 0x80 : v == 2 ? 0x40 : 0x20;
+            RAM[RA(0x4E30) + 0x40 + 0x0E] = 0x50; RAM[RA(0x4E30) + 0x40 + 0x0F] = 0; TICK7(); TICK7();
+            HS = 3; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 120; TICK7();
+            SNAP(B1); long sy = 0, n = 0;
+            for (int y = 0; y < 152; y++) for (int x = 0; x < 160; x++) if (B1[(y * 160 + x) * 4 + 3]) { sy += y; n++; }
+            cy[v] = n ? (int)(sy / n) : -1; HS = 0;
          }
+         CHECK(cy[0] == 128 - 24 && cy[1] == 128 - 32 && cy[2] == 128 - 12, "193 타격 지점 높이 서서 %d · 점프 %d · 앉아 %d(104 · 96 · 116)", cy[0], cy[1], cy[2]);
       }
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
    }
@@ -483,8 +502,8 @@ int main(int argc, char **argv)
          char tp[] = "/tmp/gltest_optsXXXXXX"; int fd = mkstemp(tp); FILE *o = fdopen(fd, "w");
          fprintf(o, "pocketcore_callout=disabled\npocketcore_hitfx=on\n"); fclose(o);
          load_options(tp); unlink(tp);
-         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "disabled") && !strcmp(opt_get("ngp_hit_fx", "?"), "enabled") && !strcmp(opt_get("ngp_hit_flash", "?"), "enabled"),
-               "191 옵션 파일 → 코어 옵션(라벨 끔 · 이펙트 켬 · 번쩍 기본 켬)");
+         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "disabled") && !strcmp(opt_get("ngp_hit_fx", "?"), "enabled") && !strcmp(opt_get("ngp_hit_flash", "?"), "disabled"),
+               "191 옵션 파일 → 코어 옵션(라벨 끔 · 이펙트 켬 · 193 번쩍은 늘 끔)");
       }
    }
    fprintf(stderr, "%s (%d 실패)\n", fails ? "실패" : "통과", fails);

@@ -237,7 +237,7 @@ static void hits_opts_from_file(void)
 {
    opt_put("ngp_hit_callout", strcmp(opt_get("pocketcore_callout", "enabled"), "disabled") ? "enabled" : "disabled");
    opt_put("ngp_hit_fx", strcmp(opt_get("pocketcore_hitfx", "on"), "off") ? "enabled" : "disabled");
-   opt_put("ngp_hit_flash", strcmp(opt_get("pocketcore_hitflash", "on"), "off") ? "enabled" : "disabled");
+   opt_put("ngp_hit_flash", "disabled");   /* 193 몸 번쩍 뺌(유저 「내가 넣는 번쩍 효과는 빼자」) — 옛 코어 옵션도 늘 끔 */
 }
 static void hits_route(void)
 {
@@ -1623,7 +1623,7 @@ static void hits_push(void)
    CORE_LOCK();
    ch |= opt_put("ngp_hit_callout", g_want_co ? "enabled" : "disabled");
    ch |= opt_put("ngp_hit_fx", g_want_fx ? "enabled" : "disabled");
-   ch |= opt_put("ngp_hit_flash", g_want_fl ? "enabled" : "disabled");
+   ch |= opt_put("ngp_hit_flash", "disabled");                         /* 193 몸 번쩍 뺌 */
    if (ch) g_var_dirty = 1;
    hits_route();
    CORE_UNLOCK();
@@ -1633,7 +1633,7 @@ JNI(void, nativeSetCallouts)(JNIEnv *env, jclass cls, jboolean on)
 
 /* 191 몸 번쩍(앞 강베기) — 이펙트와 따로. Java 가 사무쇼2 판에서만 켬. 아무 스레드 */
 JNI(void, nativeSetHitFlash)(JNIEnv *env, jclass cls, jboolean on)
-{ (void)env; (void)cls; g_want_fl = on ? 1 : 0; hits_push(); }
+{ (void)env; (void)cls; (void)on; g_want_fl = 0; hits_push(); }   /* 193 몸 번쩍 뺌 — 늘 끔(옛 호출 그대로 받기만) */
 
 /* 191 이 판의 코어가 타격 알림·이펙트·몸 번쩍을 그리나(비트 1·2·4, 0 = 앱이 그림) */
 JNI(jint, nativeCoreHits)(JNIEnv *env, jclass cls)

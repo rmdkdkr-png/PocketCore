@@ -150,29 +150,51 @@ static void trail_colors(const uint8_t *ram, int a, uint16_t col[3])
    col[0] = 0xFFF; col[1] = c[1]; col[2] = c[2];
 }
 
+/* 193 한 번에 하나 — 새 이펙트가 앞 것을 대신한다(유저 10-21 「이펙트 겹치는 거 빼자 · 두 개 동시에 나올 필요 없음」). 반격 고리도 안 얹는다 */
 static dfx_t *fx_new(void)
 {
-   int i, use = -1;
    if (atomic_load(&fx_mode) == FXM_OFF) return NULL;
-   for (i = 0; i < FX_MAX; i++) if (!FX[i].on) { use = i; break; }
-   if (use < 0) { use = 0; for (i = 1; i < FX_MAX; i++) if (FX[i].seq < FX[use].seq) use = i; }
-   memset(&FX[use], 0, sizeof FX[use]);
-   FX[use].on = 1; FX[use].seq = ++fx_seq;
-   return &FX[use];
+   memset(FX, 0, sizeof FX);
+   FX[0].on = 1; FX[0].seq = ++fx_seq;
+   return &FX[0];
 }
 
-/* 맞은 쪽 d 에 하나 — 자리 = 맞은 몸(물체 +8 X · +0xA Y, 땅 128)에서 때린 쪽으로 7px(가드 9px), 몸 가운데 높이(서기 25 · 앉음 15 · 공중 22px 위).
-   막타 일섬은 몸 가운데(X 그대로, 24px 위). 색: 섬광 = 흰 + 때린 쪽 칼 궤적 · 가드·막타 = 고정 */
-static void fx_spawn(const uint8_t *ram, int d, int kind, int ring)
+/* 193 타격 지점(유저 「이펙트가 맞는 자에게 임팩트 포인트에서」) — 맞은 몸 앞(때린 쪽으로 6px)에서, 높이는 때린 쪽 자세·장풍으로:
+   점프 공격 = 땅 위 32(머리) · 앉아 공격 = 12(다리) · 서서 = 24(가슴). 맞은 몸이 앉았으면 16 위까지, 공중에서 맞았으면 몸 가운데(22).
+   장풍(주인이 때린 쪽인 상자 켠 물체)이 맞은 몸 40px 안에 있으면 그 높이. 원작 맞음 섬광은 따로 된 물체가 아니라(봇 판 81 맞음 중 물체 새로 생김 5)
+   자리를 램에서 못 읽는다 — 공격 상자 기하(물체 +0x18~+0x1D)는 아직 모름 */
+static void impact(const uint8_t *ram, int d, int *wx, int *y, int *dir)
 {
    int a = 1 - d;
+   int dx = rd16(ram, OBJ(d) + 8), ax = rd16(ram, OBJ(a) + 8), dy = rd16(ram, OBJ(d) + 0xA), ay = rd16(ram, OBJ(a) + 0xA);
+   int dst = ram[PB(d) + O_STANCE], ast = ram[PB(a) + O_STANCE], up, best = 41;
+   *dir = ax <= dx ? 1 : -1;
+   up = (ast & 0x80) || ay < 120 ? 32 : (ast & 0x40) ? 12 : 24;
+   for (int k = 4; k < 32; k++) {                    /* 장풍 — 앞 프레임에 «때린 쪽 것»으로 무장한 물체 */
+      if (S.armed[k] != a) continue;
+      int px = rd16(ram, OBJ(k) + 8), py = rd16(ram, OBJ(k) + 0xA), dd = px > dx ? px - dx : dx - px;
+      if (dd < best && py <= dy && py >= dy - 44) { best = dd; up = dy - py; }
+   }
+   if (dst & 0x40) { if (up > 16) up = 16; }
+   else if (dy < 128) up = 22;
+   if (up < 6) up = 6;
+   *wx = dx - *dir * 6;
+   *y = dy - up;
+}
+
+/* 맞은 쪽 d 에 하나 — 자리 = 타격 지점(impact). 가드 반달은 9px 앞 · 막타 일섬은 몸 가운데(X 그대로, 24px 위).
+   색: 섬광·일섬 = 흰 + 때린 쪽 칼 궤적 · 가드·막타 = 고정 */
+static void fx_spawn(const uint8_t *ram, int d, int kind, int ring)
+{
+   int a = 1 - d, ix, iy, dir;
    dfx_t *e = fx_new();
    if (!e) return;
-   int dx = rd16(ram, OBJ(d) + 8), ax = rd16(ram, OBJ(a) + 8), fy = rd16(ram, OBJ(d) + 0xA), st = ram[PB(d) + O_STANCE];
-   int dir = ax <= dx ? 1 : -1, h = (st & 0x40) ? 15 : fy < 128 ? 22 : 25;
-   e->kind = kind; e->ring = ring; e->dir = dir;
-   e->wx = kind == FXK_K || kind == FXK_S ? dx : dx - dir * (kind == FXK_G ? 9 : 7);
-   e->y = kind == FXK_K || kind == FXK_S ? fy - 24 : fy - h;
+   (void)ring;                                      /* 193: 반격 고리 안 얹음(한 번에 하나) */
+   impact(ram, d, &ix, &iy, &dir);
+   int dx = rd16(ram, OBJ(d) + 8), fy = rd16(ram, OBJ(d) + 0xA);
+   e->kind = kind; e->ring = 0; e->dir = dir;
+   e->wx = kind == FXK_K ? dx : kind == FXK_G ? dx - dir * 9 : ix;
+   e->y = kind == FXK_K ? fy - 24 : iy;
    e->hold = kind != FXK_T && kind != FXK_H && kind != FXK_S;   /* 192 혜성·앞 강베기 일섬은 히트스톱 동안에도 움직임(유저 「정지화면 뚝이라 애니메이션으로」) */
    if (kind == FXK_G) memcpy(e->col, COL_G, sizeof e->col);
    else if (kind == FXK_K) memcpy(e->col, COL_K, sizeof e->col);
@@ -306,19 +328,18 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
             {  /* 강(혜성) = 보통 기술로 피해 12 이상(약베기 6~11 · 강베기 14~21 실측 — 닿은 프레임에 바로 줄어듦).
                   필살(ACT ≥ 0x180, 177 실측)은 원작이 불·감전 해골·큰 초승달을 이미 그려서 작은 섬광만(절제 — 봇 판 그림에서 겹쳐 지저분했음) */
                int dmg = S.p_hp[d] > ram[PB(d) + O_HP] ? S.p_hp[d] - ram[PB(d) + O_HP] : 0;
-               int ko = ram[PB(d) + O_HP] == 0, heavy = dmg >= 12 && act[a] < 0x180;   /* 187 강베기(보통 기술 센 맞음) — 유저 「앞강베기 타격효과가 가장 강렬해야」 */
-               /* 189 유저 「너무 잦고 강함」·「강베기에만 넣어라고 했을텐데? 앞 강베기」 — 일섬·몸 번쩍은 앞 강베기만(COUNTER·막타·다른 강베기는 뺌).
-                  앞 강베기 = 때린 쪽 ACT 0x64(내딛기)·0x68(베기) — 봇 대본 실측(아수라: 중립·뒤+A 꾹 = 0x60, 앞+A 꾹 = 0x64 → 0x68, 아래+A 꾹 = 0x6C ·
-                  CPU 9: 0x68 맞음이 히트스톱 9~11 로 가장 김 — 보통 기술 ACT 칸은 캐릭터마다 같은 자리) */
-               int front = !ko && (act[a] == 0x64 || act[a] == 0x68);
-               /* 185: 체력 0 = 막타 일섬 · 192: 앞 강베기는 작은 일섬 하나(혜성 없이 — 191 까지 혜성 40×15 + 일섬 49×37 이 히트스톱 내내 서 있어
-                  유저 「너무 커서 … 정지화면 뚝」) */
-               fx_spawn(ram, d, ko ? FXK_K : front ? FXK_S : heavy ? FXK_H : FXK_L, ctr ? 1 : pun ? 2 : 0);
+               /* 193 강베기 = 보통 기술(ACT 0x40~0x17F)로 피해 12 이상 또는 히트스톱 9 이상. 유저 「나찰 하오마루 강베기 때는 강베기 효과가 안 뜨네」 —
+                  ACT 는 캐릭터·검질마다 기술 번호라(나찰 하오마루: 앞+A 꾹 = 0x68 → 0x6C · 아래 = 0x70 · 중립 = 0x54 → 0x88(피해 8~21, 히트스톱 11) /
+                  아수라: 앞 = 0x64 → 0x68 · 아래 = 0x6C) 190 의 «앞 강베기 = 0x64·0x68»은 아수라에서만 맞았다. CPU 는 입력 칸(+0xEB)이 늘 0 이라 «앞»을 못 가린다 →
+                  강베기는 모두 같은 작은 일섬. 0x40 밑(장풍이 날아가는 동안 주인이 선 자세 등)·필살(≥ 0x180 — 원작 이펙트가 큼)은 작은 섬광 */
+               int normal = act[a] >= 0x40 && act[a] < 0x180;
+               int ko = ram[PB(d) + O_HP] == 0, heavy = normal && (dmg >= 12 || hs >= 9);
+               fx_spawn(ram, d, ko ? FXK_K : heavy ? FXK_S : FXK_L, 0);   /* 185: 체력 0 = 막타 일섬 · 193: 강베기 = 일섬 하나(고리·혜성 없이) */
                {  /* 186 흔들림 — 필살도 센 맞음이면(그림은 절제해도 손맛은). 187: 강베기는 막타와 같은 가장 큰 흔들림 */
                   int sd = rd16(ram, OBJ(a) + 8) <= rd16(ram, OBJ(d) + 8) ? 1 : -1;
                   if (ko || heavy) shake(3, sd); else if (dmg >= 12) shake(2, sd); else if (ctr) shake(1, sd);
                }
-               if (front && atomic_load(&fl_on)) flash_req = d + 1;   /* 189 서서 친 강베기만 맞은 몸 번쩍 · 191 이펙트와 따로 켬 */
+               /* 193: 몸 번쩍 뺌(유저 「내가 넣는 번쩍 효과는 빼자」) — flash_req 는 더 안 낸다 */
             }
          }
       }

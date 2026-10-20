@@ -31,7 +31,7 @@ public final class Settings {
     public static final String SND_FX_TARGET = "pocketcore_snd_target";
     public static final String CALLOUT = "pocketcore_callout";       /* 182 타격 알림 — 켬(기본)·끔, 사무쇼2 */
     public static final String HITFX = "pocketcore_hitfx";           /* 184 타격 이펙트(도트) — on(기본)·off, 사무쇼2. 183 의 auto·fire·elec·impact 는 켬으로 */
-    public static final String HITFLASH = "pocketcore_hitflash";     /* 191 몸 번쩍(앞 강베기) — on(기본)·off, 사무쇼2. 전엔 타격 이펙트에 묶여 있었다 */
+    public static final String HITFLASH = "pocketcore_hitflash";     /* 191 몸 번쩍(앞 강베기) — 193 에서 뺌(유저 「내가 넣는 번쩍 효과는 빼자」). 열쇠만 남김 */
     /** 타격 이펙트 값 → native 번호(callout.h FXM_*: 0 끔 · 1 켬) */
     public static int hitFxMode(String v) { return "off".equals(v) ? 0 : 1; }
 
@@ -197,13 +197,10 @@ public final class Settings {
                (코어 패치 zzzzzzzzzzzzzzz_hitfx, 코어 옵션 ngp_hit_callout · ngp_hit_fx · ngp_hit_flash). 이 세 줄은 앱 열쇠 그대로 두고 native 가 코어 옵션으로 넘긴다.
                옛 코어(없으면)면 앱이 예전처럼 그린다. 몸 번쩍은 이펙트와 따로 켬/끔(유저 「번쩍 … 번쩍효과 없애고 씀」) */
             new Item(HITFX, "타격 이펙트",
-                "맞을 때 맞은 자리에 원작 도트 결의 섬광을 더 얹습니다(게임은 그대로, 보이기만). 약한 맞음은 별 섬광, 강베기·필살은 맞은 쪽으로 뻗는 혜성,"
-                + " COUNTER·PUNISHER 는 노랑·빨강 각진 고리를 더 — 색은 때린 캐릭터의 칼 궤적 색을 따릅니다. 가드는 푸른 반달, 칼끼리 부딪히면 «깡» 불티,"
-                + " 쓰러지면 발밑 흙먼지, 라운드를 끝낸 맞음엔 붉은 일섬, 앞 강베기(앞 + 꾹 베기)엔 칼 궤적 색 일섬. 화면 흔들림은 없습니다."
+                "맞을 때 맞은 몸의 타격 지점에 원작 도트 결의 이펙트를 하나 얹습니다(게임은 그대로, 보이기만 · 한 번에 하나). 약한 맞음·필살은 작은 별 섬광,"
+                + " 강베기는 그어졌다 벌어지며 사라지는 작은 초승달 일섬 — 색은 때린 캐릭터의 칼 궤적 색을 따릅니다. 가드는 푸른 반달, 칼끼리 부딪히면 «깡» 불티,"
+                + " 쓰러지면 발밑 흙먼지, 라운드를 끝낸 맞음엔 붉은 일섬. 화면 흔들림·몸 번쩍은 없습니다."
                 + " 코어가 게임 그림에 그려서 업스케일러·필터도 이펙트에 같이 걸립니다.",
-                new String[]{ "on", "off" }, new String[]{ "켬", "끔" }, "on").g("ss2"),
-            new Item(HITFLASH, "몸 번쩍",
-                "앞 강베기(앞 + 꾹 베기)에 맞은 몸을 두 프레임 하얗게 — 테두리 색은 그대로라 밝은 무대에서도 몸 모양이 남습니다. 런어헤드에서도 보입니다.",
                 new String[]{ "on", "off" }, new String[]{ "켬", "끔" }, "on").g("ss2"),
             new Item(CALLOUT, "타격 알림",
                 "경기 중 때린 쪽 가장자리에 라벨을 띄웁니다 — FIRST ATTACK(라운드 첫 타) · COUNTER(기술을 내던 상대를 맞힘)"
