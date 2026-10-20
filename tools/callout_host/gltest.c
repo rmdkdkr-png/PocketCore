@@ -206,7 +206,7 @@ int main(int argc, char **argv)
       g_fb_dirty = 1; glClear(GL_COLOR_BUFFER_BIT); gl_draw(); grab();
       /* 이펙트 자리: 맞은 몸 100 − 7 = 93, 몸 가운데 128 − 25 = 103 (게임 좌표) → 화면 */
       double fr = frac_diff(vx + 85 * 6, vy + 96 * 6, vx + 120 * 6, vy + 110 * 6, bg);
-      CHECK(callout_fx_count() == 2, "fx 둘(강베기 = 혜성 + 칼 궤적 색 일섬, 187)");
+      CHECK(callout_fx_count() == 1, "fx 하나(보통 센 맞음 = 혜성 — 일섬은 앞 강베기만, 189)");
       CHECK(fr > 0.05, "%s %s 이펙트 그려짐(자리 안 %.0f%%)", fi ? "4x" : "1x", mode == 0 ? "보통" : mode == 1 ? "잔상" : "쪽지", fr * 100);
       CHECK(frac_diff(vx + 20, vy + 10, vx + 940, vy + 32 * 6 - 10, bg) == 0 && frac_diff(vx + 20, vy + 136 * 6 + 10, vx + 940, vy + dh - 10, bg) == 0, "%s 놀이 칸 밖(위·아래 HUD 줄) 그대로(187 강베기 흔들림 15·6 px 띠는 빼고)", fi ? "4x" : "1x");
       CHECK(frac_diff(0, 0, W, vy - 10, blk_c()) == 0 && frac_diff(0, vy + dh + 10, W, H, blk_c()) == 0, "%s 뷰포트 밖 그대로(흔들림 10 px 빼고)", fi ? "4x" : "1x");
@@ -245,9 +245,10 @@ int main(int argc, char **argv)
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
       callout_reset(); base(); TICK4(); CTRL(1) = 0x02; TICK4();
       CHECK(callout_flash_take() == 0, "몸 번쩍: 닿기 전엔 부탁 없음");
-      HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; RAM[RA(0x5980) + 0x200 + 0xC6] = 108; TICK4();   /* P1 이 서서 강베기로 P2 를(피해 20 · COUNTER 이기도) */
+      RAM[RA(0x4E30) + 0x0E] = 0x68; RAM[RA(0x4E30) + 0x0F] = 0x00;
+      HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; RAM[RA(0x5980) + 0x200 + 0xC6] = 108; TICK4();   /* P1 이 앞 강베기(ACT 0x68)로 P2 를(피해 20 · COUNTER 이기도) */
       int fs = callout_flash_take();
-      CHECK(fs == 2, "몸 번쩍: 서서 친 강베기 → 맞은 쪽 P2(+1) = %d", fs);
+      CHECK(fs == 2, "몸 번쩍: 앞 강베기 → 맞은 쪽 P2(+1) = %d", fs);
       CHECK(callout_flash_take() == 0, "몸 번쩍: 가져가면 0");
       hitflash_start(PB2, fs - 1);
       CHECK(PGET(5, 0) == 0xFFF && PGET(5, 1) == 0xFFF && PGET(5, 2) == 0x230 && PGET(0, 0) == 0xBDF && PGET(0, 1) == 0x00D,
@@ -331,10 +332,14 @@ int main(int argc, char **argv)
       CHECK(!callout_shake(&gx, &gy), "흔들림: 맞기 전엔 없음");
       HEAVY_SEQ(108);                                       /* P2(70) 가 P1(100)을 보통 기술로 — 피해 20 = 강베기 */
       CHECK(callout_shake(&gx, &gy) && gx == 2.5f && gy == -1.f, "흔들림: 강베기 → 막타와 같은 가장 큰 흔들림, 밀리는 오른쪽 2.5 px 먼저 + 위아래(%.2f, %.2f)", gx, gy);
-      CHECK(callout_flash_take() == 1, "강베기: 맞은 몸(P1) 번쩍 부탁(187)");
-      CHECK(callout_fx_count() == 2, "강베기: 혜성 + 일섬");
+      CHECK(callout_flash_take() == 0 && callout_fx_count() == 1, "앞 강베기 아닌 강베기(ACT 0x100): 번쩍·일섬 없음, 혜성만(189)");
       RUNSHAKE();
       CHECK(n5 == 12 && seq[1] == -2.5f, "흔들림: 강베기 12 프레임(%d, %.2f)", n5, seq[1]);
+      HIT_SEQ(108, 0x68);                                   /* 앞 강베기 */
+      CHECK(callout_flash_take() == 1 && callout_fx_count() == 2, "앞 강베기(ACT 0x68): 맞은 몸 번쩍 + 혜성 + 일섬");
+      HIT_SEQ(100, 0x64);                                   /* 내딛는 칸(0x64)에 닿아도 */
+      CHECK(callout_flash_take() == 1 && callout_fx_count() == 2, "앞 강베기(ACT 0x64): 번쩍 + 일섬");
+      RUNSHAKE();
       HIT_SEQ(108, 0x1B0);                                  /* 필살로 피해 20 — 그림은 절제(작은 섬광), 흔들림은 1.5 px */
       CHECK(callout_shake(&gx, &gy) && gx == 1.5f && gy == 0.f, "흔들림: 필살 센 맞음 1.5 px(%.2f, %.2f)", gx, gy);
       CHECK(callout_flash_take() == 0 && callout_fx_count() == 1, "필살 센 맞음: 번쩍 없음 · 이펙트 하나");
