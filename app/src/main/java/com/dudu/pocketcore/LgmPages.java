@@ -15,7 +15,9 @@ final class LgmPages {
     static final int SC_RESULT = 1, SC_QUIT = 2, SC_PAUSE = 3, SC_PAUSE_CONFIRM = 4, SC_BOARD = 5, SC_RECORD = 6, SC_SETTINGS = 7,
             SC_LOBBY = 8, SC_LEAGUE = 9, SC_LOBBY_CONFIRM = 10, SC_LOBBY_QUIT = 11, SC_LEAGUE_CONFIRM = 12;   /* 168 대기 · 서랍 리그 탭(+ 두 번 묻기) */
     /** 168 서랍 «리그» 탭 줄(Row.id) */
-    static final int LG_NEW_SEASON = 301, LG_RESTART = 302, LG_MAIN = 303, LG_NAME = 304;
+    static final int LG_NEW_SEASON = 301, LG_RESTART = 302, LG_MAIN = 303, LG_NAME = 304, LG_WIPE = 305;   /* 179 리그 초기화 */
+    /** 두 번 묻는 리그 탭 줄(첫 A 펼침 · 둘째 A = 그 일) — 새 시즌 · 처음부터 · 179 리그 초기화 */
+    static boolean lgConfirmRow(int id) { return id == LG_NEW_SEASON || id == LG_RESTART || id == LG_WIPE; }
     /** 기권 확인 두 칸(Row.id) */
     static final int CONFIRM_NO = 101, CONFIRM_YES = 102;
     /** 설정 탭 줄(Row.id) */
@@ -1415,15 +1417,16 @@ final class LgmPages {
     /* ════════════════════════════════════════════════════════ 168 서랍 «리그» 탭 */
 
     static final int D_PULSE = 15;
-    /** 리그 탭 — 줄: 새 시즌(배치 끝난 뒤) · 처음부터 다시 · 내 캐릭터 · 내 이름(A) · 아래 목록(L): 시즌 · 지난 시즌 · 치트 판 · 보류·무효 · 규칙.
-     *  confirmId = 두 번 묻기 펼친 줄(LG_NEW_SEASON · LG_RESTART — 그 줄 맥박 · 아래 띠 «A 한 번 더 = …») · 0 보통.
-     *  보통 판은 펼친 판 둘을 variants 에 같이 싣는다(LeagueMenu 가 바로 갈아 끼움) */
+    /** 리그 탭 — 줄: 새 시즌(배치 끝난 뒤) · 처음부터 다시 · 리그 초기화(179) · 내 캐릭터(대기만) · 내 이름(A) · 아래 목록(L): 시즌 · 지난 시즌 · 치트 판 · 보류·무효 · 규칙.
+     *  줄이 넷까지면 r4–11 · 설명 r12 · 목록 r13–16(4줄) · 다섯이면(대기에서 연 서랍 · 배치 끝난 뒤) r4–13 · 설명 r14 · 목록 r15–16(2줄 — 넘김은 그대로).
+     *  confirmId = 두 번 묻기 펼친 줄(lgConfirmRow — 그 줄 맥박 · 아래 띠 «A 한 번 더 = …») · 0 보통.
+     *  보통 판은 펼친 판들을 variants 에 같이 싣는다(LeagueMenu 가 바로 갈아 끼움) */
     Scene league(MenuModel m, MenuModel.LeagueInfo li, int confirmId) {
         Scene sc = league0(m, li, confirmId);
         if (confirmId == 0) {
             java.util.List<Integer> vi = new java.util.ArrayList<>();
             java.util.List<Scene> vs = new java.util.ArrayList<>();
-            for (Row r : sc.rows) if (r.id == LG_NEW_SEASON || r.id == LG_RESTART) { vi.add(r.id); vs.add(league0(m, li, r.id)); }
+            for (Row r : sc.rows) if (lgConfirmRow(r.id)) { vi.add(r.id); vs.add(league0(m, li, r.id)); }
             sc.variantIds = new int[vi.size()];
             for (int i = 0; i < vi.size(); i++) sc.variantIds[i] = vi.get(i);
             sc.variants = vs.toArray(new Scene[0]);
@@ -1447,6 +1450,8 @@ final class LgmPages {
         if (li.canSeason) {
             rows.add(new int[]{ LG_RESTART });
             rl.add(new String[]{ "처음부터 다시", "배치부터", "배치 5판부터 · 지금 기록은 보관해요" });
+            rows.add(new int[]{ LG_WIPE });
+            rl.add(new String[]{ "리그 초기화", "모두 지움", "기록·시즌·상대를 지우고 처음 설치한 때로" });
         }
         if (li.canMain) {
             rows.add(new int[]{ LG_MAIN });
@@ -1454,6 +1459,7 @@ final class LgmPages {
         }
         rows.add(new int[]{ LG_NAME });
         rl.add(new String[]{ "내 이름", li.name, "이름표·VS 띠·결판·순위표에 나와요" });
+        final int descR = Math.max(12, 4 + 2 * rows.size()), listR0 = descR + 1, listN = 17 - listR0;   /* 179: 줄 다섯이면 설명 r14 · 목록 r15–16 */
         for (int k = 0; k < rows.size(); k++) {
             int r = 4 + 2 * k, y = r * 8, id = rows.get(k)[0];
             String[] t = rl.get(k);
@@ -1472,22 +1478,20 @@ final class LgmPages {
             int sr = 21 + k;
             cv.cellPal(0, sr, 19, sr, D_INK);
             cv.text(fit(t[2], 156, ink.g7), 80, sr * 8 + 1, 2, ink.g7, -1, TileCanvas.CENTER, 0);
-            row.descC = confirmId != 0 ? -1 : 0; row.descR = sr; row.descW = 20; row.descDstC = 0; row.descDstR = 12;
+            row.descC = confirmId != 0 ? -1 : 0; row.descR = sr; row.descW = 20; row.descDstC = 0; row.descDstR = descR;
             s.rows.add(row);
         }
         int c0 = 0;
         for (int k = 0; k < rows.size(); k++) if (rows.get(k)[0] == confirmId) c0 = k;
-        cv.cellPal(0, 12, 19, 12, D_INK);
-        cv.text(fit(rl.get(c0)[2], 156, ink.g7), 80, 97, 2, ink.g7, -1, TileCanvas.CENTER, 0);
+        cv.cellPal(0, descR, 19, descR, D_INK);
+        cv.text(fit(rl.get(c0)[2], 156, ink.g7), 80, descR * 8 + 1, 2, ink.g7, -1, TileCanvas.CENTER, 0);
         /* 아래(r17–18) — 보통: 목록 넘기기 안내 · 펼침: 무엇이 바뀌나 + «A 한 번 더» */
         cv.cellPal(0, 17, 19, 17, confirmId != 0 ? D_SEL : D_INK);
         cv.cellPal(0, 18, 19, 18, D_INK);
         if (confirmId != 0) {
-            boolean ns = confirmId == LG_NEW_SEASON;
-            String what = li.openVs != null ? "멈춘 경기는 기권패로 닫고 " + (ns ? "새 시즌" : "처음부터") + " · vs " + li.openVs   /* 넘치면 닉이 잘린다(할 일이 먼저) */
-                    : ns ? "시즌 " + (li.season + 1) + " · LP " + li.lp0 + "→" + li.lp1 + " · 승패 0부터" : "배치 5판부터 · 지금 기록은 보관";
-            cv.text(fit(cover7(what), 156, ink.g7), 80, 137, 1, ink.g7, -1, TileCanvas.CENTER, 0);
-            cv.text(fit(ns ? "A 한 번 더 = 새 시즌 · B 취소" : "A 한 번 더 = 처음부터 · B 취소", 156, ink.g7), 80, 145, 2, ink.g7, -1, TileCanvas.CENTER, 0);
+            cv.text(fit(cover7(confirmWhat(li, confirmId)), 156, ink.g7), 80, 137, 1, ink.g7, -1, TileCanvas.CENTER, 0);
+            String go = confirmId == LG_NEW_SEASON ? "새 시즌" : confirmId == LG_WIPE ? "초기화" : "처음부터";
+            cv.text(fit("A 한 번 더 = " + go + " · B 취소", 156, ink.g7), 80, 145, 2, ink.g7, -1, TileCanvas.CENTER, 0);
         } else {
             cv.text("▼ 끝에서 더 = 아래 목록", 80, 137, 2, ink.g7, -1, TileCanvas.CENTER, 0);
             cv.text("▲▼ 고르기  A 결정  ◀▶ 탭  B 뒤로", 80, 145, 2, ink.g7, -1, TileCanvas.CENTER, 0);
@@ -1506,10 +1510,10 @@ final class LgmPages {
         lines.add(new String[]{ "규칙", "g" });
         for (String r : li.rules) lines.add(new String[]{ r, "n" });
         sc.l = textList(lines);
-        sc.lClipY0 = 104; sc.lClipY1 = 135;
-        int min = -104, max = Math.max(min, 8 * (lines.size() - 4) - 104);
+        sc.lClipY0 = listR0 * 8; sc.lClipY1 = 135;
+        int min = -listR0 * 8, max = Math.max(min, 8 * (lines.size() - listN) + min);
         sc.lScrollMin = min; sc.lScrollMax = max; sc.lScrollY = min;
-        int[] vis = { 0, 0, 19, Math.min(3, lines.size() - 1) };
+        int[] vis = { 0, 0, 19, Math.min(listN - 1, lines.size() - 1) };
         drawerCues(sc, vis, false);
         if (confirmId != 0) {                                              /* 펼침 — 아래 띠 휘두름 · 맥박 */
             Cue q = new Cue().wipe(0, SWING, Cue.W, 0, 17, 19, 18, 2, false, D_GOLD, 1, Cue.EASE_LINEAR);
@@ -1520,6 +1524,15 @@ final class LgmPages {
         sc.revealCue = concat(snap(sc.cue), new Cue().wipe(0, SWING, Cue.L, vis[0], vis[1], vis[2], vis[3], 2, false, 0, 0, Cue.EASE_LINEAR).build());
         sc.tab = MenuModel.Prefs.TAB_LEAGUE;
         return sc;
+    }
+    /** 두 번 묻기 펼침 아래 띠 첫 줄 — 무엇이 바뀌나. 열린 경기가 있으면 그 경기 몫이 먼저(넘치면 닉이 잘린다 — 할 일이 먼저):
+     *  새 시즌·처음부터 = «지금 경기는(쉼에서 연 서랍)/멈춘 경기는 기권패로 닫고 …» · 리그 초기화 = «지금/멈춘 경기도 함께 지워요» */
+    static String confirmWhat(MenuModel.LeagueInfo li, int id) {
+        String which = li.openLive ? "지금 경기" : "멈춘 경기";
+        if (id == LG_WIPE) return li.openVs != null ? which + "도 함께 지워요 · vs " + li.openVs : "기록·순위·상대·시즌을 모두 지워요 · 이름은 그대로";
+        boolean ns = id == LG_NEW_SEASON;
+        if (li.openVs != null) return which + "는 기권패로 닫고 " + (ns ? "새 시즌" : "처음부터") + " · vs " + li.openVs;
+        return ns ? "시즌 " + (li.season + 1) + " · LP " + li.lp0 + "→" + li.lp1 + " · 승패 0부터" : "배치 5판부터 · 지금 기록은 보관";
     }
     /** 글 목록(L 층 20×n) — 줄마다 갈무리7 한 줄(156px «…») · 칠 g 금 · d 흐림 · n 보통 */
     private TileCanvas.Encoded[] textList(java.util.List<String[]> lines) {

@@ -638,6 +638,10 @@ public class LeagueActivity extends Activity {
         toolBtn(rs, blk == null ? () -> askRestart() : null);
         col.addView(rs, toolLp());
         col.addView(caption("지금 기록은 보관해요 · 배치 5판부터"));
+        TextView wp = pill("리그 초기화", BTN2, blk == null ? LOSE : DIM);   /* 179 — 게임 안 리그 탭 «리그 초기화»와 같은 일(League.wipeAll) */
+        toolBtn(wp, blk == null ? () -> askWipe() : null);
+        col.addView(wp, toolLp());
+        col.addView(caption("기록·시즌·상대를 모두 지우고 처음 설치한 때로 · 내 이름은 그대로"));
         if (blk != null) {
             TextView bw = text(blk, 12, LOSE, false); bw.setPadding(0, dp(8), 0, 0);
             col.addView(bw);
@@ -697,6 +701,32 @@ public class LeagueActivity extends Activity {
                 String why = League.seasonToolWhy();
                 if (why != null) { if (!League.liveHub) toast(why); render(); return; }   /* 168 M2: 그사이 리그 판이 떴으면 글 없이(줄이 숨는다) */
                 if (!League.restartRanked(false, ffId != null)) toast("저장하지 못했어요 — 기록은 그대로예요");   /* 175: 된 때는 글 없음 */
+                afterReset();
+            })
+            .setNegativeButton("취소", null).show();
+    }
+
+    /** 179 리그 초기화 — 두 번 묻기(무엇이 지워지나 → «정말 모두 지울까요?»). 멈춘 경기도 함께 지운다(기권 아님 — 기록째 없어짐) */
+    private void askWipe() {
+        if (toolDlgUp()) return;
+        final JSONObject open = League.startedOpenMatch();
+        final String ffId = openStartedId();
+        String body = (open != null ? "멈춘 경기(vs " + League.oppNick(open) + ")도 함께 지워요.\n\n" : "")
+                + "경기 기록·티어·LP·시즌·지난 시즌·상대 전적·보류·무효 기록과 내 캐릭터를 모두 지우고, 새 상대들로 처음 설치한 때처럼 시작해요.\n"
+                + "내 이름과 컬러·메뉴 설정은 그대로예요.";
+        toolDlg = new AlertDialog.Builder(this).setTitle("리그를 초기화할까요?").setMessage(body)
+            .setPositiveButton("다음", (x, y) -> col.post(() -> askWipe2(ffId)))
+            .setNegativeButton("취소", null).show();
+    }
+    private void askWipe2(final String ffId) {
+        if (toolDlgUp() || isFinishing()) return;
+        toolDlg = new AlertDialog.Builder(this).setTitle("정말 모두 지울까요?")
+            .setMessage("보관 파일까지 지워져서 앱 안에서 되돌릴 수 없어요.")
+            .setPositiveButton("모두 지우기", (x, y) -> {
+                if (!java.util.Objects.equals(ffId, openStartedId())) { render(); return; }   /* 그사이 멈춘 경기가 바뀌었다 — 물은 글과 다르다 */
+                String why = League.seasonToolWhy();
+                if (why != null) { if (!League.liveHub) toast(why); render(); return; }   /* 그사이 리그 판이 떴으면 글 없이(줄이 숨는다) */
+                if (!League.wipeAll(false)) toast("저장하지 못했어요 — 기록은 그대로예요");   /* 된 때는 글 없음 */
                 afterReset();
             })
             .setNegativeButton("취소", null).show();

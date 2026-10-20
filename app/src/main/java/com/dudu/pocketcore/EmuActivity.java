@@ -3796,18 +3796,46 @@ public class EmuActivity extends Activity {
             if (open != null && vk != null && !League.voidStarted(open.optString("id"), vk)) toast("저장하지 못했어요 — 다시 해 주세요");
             lobbyRedraw();
         }
+        /** 168 리그 탭 시즌 도구(두 번 물은 뒤) — kind 1 새 시즌 · 2 처음부터 · 179: 3 리그 초기화(League.wipeAll — 열린 경기도 함께 지움).
+         *  179: 쉼·결판에서 연 서랍(이 판에 경기가 있음)에서도 — 된 뒤 그 판을 깨끗이 닫고 타이틀로(hubReturn · 알림 글 없음). 지금 경기는 새 시즌·처음부터면
+         *  기권패로 닫혀 지난 시즌에 남고(forfeitOpen — 두 번 묻기 글 «지금 경기는 기권패로 닫고 …»), 초기화면 함께 지워진다. 대기에서 연 서랍은 예전처럼 그 자리에서 다시 그림 */
         @Override public void lgmSeason(int kind) {
             if (leaving) return;
-            boolean ff = League.startedOpenMatch() != null;                  /* M1: 멈춘 경기는 기권패로 닫고(두 번 묻기 글이 그렇게 말했다) */
-            String why = League.resetBlockedWhy(true, ff);
-            if (why == null) {
-                cancelReady("시즌 도구 — 대진 전");
-                boolean ok = kind == 1 ? League.newSeason(true, ff) : League.restartRanked(true, ff);
-                if (ok) {
-                    BoardCache.invalidate(); League.sessionReset(); pushMain();
-                    hubResumePending = false;                                 /* 175: 알림 글 없음 */
-                } else toast("저장하지 못했어요 — 기록은 그대로예요");
-            } else toast(why);                                               /* 기록 파일 문제(저장소) — 리그 탓 글 아님 */
+            final boolean inMatch = leagueId != null;
+            if (inMatch && leagueArmed && !leagueDone) {
+                leagueSyncStarted();
+                if (leagueSettleNow()) { lgmCloseNow(); return; }            /* 결판이 막 잡혔다 — poll 이 결과로(그 판은 이번 시즌 기록 · 도구는 다시 고르면 된다) */
+            }
+            boolean ok;
+            String why;
+            if (kind == 3) {
+                why = League.dbProblem;
+                ok = why == null && League.wipeAll(true);
+            } else {
+                boolean ff = League.startedOpenMatch() != null;              /* M1: 멈춘(·지금) 경기는 기권패로 닫고(두 번 묻기 글이 그렇게 말했다) */
+                why = League.resetBlockedWhy(true, ff);
+                if (why == null) cancelReady("시즌 도구 — 대진 전");
+                ok = why == null && (kind == 1 ? League.newSeason(true, ff) : League.restartRanked(true, ff));
+            }
+            if (!ok) {
+                toast(why != null ? why : "저장하지 못했어요 — 기록은 그대로예요");   /* 기록 파일 문제(저장소)·저장 실패 — 리그 탓 글 아님 */
+                if (inMatch && leagueId == null) { rankOppV = null; hubReturn(-1); return; }   /* (준비 경기를 닫았다 — 판에 남을 경기가 없음) */
+                if (!inMatch) lobbyRedraw();
+                lgmDrawer(MenuModel.Prefs.TAB_LEAGUE);
+                return;
+            }
+            BoardCache.invalidate();
+            if (kind != 3) League.sessionReset();
+            hubResumePending = false;                                         /* 175: 알림 글 없음 */
+            if (inMatch) {                                                    /* 179: 이 판의 경기는 닫혔거나(기권패·결판) 지워졌다 — 무장 풀고 타이틀로 */
+                leagueDone = true; Emu.nativeLeagueDisarm();
+                rankOppV = null; rankPickOnly = false;
+                pushMain();                                                   /* 초기화면 내 캐릭터도 없음 — 대신 고르기를 끈다 */
+                hubReturn(-1);                                                /* 덧판 닫기 · 상대 컬러 끔(oppLookOff) · 이름표 · 허브 타이틀 */
+                return;
+            }
+            pushMain();
+            if (kind == 3) oppLookOff();
             lobbyRedraw();
             lgmDrawer(MenuModel.Prefs.TAB_LEAGUE);
         }
@@ -3946,8 +3974,8 @@ public class EmuActivity extends Activity {
         final MenuModel model = lgmModel;
         if (mm == null || model == null) return;
         final int gen = lgmGen;
-        if (tab == MenuModel.Prefs.TAB_LEAGUE) {                           /* 168 §2 리그 탭 — 시즌 도구·내 캐릭터는 대기에서 연 서랍만(쉼·결판에서는 시즌·내 이름·목록만) */
-            final MenuModel.LeagueInfo li = League.leagueInfo(model.kind != MenuModel.K_LOBBY);
+        if (tab == MenuModel.Prefs.TAB_LEAGUE) {                           /* 168 §2 리그 탭 — 내 캐릭터는 대기에서 연 서랍만 · 179: 시즌 도구(새 시즌·처음부터·리그 초기화)는 쉼·결판에서도 */
+            final MenuModel.LeagueInfo li = League.leagueInfo(model.kind != MenuModel.K_LOBBY, model.kind == MenuModel.K_PAUSE ? leagueId : null);   /* 179: 시즌 도구는 어디서나 · 쉼이면 «지금 경기» */
             lgmRender(() -> { final LgmPages.Scene sc = lgmPages().league(model, li, 0); h.post(() -> lgmDrawerShow(gen, tab, sc)); }, () -> lgmWhy("drawer_render", lgmRenderErr));
             return;
         }

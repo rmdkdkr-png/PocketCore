@@ -85,8 +85,9 @@ final class MenuModel {
         int season; String since, wld; String[] pastRows = new String[0];   // 시즌 줄 · 지난 시즌(새것부터)
         boolean placement; int placementPlayed;                            // 배치 중이면 새 시즌 줄 없음(못 쓰는 줄은 안 넣는다)
         int lp0, lp1; String label0, label1;                                // 새 시즌 미리보기 LP lp0 → lp1
-        boolean canSeason, canMain;                                         // 시즌 도구·내 캐릭터 줄을 넣나(쉼에서 연 서랍 · 기록 파일 문제면 false)
+        boolean canSeason, canMain;                                         // 시즌 도구(새 시즌·처음부터·179 리그 초기화) 줄 · 내 캐릭터 줄을 넣나(179: 시즌 도구는 쉼·결판에서 연 서랍도 — 기록 파일 문제면 false · 내 캐릭터는 대기만)
         String openVs, openForfeit;                                         // 멈춘 경기(시작한 열린 경기) 상대 닉 · 기권 몫(«−18 LP»/«배치 1패») — 두 번 묻기 글
+        boolean openLive;                                                   // 179: 그 열린 경기가 지금 이 판에서 도는 경기(쉼에서 연 서랍) — 두 번 묻기 글 «지금 경기…»(아니면 «멈춘 경기…»)
         String[] holds = new String[0];                                     // 보류·무효 줄(새것부터 5)
         String mainLabel, name;                                             // 내 캐릭터(null = 아직) · 내 이름
         String[] rules = new String[0];                                     // 짧은 규칙 줄

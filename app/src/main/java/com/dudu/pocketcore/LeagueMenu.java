@@ -111,7 +111,7 @@ final class LeagueMenu {
         default void lgmMain() { }                // 대기·리그 탭 «내 캐릭터» — 내 캐릭터부터 고르기(pick-only)
         default void lgmOpenForfeit() { }         // 대기 «기권»(두 번 물은 뒤) — 멈춘 경기 기권패 → 결판
         default void lgmOpenVoid() { }            // 대기 «무효로 닫기»(앱 탓으로 못 잇는 경기)
-        default void lgmSeason(int kind) { }      // 리그 탭 새 시즌(1)·처음부터(2) — 두 번 물은 뒤
+        default void lgmSeason(int kind) { }      // 리그 탭 새 시즌(1)·처음부터(2)·179 리그 초기화(3) — 두 번 물은 뒤
         default void lgmName() { }                // 리그 탭 «내 이름» — UI 가 글 입력 → 다시 그려 showDrawer
     }
     static final int FB_NO_NATIVE = 1, FB_RECT = 2, FB_RENDER = 3, FB_NOT_SHOWN = 4;
@@ -726,10 +726,10 @@ final class LeagueMenu {
                 break;
             case ST_DRAWER:
                 if (model == null) break;
-                if (id == LgmPages.LG_NEW_SEASON || id == LgmPages.LG_RESTART) {   /* 168 리그 탭 — 첫 A 펼침(맥박) · 둘째 A = 그 일 */
+                if (LgmPages.lgConfirmRow(id)) {                                   /* 168 리그 탭 — 첫 A 펼침(맥박) · 둘째 A = 그 일(179: 리그 초기화도) */
                     if (drawerConfirm == id) {
                         if (now - confirmAt < CONFIRM_MIN) break;
-                        final int kind = id == LgmPages.LG_NEW_SEASON ? 1 : 2;
+                        final int kind = id == LgmPages.LG_NEW_SEASON ? 1 : id == LgmPages.LG_WIPE ? 3 : 2;
                         setBusy(); post(() -> act.lgmSeason(kind));
                     } else openDrawerConfirm(id);
                     break;
