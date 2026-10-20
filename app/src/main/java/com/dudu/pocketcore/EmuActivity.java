@@ -683,8 +683,14 @@ public class EmuActivity extends Activity {
         Emu.nativeSetSoundFx(!"disabled".equals(m.get(Settings.SND_FX)), fx[0], fx[1], fx[2], fx[3], fx[4],
                              !"all".equals(m.get(Settings.SND_FX_TARGET)));   /* 176 켬/끔 · 179 배경음만(기본) — 코어 소리 콜백이 다음 묶음부터 봄 */
         boolean ss2 = game != null && "ss2".equals(game.id);
-        Emu.nativeSetHitFx(ss2 ? Settings.hitFxMode(m.get(Settings.HITFX)) : 0);   /* 182 타격 이펙트 — 사무쇼2 램만 */
-        Emu.nativeSetCallouts(!"disabled".equals(m.get(Settings.CALLOUT)) && ss2);   /* 182 타격 알림 — 사무쇼2 램만 */
+        final int hitFx = ss2 ? Settings.hitFxMode(m.get(Settings.HITFX)) : 0;          /* 182 타격 이펙트 — 사무쇼2 램만 */
+        final boolean callouts = !"disabled".equals(m.get(Settings.CALLOUT)) && ss2;     /* 182 타격 알림 — 사무쇼2 램만 */
+        final boolean hitFlash = !"off".equals(m.get(Settings.HITFLASH)) && ss2;        /* 191 몸 번쩍(앞 강베기) — 이펙트와 따로 */
+        gl.queueEvent(new Runnable() { @Override public void run() {                    /* 191: 코어가 그리면 코어 옵션으로 — 코어 잠금을 잡으므로 GL 스레드에서 */
+            Emu.nativeSetHitFx(hitFx);
+            Emu.nativeSetCallouts(callouts);
+            Emu.nativeSetHitFlash(hitFlash);
+        }});
     }
 
     /* ── 게임 중에 바로 바꿀 수 있는 코어 옵션 ──

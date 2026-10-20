@@ -29,5 +29,7 @@ void hitflash_colors(const uint16_t in[3], uint16_t out[3]);   /* 세 색 → �
 /* 번쩍이는 중이면 1 — from = 처음 세 색 · to = 흰 세 색(12비트). look.c 가 코어 바꿔 쓰기 표에 «from → to» 를 얹는다:
    게임은 맞은 지 2 프레임 뒤 몸 팔레트를 다시 쓰는데(봇 판 실측), 런어헤드면 보이는 그림이 그 뒤라 직접 쓴 흰색이 화면에 안 나온다 */
 int  hitflash_remap(int side, uint16_t from[3], uint16_t to[3]);
+/* 191 코어(ss2hit.c) — 번쩍이는 중이면 1: save = 처음 세 칸 · put = 흰 세 칸(팔레트 램 16비트 그대로). 상태 저장 동안만 몸을 원래 색으로 되돌릴 때 */
+int  hitflash_raw(int side, uint16_t save[3], uint16_t put[3]);
 
 #endif

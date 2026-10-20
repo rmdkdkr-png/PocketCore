@@ -72,6 +72,9 @@ public final class Thumbs {
             Emu.nativeSetOption("ngp_framegen_motion", "off");
             /* 사무쇼2 코어는 프레임 패치가 켜져 있으면 숨은 프레임을 더 돌린다 — 썸네일은 끄고 1배·빠르게(900 프레임) */
             Emu.nativeSetOption("ngp_framegen", "disabled");
+            Emu.nativeSetOption("ngp_hit_callout", "disabled");  /* 191 데모 대전의 타격 알림·이펙트·몸 번쩍이 썸네일에 안 찍히게 */
+            Emu.nativeSetOption("ngp_hit_fx", "disabled");
+            Emu.nativeSetOption("ngp_hit_flash", "disabled");
             Emu.nativeRunFrames(BOOT_FRAMES);
             int w = Emu.nativeFrameWidth(), h = Emu.nativeFrameHeight();
             Bitmap bmp = null;

@@ -68,12 +68,20 @@ static const int8_t SK_X2[] = { 6, -6, 5, -5, 3, -3, 2, -2, 1 };
 static const int8_t SK_X3[] = { 10, -10, 8, -8, 6, -6, 4, -4, 3, -3, 2, -1 };
 static const int8_t SK_Y3[] = { -4, 4, -3, 3, -2, 2, -1, 1, 0, 0, 0, 0 };
 static struct { int lv, t, dir; } SK;
+static atomic_int fl_on = 0;                    /* 191 몸 번쩍 — 이펙트와 따로 켬/끔(코어 옵션 ngp_hit_flash · 앱 «몸 번쩍») */
 static atomic_int sk_on = 0;                    /* 189 화면 흔들림 기본 끔 — 유저 10-21 00:01 「약간 멀미나고 토할거같은데」(186~188 의 화면 전체 흔들림이 유력).
                                                    코드는 남겨 두고 callout_shake_enable 로만 켠다(지금 앱 설정엔 없음 — 코어 이전 때 «맞은 몸만 떨림»으로 바꿀 것) */
 
+static int any_on(void) { return atomic_load(&co_on) || atomic_load(&fx_mode) != FXM_OFF || atomic_load(&fl_on); }
 void callout_enable(int on)
 {
    if (!atomic_exchange(&co_on, on ? 1 : 0) && on) atomic_store(&co_reset_req, 1);   /* 꺼져 있던 동안의 앞 프레임 값으로 판정하지 않게 */
+}
+void callout_flash_enable(int on)
+{
+   int was = any_on();
+   atomic_store(&fl_on, on ? 1 : 0);
+   if (!was && on) atomic_store(&co_reset_req, 1);
 }
 int  callout_enabled(void) { return atomic_load(&co_on); }
 
@@ -87,7 +95,7 @@ void callout_fx_pal(const uint8_t *pal) { fx_pal = pal; }
 void callout_fx_mode(int mode)
 {
    if (mode < 0 || mode >= FXM_N) mode = FXM_OFF;
-   if (atomic_exchange(&fx_mode, mode) == FXM_OFF && mode != FXM_OFF && !atomic_load(&co_on)) atomic_store(&co_reset_req, 1);
+   if (atomic_exchange(&fx_mode, mode) == FXM_OFF && mode != FXM_OFF && !atomic_load(&co_on) && !atomic_load(&fl_on)) atomic_store(&co_reset_req, 1);
 }
 int callout_fx_mode_get(void) { return atomic_load(&fx_mode); }
 
@@ -244,7 +252,7 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
    uint16_t act[2], y[2];
    int hs, live, p;
    if (atomic_exchange(&co_reset_req, 0)) reset_now();
-   if ((!atomic_load(&co_on) && !atomic_load(&fx_mode)) || !ram || ramsz < (size_t)RAM_NEED) return;
+   if (!any_on() || !ram || ramsz < (size_t)RAM_NEED) return;
    fx_advance(ram[R_HSTOP]);                             /* 이펙트는 판이 끝나는 중(KO·대사)에도 끝까지 */
    shake_advance();                                      /* 186 흔들림도 판 끝(KO) 중에 끝까지 */
    if (atomic_load(&fx_mode) != FXM_OFF) dust_tick(ram);
@@ -307,7 +315,7 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
                   int sd = rd16(ram, OBJ(a) + 8) <= rd16(ram, OBJ(d) + 8) ? 1 : -1;
                   if (ko || heavy) shake(3, sd); else if (dmg >= 12) shake(2, sd); else if (ctr) shake(1, sd);
                }
-               if (front && atomic_load(&fx_mode) != FXM_OFF) flash_req = d + 1;   /* 189 서서 친 강베기만 맞은 몸 번쩍 */
+               if (front && atomic_load(&fl_on)) flash_req = d + 1;   /* 189 서서 친 강베기만 맞은 몸 번쩍 · 191 이펙트와 따로 켬 */
             }
          }
       }
@@ -564,6 +572,36 @@ void callout_fx_draw(uint8_t *rows, uint8_t *ph, int row0, int nrows, int fbw, i
 }
 
 int callout_fx_count(void) { int n = 0; for (int i = 0; i < FX_MAX; i++) n += FX[i].on; return n; }
+
+/* 191 코어용(같은 파일을 코어도 쓴다) — 지금 이펙트의 화소마다 put(ctx, gx, gy, c12): 게임 좌표(놀이 칸 안·화면 안만) · 12비트 0x0BGR.
+   먼저 낸 것부터(나중 것이 위) — callout_fx_draw 와 같은 차례·같은 자리 */
+void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12), void *ctx)
+{
+   if (!put || atomic_load(&fx_mode) == FXM_OFF) return;
+   int idx[FX_MAX], n = 0;
+   for (int j = 0; j < FX_MAX; j++) if (FX[j].on) idx[n++] = j;
+   for (int a = 1; a < n; a++) for (int b = a; b > 0 && FX[idx[b]].seq < FX[idx[b - 1]].seq; b--) { int t = idx[b]; idx[b] = idx[b - 1]; idx[b - 1] = t; }
+   for (int k = 0; k < n; k++) {
+      const dfx_t *e = &FX[idx[k]];
+      const hfx_cel *cel[2]; uint16_t pal[2][3]; int flip[2], nl;
+      if (!fx_layers(e, cel, pal, flip, &nl)) continue;
+      int sx = e->wx - S.cam;
+      for (int l = 0; l < nl; l++) {
+         const hfx_cel *c = cel[l];
+         for (int yy = 0; yy < c->h; yy++) {
+            int gy = e->y - c->ay + yy;
+            if (gy < PLAY_Y0 || gy > PLAY_Y1) continue;
+            for (int xx = 0; xx < c->w; xx++) {
+               int v = c->px[yy * c->w + xx];
+               if (!v) continue;
+               int gx = flip[l] ? sx + c->ax - xx : sx - c->ax + xx;
+               if (gx < 0 || gx > 159) continue;
+               put(ctx, gx, gy, pal[l][v - 1]);
+            }
+         }
+      }
+   }
+}
 
 int callout_flash_take(void) { int r = flash_req; flash_req = 0; return r; }
 

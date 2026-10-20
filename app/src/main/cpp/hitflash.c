@@ -82,3 +82,11 @@ int hitflash_remap(int side, uint16_t from[3], uint16_t to[3])
    for (int j = 0; j < 3; j++) { from[j] = (uint16_t)(HF[side].save[j] & 0xFFF); to[j] = (uint16_t)(HF[side].put[j] & 0xFFF); }
    return 1;
 }
+
+int hitflash_raw(int side, uint16_t save[3], uint16_t put[3])
+{
+   if (side < 0 || side > 1 || !HF[side].on) return 0;
+   memcpy(save, HF[side].save, sizeof HF[side].save);
+   memcpy(put, HF[side].put, sizeof HF[side].put);
+   return 1;
+}

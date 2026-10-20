@@ -57,6 +57,7 @@ static void  *c_palremap;   /* retro_ngp_palremap — 게임이 팔레트를 쓰
 static void (*c_fg_state)(int *, int *, unsigned *);   /* retro_ngp_fg_state — 코어 2배 출력(120Hz) 중 이번 호출이 «합성»(에뮬레이션 없음)인가 */
 static const uint8_t *(*c_fg_phase)(unsigned *, unsigned *, unsigned *);   /* retro_ngp_fg_phase — 4배 그림의 화소마다 원래 모눈 어긋남(코어 zzz_fg_phase) */
 static void  *(*c_charram)(void), *(*c_scrollram)(void), *(*c_palram)(void);   /* 사무쇼2 코어의 K1GE 문자·스크롤·팔레트 램(가상 리그가 화면 글자·컬러를 바꿀 때) */
+static int (*c_hit_caps)(void);   /* 191 retro_ngp_hit_caps — 코어가 타격 알림·이펙트·몸 번쩍을 그린다(코어 패치 zzzzzzzzzzzzzzz_hitfx). 있으면 앱 쪽은 끈다 */
 static const uint8_t *(*c_shown_ram)(int *, const uint8_t **);   /* 187 retro_ngp_shown_ram — 런어헤드로 보여 준 프레임(N + ra)의 작업 램·팔레트 사본(없으면 NULL) */
 static void  *(*c_spriteram)(void);   /* K1GE 스프라이트 램 — 연습 메뉴 창이 빌릴 타일을 고를 때(스프라이트가 가리키는 타일은 안 빌림) */
 static void (*c_sndonly)(int);   /* retro_ngp_sndonly_run — 182: 메인 CPU 를 세운 채 소리 CPU(Z80·소리 칩)만 retro_run n 번 몫(코어 패치 zzzzzzzzzzzzz_snd_only, 옛 코어엔 없음) */
@@ -211,6 +212,41 @@ static void core_log(enum retro_log_level lvl, const char *fmt, ...)
                        "core", "%s", buf);
 }
 
+/* g_opt 한 칸 넣기·바꾸기(잠금은 부르는 쪽) — 값이 바뀌었으면 1 */
+static int opt_put(const char *k, const char *v)
+{
+   int i;
+   for (i = 0; i < g_nopt; i++)
+      if (!strcmp(g_opt[i].k, k)) { if (!strcmp(g_opt[i].v, v)) return 0; snprintf(g_opt[i].v, sizeof(g_opt[i].v), "%s", v); return 1; }
+   if (g_nopt >= MAX_OPTS) return 0;
+   snprintf(g_opt[g_nopt].k, sizeof(g_opt[g_nopt].k), "%s", k);
+   snprintf(g_opt[g_nopt].v, sizeof(g_opt[g_nopt].v), "%s", v);
+   g_nopt++;
+   return 1;
+}
+static const char *opt_get(const char *k, const char *def)
+{
+   for (int i = 0; i < g_nopt; i++) if (!strcmp(g_opt[i].k, k)) return g_opt[i].v;
+   return def;
+}
+/* 191 타격 알림·이펙트·몸 번쩍 — 코어(zzzzzzzzzzzzzzz_hitfx)가 있으면 코어가 그리고(옵션 ngp_hit_*), 없으면 앱(callout.c·hitflash.c)이 예전처럼.
+   g_want_* = Java 가 마지막으로 바란 값(사무쇼2 판 + 설정). 옵션 파일엔 앱 열쇠(pocketcore_callout · _hitfx · _hitflash)만 있다 —
+   코어를 올리기 전에 거기서 ngp_hit_* 를 만들어 둔다(코어가 처음 읽는 값부터 맞게). 코어는 사무쇼2 롬에서만 일한다 */
+static int g_core_hits = 0, g_want_co = 0, g_want_fx = 0, g_want_fl = 0;
+static void hits_opts_from_file(void)
+{
+   opt_put("ngp_hit_callout", strcmp(opt_get("pocketcore_callout", "enabled"), "disabled") ? "enabled" : "disabled");
+   opt_put("ngp_hit_fx", strcmp(opt_get("pocketcore_hitfx", "on"), "off") ? "enabled" : "disabled");
+   opt_put("ngp_hit_flash", strcmp(opt_get("pocketcore_hitflash", "on"), "off") ? "enabled" : "disabled");
+}
+static void hits_route(void)
+{
+   int app = !g_core_hits;
+   callout_enable(app && g_want_co);
+   callout_fx_mode(app ? g_want_fx : FXM_OFF);
+   callout_flash_enable(app && g_want_fl);
+}
+
 static void load_options(const char *path)
 {
    FILE *f = fopen(path, "r");
@@ -234,6 +270,7 @@ static void load_options(const char *path)
    }
    fclose(f);
    LOGI("loaded %d core options", g_nopt);
+   hits_opts_from_file();
 }
 
 /* ------------------------------------------------------------------ */
@@ -1176,6 +1213,7 @@ static int bind_core(void)
    *(void **)&c_sndonly         = dlsym(g_lib, "retro_ngp_sndonly_run");   /* 182 메뉴 중 배경음 — 없으면(SVC 코어·옛 코어) 멈춘 동안 예전처럼 조용 */
    *(void **)&c_snd_div         = dlsym(g_lib, "retro_ngp_snd_div");       /* 182 4배속 자동 진행 소리 — 없으면 예전처럼 그동안 소리를 버림 */
    *(void **)&c_shown_ram       = dlsym(g_lib, "retro_ngp_shown_ram");  /* 187 타격 알림·이펙트 — 없으면(옛 코어·SVC 코어) 실제 램 */
+   *(void **)&c_hit_caps        = dlsym(g_lib, "retro_ngp_hit_caps");   /* 191 코어가 타격 알림·이펙트·몸 번쩍 — 없으면(옛 코어·SVC 코어) 앱이 예전처럼 */
    return 1;
 }
 
@@ -1252,6 +1290,8 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
    g_lib = dlopen(core, RTLD_LAZY | RTLD_LOCAL);
    if (!g_lib) { LOGE("dlopen failed: %s", dlerror()); return -1; }
    if (!bind_core()) return -2;
+   g_core_hits = c_hit_caps ? c_hit_caps() : 0;   /* 191 코어가 그리면 앱 쪽 타격 알림·이펙트·몸 번쩍은 끈다(옵션은 load_options 가 이미 넣음) */
+   hits_route();
 
    c_set_environment(cb_environment);
    c_init();
@@ -1331,6 +1371,7 @@ static void unload_locked(void)
    dlclose(g_lib);
    g_lib = NULL;
    g_loaded = 0;
+   g_core_hits = 0; c_hit_caps = NULL; hits_route();   /* 191 다음 코어가 정한다 */
 }
 
 JNI(void, nativeUnload)(JNIEnv *env, jclass cls)
@@ -1575,12 +1616,32 @@ JNI(void, nativeSetSoundFx)(JNIEnv *env, jclass cls, jboolean on, jint bass, jin
 }
 
 /* 182 타격 알림 켬/끔 — Java 가 사무쇼2 판에서만 켠다(다른 게임 램은 뜻이 다르다). 아무 스레드 */
+/* 191: 코어가 그리면(g_core_hits) 앱 쪽은 끈 채로 코어 옵션만 — 바뀐 값만 넣고 코어가 다음 프레임에 다시 읽는다 */
+static void hits_push(void)
+{
+   int ch = 0;
+   CORE_LOCK();
+   ch |= opt_put("ngp_hit_callout", g_want_co ? "enabled" : "disabled");
+   ch |= opt_put("ngp_hit_fx", g_want_fx ? "enabled" : "disabled");
+   ch |= opt_put("ngp_hit_flash", g_want_fl ? "enabled" : "disabled");
+   if (ch) g_var_dirty = 1;
+   hits_route();
+   CORE_UNLOCK();
+}
 JNI(void, nativeSetCallouts)(JNIEnv *env, jclass cls, jboolean on)
-{ (void)env; (void)cls; callout_enable(on ? 1 : 0); }
+{ (void)env; (void)cls; g_want_co = on ? 1 : 0; hits_push(); }
+
+/* 191 몸 번쩍(앞 강베기) — 이펙트와 따로. Java 가 사무쇼2 판에서만 켬. 아무 스레드 */
+JNI(void, nativeSetHitFlash)(JNIEnv *env, jclass cls, jboolean on)
+{ (void)env; (void)cls; g_want_fl = on ? 1 : 0; hits_push(); }
+
+/* 191 이 판의 코어가 타격 알림·이펙트·몸 번쩍을 그리나(비트 1·2·4, 0 = 앱이 그림) */
+JNI(jint, nativeCoreHits)(JNIEnv *env, jclass cls)
+{ (void)env; (void)cls; return g_core_hits; }
 
 /* 182 타격 이펙트 — 0 끔 · 1 자동 · 2 불꽃 · 3 번개 · 4 섬광(FXM_*). Java 가 사무쇼2 판에서만 0 아닌 값. 아무 스레드 */
 JNI(void, nativeSetHitFx)(JNIEnv *env, jclass cls, jint mode)
-{ (void)env; (void)cls; callout_fx_mode(mode); }
+{ (void)env; (void)cls; g_want_fx = mode > 0 && mode < FXM_N ? mode : FXM_OFF; hits_push(); }
 
 /* 게임 속 리그: 결판 뒤 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
 JNI(void, nativeLeagueHubReturn)(JNIEnv *env, jclass cls, jint rematch)

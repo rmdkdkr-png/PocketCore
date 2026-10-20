@@ -172,6 +172,12 @@ jobs:
             sed 's#\([ab]\)/src/#\1/build/#g' "$p" | git apply -v
           done
           git diff --stat
+      - name: Check shared hit files
+        run: |
+          # 191 zzzzzzzzzzzzzzz_hitfx 의 타격 알림·이펙트·몸 번쩍 파일은 앱 원본(app/src/main/cpp)의 사본 — 다르면 패치를 다시 뜰 것
+          for f in callout.c callout.h callout_atlas.h hitfx_cels.h hitflash.c hitflash.h; do
+            cmp "core/build/$f" "app/src/main/cpp/$f" || { echo "::error::$f 가 앱 원본과 다름 — tools/core_patches/zzzzzzzzzzzzzzz_hitfx.patch 다시 뜨기"; exit 1; }
+          done
       - name: ndk-build
         run: |
           cd core/build/jni

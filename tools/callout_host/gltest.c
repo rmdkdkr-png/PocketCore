@@ -94,6 +94,9 @@ static void make_frame(unsigned fw, unsigned fh)
    g_fb_w = fw; g_fb_h = fh; g_fb_dirty = 1; g_fb_ph = 0;
 }
 
+static uint32_t rgb12_test(int c) { uint32_t r = (c & 15) * 17, g = ((c >> 4) & 15) * 17, b = ((c >> 8) & 15) * 17; return r | g << 8 | b << 16 | 0xFF000000u; }
+static void put_test(void *ctx, int gx, int gy, uint16_t c12) { uint32_t v = rgb12_test(c12); memcpy((uint8_t *)ctx + ((size_t)gy * 160 + gx) * 4, &v, 4); }
+
 int main(int argc, char **argv)
 {
    const char *dir = argc > 1 ? argv[1] : ".";
@@ -243,6 +246,7 @@ int main(int argc, char **argv)
       #define TICK4() do { f4++; callout_fx_pal(PB2); callout_tick(RAM, sizeof RAM, T4 + f4 / 60.0); } while (0)
       #define COUNTER_SEQ() do { callout_reset(); base(); TICK4(); CTRL(1) = 0x02; TICK4(); HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; TICK4(); } while (0)
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFlash(NULL, NULL, 1);   /* 191 몸 번쩍은 따로 켬 */
       callout_reset(); base(); TICK4(); CTRL(1) = 0x02; TICK4();
       CHECK(callout_flash_take() == 0, "몸 번쩍: 닿기 전엔 부탁 없음");
       RAM[RA(0x4E30) + 0x0E] = 0x68; RAM[RA(0x4E30) + 0x0F] = 0x00;
@@ -279,15 +283,24 @@ int main(int argc, char **argv)
         CHECK(out[0] == 0x111 && out[1] == 0xFFF && out[2] == 0xFFF, "몸 번쩍: 어두운 칸이 앞이어도"); }
       { static uint8_t Z[16 * 8]; hitflash_start(Z, 1); CHECK(hitflash_active() == 0 && !Z[5 * 8 + 2], "몸 번쩍: 빈 팔레트는 안 씀"); }
       hitflash_start(NULL, 0); CHECK(hitflash_active() == 0, "몸 번쩍: 팔레트 없음 무시");
+      #define FRONT_SEQ() do { callout_reset(); base(); TICK4(); RAM[RA(0x4E30) + 0x0E] = 0x68; RAM[RA(0x4E30) + 0x0F] = 0; \
+                               HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; RAM[RA(0x5980) + 0x200 + 0xC6] = 108; TICK4(); } while (0)
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFlash(NULL, NULL, 0);
+      FRONT_SEQ();
+      CHECK(callout_flash_take() == 0 && callout_fx_count() == 2, "몸 번쩍: 191 번쩍만 끄면 부탁 없음(이펙트는 그대로 혜성 + 일섬)");
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
-      Java_com_dudu_pocketcore_Emu_nativeSetCallouts(NULL, NULL, 1);
-      COUNTER_SEQ(); callout_stats(st);
-      CHECK(callout_flash_take() == 0, "몸 번쩍: 이펙트 끄면(라벨만 켬) 부탁 없음");
-      Java_com_dudu_pocketcore_Emu_nativeSetCallouts(NULL, NULL, 0);
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFlash(NULL, NULL, 1);
+      FRONT_SEQ();
+      CHECK(callout_flash_take() == 2 && callout_fx_count() == 0, "몸 번쩍: 191 이펙트·라벨 다 꺼도 번쩍만 켜면 판정 돌고 부탁(이펙트는 없음)");
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFlash(NULL, NULL, 0);
+      FRONT_SEQ();
+      CHECK(callout_flash_take() == 0, "몸 번쩍: 셋 다 끄면 판정도 안 돎");
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFlash(NULL, NULL, 1);
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
       COUNTER_SEQ(); callout_reset(); TICK4();
       CHECK(callout_flash_take() == 0, "몸 번쩍: 지우기(리셋) 뒤엔 부탁 없음");
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFlash(NULL, NULL, 0);
       /* 코어 바꿔 쓰기 표 겹치기(look.c) — 번쩍 동안만 팔레트 5 자리 0 = «번쩍 전 세 색 → 흰색», 끝나면 look 이 바란 표로 */
       look_palremap_fn((void *)fake_remap);
       look_vram(NULL, NULL, PB2);
@@ -325,6 +338,7 @@ int main(int argc, char **argv)
                                  TICK5(); TICK5(); HS = 8; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = (hp); TICK5(); } while (0)
       #define HEAVY_SEQ(hp) HIT_SEQ(hp, 0x100)
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFlash(NULL, NULL, 1);
       HEAVY_SEQ(108);
       CHECK(!callout_shake(&gx, &gy), "흔들림: 189 기본 끔 — 강베기에도 안 흔듦(멀미)");
       callout_shake_enable(1);
@@ -391,6 +405,54 @@ int main(int argc, char **argv)
       glClear(GL_COLOR_BUFFER_BIT); gl_draw(); grab();
       CHECK(frac_diff(vx, vy + 10, vx + 9, vy + dh - 10, bg) == 0, "흔들림: 끄면 제자리");
       callout_shake_enable(0);
+   }
+   /* ── 191 코어용 callout_fx_each 가 callout_fx_draw 와 같은 화소·같은 색(코어 ss2hit.c 가 쓴다) ── */
+   {
+      static uint8_t PB3[16 * 8];
+      static uint8_t A1[160 * 152 * 4], A2[160 * 152 * 4];
+      { const uint16_t g[3] = { 0xBFF, 0x0EF, 0x0AF }; for (int pp = 2; pp <= 7; pp += 5) for (int j = 0; j < 3; j++) { PB3[pp * 8 + (j + 1) * 2] = (uint8_t)g[j]; PB3[pp * 8 + (j + 1) * 2 + 1] = (uint8_t)(g[j] >> 8); } }
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+      double T6 = 1100.0; int f6 = 0, same = 1, cnt = 0;
+      #define TICK6() do { f6++; callout_fx_pal(PB3); callout_tick(RAM, sizeof RAM, T6 + f6 / 60.0); } while (0)
+      callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
+      RAM[RA(0x4E30) + 0x40 + 0x0E] = 0x68; TICK6(); TICK6();
+      HS = 8; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 100; TICK6();   /* 앞 강베기 — 혜성 + 일섬 둘 */
+      for (int step = 0; step < 14; step++) {
+         memset(A1, 0, sizeof A1); memset(A2, 0, sizeof A2);
+         callout_fx_draw(A1, NULL, 0, 152, 160, 0, 0, 1, rgb12_test);
+         callout_fx_each(put_test, A2);
+         if (memcmp(A1, A2, sizeof A1)) same = 0;
+         for (size_t i = 0; i < sizeof A1; i += 4) cnt += A1[i + 3] != 0;
+         if (step == 0) HS = 0;
+         TICK6();
+      }
+      CHECK(same && cnt > 0, "191 fx_each = fx_draw(화소 %d 개, 14 프레임)", cnt);
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
+   }
+   /* ── 191 코어가 그리면(g_core_hits) 앱 쪽은 꺼진 채 코어 옵션만 바뀜 ── */
+   {
+      g_core_hits = 7;
+      Java_com_dudu_pocketcore_Emu_nativeSetCallouts(NULL, NULL, 1);
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFlash(NULL, NULL, 0);
+      CHECK(!callout_enabled() && callout_fx_mode_get() == FXM_OFF, "191 코어가 그리면 앱 라벨·이펙트 끔");
+      CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "enabled") && !strcmp(opt_get("ngp_hit_fx", "?"), "enabled") && !strcmp(opt_get("ngp_hit_flash", "?"), "disabled") && g_var_dirty,
+            "191 코어 옵션 ngp_hit_* = 설정(%s %s %s)", opt_get("ngp_hit_callout", "?"), opt_get("ngp_hit_fx", "?"), opt_get("ngp_hit_flash", "?"));
+      g_var_dirty = 0;
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+      CHECK(!g_var_dirty, "191 같은 값이면 코어에 다시 읽으라 안 함");
+      g_core_hits = 0;
+      Java_com_dudu_pocketcore_Emu_nativeSetCallouts(NULL, NULL, 1);
+      CHECK(callout_enabled() && callout_fx_mode_get() == FXM_ON, "191 옛 코어면 앱이 그림");
+      Java_com_dudu_pocketcore_Emu_nativeSetCallouts(NULL, NULL, 0);
+      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
+      {  /* 옵션 파일 → ngp_hit_* (코어가 처음 읽는 값) */
+         char tp[] = "/tmp/gltest_optsXXXXXX"; int fd = mkstemp(tp); FILE *o = fdopen(fd, "w");
+         fprintf(o, "pocketcore_callout=disabled\npocketcore_hitfx=on\n"); fclose(o);
+         load_options(tp); unlink(tp);
+         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "disabled") && !strcmp(opt_get("ngp_hit_fx", "?"), "enabled") && !strcmp(opt_get("ngp_hit_flash", "?"), "enabled"),
+               "191 옵션 파일 → 코어 옵션(라벨 끔 · 이펙트 켬 · 번쩍 기본 켬)");
+      }
    }
    fprintf(stderr, "%s (%d 실패)\n", fails ? "실패" : "통과", fails);
    return fails ? 1 : 0;

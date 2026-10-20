@@ -31,6 +31,7 @@ public final class Settings {
     public static final String SND_FX_TARGET = "pocketcore_snd_target";
     public static final String CALLOUT = "pocketcore_callout";       /* 182 타격 알림 — 켬(기본)·끔, 사무쇼2 */
     public static final String HITFX = "pocketcore_hitfx";           /* 184 타격 이펙트(도트) — on(기본)·off, 사무쇼2. 183 의 auto·fire·elec·impact 는 켬으로 */
+    public static final String HITFLASH = "pocketcore_hitflash";     /* 191 몸 번쩍(앞 강베기) — on(기본)·off, 사무쇼2. 전엔 타격 이펙트에 묶여 있었다 */
     /** 타격 이펙트 값 → native 번호(callout.h FXM_*: 0 끔 · 1 켬) */
     public static int hitFxMode(String v) { return "off".equals(v) ? 0 : 1; }
 
@@ -192,11 +193,17 @@ public final class Settings {
                이 설정을 끄면 같이 꺼짐. 188: 유저 「앞강베기 타격효과가 가장 강렬해야」 — 강베기(보통 기술 피해 12 이상)는 몸 번쩍 + 칼 궤적 색 일섬 +
                막타와 같은 가장 큰 흔들림, 막타도 몸 번쩍. 「120hz는 런어헤드가 꺼진다고?」 — 아님(꺼지는 건 옛 2배뿐) → 판정을 코어가 보여 준 프레임의 램으로.
                189: 유저 「약간 멀미나고 토할거같은데」 → 화면 전체 흔들림 끔(callout_shake_enable 기본 0) */
+            /* 191: 유저 「카운터랑 그렁 메시지도 코어에 쓰는게 좋겠는데 선택하게 하거나」 → 「코어」 — 판정·그리기를 동봉 사무쇼2 코어로 옮김
+               (코어 패치 zzzzzzzzzzzzzzz_hitfx, 코어 옵션 ngp_hit_callout · ngp_hit_fx · ngp_hit_flash). 이 세 줄은 앱 열쇠 그대로 두고 native 가 코어 옵션으로 넘긴다.
+               옛 코어(없으면)면 앱이 예전처럼 그린다. 몸 번쩍은 이펙트와 따로 켬/끔(유저 「번쩍 … 번쩍효과 없애고 씀」) */
             new Item(HITFX, "타격 이펙트",
                 "맞을 때 맞은 자리에 원작 도트 결의 섬광을 더 얹습니다(게임은 그대로, 보이기만). 약한 맞음은 별 섬광, 강베기·필살은 맞은 쪽으로 뻗는 혜성,"
                 + " COUNTER·PUNISHER 는 노랑·빨강 각진 고리를 더 — 색은 때린 캐릭터의 칼 궤적 색을 따릅니다. 가드는 푸른 반달, 칼끼리 부딪히면 «깡» 불티,"
-                + " 쓰러지면 발밑 흙먼지, 라운드를 끝낸 맞음엔 붉은 일섬. 앞 강베기(앞 + 꾹 베기)엔 맞은 몸이 두 프레임 하얗게 + 칼 궤적 색 일섬."
-                + " 업스케일러·필터도 이펙트에 같이 걸립니다.",
+                + " 쓰러지면 발밑 흙먼지, 라운드를 끝낸 맞음엔 붉은 일섬, 앞 강베기(앞 + 꾹 베기)엔 칼 궤적 색 일섬. 화면 흔들림은 없습니다."
+                + " 코어가 게임 그림에 그려서 업스케일러·필터도 이펙트에 같이 걸립니다.",
+                new String[]{ "on", "off" }, new String[]{ "켬", "끔" }, "on").g("ss2"),
+            new Item(HITFLASH, "몸 번쩍",
+                "앞 강베기(앞 + 꾹 베기)에 맞은 몸을 두 프레임 하얗게 — 테두리 색은 그대로라 밝은 무대에서도 몸 모양이 남습니다. 런어헤드에서도 보입니다.",
                 new String[]{ "on", "off" }, new String[]{ "켬", "끔" }, "on").g("ss2"),
             new Item(CALLOUT, "타격 알림",
                 "경기 중 때린 쪽 가장자리에 라벨을 띄웁니다 — FIRST ATTACK(라운드 첫 타) · COUNTER(기술을 내던 상대를 맞힘)"

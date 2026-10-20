@@ -65,8 +65,11 @@ int  callout_fx_span(int *gy0, int *gy1);
    sub = 게임 화소당 텍셀 · rgb = 12비트 0x0BGR → 메모리 R,G,B,A 순 32비트(ov_rgb) · ph = 같은 줄의 쪽지(NULL 가능) — 이펙트 텍셀은 0. GL 스레드 */
 void callout_fx_draw(uint8_t *rows, uint8_t *ph, int row0, int nrows, int fbw, int ox, int oy, int sub, uint32_t (*rgb)(int c12));   /* rows NULL = 쪽지만 */
 int  callout_fx_count(void);          /* 시험 — 지금 이펙트 수 */
-/* 186 COUNTER 몸 번쩍 — 이번 tick 에 반격 맞음이 있었으면 맞은 쪽 + 1(가져가면 0). 이펙트를 켰을 때만. native.c 가 callout_tick 바로 뒤 → hitflash_start */
+void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12), void *ctx);   /* 191 코어 — 이펙트 화소마다(게임 좌표·12비트 색) */
+/* 186 몸 번쩍 — 이번 tick 에 앞 강베기 맞음(189·190)이 있었으면 맞은 쪽 + 1(가져가면 0). callout_flash_enable 로 켰을 때만(191 — 전엔 이펙트를 켰을 때).
+   native.c(앱)·ss2hit.c(코어)가 callout_tick 바로 뒤 → hitflash_start */
 int  callout_flash_take(void);
+void callout_flash_enable(int on);    /* 191 몸 번쩍 켬/끔 — 이펙트와 따로(기본 끔). 아무 스레드 */
 /* 186 화면 흔들림 — 지금 게임 그림을 옮길 양(게임 px, 오른쪽·아래 +). 없으면 0. 진짜 프레임마다 한 칸(callout_tick) · 이펙트를 켰을 때만. GL 스레드 */
 int  callout_shake(float *gx, float *gy);
 void callout_shake_enable(int on);     /* 189 화면 흔들림 켬/끔 — 기본 끔(멀미). 아무 스레드 */
