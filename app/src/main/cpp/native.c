@@ -459,6 +459,7 @@ static size_t cb_audio_batch(const int16_t *data, size_t frames)
 {
    size_t done = 0;
    if (game_mute()) { g_mute_drop = 1; g_fx_cur = 0; return frames; }   /* 153: 랭크 자동 진행(4배속) 동안 — 고리에 안 넣는다(배속 소리가 남아 뒤에 나오지 않게) · 179 풀리면 음색 다듬기 꼬리 없이 · 182 옛 코어만 */
+   if (!g_stream) { g_mute_drop = 1; return frames; }   /* 182: 소리 카드가 없다(onPause·썸네일 부팅) — 고리에 쌓아 두면 다시 열 때 지난 소리가 늦게(최대 0.37 s) 나온다 */
    if (g_mute_drop) { g_mute_drop = 0; drc_reset(&g_drc); }
    if (frames) { g_last_in[0] = data[(frames - 1) * 2]; g_last_in[1] = data[(frames - 1) * 2 + 1]; }
    while (done < frames) {                       /* 큰 묶음은 나눠서(출력 칸 8192) */
@@ -579,6 +580,7 @@ static void audio_start(int rate)
    g_audio_dead = 0;
    uisfx_reset(rate);                  /* 176: 콜백이 돌기 전 — 닫히기 전(onPause·끊김) 남은 효과음·요청은 버림 */
    declick_reset();                    /* 182: 새 스트림은 0 에서 키워 시작 */
+   g_rd = g_wr;                        /* 182: 닫히기 전 남은 소리는 버림(콜백이 돌기 전 — 닫힌 스트림의 콜백은 끝났다) */
    if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) { pthread_mutex_unlock(&g_audio_mx); return; }
    AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_I16);
    AAudioStreamBuilder_setChannelCount(b, 2);
