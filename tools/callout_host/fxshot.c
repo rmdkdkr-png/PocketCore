@@ -36,30 +36,45 @@ EGLBoolean eglMakeCurrent(EGLDisplay, EGLSurface, EGLSurface, EGLContext);
 EGLint eglGetError(void);
 
 
-/* 182 타격 이펙트 그림 뽑기 — 진짜 게임 그림(PPM 160×152) 위에 이펙트 셋(섬광·불꽃·번개)을 시간마다 그려 한 장으로.
-     ./fxshot frame.ppm 맞은X 맞은Y 때린X 카메라 out.png-prefix */
-static uint8_t RAM[16384];
+/* 184 타격 이펙트(도트) 그림 뽑기 — 진짜 게임 그림(PPM 160×152) 위에, 진짜 gl_draw 합성 길로 섬광(약)·혜성(강)·COUNTER·PUNISHER 를
+   게임 프레임마다 그려 PPM 으로(1배 그림과 4배 그림 둘 다). 히트스톱 8 프레임 → 풀림.
+     ./fxshot frame.ppm 맞은X 맞은Y 때린X out-prefix   (화면 x 그대로 — 카메라 0) */
+static uint8_t RAM[16384], PAL[16 * 8];
 #define RA(x) ((x) - 0x4000)
 static int W = 1080, H = 2400;
 static uint8_t *px;
-static void base(int dx, int ax, int y, int cam)
+static void base(int dx, int ax, int y)
 {
    memset(RAM, 0, sizeof RAM);
-   RAM[RA(0x40A7)] = 241; RAM[RA(0x411A)] = 1; RAM[RA(0x576D)] = (uint8_t)cam;
+   RAM[RA(0x40A7)] = 241; RAM[RA(0x411A)] = 1;
+   RAM[RA(0x5B51)] = 0x08 << 2 | 0; RAM[RA(0x5D51)] = 0x00 << 2;   /* P1 = 하오마루(ch 2 → 키 8) · P2 = 카즈키(ch 0) — 칼 궤적 칸 +2 */
+   RAM[RA(0x5B51)] = (2 << 2) << 2; RAM[RA(0x5D51)] = (0 << 2) << 2;
    for (int p = 0; p < 2; p++) {
       int b = RA(0x5980) + p * 0x200, o = RA(0x4E30) + p * 0x40, x = p == 0 ? dx : ax;
       RAM[b + 0xC6] = 128; RAM[b + 0x5A] = 128; RAM[b + 0x49] = 0x20; RAM[o + 0x1C] = 0xFF; RAM[o + 0x0E] = 0x00; RAM[o + 0x0F] = 0x01;
       RAM[o + 8] = (uint8_t)x; RAM[o + 9] = (uint8_t)(x >> 8); RAM[o + 0xA] = (uint8_t)y; RAM[o + 0xB] = 0;
    }
 }
+static void palset(int p, uint16_t a, uint16_t b, uint16_t c) { uint16_t v[3] = { a, b, c }; for (int j = 0; j < 3; j++) { PAL[p * 8 + (j + 1) * 2] = (uint8_t)v[j]; PAL[p * 8 + (j + 1) * 2 + 1] = (uint8_t)(v[j] >> 8); } }
 #define CTRL(p) RAM[RA(0x5980) + (p) * 0x200 + 0x4E]
 #define COMBO(p) RAM[RA(0x5980) + (p) * 0x200 + 0x117]
 #define HP(p) RAM[RA(0x5980) + (p) * 0x200 + 0xC6]
+#define BOX(p) RAM[RA(0x4E30) + (p) * 0x40 + 0x1C]
 #define HS RAM[RA(0x5DC7)]
+static int dh = 912, vx = 60, vy;
+static void shot(const char *pre, const char *tag, int k)
+{
+   g_fb_dirty = 1; glClear(GL_COLOR_BUFFER_BIT); gl_draw();
+   glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px);
+   char p[700]; snprintf(p, sizeof p, "%s_%s_%02d.ppm", pre, tag, k);
+   FILE *o = fopen(p, "wb"); fprintf(o, "P6 %d %d 255\n", 960, dh);
+   for (int y = 0; y < dh; y++) { int gy = H - 1 - (vy + y); for (int x = 0; x < 960; x++) fwrite(px + ((size_t)gy * W + vx + x) * 4, 1, 3, o); }
+   fclose(o);
+}
 int main(int argc, char **argv)
 {
-   if (argc < 7) { fprintf(stderr, "usage\n"); return 2; }
-   int dx = atoi(argv[2]), dy = atoi(argv[3]), ax = atoi(argv[4]), cam = atoi(argv[5]);
+   if (argc < 6) { fprintf(stderr, "usage\n"); return 2; }
+   int dx = atoi(argv[2]), dy = atoi(argv[3]), ax = atoi(argv[4]);
    EGLDisplay dpy = eglGetPlatformDisplay(0x31DD, NULL, NULL);
    EGLint maj, min, nc; EGLConfig cfg;
    if (!dpy || !eglInitialize(dpy, &maj, &min)) return 2;
@@ -74,34 +89,35 @@ int main(int argc, char **argv)
    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, W, H, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ct, 0);
    px = (uint8_t *)malloc((size_t)W * H * 4);
-   /* 그림 */
+   vy = H - (H - dh - (int)(H * 0.07f)) - dh;
    FILE *f = fopen(argv[1], "rb"); int fw, fh, mx; if (!f || fscanf(f, "P6 %d %d %d", &fw, &fh, &mx) != 3) return 2; fgetc(f);
    uint8_t *rgb = malloc((size_t)fw * fh * 3); if (fread(rgb, 3, (size_t)fw * fh, f) != (size_t)fw * fh) return 2; fclose(f);
-   g_fb = malloc((size_t)fw * fh * 4); for (int i = 0; i < fw * fh; i++) { g_fb[i * 4] = rgb[i * 3]; g_fb[i * 4 + 1] = rgb[i * 3 + 1]; g_fb[i * 4 + 2] = rgb[i * 3 + 2]; g_fb[i * 4 + 3] = 255; }
-   g_fb_w = fw; g_fb_h = fh; g_fb_dirty = 1;
    gl_setup(); g_vw = W; g_vh = H;
+   palset(2, 0xBFF, 0x0EF, 0x0AF);   /* P1 칼 궤적(+2) 금빛 */
+   palset(7, 0x0FF, 0x06F, 0x00C);   /* P2 칼 궤적(+2) 카즈키 불꽃 */
    Java_com_dudu_pocketcore_Emu_nativeSetCallouts(NULL, NULL, 0);
-   static const double TS[6] = { 0.02, 0.06, 0.11, 0.17, 0.25, 0.36 };
-   static const int MODES[3] = { FXM_IMPACT, FXM_FIRE, FXM_ELEC };
-   int vx = 60, dh = 912, vy = H - (H - dh - (int)(H * 0.07f)) - dh;
-   for (int m = 0; m < 3; m++) for (int strong = 0; strong < 2; strong++) {
-      Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, MODES[m]);
-      callout_reset();
-      double T0 = 50.0 + m * 10 + strong * 5; int fr = 0;
-      #define TICK() do { fr++; callout_tick(RAM, sizeof RAM, T0 + fr / 60.0); } while (0)
-      base(dx, ax, dy, cam); TICK(); TICK();
-      HS = 8; COMBO(0) = 1; CTRL(0) = 0x0A; if (strong) HP(0) = 128 - 20; else HP(0) = 128 - 6; TICK();
-      double th = T0 + fr / 60.0;
-      for (int k = 0; k < 6; k++) {
-         g_last_vsync = th + TS[k]; g_fb_dirty = 1;
-         glClear(GL_COLOR_BUFFER_BIT); gl_draw();
-         glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px);
-         char p[700]; snprintf(p, sizeof p, "%s_m%d_s%d_%d.ppm", argv[6], m, strong, k);
-         FILE *o = fopen(p, "wb"); fprintf(o, "P6 %d %d 255\n", 960, dh);
-         for (int y = 0; y < dh; y++) { int gy = H - 1 - (vy + y); for (int x = 0; x < 960; x++) fwrite(px + ((size_t)gy * W + vx + x) * 4, 1, 3, o); }
-         fclose(o);
+   Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+   static const char *CASE[4] = { "light", "heavy", "counter", "punish" };
+   for (int sub = 1; sub <= 4; sub += 3) {
+      free(g_fb); g_fb = malloc((size_t)fw * sub * fh * sub * 4);
+      for (int y = 0; y < fh * sub; y++) for (int x = 0; x < fw * sub; x++) { const uint8_t *s = rgb + ((size_t)(y / sub) * fw + x / sub) * 3; uint8_t *d = g_fb + ((size_t)y * fw * sub + x) * 4; d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = 255; }
+      g_fb_w = fw * sub; g_fb_h = fh * sub; g_fb_dirty = 1;
+      for (int c = 0; c < 4; c++) {
+         callout_reset();
+         double T = 10.0 * (c + 1); int fr = 0;
+         #define TICK() do { fr++; callout_fx_pal(PAL); callout_tick(RAM, sizeof RAM, T + fr / 60.0); } while (0)
+         base(dx, ax, dy); TICK();                               /* 판 시작 */
+         if (c == 2) CTRL(0) = 0x02;                             /* COUNTER: 맞은 쪽(P1)이 발동 중 */
+         if (c == 3) { CTRL(0) = 0x02; TICK(); BOX(0) = 0x10; TICK(); BOX(0) = 0xFF; TICK(); TICK(); }   /* PUNISHER: 상자 켰다 끈 뒤(경직) */
+         TICK();
+         HS = 8; COMBO(0) = 1; CTRL(0) = 0x0A; HP(0) = (uint8_t)(128 - (c == 1 || c == 3 ? 20 : 6)); TICK();   /* 닿음 — P2 가 P1 을 */
+         char pre[700]; snprintf(pre, sizeof pre, "%s_s%d", argv[5], sub);
+         int k = 0; shot(pre, CASE[c], k++);
+         for (int i = 0; i < 3; i++) { TICK(); shot(pre, CASE[c], k++); }            /* 히트스톱 — 첫 컷 그대로 */
+         HS = 0;
+         for (int i = 0; i < 12; i++) { TICK(); shot(pre, CASE[c], k++); }           /* 풀림 — 2프레임마다 */
+         fprintf(stderr, "sub %d %s frames %d left %d GL %x\n", sub, CASE[c], k, callout_fx_count(), glGetError());
       }
-      fprintf(stderr, "mode %d strong %d GL %x\n", MODES[m], strong, glGetError());
    }
    return 0;
 }

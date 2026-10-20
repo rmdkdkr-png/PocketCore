@@ -1,6 +1,7 @@
 /* 타격 알림 — 설명은 callout.h. 램 주소·칸 규칙은 practice.c(연습 대전 프레임 미터)와 같은 것만 쓴다. */
 #include "callout.h"
 #include "callout_atlas.h"
+#include "hitfx_cels.h"
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +31,7 @@ enum { C_NONE = 0, C_HIT, C_BLOCK, C_THROW, C_OTHER, C_MULTI };
 
 static atomic_int co_on = 0;
 static atomic_int fx_mode = 0;                 /* 타격 이펙트 FXM_* (0 = 끔) */
+static const uint8_t *fx_pal;                  /* 코어 스프라이트 팔레트 램(0x8200~) — 칼 궤적 색(GL 스레드, tick 앞에 받음) */
 static atomic_int co_reset_req = 1;            /* 지우기는 GL 스레드에서만(tick·get 이 먼저 본다) — 다른 스레드는 부탁만 */
 static struct {
    int have_prev, live_prev, first_done;
@@ -46,8 +48,17 @@ static struct {
    int stats[8];
 } S;
 static callout_t L[2][CO_ROWS];                 /* 쪽마다 줄 — t0 < 0 = 빈 칸 */
-static hitfx_t FX[FX_MAX];                      /* 타격 이펙트 — t0 < 0 = 빈 칸 */
-static uint32_t fx_rng = 0x9E3779B9u;
+/* 타격 이펙트(도트) — 게임 프레임으로 센다(히트스톱 동안 첫 컷 멈춤 · 그다음 2프레임마다 한 컷 · 게임이 멈추면 같이 멈춤) */
+typedef struct {
+   int on, kind, ring;          /* kind FXK_* · ring 0 없음 / 1 COUNTER / 2 PUNISHER */
+   int wx, y, dir;              /* 무대 X(화면 x = wx − 카메라) · 게임 y · 밀리는 쪽 ±1(강 섬광은 그쪽으로 뻗음) */
+   int cel, sub, hold;          /* 지금 컷 · 컷 안 프레임 · 히트스톱 동안 첫 컷 유지 */
+   uint16_t col[3];             /* 12비트 0x0BGR — 1 흰 심 · 2 가운데 · 3 테두리(때린 쪽 칼 궤적 색) */
+   uint32_t seq;                /* 낸 차례(다 차면 가장 오래된 것) */
+} dfx_t;
+enum { FXK_L = 0, FXK_H, FXK_T };
+static dfx_t FX[FX_MAX];
+static uint32_t fx_seq;
 
 void callout_enable(int on)
 {
@@ -56,6 +67,8 @@ void callout_enable(int on)
 int  callout_enabled(void) { return atomic_load(&co_on); }
 
 void callout_reset(void) { atomic_store(&co_reset_req, 1); }
+
+void callout_fx_pal(const uint8_t *pal) { fx_pal = pal; }
 
 void callout_fx_mode(int mode)
 {
@@ -72,45 +85,68 @@ static void reset_now(void)
    memcpy(S.stats, st, sizeof st);
    memset(S.armed, -1, sizeof S.armed);
    for (int s = 0; s < 2; s++) for (int r = 0; r < CO_ROWS; r++) { L[s][r].t0 = -1e9; L[s][r].kind = -1; L[s][r].side = s; L[s][r].row = r; }
-   for (int i = 0; i < FX_MAX; i++) { FX[i].t0 = -1e9; FX[i].kind = -1; }
+   memset(FX, 0, sizeof FX);
 }
 
 static int rd16(const uint8_t *ram, int o) { return ram[o] | (ram[o + 1] << 8); }
 
-static float frand(void) { fx_rng = fx_rng * 1664525u + 1013904223u; return (float)(fx_rng >> 8) / 16777216.f; }
-
-/* 맞은 쪽 d 에 이펙트 하나 — 자리는 맞은 몸(물체 +8 X · +0xA Y, 땅 128)에서 때린 쪽으로 7px, 몸 가운데 높이 */
-static void fx_spawn(const uint8_t *ram, int d, int counter, int dmg, int att_special, double now)
+static const hfx_cel *fx_cels(int kind, int *n)
 {
-   int mode = atomic_load(&fx_mode), a = 1 - d, kind, strong, i, use = 0;
-   hitfx_t *e;
-   if (mode == FXM_OFF) return;
-   strong = counter || dmg >= 12 || att_special;                          /* 센 맞음: 반격 · 피해 12 이상(약베기 6~11 · 강베기 14~21 실측) · 필살 */
-   kind = mode == FXM_FIRE ? FX_FIRE : mode == FXM_ELEC ? FX_ELEC : mode == FXM_IMPACT ? FX_IMPACT
-        : counter ? FX_ELEC : strong ? FX_FIRE : FX_IMPACT;                  /* 자동: 반격(COUNTER·PUNISHER) 번개 · 센 맞음 불꽃 · 나머지 섬광 */
-   for (i = 0; i < FX_MAX; i++) if (now - FX[i].t0 >= FX[i].life || FX[i].kind < 0) { use = i; break; }
-   if (i == FX_MAX) for (i = 1, use = 0; i < FX_MAX; i++) if (FX[i].t0 < FX[use].t0) use = i;   /* 다 차면 가장 오래된 것 */
+   if (kind == FXK_H) { *n = HFX_N_H; return HFX_H; }
+   if (kind == FXK_T) { *n = HFX_N_T; return HFX_T; }
+   *n = HFX_N_L; return HFX_L;
+}
+
+static int luma12(uint16_t c) { return 299 * (c & 15) + 587 * ((c >> 4) & 15) + 114 * ((c >> 8) & 15); }
+
+/* 때린 쪽 a 의 칼 궤적 팔레트(스프라이트 팔레트 P1 1~4 · P2 6~9 중 궤적 칸 — slash.c 와 같은 규칙: 아수라 +1, 나머지 +2) 세 색을 밝기 순으로 →
+   이펙트 색 = 흰 심 · 둘째로 밝은 색 · 가장 어두운 색. 베기 색을 바꿨으면 그 색(팔레트 램엔 바꾼 색이 들어 있다). 못 읽으면 금빛 */
+static void trail_colors(const uint8_t *ram, int a, uint16_t col[3])
+{
+   uint16_t c[3] = { 0xBFF, 0x0EF, 0x0AF };
+   int ch = (ram[a ? A(0x5D51) : A(0x5B51)] >> 2) >> 2, slot = (a ? 6 : 1) + (ch == 8 ? 0 : 1);
+   if (fx_pal) {
+      uint16_t t[3]; int ok = 0;
+      for (int j = 0; j < 3; j++) { const uint8_t *e = fx_pal + slot * 8 + (j + 1) * 2; t[j] = (uint16_t)((e[0] | (e[1] << 8)) & 0xFFF); ok |= t[j] != 0; }
+      if (ok) memcpy(c, t, sizeof c);
+   }
+   for (int i = 0; i < 2; i++) for (int j = 0; j < 2 - i; j++) if (luma12(c[j]) < luma12(c[j + 1])) { uint16_t x = c[j]; c[j] = c[j + 1]; c[j + 1] = x; }
+   if (luma12(c[1]) < 1500) { c[1] = 0x0EF; c[2] = 0x0AF; }               /* 너무 어두우면(아수라 +2 남색 같은) 금빛 */
+   col[0] = 0xFFF; col[1] = c[1]; col[2] = c[2];
+}
+
+/* 맞은 쪽 d 에 하나 — 자리 = 맞은 몸(물체 +8 X · +0xA Y, 땅 128)에서 때린 쪽으로 7px, 몸 가운데 높이(서기 25 · 앉음 15 · 공중 22px 위) */
+static void fx_spawn(const uint8_t *ram, int d, int kind, int ring)
+{
+   int a = 1 - d, i, use = -1;
+   dfx_t *e;
+   if (atomic_load(&fx_mode) == FXM_OFF) return;
+   for (i = 0; i < FX_MAX; i++) if (!FX[i].on) { use = i; break; }
+   if (use < 0) { use = 0; for (i = 1; i < FX_MAX; i++) if (FX[i].seq < FX[use].seq) use = i; }
    e = &FX[use];
    {
-      int dx = rd16(ram, OBJ(d) + 8), ax = rd16(ram, OBJ(a) + 8), fy = rd16(ram, OBJ(d) + 0xA);
-      int st = ram[PB(d) + O_STANCE];
-      float dir = ax <= dx ? 1.f : -1.f;                                      /* 맞은 몸이 밀리는 쪽 */
-      float h = (st & 0x40) ? 15.f : fy < 128 ? 22.f : 25.f;                  /* 앉음 · 공중 · 서기 — 실측 몸 키 44px 안팎 */
-      e->kind = kind; e->dir = dir; e->t0 = now;
-      e->wx = (float)dx - dir * 7.f + (frand() - 0.5f) * 4.f;
-      e->y = (float)fy - h + (frand() - 0.5f) * 6.f;
-      e->life = kind == FX_IMPACT ? (strong ? 0.26 : 0.20) : kind == FX_FIRE ? (strong ? 0.50 : 0.40) : (strong ? 0.42 : 0.34);
-      e->r = kind == FX_IMPACT ? (strong ? 22.f : 16.f) : kind == FX_FIRE ? (strong ? 26.f : 20.f) : (strong ? 27.f : 21.f);
-      for (i = 0; i < 8; i++) {
-         float base = dir > 0 ? 0.f : 0.5f, ang;
-         if (kind == FX_FIRE) ang = base + (frand() - 0.5f) * 0.55f + (dir > 0 ? 0.04f : -0.04f);            /* 불씨 — 밀리는 쪽 위로 */
-         else if (i < 6) ang = base + (frand() - 0.5f) * (kind == FX_ELEC ? 0.62f : 0.34f);               /* 줄기 대부분은 밀리는 쪽 */
-         else ang = frand();
-         e->p[i][0] = ang - (float)(int)ang + (ang < 0 ? 1.f : 0.f);
-         e->p[i][1] = 0.55f + 0.45f * frand();
-         e->p[i][2] = frand();
-         e->p[i][3] = frand();
-      }
+      int dx = rd16(ram, OBJ(d) + 8), ax = rd16(ram, OBJ(a) + 8), fy = rd16(ram, OBJ(d) + 0xA), st = ram[PB(d) + O_STANCE];
+      int dir = ax <= dx ? 1 : -1, h = (st & 0x40) ? 15 : fy < 128 ? 22 : 25;
+      memset(e, 0, sizeof *e);
+      e->on = 1; e->kind = kind; e->ring = ring; e->dir = dir; e->seq = ++fx_seq;
+      e->wx = dx - dir * 7; e->y = fy - h;
+      e->hold = kind != FXK_T;
+      trail_colors(ram, a, e->col);
+   }
+}
+
+/* 한 진짜 프레임 — 히트스톱 중이면 첫 컷 그대로, 아니면 2프레임마다 다음 컷 */
+static void fx_advance(int hs)
+{
+   for (int i = 0; i < FX_MAX; i++) {
+      dfx_t *e = &FX[i]; int n;
+      if (!e->on) continue;
+      if (e->hold && e->cel == 0 && hs) continue;
+      e->hold = 0;
+      if (++e->sub < 2) continue;
+      e->sub = 0;
+      fx_cels(e->kind, &n);
+      if (++e->cel >= n) e->on = 0;
    }
 }
 
@@ -133,6 +169,8 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
    int hs, live, p;
    if (atomic_exchange(&co_reset_req, 0)) reset_now();
    if ((!atomic_load(&co_on) && !atomic_load(&fx_mode)) || !ram || ramsz < (size_t)RAM_NEED) return;
+   fx_advance(ram[R_HSTOP]);                             /* 이펙트는 판이 끝나는 중(KO·대사)에도 끝까지 */
+   S.cam = ram[R_CAMX];
    live = ram[R_MODE] == 241 && ram[R_FIGHT] == 1 && ram[R_RES] == 0 && ram[R_RES2] == 0 && ram[R_PAUSE] != 1;
    if (!live) { S.live_prev = 0; S.have_prev = 0; return; }
    if (!S.live_prev) {                                   /* 라운드 조작이 (다시) 시작 — 둘 다 만피면 새 라운드 */
@@ -140,7 +178,6 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
       if (ram[PB(0) + O_HP] == 128 && ram[PB(1) + O_HP] == 128) { S.first_done = 0; S.stats[5]++; }
    }
    hs = ram[R_HSTOP];
-   S.cam = ram[R_CAMX];
    for (p = 0; p < 2; p++) {
       int b = PB(p), o = OBJ(p);
       ctrl[p] = ram[b + O_CTRL]; combo[p] = ram[b + O_COMBO]; st[p] = ram[b + O_STANCE];
@@ -178,10 +215,14 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
             int ctr = S.cls[d] == K_STARTUP || S.cls[d] == K_ACTIVE, pun = S.cls[d] == K_RECOVERY;
             if (ctr) emit(CO_COUNTER, a, now);
             else if (pun) emit(CO_PUNISH, a, now);
-            fx_spawn(ram, d, ctr || pun, S.p_hp[d] > ram[PB(d) + O_HP] ? S.p_hp[d] - ram[PB(d) + O_HP] : 0, act[a] >= 0x180, now);   /* 필살 = ACT 0x180 이상(177 실측) — 조작 FF 는 보통 기술에도 나온다 */
+            {  /* 강(혜성) = 보통 기술로 피해 12 이상(약베기 6~11 · 강베기 14~21 실측 — 닿은 프레임에 바로 줄어듦).
+                  필살(ACT ≥ 0x180, 177 실측)은 원작이 불·감전 해골·큰 초승달을 이미 그려서 작은 섬광만(절제 — 봇 판 그림에서 겹쳐 지저분했음) */
+               int dmg = S.p_hp[d] > ram[PB(d) + O_HP] ? S.p_hp[d] - ram[PB(d) + O_HP] : 0;
+               fx_spawn(ram, d, dmg >= 12 && act[a] < 0x180 ? FXK_H : FXK_L, ctr ? 1 : pun ? 2 : 0);
+            }
          }
       }
-      if (d >= 0 && kind == C_MULTI) fx_spawn(ram, d, 0, 0, 0, now);   /* 히트스톱 없는 여러 번 맞음(장풍·연타 필살) — 작은 것 */
+      if (d >= 0 && kind == C_MULTI) fx_spawn(ram, d, FXK_T, 0);   /* 히트스톱 없는 여러 번 맞음(장풍·연타 필살) — 큰 섬광은 첫 타만, 나머지는 작은 것 */
       if (kind != C_NONE && d >= 0) { S.mode[d] = 2; S.stun[d] = kind == C_BLOCK ? C_BLOCK : C_HIT; }
       /* 장풍 arm — 주인이 동작 중에 켠 공격 상자만 */
       for (int k = 4; k < 32; k++) {
@@ -351,16 +392,81 @@ int callout_layout(const callout_t *c, double now, float q[4], int tr[4], float 
 
 void callout_stats(int v[8]) { memcpy(v, S.stats, sizeof S.stats); }
 
-int callout_fx_get(hitfx_t *out, int max, double now, float *cam)
+/* 컷 하나를 게임 좌표 (cx, cy) 기준으로 훑는다 — flip = 좌우 뒤집기(강 섬광은 밀리는 쪽으로) */
+#define PLAY_Y0 32
+#define PLAY_Y1 135
+static int fx_layers(const dfx_t *e, const hfx_cel **cel, uint16_t pal[2][3], int *flip, int *nl)
 {
-   int n = 0;
-   if (atomic_exchange(&co_reset_req, 0)) reset_now();
-   if (cam) *cam = (float)S.cam;
-   for (int i = 0; i < FX_MAX && n < max; i++) {
-      double age = now - FX[i].t0;
-      if (FX[i].kind < 0 || age < 0 || age >= FX[i].life) continue;
-      out[n++] = FX[i];
+   int n, k = 0;
+   const hfx_cel *cs = fx_cels(e->kind, &n);
+   if (e->cel >= n) return 0;
+   if (e->ring && e->cel < HFX_N_R) {                              /* 반격 고리가 밑 — COUNTER 노랑·주황 · PUNISHER 빨강(라벨 색과 같게) */
+      cel[k] = &HFX_R[e->cel]; flip[k] = 0;
+      pal[k][0] = 0xFFF; pal[k][1] = e->ring == 1 ? 0x4EF : 0x46F; pal[k][2] = e->ring == 1 ? 0x08F : 0x10B; k++;
    }
-   for (int i = 1; i < n; i++) for (int j = i; j > 0 && out[j].t0 < out[j - 1].t0; j--) { hitfx_t t = out[j]; out[j] = out[j - 1]; out[j - 1] = t; }
-   return n;
+   cel[k] = &cs[e->cel]; flip[k] = e->kind == FXK_H && e->dir < 0; memcpy(pal[k], e->col, sizeof pal[k]); k++;
+   *nl = k;
+   return 1;
 }
+
+int callout_fx_span(int *gy0, int *gy1)
+{
+   int lo = 1 << 30, hi = -1;
+   if (atomic_exchange(&co_reset_req, 0)) reset_now();
+   if (atomic_load(&fx_mode) == FXM_OFF) return 0;
+   for (int i = 0; i < FX_MAX; i++) {
+      const hfx_cel *cel[2]; uint16_t pal[2][3]; int flip[2], nl;
+      if (!FX[i].on || !fx_layers(&FX[i], cel, pal, flip, &nl)) continue;
+      for (int l = 0; l < nl; l++) {
+         int y0 = FX[i].y - cel[l]->ay, y1 = y0 + cel[l]->h - 1;
+         if (y0 < PLAY_Y0) y0 = PLAY_Y0;
+         if (y1 > PLAY_Y1) y1 = PLAY_Y1;
+         if (y1 < y0) continue;
+         if (y0 < lo) lo = y0;
+         if (y1 > hi) hi = y1;
+      }
+   }
+   if (hi < lo) return 0;
+   *gy0 = lo; *gy1 = hi;
+   return 1;
+}
+
+void callout_fx_draw(uint8_t *rows, uint8_t *ph, int row0, int nrows, int fbw, int ox, int oy, int sub, uint32_t (*rgb)(int c12))
+{
+   if ((!rows && !ph) || nrows <= 0 || sub < 1 || !rgb || atomic_load(&fx_mode) == FXM_OFF) return;
+   int idx[FX_MAX], n = 0;
+   for (int j = 0; j < FX_MAX; j++) if (FX[j].on) idx[n++] = j;
+   for (int a = 1; a < n; a++) for (int b = a; b > 0 && FX[idx[b]].seq < FX[idx[b - 1]].seq; b--) { int t = idx[b]; idx[b] = idx[b - 1]; idx[b - 1] = t; }
+   for (int k = 0; k < n; k++) {                                    /* 먼저 낸 것부터(나중 것이 위) */
+      const dfx_t *e = &FX[idx[k]];
+      const hfx_cel *cel[2]; uint16_t pal[2][3]; int flip[2], nl;
+      if (!fx_layers(e, cel, pal, flip, &nl)) continue;
+      int sx = e->wx - S.cam;
+      for (int l = 0; l < nl; l++) {
+         uint32_t cc[3] = { rgb(pal[l][0]), rgb(pal[l][1]), rgb(pal[l][2]) };
+         const hfx_cel *c = cel[l];
+         for (int yy = 0; yy < c->h; yy++) {
+            int gy = e->y - c->ay + yy;
+            if (gy < PLAY_Y0 || gy > PLAY_Y1) continue;
+            for (int xx = 0; xx < c->w; xx++) {
+               int v = c->px[yy * c->w + xx];
+               if (!v) continue;
+               int gx = flip[l] ? sx + c->ax - xx : sx - c->ax + xx;
+               if (gx < 0 || gx > 159) continue;
+               for (int ty = 0; ty < sub; ty++) {
+                  int r = oy + gy * sub + ty - row0;
+                  if (r < 0 || r >= nrows) continue;
+                  for (int tx = 0; tx < sub; tx++) {
+                     int x = ox + gx * sub + tx;
+                     if (x < 0 || x >= fbw) continue;
+                     if (rows) memcpy(rows + ((size_t)r * fbw + x) * 4, &cc[v - 1], 4);
+                     if (ph) ph[(size_t)r * fbw + x] = 0;   /* 이펙트 화소는 4배 모눈에 맞춰 그렸다(쪽지 0) */
+                  }
+               }
+            }
+         }
+      }
+   }
+}
+
+int callout_fx_count(void) { int n = 0; for (int i = 0; i < FX_MAX; i++) n += FX[i].on; return n; }

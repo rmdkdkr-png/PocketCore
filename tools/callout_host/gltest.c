@@ -74,6 +74,8 @@ static double frac_diff(int x0, int y0, int x1, int y1, const uint8_t bg[3])
 }
 
 static int fails = 0;
+static int fx_count_ok(void) { return callout_fx_count() == 1; }
+static const uint8_t *blk_c(void) { static const uint8_t b[3] = { 0, 0, 0 }; return b; }
 static const char *KN[CO_KINDS] = { "FIRST ATTACK", "COUNTER", "PUNISHER", "REVERSAL" };
 #define CHECK(c, ...) do { int ok_ = (c); fprintf(stderr, "%s ", ok_ ? "ok  " : "FAIL"); fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); if (!ok_) fails++; } while (0)
 
@@ -173,6 +175,53 @@ int main(int argc, char **argv)
    glClear(GL_COLOR_BUFFER_BIT); gl_draw(); grab();
    { int vx = 60, dh = 912, vy = H - (H - dh - (int)(H * 0.07f)) - dh; const uint8_t bg[3] = { 0x40, 0x60, 0x80 };
      CHECK(frac_diff(vx, vy, vx + 960, vy + dh, bg) == 0, "다시 켜면 앞 라벨 지움"); }
+   /* ── 184 타격 이펙트(도트) — 게임 그림 줄에 합성 · 끝나면 깨끗이 되돌림 · 잔상·쪽지 길 ── */
+   Java_com_dudu_pocketcore_Emu_nativeSetCallouts(NULL, NULL, 0);
+   Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+   static uint8_t PALR[16 * 8];
+   { const uint16_t g[3] = { 0xBFF, 0x0EF, 0x0AF }; for (int pp = 2; pp <= 7; pp += 5) for (int j = 0; j < 3; j++) { PALR[pp * 8 + (j + 1) * 2] = (uint8_t)g[j]; PALR[pp * 8 + (j + 1) * 2 + 1] = (uint8_t)(g[j] >> 8); } }
+   for (int fi = 0; fi < 2; fi++) for (int mode = 0; mode < 3; mode++) {      /* mode 0 보통 · 1 잔상 · 2 쪽지(4배만) */
+      unsigned fw = fi ? 640 : 160, fh = fi ? 608 : 152;
+      if (mode == 2 && !fi) continue;
+      make_frame(fw, fh);
+      static uint8_t *phb; free(phb); phb = NULL;
+      if (mode == 2) { phb = calloc((size_t)fw * fh, 1); for (size_t i = 0; i < (size_t)fw * fh; i++) phb[i] = (uint8_t)(i % 7 == 0 ? 5 : 0); g_ph = phb; g_fb_ph = 1; } else { g_fb_ph = 0; }
+      g_d_ghost = mode == 1 ? 40 : 0;
+      int vx = 60, dh = 912, vy = H - (H - dh - (int)(H * 0.07f)) - dh;
+      const uint8_t bg[3] = { 0x40, 0x60, 0x80 };
+      callout_reset();
+      double T1 = 300.0 + fi * 10 + mode; int fr2 = 0;
+      #define TICK2() do { fr2++; callout_fx_pal(PALR); callout_tick(RAM, sizeof RAM, T1 + fr2 / 60.0); } while (0)
+      base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
+      TICK2(); TICK2();
+      HS = 8; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 108; TICK2();      /* P2(70) 가 P1(100)을 — 강(피해 20) */
+      g_fb_dirty = 1; glClear(GL_COLOR_BUFFER_BIT); gl_draw(); grab();
+      /* 이펙트 자리: 맞은 몸 100 − 7 = 93, 몸 가운데 128 − 25 = 103 (게임 좌표) → 화면 */
+      double fr = frac_diff(vx + 85 * 6, vy + 96 * 6, vx + 120 * 6, vy + 110 * 6, bg);
+      CHECK(fx_count_ok(), "fx 하나");
+      CHECK(fr > 0.05, "%s %s 이펙트 그려짐(자리 안 %.0f%%)", fi ? "4x" : "1x", mode == 0 ? "보통" : mode == 1 ? "잔상" : "쪽지", fr * 100);
+      CHECK(frac_diff(vx, vy, vx + 960, vy + 32 * 6, bg) == 0 && frac_diff(vx, vy + 136 * 6, vx + 960, vy + dh, bg) == 0, "%s 놀이 칸 밖(위·아래 HUD 줄) 그대로", fi ? "4x" : "1x");
+      CHECK(frac_diff(0, 0, W, vy, blk_c()) == 0 && frac_diff(0, vy + dh, W, H, blk_c()) == 0, "%s 뷰포트 밖 그대로", fi ? "4x" : "1x");
+      HS = 0;
+      for (int i = 0; i < 20; i++) TICK2();
+      CHECK(callout_fx_count() == 0, "%s 이펙트 끝남", fi ? "4x" : "1x");
+      for (int rep2 = 0; rep2 < 2; rep2++) { glClear(GL_COLOR_BUFFER_BIT); gl_draw(); }   /* 새 그림 없이(g_fb_dirty 0) — 텍스처 줄만 되돌려야 */
+      grab();
+      CHECK(frac_diff(vx, vy, vx + 960, vy + dh, bg) == 0, "%s %s 끝난 뒤 깨끗이 되돌림(새 그림 없이)", fi ? "4x" : "1x", mode == 0 ? "보통" : mode == 1 ? "잔상" : "쪽지");
+      CHECK(glGetError() == GL_NO_ERROR, "GL 오류 없음");
+      g_d_ghost = 0; g_fb_ph = 0; g_ph = NULL;
+   }
+   /* 끄면 그리던 것도 바로 되돌림 */
+   make_frame(160, 152); callout_reset();
+   { double T2 = 500.0; int fr3 = 0;
+     #define TICK3() do { fr3++; callout_fx_pal(PALR); callout_tick(RAM, sizeof RAM, T2 + fr3 / 60.0); } while (0)
+     base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
+     TICK3(); TICK3(); HS = 8; COMBO(0) = 1; CTRL(0) = 0x0A; TICK3();
+     g_fb_dirty = 1; glClear(GL_COLOR_BUFFER_BIT); gl_draw();
+     Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
+     glClear(GL_COLOR_BUFFER_BIT); gl_draw(); grab();
+     int vx = 60, dh = 912, vy = H - (H - dh - (int)(H * 0.07f)) - dh; const uint8_t bg[3] = { 0x40, 0x60, 0x80 };
+     CHECK(frac_diff(vx, vy, vx + 960, vy + dh, bg) == 0, "이펙트 끄면 바로 되돌림"); }
    fprintf(stderr, "%s (%d 실패)\n", fails ? "실패" : "통과", fails);
    return fails ? 1 : 0;
 }

@@ -30,15 +30,9 @@ public final class Settings {
     /** 179 음색 다듬기를 어디에 — bgm(배경음만, 기본) / all(전부). 배경음만은 동봉 사무쇼2 코어가 효과음(잡음 칸)을 따로 줄 때만, 아니면 전부 */
     public static final String SND_FX_TARGET = "pocketcore_snd_target";
     public static final String CALLOUT = "pocketcore_callout";       /* 182 타격 알림 — 켬(기본)·끔, 사무쇼2 */
-    public static final String HITFX = "pocketcore_hitfx";           /* 182 타격 이펙트 — auto(기본)·fire·elec·impact·off, 사무쇼2 */
-    /** 타격 이펙트 값 → native 번호(callout.h FXM_*) */
-    public static int hitFxMode(String v) {
-        if ("off".equals(v)) return 0;
-        if ("fire".equals(v)) return 2;
-        if ("elec".equals(v)) return 3;
-        if ("impact".equals(v)) return 4;
-        return 1;
-    }
+    public static final String HITFX = "pocketcore_hitfx";           /* 184 타격 이펙트(도트) — on(기본)·off, 사무쇼2. 183 의 auto·fire·elec·impact 는 켬으로 */
+    /** 타격 이펙트 값 → native 번호(callout.h FXM_*: 0 끔 · 1 켬) */
+    public static int hitFxMode(String v) { return "off".equals(v) ? 0 : 1; }
 
     public static final class Item {
         public final String key, label, help;
@@ -191,11 +185,12 @@ public final class Settings {
                램을 읽기만 한다(게임은 그대로) — native callout.c. 앱 설정(코어 옵션 아님) */
             /* 182: 유저 2026-10-20 「맞을때 이펙트 효과를 추가로 넣거나」·「불이나 전기 이펙트라는 선례가 있긴 해」 → 「이펙트가 1번이라고」.
                램을 읽기만 하고 그림은 앱이 게임 그림 위에 얹는다(게임은 그대로) — native callout.c(언제·어디) + native.c 셰이더(모양) */
+            /* 184: 유저 「인게임에 어울리게 녹이기 + 이펙트 종류와 형태를 기획해봐줘」 — 183 의 빛나는 셰이더 이펙트를 원작 문법의 도트로 바꿈
+               (게임 화소·3색 + 투명·흰 심 + 칼 궤적 색·히트스톱 동안 첫 컷·2프레임마다 컷·게임 그림에 합성) */
             new Item(HITFX, "타격 이펙트",
-                "맞을 때 맞은 자리에 이펙트를 더 얹습니다(게임은 그대로, 보이기만). 자동 = 반격(COUNTER·PUNISHER)은 번개 · 센 맞음(강베기·필살)은 불꽃 · 나머지는 섬광."
-                + " 불꽃·번개·섬광 = 모든 맞음을 그것으로.",
-                new String[]{ "auto", "fire", "elec", "impact", "off" },
-                new String[]{ "자동", "불꽃", "번개", "섬광", "끔" }, "auto").g("ss2"),
+                "맞을 때 맞은 자리에 원작 도트 결의 섬광을 더 얹습니다(게임은 그대로, 보이기만). 약한 맞음은 별 섬광, 강베기·필살은 맞은 쪽으로 뻗는 혜성,"
+                + " COUNTER·PUNISHER 는 노랑·빨강 각진 고리를 더 — 색은 때린 캐릭터의 칼 궤적 색을 따릅니다. 업스케일러·필터도 이펙트에 같이 걸립니다.",
+                new String[]{ "on", "off" }, new String[]{ "켬", "끔" }, "on").g("ss2"),
             new Item(CALLOUT, "타격 알림",
                 "경기 중 때린 쪽 가장자리에 라벨을 띄웁니다 — FIRST ATTACK(라운드 첫 타) · COUNTER(기술을 내던 상대를 맞힘)"
                 + " · PUNISHER(헛치거나 막힌 기술의 빈틈을 맞힘) · REVERSAL(맞음·가드·다운이 풀리자마자 공격). 게임은 그대로, 보이기만.",

@@ -148,10 +148,10 @@ static uint32_t  g_tph_tag = 0;
 static GLuint    g_co_prog = 0, g_co_tex = 0;
 static int       g_co_failed = 0, g_co_aw = 0, g_co_ah = 0;
 static GLint     g_co_apos, g_co_auv, g_co_utex, g_co_ualpha, g_co_uflash;
-/* 182 타격 이펙트 — 텍스처 없이 셈으로 그리는 셰이더 + 불꽃 결 잡음 텍스처(64×64, 되풀이) */
-static GLuint    g_fx_prog = 0, g_fx_noise = 0;
-static int       g_fx_failed = 0;
-static GLint     g_fx_apos, g_fx_auv, g_fx_unoise, g_fx_ut, g_fx_ukind, g_fx_udir, g_fx_ustep, g_fx_ualpha, g_fx_up;
+/* 184 타격 이펙트(도트) — 게임 텍스처의 줄에 합성한다(업스케일러·필터가 이펙트에도 같이 걸리게). 지금 g_tex·g_tex_ph 에 이펙트가 든 텍스처 줄(포함, y1 < y0 = 없음) */
+static int       g_fxd_y0 = 0, g_fxd_y1 = -1, g_fxp_y0 = 0, g_fxp_y1 = -1;
+static uint8_t  *g_fxrow = NULL, *g_fxph = NULL;
+static size_t    g_fxrow_cap = 0, g_fxph_cap = 0;
 
 /* audio ring buffer (stereo int16) */
 #define ARING_FRAMES 16384
@@ -698,7 +698,7 @@ static void gl_setup(void)
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
    memset(g_dp, 0, sizeof(g_dp));   /* 새 컨텍스트 — 예전 프로그램은 이미 사라졌다. 쓸 때 다시 만든다 */
    g_co_prog = 0; g_co_tex = 0; g_co_failed = 0;   /* 182 타격 알림도 */
-   g_fx_prog = 0; g_fx_noise = 0; g_fx_failed = 0;  /* 182 타격 이펙트도 */
+   g_fxd_y1 = g_fxp_y1 = -1;                         /* 184 타격 이펙트 — 새 텍스처엔 안 들어 있음 */
    g_gh_valid = 0;
    g_fb_dirty = 1;
    glClearColor(0.f, 0.f, 0.f, 1.f);
@@ -753,122 +753,54 @@ static int co_gl_ready(void)
    return 1;
 }
 
-/* 182 타격 이펙트 셰이더 — 쿼드 안 p(−1..1, 위 +), 진행 uT 0..1. 섬광(흰 심 + 밀리는 쪽 빛줄기 + 고리) · 불꽃(잡음 혀 + 불씨) · 번개(지그재그 갈래 + 푸른 빛).
-   색은 미리 곱한 알파로 내되 빛은 알파보다 밝게(더하기처럼 빛남), 불꽃 몸통만 알파로 바탕을 조금 가린다 */
-static const char *FS_FX =
-   "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n"
-   "varying vec2 vUV;uniform sampler2D uNoise;uniform float uT;uniform float uKind;uniform float uDir;uniform float uStep;uniform float uAlpha;uniform vec4 uP[8];"
-   "const float PI=3.14159265;"
-   "float tri(float x){return abs(fract(x)-0.5)*4.0-1.0;}"
-   "float wrapd(float d){return mod(d+PI,2.0*PI)-PI;}"
-   "void main(){"
-   "vec2 p=vec2(vUV.x*2.0-1.0,1.0-vUV.y*2.0);float r=length(p);float ang=atan(p.y,p.x);float t=uT;float u=1.0-t;"
-   "vec3 col=vec3(0.0);float a=0.0;"
-   "if(uKind<0.5){"
-     "float sp=0.0;"
-     "for(int i=0;i<8;i++){vec4 q=uP[i];float d=abs(wrapd(ang-q.x*2.0*PI));float w=0.09+0.07*q.z;sp=max(sp,(0.35+0.65*q.y)*exp(-d*d/(w*w)));}"
-     "float g=1.0-u*u*u;float edge=0.13+0.08*g+sp*(0.22+0.62*g)*(1.0-0.3*t);"
-     "float sh=clamp(1.0-r/edge,0.0,1.0);float fade=1.0-smoothstep(0.5,1.0,t);"
-     "vec3 c1=mix(vec3(1.0,0.42,0.06),vec3(1.0,0.88,0.45),smoothstep(0.0,0.4,sh));c1=mix(c1,vec3(1.0),smoothstep(0.45,0.85,sh));"
-     "float rr=0.22+0.72*g;float z=(r-rr)/(0.05*u+0.015);float ring=exp(-z*z)*u*u;"
-     "col=c1*pow(sh,0.55)*fade*1.7+vec3(1.0,0.6,0.2)*ring*0.8;a=clamp(sh*1.6,0.0,0.7)*fade;"
-   "}else if(uKind<1.5){"
-     "vec2 c=p-vec2(uDir*0.08*t,0.10*t);float rc=length(c);float ac=atan(c.y,c.x);"
-     "float tg=0.0;"
-     "for(int i=0;i<8;i++){vec4 q=uP[i];float d=abs(wrapd(ac-q.x*2.0*PI));float w=0.2+0.16*q.z;tg=max(tg,(0.45+0.55*q.y)*exp(-d*d/(w*w)));}"
-     "float up=max(c.y/max(rc,0.001),0.0);"
-     "float n=texture2D(uNoise,vec2(ac*0.477+uP[0].z,rc*0.55-t*1.1+uP[0].w)).r;"
-     "float R=(0.26+0.64*sqrt(t))*(0.55+0.45*tg+0.22*up)*(0.82+0.36*n);"
-     "float heat=clamp((1.0-rc/max(R,0.01))*1.35*(1.1-0.8*t),0.0,1.0);"
-     "vec3 fc=mix(vec3(0.5,0.05,0.0),vec3(1.0,0.4,0.05),smoothstep(0.05,0.4,heat));"
-     "fc=mix(fc,vec3(1.0,0.84,0.4),smoothstep(0.42,0.78,heat));fc=mix(fc,vec3(1.0,1.0,0.9),smoothstep(0.82,1.0,heat));"
-     "float em=0.0;"
-     "for(int i=0;i<8;i++){vec4 q=uP[i];float ai=q.x*2.0*PI;vec2 v=vec2(cos(ai),sin(ai))*(0.55+0.75*q.y)+vec2(0.0,0.35);"
-       "vec2 e=v*t+vec2(0.0,-0.75*t*t);vec2 dd=p-e;em+=exp(-dot(dd,dd)/(0.0022+0.002*q.z))*smoothstep(0.05,0.15,t);}"
-     "col=fc*heat*1.45+vec3(1.0,0.62,0.22)*em*u*1.6;a=clamp(heat*1.25,0.0,0.88)*smoothstep(0.0,0.12,heat);"
-   "}else{"
-     "float core=exp(-r*r/(0.02+0.03*t))*u*u;float grow=clamp(t*6.0,0.0,1.0);float line=0.0;float glow=0.0;"
-     "for(int i=0;i<8;i++){vec4 q=uP[i];float d=wrapd(ang-q.x*2.0*PI);float len=(0.5+0.48*q.y)*grow;"
-       "float ph=q.z+uStep*0.381966;float jag=0.11*tri(r*2.4+ph)+0.045*tri(r*5.3+q.w+uStep*0.618034);"
-       "float dist=abs(r*sin(clamp(d,-1.5,1.5))-jag*smoothstep(0.0,0.3,r));"
-       "float m=step(abs(d),1.4)*(1.0-smoothstep(len-0.1,len,r))*smoothstep(0.03,0.12,r);"
-       "line+=exp(-dist*dist/0.00045)*m;glow+=exp(-dist*dist/0.0065)*m;}"
-     "float k=u*(0.8+0.2*tri(uStep*0.37+0.25));"
-     "col=vec3(1.0)*min(line,1.5)*k*1.3+vec3(0.3,0.62,1.0)*glow*k+vec3(0.7,0.85,1.0)*core*1.5;"
-   "}"
-   "gl_FragColor=vec4(col,a)*uAlpha;}";
-
-static int fx_gl_ready(void)
+/* 184 타격 이펙트 — 게임 그림의 텍스처 줄에 합성. 이펙트가 덮는 줄 ∪ 지난번에 덮었던 줄을 깨끗한 그림(img · g_ph)에서 다시 떠 그 위에 그리고 그 줄만 올린다
+   (지난번 줄은 깨끗이 되돌아감). 잔상이면 색은 이번에 올릴 잔상 그림(shown)에 바로 그린다. 쪽지는 이펙트 화소 0(4배 모눈에 맞춰 그림) */
+static int fx_union(int a0, int a1, int b0, int b1, int *u0, int *u1)
 {
-   if (g_fx_prog && g_fx_noise) return 1;
-   if (g_fx_failed) return 0;
-   GLuint vs = compile_ok(GL_VERTEX_SHADER, VS), fs = compile_ok(GL_FRAGMENT_SHADER, FS_FX);
-   if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); g_fx_failed = 1; LOGE("hitfx shader: compile failed"); return 0; }
-   GLuint pr = glCreateProgram();
-   glAttachShader(pr, vs); glAttachShader(pr, fs);
-   glLinkProgram(pr);
-   glDeleteShader(vs); glDeleteShader(fs);
-   GLint ok = 0; glGetProgramiv(pr, GL_LINK_STATUS, &ok);
-   if (!ok) { char log[512]; glGetProgramInfoLog(pr, 512, NULL, log); LOGE("hitfx shader: link failed: %s", log); glDeleteProgram(pr); g_fx_failed = 1; return 0; }
-   {  /* 잡음 — 64×64 값(정해진 씨앗), 선형 거르기 + 되풀이 = 부드러운 값 잡음 */
-      static uint8_t nz[64 * 64];
-      uint32_t s = 0x2545F491u;
-      for (int i = 0; i < 64 * 64; i++) { s = s * 1664525u + 1013904223u; nz[i] = (uint8_t)(s >> 24); }
-      GLuint tx = 0;
-      glGenTextures(1, &tx);
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, tx);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-      glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 64, 64, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, nz);
-      g_fx_noise = tx;
-   }
-   g_fx_prog = pr;
-   g_fx_apos = glGetAttribLocation(pr, "aPos");    g_fx_auv = glGetAttribLocation(pr, "aUV");
-   g_fx_unoise = glGetUniformLocation(pr, "uNoise"); g_fx_ut = glGetUniformLocation(pr, "uT");
-   g_fx_ukind = glGetUniformLocation(pr, "uKind");   g_fx_udir = glGetUniformLocation(pr, "uDir");
-   g_fx_ustep = glGetUniformLocation(pr, "uStep");   g_fx_ualpha = glGetUniformLocation(pr, "uAlpha");
-   g_fx_up = glGetUniformLocation(pr, "uP");
-   LOGI("hitfx ready");
-   return 1;
+   if (a1 < a0 && b1 < b0) return 0;
+   if (a1 < a0) { *u0 = b0; *u1 = b1; return 1; }
+   if (b1 < b0) { *u0 = a0; *u1 = a1; return 1; }
+   *u0 = a0 < b0 ? a0 : b0; *u1 = a1 > b1 ? a1 : b1; return 1;
 }
-
-/* 이펙트 쿼드 — 게임 사각형 기준(fx0, fy0 = 그림 안 게임 사각형 왼쪽 위, 게임 px). 가위·섞기는 부르는 쪽(hit_draw) */
-static void fx_draw(double now, float fx0, float fy0, int lw, int lh)
+static uint8_t *fx_buf(uint8_t **p, size_t *cap, size_t n)
 {
-   static GLfloat pos[8];
-   static const GLfloat uv[8] = { 0, 1, 1, 1, 0, 0, 1, 0 };
-   hitfx_t e[FX_MAX];
-   float cam = 0.f;
-   int n = callout_fx_get(e, FX_MAX, now, &cam), i;
-   if (n <= 0 || !fx_gl_ready()) return;
-   glUseProgram(g_fx_prog);
-   glActiveTexture(GL_TEXTURE0);
-   glBindTexture(GL_TEXTURE_2D, g_fx_noise);
-   glUniform1i(g_fx_unoise, 0);
-   glUniform1f(g_fx_ualpha, 1.f);
-   glVertexAttribPointer(g_fx_apos, 2, GL_FLOAT, GL_FALSE, 0, pos);
-   glVertexAttribPointer(g_fx_auv, 2, GL_FLOAT, GL_FALSE, 0, uv);
-   glEnableVertexAttribArray(g_fx_apos);
-   glEnableVertexAttribArray(g_fx_auv);
-   for (i = 0; i < n; i++) {
-      double age = now - e[i].t0;
-      float cx = fx0 + e[i].wx - cam, cy = fy0 + e[i].y, r = e[i].r;
-      float x0 = -1.f + 2.f * (cx - r) / lw, x1 = -1.f + 2.f * (cx + r) / lw;
-      float yt = 1.f - 2.f * (cy - r) / lh, yb = 1.f - 2.f * (cy + r) / lh;
-      pos[0] = x0; pos[1] = yb; pos[2] = x1; pos[3] = yb; pos[4] = x0; pos[5] = yt; pos[6] = x1; pos[7] = yt;
-      glUniform1f(g_fx_ut, (float)(age / e[i].life));
-      glUniform1f(g_fx_ukind, (float)e[i].kind);
-      glUniform1f(g_fx_udir, e[i].dir);
-      glUniform1f(g_fx_ustep, (float)(int)(age * 30.0));
-      glUniform4fv(g_fx_up, 8, &e[i].p[0][0]);
-      glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+   if (n > *cap) { uint8_t *q = (uint8_t *)realloc(*p, n); if (!q) return NULL; *p = q; *cap = n; }
+   return *p;
+}
+static void fx_composite(const uint8_t *img, uint8_t *ghost_out, unsigned iw, unsigned ih, int phase_on)
+{
+   int ox = 0, oy = 0, sub = 1, ty0 = 0, ty1 = -1, u0, u1;
+   if (callout_fx_mode_get() != FXM_OFF && ov_find_rect(iw, ih, &ox, &oy, &sub) && sub >= 1) {
+      int gy0, gy1;
+      if (callout_fx_span(&gy0, &gy1)) { ty0 = oy + gy0 * sub; ty1 = oy + (gy1 + 1) * sub - 1; }
+      if (ty1 > (int)ih - 1) ty1 = (int)ih - 1;
    }
-   glDisableVertexAttribArray(g_fx_apos);
-   glDisableVertexAttribArray(g_fx_auv);
+   if (ghost_out) {                                         /* 잔상: 이번에 통째로 올릴 그림에 바로(누적엔 안 들어감) */
+      if (ty1 >= ty0) callout_fx_draw(ghost_out + (size_t)ty0 * iw * 4, NULL, ty0, ty1 - ty0 + 1, (int)iw, ox, oy, sub, ov_rgb);
+   } else if (fx_union(g_fxd_y0, g_fxd_y1, ty0, ty1, &u0, &u1)) {
+      size_t n = (size_t)(u1 - u0 + 1) * iw * 4;
+      uint8_t *b = fx_buf(&g_fxrow, &g_fxrow_cap, n);
+      if (b) {
+         memcpy(b, img + (size_t)u0 * iw * 4, n);
+         if (ty1 >= ty0) callout_fx_draw(b, NULL, u0, u1 - u0 + 1, (int)iw, ox, oy, sub, ov_rgb);
+         glBindTexture(GL_TEXTURE_2D, g_tex);
+         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, u0, iw, u1 - u0 + 1, GL_RGBA, GL_UNSIGNED_BYTE, b);
+         g_fxd_y0 = ty0; g_fxd_y1 = ty1;
+      }
+   }
+   if (phase_on && g_ph && g_tex_ph && fx_union(g_fxp_y0, g_fxp_y1, ty0, ty1, &u0, &u1)) {
+      size_t n = (size_t)(u1 - u0 + 1) * iw;
+      uint8_t *b = fx_buf(&g_fxph, &g_fxph_cap, n);
+      if (b) {
+         memcpy(b, g_ph + (size_t)u0 * iw, n);
+         if (ty1 >= ty0) callout_fx_draw(NULL, b, u0, u1 - u0 + 1, (int)iw, ox, oy, sub, ov_rgb);
+         glActiveTexture(GL_TEXTURE1);
+         glBindTexture(GL_TEXTURE_2D, g_tex_ph);
+         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, u0, iw, u1 - u0 + 1, GL_LUMINANCE, GL_UNSIGNED_BYTE, b);
+         glActiveTexture(GL_TEXTURE0);
+         g_fxp_y0 = ty0; g_fxp_y1 = ty1;
+      }
+   }
 }
 
 /* 뷰포트(vpx, vpy, dw, dh — glViewport 값)와 그림 칸 크기(lw × lh) 안에서 게임 사각형(160×152)을 찾아 그 좌표로 라벨을 그린다.
@@ -877,19 +809,18 @@ static void co_draw(double now, int vpx, int vpy, int dw, int dh, int lw, int lh
 {
    static GLfloat pos[8], uv[8];
    callout_t c[2 * CO_ROWS];
-   int n = 0, i, gx0 = 0, gy0 = 0, sub = 1, fxon = callout_fx_mode_get() != FXM_OFF;
-   if ((!callout_enabled() && !fxon) || lw <= 0 || lh <= 0 || dw <= 0 || dh <= 0) return;
-   if (callout_enabled()) n = callout_get(c, 2 * CO_ROWS, now);
-   if (n <= 0 && !fxon) return;
+   int n, i, gx0 = 0, gy0 = 0, sub = 1;
+   if (!callout_enabled() || lw <= 0 || lh <= 0 || dw <= 0 || dh <= 0) return;
+   n = callout_get(c, 2 * CO_ROWS, now);
+   if (n <= 0) return;
    if (!ov_find_rect(g_fb_w, g_fb_h, &gx0, &gy0, &sub) || sub < 1) return;   /* 게임 사각형을 모르는 그림이면 안 그림 */
+   if (!co_gl_ready()) return;
    float fx0 = (float)gx0 / sub, fy0 = (float)gy0 / sub;
    float sx = (float)dw / lw, sy = (float)dh / lh;
    glEnable(GL_SCISSOR_TEST);
    glScissor(vpx + (int)(fx0 * sx + 0.5f), vpy + (int)((lh - fy0 - 152.f) * sy + 0.5f), (int)(160.f * sx + 0.5f), (int)(152.f * sy + 0.5f));
    glEnable(GL_BLEND);
    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-   if (fxon) fx_draw(now, fx0, fy0, lw, lh);           /* 이펙트 먼저 — 라벨이 위 */
-   if (n <= 0 || !co_gl_ready()) { glDisable(GL_BLEND); glDisable(GL_SCISSOR_TEST); return; }
    glUseProgram(g_co_prog);
    glActiveTexture(GL_TEXTURE0);
    glBindTexture(GL_TEXTURE_2D, g_co_tex);
@@ -936,6 +867,7 @@ static void gl_draw(void)
          glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, g_fb_w, g_fb_h, GL_RGBA, GL_UNSIGNED_BYTE, g_fb);
       g_fb_dirty = 0;
       g_tex_has_ph = 0;
+      g_fxd_y1 = g_fxp_y1 = -1;              /* 184: 통째로 다시 올림 — 이펙트 줄도 깨끗 */
       if (g_fb_ph && g_ph && g_tex_ph) {        /* 쪽지 — 같은 크기의 한 바이트 텍스처(단위 1) */
          glActiveTexture(GL_TEXTURE1);
          glBindTexture(GL_TEXTURE_2D, g_tex_ph);
@@ -999,6 +931,7 @@ static void gl_draw(void)
    /* 157 덧판 — 잔상 뒤(메뉴엔 잔상이 안 끼게) 따로 버퍼에 합성해 따로 텍스처로. 바뀐 그림일 때만 다시 합성·올림(4배 한 장 1.5MB).
       업스케일러·격자·스캔라인·색 셰이더는 합성 결과에 그대로 걸린다(게임 글자처럼). 게임 사각형을 못 찾으면 NULL — 그냥 그림 */
    if (ov_active()) ob = ov_compose_ph(shown, phs, iw, ih, fresh || ghost, &ch);
+   if (!ob) fx_composite(img, ghost ? (uint8_t *)shown : NULL, iw, ih, g_tex_has_ph);   /* 184 타격 이펙트 — 게임 그림 안에(덧판 메뉴가 떠 있으면 안 그림) */
    if (ob) {
       glBindTexture(GL_TEXTURE_2D, g_tex_ov);
       if (g_tex_ov_w != iw || g_tex_ov_h != ih) {
@@ -1225,6 +1158,7 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
    ov_clear(OV_CLR_ALL);                 /* 157 덧판: 코어 상태가 통째로 바뀜 — 메뉴·대본·멈춤·막기 모두(상태용 램 포인터는 올린 뒤 새로) */
    ov_tag_clear();                       /* 157 post: HUD 이름표도(메뉴 닫기는 안 지움 — 여기 다섯 곳만) */
    callout_reset();                      /* 182 타격 알림도 같은 다섯 곳 */
+   callout_fx_pal(NULL);
    ov_game_ram(NULL, 0);
    league_hub(0, NULL, NULL);            /* 게임 속 리그도 끈 채로 — 허브로 켠 화면만 로드 뒤에 다시 켠다(앞 세션의 허브가 자유 플레이로 새지 않게) */
    practice_forget();                    /* 연습 대전도 — 일반 세션이고 확인한 롬 판이면 Java 가 로드 뒤에 연습 허브를 켠다 */
@@ -1307,6 +1241,7 @@ static void unload_locked(void)
    ov_clear(OV_CLR_ALL);                 /* 157 덧판 지움 · 상태용 램 포인터도 버림(코어가 내려감 — dlclose 뒤 읽지 않게) */
    ov_tag_clear();
    callout_reset();
+   callout_fx_pal(NULL);                 /* 184: 내린 코어의 팔레트 램을 안 읽게(코어 잠금 안 — tick 도 잠금 안) */
    ov_game_ram(NULL, 0);
    league_hub(0, NULL, NULL);
    practice_forget();
@@ -1406,6 +1341,7 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             /* 치트(일반 세션) — 가장 뒤. 리그 세션이면 아무것도 안 쓰고, 연습 대전 흐름이면 올카드·유가만 */
             cheat_tick(ram, ramsz, in);
             practice_view_post(ram);         /* 176 보기(치트 «대미지 미터») — 치트가 쓴 체력까지 지난 값으로 */
+            callout_fx_pal((const uint8_t *)pal); /* 184 타격 이펙트 — 칼 궤적 색을 팔레트 램에서 */
             callout_tick(ram, ramsz, t);         /* 182 타격 알림 — 램 읽기만(Java 가 사무쇼2 판에서만 켬). t = 이 vsync 시각(그리기와 같은 시계) */
             int ex = practice_take_exit();
             if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); cheat_forget(); callout_reset(); }

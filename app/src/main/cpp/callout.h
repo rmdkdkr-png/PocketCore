@@ -46,21 +46,21 @@ int  callout_atlas(const uint8_t **rgba, int *w, int *h, int rect[CO_KINDS][4], 
 /* 시험: [0..3] 종류별 낸 수 · [4] 맞음 · [5] 라운드 · [6] 잡기 · [7] 경직 끝 → 동작 */
 void callout_stats(int v[8]);
 
-/* ── 타격 이펙트(유저 10-20 「이펙트가 1번」 — 맞을 때 불꽃·번개 같은 이펙트를 더 얹기) ──
-   같은 닿음 판정에서 맞을 때마다(히트스톱 맞음 + 히트스톱 없는 여러 번 맞음) 맞은 몸 앞(때린 쪽 7px · 몸 가운데 높이)에 이펙트 하나.
-   그림은 native.c 의 셰이더가 그린다(텍스처 없이 셈 — 반지름 r 게임 px 쿼드, 진행 0..1). 자동: COUNTER·PUNISHER = 번개 · 센 맞음(피해 12 이상·필살) = 불꽃 · 나머지 = 섬광 */
-enum { FX_IMPACT = 0, FX_FIRE, FX_ELEC, FX_KINDS };
-enum { FXM_OFF = 0, FXM_AUTO, FXM_FIRE, FXM_ELEC, FXM_IMPACT, FXM_N };
+/* ── 타격 이펙트(유저 10-20 「이펙트가 1번」 → 「인게임에 어울리게 녹이기」 — 184 도트) ──
+   같은 닿음 판정에서 맞을 때마다 맞은 몸 앞(때린 쪽 7px · 몸 가운데 높이)에 도트 이펙트(hitfx_cels.h — 게임 화소, 3색 + 투명).
+   약 = 섬광 4컷 · 강(보통 기술로 피해 12 이상) = 맞은 쪽으로 뻗는 혜성 5컷 · 필살은 원작 이펙트가 커서 작은 섬광만 · COUNTER/PUNISHER 는 밑에 각진 고리(노랑/빨강) · 다단히트 = 작은 것 2컷.
+   색 = 흰 심 + 때린 쪽 칼 궤적 색(베기 색을 바꿨으면 그 색). 컷은 게임 프레임으로 — 히트스톱 동안 첫 컷 그대로, 그다음 2프레임(1/30초)마다.
+   그리기는 게임 그림 안(native.c 가 텍스처 줄에 합성 — 업스케일러·필터가 같이 걸림), 놀이 칸(게임 줄 32~135) 안만. */
+enum { FXM_OFF = 0, FXM_ON, FXM_N };
 #define FX_MAX 6
-typedef struct {
-   int kind;            /* FX_* (−1 = 빈 칸) */
-   float wx, y, r, dir; /* 무대 X(화면 x = wx − 카메라) · 화면 y · 반지름(게임 px) · 밀리는 쪽 ±1 */
-   double t0, life;     /* 시작(초) · 길이(초) */
-   float p[8][4];       /* 줄기·불씨·번개마다 무작위 값(각도 0..1 · 길이 · 위상 둘) */
-} hitfx_t;
 void callout_fx_mode(int mode);       /* FXM_* — 아무 스레드 */
 int  callout_fx_mode_get(void);
-/* 지금 보이는 이펙트(오래된 것 먼저) · cam = 지금 카메라(화면 x = wx − cam) — GL 스레드 */
-int  callout_fx_get(hitfx_t *out, int max, double now, float *cam);
+void callout_fx_pal(const uint8_t *pal);   /* 코어 스프라이트 팔레트 램(0x8200~) — tick 바로 앞(코어 잠금 안, GL 스레드) */
+/* 지금 이펙트가 덮는 게임 줄(gy0..gy1 포함, 놀이 칸 안) — 없으면 0. GL 스레드 */
+int  callout_fx_span(int *gy0, int *gy1);
+/* RGBA 그림의 텍스처 줄 [row0, row0 + nrows)(rows = 그 첫 줄, 폭 fbw 텍셀)에 이펙트를 그린다. ox·oy = 게임 사각형 왼쪽 위(텍셀) ·
+   sub = 게임 화소당 텍셀 · rgb = 12비트 0x0BGR → 메모리 R,G,B,A 순 32비트(ov_rgb) · ph = 같은 줄의 쪽지(NULL 가능) — 이펙트 텍셀은 0. GL 스레드 */
+void callout_fx_draw(uint8_t *rows, uint8_t *ph, int row0, int nrows, int fbw, int ox, int oy, int sub, uint32_t (*rgb)(int c12));   /* rows NULL = 쪽지만 */
+int  callout_fx_count(void);          /* 시험 — 지금 이펙트 수 */
 
 #endif
