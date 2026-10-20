@@ -68,6 +68,8 @@ static const int8_t SK_X2[] = { 6, -6, 5, -5, 3, -3, 2, -2, 1 };
 static const int8_t SK_X3[] = { 10, -10, 8, -8, 6, -6, 4, -4, 3, -3, 2, -1 };
 static const int8_t SK_Y3[] = { -4, 4, -3, 3, -2, 2, -1, 1, 0, 0, 0, 0 };
 static struct { int lv, t, dir; } SK;
+static atomic_int sk_on = 0;                    /* 189 화면 흔들림 기본 끔 — 유저 10-21 00:01 「약간 멀미나고 토할거같은데」(186~188 의 화면 전체 흔들림이 유력).
+                                                   코드는 남겨 두고 callout_shake_enable 로만 켠다(지금 앱 설정엔 없음 — 코어 이전 때 «맞은 몸만 떨림»으로 바꿀 것) */
 
 void callout_enable(int on)
 {
@@ -204,7 +206,7 @@ static void dust_tick(const uint8_t *ram)
 static int sk_len(int lv) { return lv == 3 ? (int)sizeof SK_X3 : lv == 2 ? (int)sizeof SK_X2 : lv == 1 ? (int)sizeof SK_X1 : 0; }
 static void shake(int lv, int dir)
 {
-   if (atomic_load(&fx_mode) == FXM_OFF || (SK.lv > lv && SK.t < sk_len(SK.lv))) return;
+   if (!atomic_load(&sk_on) || atomic_load(&fx_mode) == FXM_OFF || (SK.lv > lv && SK.t < sk_len(SK.lv))) return;
    SK.lv = lv; SK.t = 0; SK.dir = dir < 0 ? -1 : 1;
 }
 static void shake_advance(void) { if (SK.lv && ++SK.t >= sk_len(SK.lv)) SK.lv = 0; }
@@ -289,19 +291,21 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
          if (!S.first_done) { S.first_done = 1; emit(CO_FIRST, a, now); }
          if (kind == C_HIT) {
             int ctr = S.cls[d] == K_STARTUP || S.cls[d] == K_ACTIVE, pun = S.cls[d] == K_RECOVERY;
-            if (ctr) { emit(CO_COUNTER, a, now); if (atomic_load(&fx_mode) != FXM_OFF) flash_req = d + 1; }   /* 186 맞은 몸 번쩍 */
+            if (ctr) emit(CO_COUNTER, a, now);   /* 189: COUNTER 몸 번쩍 뺌(너무 잦음) — 번쩍은 서서 친 강베기만 */
             else if (pun) emit(CO_PUNISH, a, now);
             {  /* 강(혜성) = 보통 기술로 피해 12 이상(약베기 6~11 · 강베기 14~21 실측 — 닿은 프레임에 바로 줄어듦).
                   필살(ACT ≥ 0x180, 177 실측)은 원작이 불·감전 해골·큰 초승달을 이미 그려서 작은 섬광만(절제 — 봇 판 그림에서 겹쳐 지저분했음) */
                int dmg = S.p_hp[d] > ram[PB(d) + O_HP] ? S.p_hp[d] - ram[PB(d) + O_HP] : 0;
                int ko = ram[PB(d) + O_HP] == 0, heavy = dmg >= 12 && act[a] < 0x180;   /* 187 강베기(보통 기술 센 맞음) — 유저 「앞강베기 타격효과가 가장 강렬해야」 */
+               /* 189 유저 「너무 잦고 강함」·「강베기에만 넣어라고 했을텐데? 앞 강베기」 — 일섬·몸 번쩍은 서서 친 강베기만(앉아·점프 강베기·COUNTER·막타는 뺌) */
+               int front = heavy && !ko && (st[a] & 0xC0) == 0 && (st[a] & 0x20);
                fx_spawn(ram, d, ko ? FXK_K : heavy ? FXK_H : FXK_L, ctr ? 1 : pun ? 2 : 0);   /* 185: 체력 0 = 막타 일섬 */
-               if (heavy && !ko) fx_spawn(ram, d, FXK_S, 0);    /* 187 강베기: 혜성 + 칼 궤적 색 일섬 */
+               if (front) fx_spawn(ram, d, FXK_S, 0);           /* 187 강베기: 혜성 + 칼 궤적 색 일섬 */
                {  /* 186 흔들림 — 필살도 센 맞음이면(그림은 절제해도 손맛은). 187: 강베기는 막타와 같은 가장 큰 흔들림 */
                   int sd = rd16(ram, OBJ(a) + 8) <= rd16(ram, OBJ(d) + 8) ? 1 : -1;
                   if (ko || heavy) shake(3, sd); else if (dmg >= 12) shake(2, sd); else if (ctr) shake(1, sd);
                }
-               if ((heavy || ko) && atomic_load(&fx_mode) != FXM_OFF) flash_req = d + 1;   /* 187 강베기·막타도 맞은 몸 번쩍(186 은 COUNTER 만) */
+               if (front && atomic_load(&fx_mode) != FXM_OFF) flash_req = d + 1;   /* 189 서서 친 강베기만 맞은 몸 번쩍 */
             }
          }
       }
@@ -561,10 +565,12 @@ int callout_fx_count(void) { int n = 0; for (int i = 0; i < FX_MAX; i++) n += FX
 
 int callout_flash_take(void) { int r = flash_req; flash_req = 0; return r; }
 
+void callout_shake_enable(int on) { atomic_store(&sk_on, on ? 1 : 0); if (!on) SK.lv = 0; }
+
 int callout_shake(float *gx, float *gy)
 {
    int lv = SK.lv, t = SK.t;
-   if (!lv || t < 0 || t >= sk_len(lv) || atomic_load(&fx_mode) == FXM_OFF) return 0;
+   if (!lv || t < 0 || t >= sk_len(lv) || !atomic_load(&sk_on) || atomic_load(&fx_mode) == FXM_OFF) return 0;
    const int8_t *X = lv == 3 ? SK_X3 : lv == 2 ? SK_X2 : SK_X1;
    *gx = SK.dir * X[t] / 4.f;
    *gy = lv == 3 ? SK_Y3[t] / 4.f : 0.f;

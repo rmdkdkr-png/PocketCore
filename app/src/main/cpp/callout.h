@@ -69,5 +69,6 @@ int  callout_fx_count(void);          /* 시험 — 지금 이펙트 수 */
 int  callout_flash_take(void);
 /* 186 화면 흔들림 — 지금 게임 그림을 옮길 양(게임 px, 오른쪽·아래 +). 없으면 0. 진짜 프레임마다 한 칸(callout_tick) · 이펙트를 켰을 때만. GL 스레드 */
 int  callout_shake(float *gx, float *gy);
+void callout_shake_enable(int on);     /* 189 화면 흔들림 켬/끔 — 기본 끔(멀미). 아무 스레드 */
 
 #endif

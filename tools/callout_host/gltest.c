@@ -245,9 +245,9 @@ int main(int argc, char **argv)
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
       callout_reset(); base(); TICK4(); CTRL(1) = 0x02; TICK4();
       CHECK(callout_flash_take() == 0, "몸 번쩍: 닿기 전엔 부탁 없음");
-      HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; TICK4();       /* P1 이 발동 중인 P2 를 — COUNTER */
+      HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; RAM[RA(0x5980) + 0x200 + 0xC6] = 108; TICK4();   /* P1 이 서서 강베기로 P2 를(피해 20 · COUNTER 이기도) */
       int fs = callout_flash_take();
-      CHECK(fs == 2, "몸 번쩍: 반격 맞음 → 맞은 쪽 P2(+1) = %d", fs);
+      CHECK(fs == 2, "몸 번쩍: 서서 친 강베기 → 맞은 쪽 P2(+1) = %d", fs);
       CHECK(callout_flash_take() == 0, "몸 번쩍: 가져가면 0");
       hitflash_start(PB2, fs - 1);
       CHECK(PGET(5, 0) == 0xFFF && PGET(5, 1) == 0xFFF && PGET(5, 2) == 0x230 && PGET(0, 0) == 0xBDF && PGET(0, 1) == 0x00D,
@@ -324,6 +324,9 @@ int main(int argc, char **argv)
                                  TICK5(); TICK5(); HS = 8; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = (hp); TICK5(); } while (0)
       #define HEAVY_SEQ(hp) HIT_SEQ(hp, 0x100)
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+      HEAVY_SEQ(108);
+      CHECK(!callout_shake(&gx, &gy), "흔들림: 189 기본 끔 — 강베기에도 안 흔듦(멀미)");
+      callout_shake_enable(1);
       callout_reset(); base(); TICK5(); TICK5();
       CHECK(!callout_shake(&gx, &gy), "흔들림: 맞기 전엔 없음");
       HEAVY_SEQ(108);                                       /* P2(70) 가 P1(100)을 보통 기술로 — 피해 20 = 강베기 */
@@ -339,9 +342,14 @@ int main(int argc, char **argv)
       CHECK(n5 == 9 && seq[1] == -1.5f && seq[8] == 0.25f, "흔들림: 필살 센 맞음 9 프레임 좌우 번갈아 줄어듦(%d, %.2f … %.2f)", n5, seq[1], seq[n5 > 0 ? n5 - 1 : 0]);
       HEAVY_SEQ(0);                                         /* 막타 */
       CHECK(callout_shake(&gx, &gy) && gx == 2.5f && gy == -1.f, "흔들림: 막타 2.5 px + 위아래(%.2f, %.2f)", gx, gy);
-      CHECK(callout_flash_take() == 1 && callout_fx_count() == 1, "막타: 번쩍 부탁 · 붉은 일섬 하나");
+      CHECK(callout_flash_take() == 0 && callout_fx_count() == 1, "막타: 번쩍 없음(189) · 붉은 일섬 하나");
       RUNSHAKE();
       CHECK(n5 == 12, "흔들림: 막타 12 프레임(%d)", n5);
+      callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x5980) + 0x200 + 0x49] = 0x40;   /* P2 앉아 강베기 */
+      TICK5(); TICK5(); HS = 8; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 108; TICK5();
+      CHECK(callout_flash_take() == 0 && callout_fx_count() == 1, "앉아 강베기: 번쩍·일섬 없음(혜성만, 189)");
+      callout_reset(); base(); TICK5(); CTRL(1) = 0x02; TICK5(); HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; TICK5();
+      CHECK(callout_flash_take() == 0, "약한 COUNTER: 번쩍 없음(189)");
       callout_reset(); base(); TICK5(); CTRL(1) = 0x02; TICK5(); HS = 8; COMBO(1) = 1; CTRL(1) = 0x0A; TICK5();   /* 피해 없는 반격(약) */
       CHECK(callout_shake(&gx, &gy) && gx == 1.f, "흔들림: 약한 COUNTER 1 px(%.2f)", gx);
       RUNSHAKE();
@@ -377,6 +385,7 @@ int main(int argc, char **argv)
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
       glClear(GL_COLOR_BUFFER_BIT); gl_draw(); grab();
       CHECK(frac_diff(vx, vy + 10, vx + 9, vy + dh - 10, bg) == 0, "흔들림: 끄면 제자리");
+      callout_shake_enable(0);
    }
    fprintf(stderr, "%s (%d 실패)\n", fails ? "실패" : "통과", fails);
    return fails ? 1 : 0;
