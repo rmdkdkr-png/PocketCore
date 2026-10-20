@@ -25,6 +25,8 @@ public final class Settings {
     public static final String MOTION = "pocketcore_motion";
     /** 176 음색 다듬기 켬/끔 열쇠(enabled/disabled — 기본 켬) */
     public static final String SND_FX = "pocketcore_snd_fx";
+    /** 178 음색 다듬기 세부(0..100, 50 = 들어 보기 ② = 176) — 저음 보강·고음 눅이기·좌우 넓힘·울림·울림 길이. native sndfx_from_pct 와 같은 순서 */
+    public static final String[] SND_FX_KEYS = { "pocketcore_snd_bass", "pocketcore_snd_treble", "pocketcore_snd_width", "pocketcore_snd_reverb", "pocketcore_snd_room" };
 
     public static final class Item {
         public final String key, label, help;
@@ -64,6 +66,24 @@ public final class Settings {
         String[] v = new String[21], n = new String[21];
         for (int i = 0; i <= 20; i++) { v[i] = String.valueOf(i * 5); n[i] = (i * 5) + "%"; }
         Item it = new Item(key, label, help, v, n, String.valueOf(def));
+        it.pct = true;
+        return it;
+    }
+    /** 178 음색 다듬기 세부 — 0..100 을 5 단위로(슬라이더), 이름은 실제 값. 50 = 기본(들어 보기 ②).
+     *  kind 0 저음 0..+7dB · 1 고음 눅이기 0..−8dB · 2 좌우 넓힘 ×0..2 · 3 울림 ×0..2 · 4 울림 길이 1.3초 × 2^((v−50)/40) */
+    static Item fxPct(String key, String label, String help, int kind) {
+        String[] v = new String[21], n = new String[21];
+        for (int i = 0; i <= 20; i++) {
+            int p = i * 5;
+            String t;
+            if (kind == 4) t = String.format(java.util.Locale.US, "%.2f초", 1.3 * Math.pow(2.0, (p - 50) / 40.0));
+            else if (p == 0) t = "끔";
+            else if (kind == 0) t = String.format(java.util.Locale.US, "+%.1fdB", 7.0 * p / 100);
+            else if (kind == 1) t = String.format(java.util.Locale.US, "−%.1fdB", 8.0 * p / 100);
+            else t = String.format(java.util.Locale.US, "×%.1f", p / 50.0);
+            v[i] = String.valueOf(p); n[i] = p == 50 ? t + " (기본)" : t;
+        }
+        Item it = new Item(key, label, help, v, n, "50");
         it.pct = true;
         return it;
     }
@@ -246,8 +266,14 @@ public final class Settings {
             /* 176 음색 다듬기(native sndfx.c) — 곡·효과음은 그대로, 게임 소리 위에 저음 보강·고음 눅이기·좌우 넓힘·방 울림.
                유저 10-20 「소리가 역시 너무 심심한데」 → 들어 보기 넷(원래·다듬기·악기 화풍·악기 밴드) 중 「2 가 나은 방식이네」 */
             new Item(SND_FX, "음색 다듬기",
-                "켬 = 게임 소리에 저음 보강·고음 눅이기·좌우 넓힘·방 울림을 얹어요(곡·효과음은 그대로, 지연 없음). 모든 게임, 바로 반영.",
+                "켬 = 게임 소리에 저음 보강·고음 눅이기·좌우 넓힘·방 울림을 얹어요(곡·효과음은 그대로, 지연 없음). 아래 다섯 줄로 세기를 고르고, 가운데(기본)가 들어 보기 ②. 모든 게임, 바로 반영.",
                 ONOFF, ONOFF_K, "enabled").l(),
+            /* 178 세부 — 유저 10-20 「음색 다듬기도 설정이 있잖아 조절해 보게 해 줘」. 크기는 값을 바꿔도 원래 소리와 같게 맞춘다(native sndfx.c 모델) */
+            fxPct(SND_FX_KEYS[0], "저음 보강", "180Hz 아래를 키움 — 얇은 사각파에 바닥. 끔 = 원래 저음.", 0),
+            fxPct(SND_FX_KEYS[1], "고음 눅이기", "4.5kHz 위를 줄임 — 사각파의 쨍한 날. 끔 = 원래 고음, 많이 = 더 둥글게.", 1),
+            fxPct(SND_FX_KEYS[2], "좌우 넓힘", "가운데 소리를 살짝 늦춰 좌우로 벌림. 끔 = 원래 폭. 폰 스피커에서 소리가 울렁이면 줄여 보세요.", 2),
+            fxPct(SND_FX_KEYS[3], "울림", "방 울림의 양 — 효과음에도 붙어요. 끔 = 마른 소리.", 3),
+            fxPct(SND_FX_KEYS[4], "울림 길이", "울림이 사라지는 데 걸리는 시간 — 짧으면 작은 방, 길면 큰 홀.", 4),
             new Item("pocketcore_launcher_snd", "런처 소리",
                 "롬 고르는 화면의 부팅음과 테마곡. 게임에 들어가면 멈춥니다.",
                 ONOFF, ONOFF_K, "enabled"),
@@ -293,7 +319,7 @@ public final class Settings {
         new Page("motion",  "움직임·반응", "프레임 패치 · 런어헤드",                     "프레임 패치", "입력 지연"),
         new Page("control", "조작",        "터치 버튼 · 원버튼 · 조작 패치 · 물리 패드",  "터치 패드", "원버튼 필살기"),
         new Page("game",    "게임",        "언어 · 오토세이브",                            "게임 공통"),
-        new Page("sound",   "소리",        "음색 다듬기 · 런처 소리 · 사무쇼2 배경음악",   "소리"),
+        new Page("sound",   "소리",        "음색 다듬기(세기·울림) · 런처 소리 · 사무쇼2 배경음악",   "소리"),
         new Page("rom",     "롬",          "롬 가져오기 · 롬 폴더"),
         new Page("update",  "업데이트",    "정식 / 시험 · 업데이트 확인",                  "업데이트"),
     };

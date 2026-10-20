@@ -1,5 +1,6 @@
-/* 호스트 시험(176): 음색 다듬기(sndfx.c)를 s16 스테레오 raw 에 — 소리 카드 콜백처럼 들쭉날쭉한 묶음으로 나눠 돌리고, 걸린 시간·응답을 남긴다.
+/* 호스트 시험(176 · 178): 음색 다듬기(sndfx.c)를 s16 스테레오 raw 에 — 소리 카드 콜백처럼 들쭉날쭉한 묶음으로 나눠 돌리고, 걸린 시간·응답을 남긴다.
  *   cc -O2 -I app/src/main/cpp tools/sndfx_test.c app/src/main/cpp/sndfx.c -lm -o /tmp/sfx && /tmp/sfx in.raw out.raw [ir_prefix]
+ *   178: 환경 변수 SNDFX_PCT="저음,고음,넓힘,울림,길이"(설정 값 0..100, 50 = ②) · SNDFX_RATE(기본 44100)
  *   tools/sndfx_ref.py 가 같은 계산을 numpy(합성곱 통째)로 해서 견준다. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,9 +15,16 @@ int main(int argc, char **argv)
    if (argc < 3) { fprintf(stderr, "usage: in.raw out.raw [ir_prefix]\n"); return 1; }
    fi = fopen(argv[1], "rb"); fseek(fi, 0, SEEK_END); n = ftell(fi) / 4; fseek(fi, 0, SEEK_SET);
    a = malloc((size_t)n * 4); if (fread(a, 4, (size_t)n, fi) != (size_t)n) return 1; fclose(fi);
-   clock_gettime(CLOCK_MONOTONIC, &t0);
-   fx = sndfx_new(44100);
-   clock_gettime(CLOCK_MONOTONIC, &t1);
+   {
+      sndfx_params prm; int v[5] = { 50, 50, 50, 50, 50 }, rate = getenv("SNDFX_RATE") ? atoi(getenv("SNDFX_RATE")) : 44100;
+      const char *e = getenv("SNDFX_PCT");
+      if (e) sscanf(e, "%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4]);
+      sndfx_from_pct(&prm, v[0], v[1], v[2], v[3], v[4]);
+      fprintf(stderr, "params bass %.2fdB treble %.2fdB width %.2f mix %.2f rt %.3fs rate %d\n", prm.bass_db, prm.treble_db, prm.width, prm.mix, prm.rt, rate);
+      clock_gettime(CLOCK_MONOTONIC, &t0);
+      fx = sndfx_new(rate, &prm);
+      clock_gettime(CLOCK_MONOTONIC, &t1);
+   }
    if (!fx) { fprintf(stderr, "sndfx_new failed\n"); return 1; }
    fprintf(stderr, "init %.1f ms\n", (t1.tv_sec - t0.tv_sec) * 1e3 + (t1.tv_nsec - t0.tv_nsec) / 1e6);
    clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -44,7 +52,7 @@ int main(int argc, char **argv)
    if (argc > 3) {
       int c; char p[512];
       for (c = 0; c < 2; c++) { size_t len; const float *ir = sndfx_ir(fx, c, &len); FILE *f; snprintf(p, sizeof p, "%s%d.f32", argv[3], c); f = fopen(p, "wb"); fwrite(ir, 4, len, f); fclose(f); }
-      fprintf(stderr, "gain %.4f\n", sndfx_gain(fx));
+      fprintf(stderr, "gain %.6f parts %d\n", sndfx_gain(fx), sndfx_parts(fx));
    }
    sndfx_free(fx); free(a);
    return 0;
