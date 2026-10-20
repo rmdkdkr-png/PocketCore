@@ -15,6 +15,7 @@
 #include <time.h>
 #include "libretro.h"
 #include "pace.h"
+#include "sndfx.h"
 #include "league.h"
 #include "practice.h"
 #include "look.h"
@@ -450,6 +451,13 @@ static int16_t cb_input_state(unsigned port, unsigned device, unsigned index, un
 /* ------------------------------------------------------------------ */
 /* audio                                                               */
 /* ------------------------------------------------------------------ */
+/* 176 음색 다듬기(sndfx.c — 저음 보강·고음 눅이기·좌우 넓힘·방 울림, 유저 「2 가 나은 방식이네」). 소리 카드 콜백에서 고리에서 꺼낸 소리에 —
+   게임 프레임 시간에 안 들어간다. g_fx 는 스트림이 없을 때(audio_start)만 만들고 바꾼다(콜백과 안 겹침). 켬/끔은 Java(nativeSetSoundFx) */
+static sndfx_t *g_fx = NULL;
+static int g_fx_rate = 0;
+static volatile int g_fx_on = 1;
+static int g_fx_cur = 0;                    /* 콜백만 쓴다 — 지난 콜백에 돌렸나(꺼졌다 켜질 때 꼬리를 비우고 시작) */
+
 static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
                                               void *audioData, int32_t numFrames)
 {
@@ -468,7 +476,13 @@ static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
       }
    }
    g_rd = rd;
-   uisfx_mix(out, numFrames, mute, ov_active() || ov_hold());   /* 176: 덧판 메뉴 효과음 — 고리(게임 소리) 위에. 코어가 멈춰 고리가 비어도 난다 · 메뉴가 사라지면 결정의 메아리는 안 냄(잠금 없는 int 둘) */
+   uisfx_mix(out, numFrames, mute, ov_active() || ov_hold());   /* 178: 음색 다듬기(sndfx) 앞 — 메뉴 소리도 게임 소리와 같은 음색으로 */   /* 176: 덧판 메뉴 효과음 — 고리(게임 소리) 위에. 코어가 멈춰 고리가 비어도 난다 · 메뉴가 사라지면 결정의 메아리는 안 냄(잠금 없는 int 둘) */
+   {
+      sndfx_t *fx = g_fx;
+      int on = g_fx_on && fx && !mute;      /* 무음 중엔 안 돌리고, 풀리면 꼬리 없이 새로 */
+      if (on) { if (!g_fx_cur) sndfx_reset(fx); sndfx_run(fx, out, (size_t)numFrames); }
+      g_fx_cur = on;
+   }
    return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
@@ -492,6 +506,8 @@ static void audio_start(int rate)
    g_audio_rate = rate;
    g_audio_dead = 0;
    uisfx_reset(rate);                  /* 176: 콜백이 돌기 전 — 닫히기 전(onPause·끊김) 남은 효과음·요청은 버림 */
+   if (!g_fx || g_fx_rate != rate) { sndfx_free(g_fx); g_fx = sndfx_new(rate); g_fx_rate = rate; }   /* 176 — 스트림이 없을 때만(콜백이 안 돈다) */
+   g_fx_cur = 0;
    if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) { pthread_mutex_unlock(&g_audio_mx); return; }
    AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_I16);
    AAudioStreamBuilder_setChannelCount(b, 2);
@@ -1198,6 +1214,9 @@ JNI(jboolean, nativeUiSfx)(JNIEnv *env, jclass cls, jint kind)
    }
    return uisfx_request(kind) ? JNI_TRUE : JNI_FALSE;
 }
+/* 176 음색 다듬기 켬/끔 — 소리 카드 콜백이 다음 묶음부터 본다 */
+JNI(void, nativeSetSoundFx)(JNIEnv *env, jclass cls, jboolean on)
+{ (void)env; (void)cls; g_fx_on = on ? 1 : 0; }
 
 /* 게임 속 리그: 결판 뒤 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
 JNI(void, nativeLeagueHubReturn)(JNIEnv *env, jclass cls, jint rematch)

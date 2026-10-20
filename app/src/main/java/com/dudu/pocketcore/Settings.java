@@ -23,6 +23,8 @@ public final class Settings {
     /** 한 항목. 고를 수 있는 값과 사람에게 보일 이름을 같이 들고 있다. */
     /** 프레임 패치 켬/끔 열쇠(on/off — 151 전엔 120·60·custom 이고 이름 «보간») — 아래 putUser·migrateMotion 참고 */
     public static final String MOTION = "pocketcore_motion";
+    /** 176 음색 다듬기 켬/끔 열쇠(enabled/disabled — 기본 켬) */
+    public static final String SND_FX = "pocketcore_snd_fx";
 
     public static final class Item {
         public final String key, label, help;
@@ -241,6 +243,11 @@ public final class Settings {
         });
         /* ── 소리 ── */
         GROUPS.put("소리", new Item[]{
+            /* 176 음색 다듬기(native sndfx.c) — 곡·효과음은 그대로, 게임 소리 위에 저음 보강·고음 눅이기·좌우 넓힘·방 울림.
+               유저 10-20 「소리가 역시 너무 심심한데」 → 들어 보기 넷(원래·다듬기·악기 화풍·악기 밴드) 중 「2 가 나은 방식이네」 */
+            new Item(SND_FX, "음색 다듬기",
+                "켬 = 게임 소리에 저음 보강·고음 눅이기·좌우 넓힘·방 울림을 얹어요(곡·효과음은 그대로, 지연 없음). 모든 게임, 바로 반영.",
+                ONOFF, ONOFF_K, "enabled").l(),
             new Item("pocketcore_launcher_snd", "런처 소리",
                 "롬 고르는 화면의 부팅음과 테마곡. 게임에 들어가면 멈춥니다.",
                 ONOFF, ONOFF_K, "enabled"),
@@ -286,7 +293,7 @@ public final class Settings {
         new Page("motion",  "움직임·반응", "프레임 패치 · 런어헤드",                     "프레임 패치", "입력 지연"),
         new Page("control", "조작",        "터치 버튼 · 원버튼 · 조작 패치 · 물리 패드",  "터치 패드", "원버튼 필살기"),
         new Page("game",    "게임",        "언어 · 오토세이브",                            "게임 공통"),
-        new Page("sound",   "소리",        "런처 소리 · 사무쇼2 배경음악",                 "소리"),
+        new Page("sound",   "소리",        "음색 다듬기 · 런처 소리 · 사무쇼2 배경음악",   "소리"),
         new Page("rom",     "롬",          "롬 가져오기 · 롬 폴더"),
         new Page("update",  "업데이트",    "정식 / 시험 · 업데이트 확인",                  "업데이트"),
     };

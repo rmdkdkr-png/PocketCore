@@ -32,6 +32,8 @@ public final class Emu {
     public static native void nativeSaveSram();
     public static native void nativeAudioPause();   /* 백그라운드 — 오디오 장치를 놓는다 */
     public static native void nativeAudioResume();  /* 복귀 — 새 스트림으로 다시 연다 */
+    /** 176 음색 다듬기(저음 보강·고음 눅이기·좌우 넓힘·방 울림) 켬/끔 — 소리 카드 콜백이 다음 묶음부터 */
+    public static native void nativeSetSoundFx(boolean on);
     public static native void nativeRunFrames(int n); /* GL 없이 n프레임 — 썸네일 캡처용 */
     /* 151: 앱 보간(nativeSetFrameGen·nativeFrameGenActive) 폐기 — 120Hz 사이 칸은 코어의 프레임 패치만 */
     /** 실측 전 대용 패널 주사율(Display.getRefreshRate) — 코어의 GET_TARGET_REFRESH_RATE 답에 쓴다. */

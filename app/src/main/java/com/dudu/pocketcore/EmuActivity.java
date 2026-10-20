@@ -675,6 +675,7 @@ public class EmuActivity extends Activity {
         gl.queueEvent(new Runnable() { @Override public void run() {
             Emu.nativeSetDisplay(up, mix, grid, scan, ghost, color, soft, integer);
         }});
+        Emu.nativeSetSoundFx(!"disabled".equals(m.get(Settings.SND_FX)));   /* 176 음색 다듬기 — 값 하나라 바로(소리 카드 콜백이 다음 묶음부터 봄) */
     }
 
     /* ── 게임 중에 바로 바꿀 수 있는 코어 옵션 ──
