@@ -23,6 +23,7 @@
 #include "cheat.h"
 #include "ovplane.h"
 #include "uisfx.h"
+#include "callout.h"
 #include "display_shaders.h"
 #include <math.h>
 
@@ -143,6 +144,10 @@ static uint32_t  g_tex_tag = 0;            /* 157 post: g_tex 의 이름표 줄�
 static GLuint    g_tex_ovph = 0;
 static unsigned  g_tovph_w = 0, g_tovph_h = 0;
 static uint32_t  g_tph_tag = 0;
+/* 182 타격 알림(callout.c) — 라벨 아틀라스 텍스처(미리 곱한 알파로 올림)와 작은 셰이더. 처음 그릴 때 만든다(새 컨텍스트면 gl_setup 이 0 으로) */
+static GLuint    g_co_prog = 0, g_co_tex = 0;
+static int       g_co_failed = 0, g_co_aw = 0, g_co_ah = 0;
+static GLint     g_co_apos, g_co_auv, g_co_utex, g_co_ualpha, g_co_uflash;
 
 /* audio ring buffer (stereo int16) */
 #define ARING_FRAMES 16384
@@ -688,9 +693,104 @@ static void gl_setup(void)
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
    memset(g_dp, 0, sizeof(g_dp));   /* 새 컨텍스트 — 예전 프로그램은 이미 사라졌다. 쓸 때 다시 만든다 */
+   g_co_prog = 0; g_co_tex = 0; g_co_failed = 0;   /* 182 타격 알림도 */
    g_gh_valid = 0;
    g_fb_dirty = 1;
    glClearColor(0.f, 0.f, 0.f, 1.f);
+}
+
+/* 182 타격 알림 — 라벨은 게임 그림 위(업스케일러·필터 밖, 또렷하게). 미리 곱한 알파: 번쩍 = 흰색(a,a,a) 쪽으로 섞기, 사라짐 = 통째로 곱하기 */
+static const char *FS_CO =
+   "precision mediump float;varying vec2 vUV;uniform sampler2D uTex;uniform float uAlpha;uniform float uFlash;"
+   "void main(){vec4 c=texture2D(uTex,vUV);c.rgb=mix(c.rgb,vec3(c.a),uFlash);gl_FragColor=c*uAlpha;}";
+
+static int co_gl_ready(void)
+{
+   const uint8_t *rgba; int w, h, n, i;
+   uint8_t *pm;
+   if (g_co_prog && g_co_tex) return 1;
+   if (g_co_failed) return 0;
+   if (!callout_atlas(&rgba, &w, &h, NULL, NULL) || !rgba || w <= 0 || h <= 0) { g_co_failed = 1; return 0; }
+   GLuint vs = compile_ok(GL_VERTEX_SHADER, VS), fs = compile_ok(GL_FRAGMENT_SHADER, FS_CO);
+   if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); g_co_failed = 1; LOGE("callout shader: compile failed"); return 0; }
+   GLuint pr = glCreateProgram();
+   glAttachShader(pr, vs); glAttachShader(pr, fs);
+   glLinkProgram(pr);
+   glDeleteShader(vs); glDeleteShader(fs);
+   GLint ok = 0; glGetProgramiv(pr, GL_LINK_STATUS, &ok);
+   if (!ok) { glDeleteProgram(pr); g_co_failed = 1; LOGE("callout shader: link failed"); return 0; }
+   n = w * h;
+   pm = (uint8_t *)malloc((size_t)n * 4);
+   if (!pm) { glDeleteProgram(pr); g_co_failed = 1; return 0; }
+   for (i = 0; i < n; i++) {             /* 곧은 알파 → 미리 곱한 알파(선형 거르기에서 투명 화소의 색이 가장자리로 번지지 않게) */
+      unsigned a = rgba[i * 4 + 3];
+      pm[i * 4 + 0] = (uint8_t)((rgba[i * 4 + 0] * a + 127) / 255);
+      pm[i * 4 + 1] = (uint8_t)((rgba[i * 4 + 1] * a + 127) / 255);
+      pm[i * 4 + 2] = (uint8_t)((rgba[i * 4 + 2] * a + 127) / 255);
+      pm[i * 4 + 3] = (uint8_t)a;
+   }
+   GLuint tx = 0;
+   glGenTextures(1, &tx);
+   glActiveTexture(GL_TEXTURE0);
+   glBindTexture(GL_TEXTURE_2D, tx);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pm);
+   free(pm);
+   g_co_prog = pr; g_co_tex = tx; g_co_aw = w; g_co_ah = h;
+   g_co_apos = glGetAttribLocation(pr, "aPos");   g_co_auv = glGetAttribLocation(pr, "aUV");
+   g_co_utex = glGetUniformLocation(pr, "uTex");  g_co_ualpha = glGetUniformLocation(pr, "uAlpha");
+   g_co_uflash = glGetUniformLocation(pr, "uFlash");
+   LOGI("callout ready %dx%d", w, h);
+   return 1;
+}
+
+/* 뷰포트(vpx, vpy, dw, dh — glViewport 값)와 그림 칸 크기(lw × lh) 안에서 게임 사각형(160×152)을 찾아 그 좌표로 라벨을 그린다.
+   가장자리에서 밀려 들어오는 동안 게임 사각형 밖(기둥·띠)으로 나가지 않게 가위로 자른다 */
+static void co_draw(double now, int vpx, int vpy, int dw, int dh, int lw, int lh)
+{
+   static GLfloat pos[8], uv[8];
+   callout_t c[2 * CO_ROWS];
+   int n, i, gx0 = 0, gy0 = 0, sub = 1;
+   if (!callout_enabled() || lw <= 0 || lh <= 0 || dw <= 0 || dh <= 0) return;
+   n = callout_get(c, 2 * CO_ROWS, now);
+   if (n <= 0) return;
+   if (!ov_find_rect(g_fb_w, g_fb_h, &gx0, &gy0, &sub) || sub < 1) return;   /* 게임 사각형을 모르는 그림이면 안 그림 */
+   if (!co_gl_ready()) return;
+   float fx0 = (float)gx0 / sub, fy0 = (float)gy0 / sub;
+   float sx = (float)dw / lw, sy = (float)dh / lh;
+   glEnable(GL_SCISSOR_TEST);
+   glScissor(vpx + (int)(fx0 * sx + 0.5f), vpy + (int)((lh - fy0 - 152.f) * sy + 0.5f), (int)(160.f * sx + 0.5f), (int)(152.f * sy + 0.5f));
+   glEnable(GL_BLEND);
+   glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+   glUseProgram(g_co_prog);
+   glActiveTexture(GL_TEXTURE0);
+   glBindTexture(GL_TEXTURE_2D, g_co_tex);
+   glUniform1i(g_co_utex, 0);
+   glVertexAttribPointer(g_co_apos, 2, GL_FLOAT, GL_FALSE, 0, pos);
+   glVertexAttribPointer(g_co_auv, 2, GL_FLOAT, GL_FALSE, 0, uv);
+   glEnableVertexAttribArray(g_co_apos);
+   glEnableVertexAttribArray(g_co_auv);
+   for (i = 0; i < n; i++) {
+      float q[4], al = 0.f, fl = 0.f; int tr[4];
+      if (!callout_layout(&c[i], now, q, tr, &al, &fl) || al <= 0.f) continue;
+      float x0 = -1.f + 2.f * (fx0 + q[0]) / lw, x1 = -1.f + 2.f * (fx0 + q[0] + q[2]) / lw;
+      float yt = 1.f - 2.f * (fy0 + q[1]) / lh, yb = 1.f - 2.f * (fy0 + q[1] + q[3]) / lh;
+      float u0 = (float)tr[0] / g_co_aw, u1 = (float)(tr[0] + tr[2]) / g_co_aw;
+      float v0 = (float)tr[1] / g_co_ah, v1 = (float)(tr[1] + tr[3]) / g_co_ah;
+      pos[0] = x0; pos[1] = yb; pos[2] = x1; pos[3] = yb; pos[4] = x0; pos[5] = yt; pos[6] = x1; pos[7] = yt;   /* 게임 쿼드와 같은 차례(왼아래·오른아래·왼위·오른위) */
+      uv[0] = u0;  uv[1] = v1;  uv[2] = u1;  uv[3] = v1;  uv[4] = u0;  uv[5] = v0;  uv[6] = u1;  uv[7] = v0;
+      glUniform1f(g_co_ualpha, al);
+      glUniform1f(g_co_uflash, fl);
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+   }
+   glDisableVertexAttribArray(g_co_apos);
+   glDisableVertexAttribArray(g_co_auv);
+   glDisable(GL_BLEND);
+   glDisable(GL_SCISSOR_TEST);
 }
 
 static void gl_draw(void)
@@ -740,7 +840,7 @@ static void gl_draw(void)
    float ar = g_av.geometry.aspect_ratio > 0.f
             ? g_av.geometry.aspect_ratio : (float)lw / (float)lh;
    int game_w = (lw > 160 && lw <= 320) ? 160 : lw;   /* NGP 게임 화면은 늘 160 */
-   int dw, dh;
+   int dw, dh, vpx = 0, vpy = 0;
    if (g_integer_scale) {
       int s = g_vw / game_w;
       int sy = g_vh / lh;
@@ -758,6 +858,7 @@ static void gl_draw(void)
       if (y0 < 0) y0 = 0;
       { static int ldw=-1, ldh=-1, lvw=-1; if (dw!=ldw||dh!=ldh||g_vw!=lvw) { LOGI("viewport %d x %d in %d x %d (img %u x %u, sub %d, game_w %d, int %d)", dw, dh, g_vw, g_vh, iw, ih, sub, game_w, g_integer_scale); ldw=dw; ldh=dh; lvw=g_vw; } }
       glViewport((g_vw - dw) / 2, y0, dw, dh);
+      vpx = (g_vw - dw) / 2; vpy = y0;
       ov_viewport((g_vw - dw) / 2, y0, dw, dh, g_vh, g_fb_w, g_fb_h);   /* 157: 게임 칸 자리(터치)·게임 사각형 판정 */
    }
 
@@ -870,6 +971,7 @@ static void gl_draw(void)
    glEnableVertexAttribArray(ap);
    glEnableVertexAttribArray(au);
    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+   if (!ob) co_draw(g_last_vsync, vpx, vpy, dw, dh, lw, lh);   /* 182 타격 알림 — 덧판 메뉴가 떠 있으면 안 그림 */
 }
 
 /* ------------------------------------------------------------------ */
@@ -998,6 +1100,7 @@ static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
    league_disarm();                      /* 새 게임은 무장 없이 시작 — 랭크전이면 Java 가 로드 뒤에 다시 무장한다 */
    ov_clear(OV_CLR_ALL);                 /* 157 덧판: 코어 상태가 통째로 바뀜 — 메뉴·대본·멈춤·막기 모두(상태용 램 포인터는 올린 뒤 새로) */
    ov_tag_clear();                       /* 157 post: HUD 이름표도(메뉴 닫기는 안 지움 — 여기 다섯 곳만) */
+   callout_reset();                      /* 182 타격 알림도 같은 다섯 곳 */
    ov_game_ram(NULL, 0);
    league_hub(0, NULL, NULL);            /* 게임 속 리그도 끈 채로 — 허브로 켠 화면만 로드 뒤에 다시 켠다(앞 세션의 허브가 자유 플레이로 새지 않게) */
    practice_forget();                    /* 연습 대전도 — 일반 세션이고 확인한 롬 판이면 Java 가 로드 뒤에 연습 허브를 켠다 */
@@ -1079,6 +1182,7 @@ static void unload_locked(void)
    league_disarm();                      /* 코어가 내려가면 랭크전 무장은 무조건 끝 — 다음 게임으로 새지 않게 */
    ov_clear(OV_CLR_ALL);                 /* 157 덧판 지움 · 상태용 램 포인터도 버림(코어가 내려감 — dlclose 뒤 읽지 않게) */
    ov_tag_clear();
+   callout_reset();
    ov_game_ram(NULL, 0);
    league_hub(0, NULL, NULL);
    practice_forget();
@@ -1178,8 +1282,9 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
             /* 치트(일반 세션) — 가장 뒤. 리그 세션이면 아무것도 안 쓰고, 연습 대전 흐름이면 올카드·유가만 */
             cheat_tick(ram, ramsz, in);
             practice_view_post(ram);         /* 176 보기(치트 «대미지 미터») — 치트가 쓴 체력까지 지난 값으로 */
+            callout_tick(ram, ramsz, t);         /* 182 타격 알림 — 램 읽기만(Java 가 사무쇼2 판에서만 켬). t = 이 vsync 시각(그리기와 같은 시계) */
             int ex = practice_take_exit();
-            if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); cheat_forget(); }
+            if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); cheat_forget(); callout_reset(); }
             stop = league_post_hold();       /* 153: 걸쇠가 이 진짜 프레임에 섰다(합성 호출에선 안 선다) */
          }
       }
@@ -1261,9 +1366,13 @@ JNI(void, nativeSetSoundFx)(JNIEnv *env, jclass cls, jboolean on, jint bass, jin
    atomic_store_explicit(&g_fx_on, on ? 1 : 0, memory_order_relaxed);
 }
 
+/* 182 타격 알림 켬/끔 — Java 가 사무쇼2 판에서만 켠다(다른 게임 램은 뜻이 다르다). 아무 스레드 */
+JNI(void, nativeSetCallouts)(JNIEnv *env, jclass cls, jboolean on)
+{ (void)env; (void)cls; callout_enable(on ? 1 : 0); }
+
 /* 게임 속 리그: 결판 뒤 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
 JNI(void, nativeLeagueHubReturn)(JNIEnv *env, jclass cls, jint rematch)
-{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); look_forget(); cheat_forget(); ov_clear(OV_CLR_ALL); ov_tag_clear(); CORE_UNLOCK(); }
+{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); look_forget(); cheat_forget(); ov_clear(OV_CLR_ALL); ov_tag_clear(); callout_reset(); CORE_UNLOCK(); }
 
 JNI(void, nativeReset)(JNIEnv *env, jclass cls)
 {
@@ -1276,6 +1385,7 @@ JNI(void, nativeReset)(JNIEnv *env, jclass cls)
    cheat_forget();                               /* 치트: 보관한 카드는 되돌리지 않고 버린다(램이 새로 시작) */
    ov_clear(OV_CLR_ALL);                         /* 157 덧판: 코어가 새로 시작 — 메뉴·멈춤·막기 지움 */
    ov_tag_clear();
+   callout_reset();
    CORE_UNLOCK();
 }
 
@@ -1446,6 +1556,7 @@ JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
       cheat_forget();                                /* 치트: 램이 통째로 바뀜 — 보관한 카드는 버리고 다음 프레임부터 새로 */
       ov_clear(OV_CLR_ALL);                          /* 157 덧판: 코어 상태가 통째로 바뀜 */
       ov_tag_clear();
+      callout_reset();
    }
    CORE_UNLOCK();
    free(buf);

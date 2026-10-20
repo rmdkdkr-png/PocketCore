@@ -6,3 +6,4 @@ S(glActiveTexture) S(glAttachShader) S(glBindTexture) S(glClear) S(glClearColor)
 S(glDeleteProgram) S(glDeleteShader) S(glDrawArrays) S(glEnableVertexAttribArray) S(glGenTextures) S(glGetAttribLocation) S(glGetProgramInfoLog)
 S(glGetProgramiv) S(glGetShaderInfoLog) S(glGetShaderiv) S(glGetUniformLocation) S(glLinkProgram) S(glPixelStorei) S(glShaderSource)
 S(glTexImage2D) S(glTexParameteri) S(glTexSubImage2D) S(glUniform1f) S(glUniform1i) S(glUniform2f) S(glUseProgram) S(glVertexAttribPointer) S(glViewport)
+S(glBlendFunc) S(glDisable) S(glDisableVertexAttribArray) S(glEnable) S(glScissor)   /* 182 타격 알림 */

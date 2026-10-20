@@ -29,6 +29,7 @@ public final class Settings {
     public static final String[] SND_FX_KEYS = { "pocketcore_snd_bass", "pocketcore_snd_treble", "pocketcore_snd_width", "pocketcore_snd_reverb", "pocketcore_snd_room" };
     /** 179 음색 다듬기를 어디에 — bgm(배경음만, 기본) / all(전부). 배경음만은 동봉 사무쇼2 코어가 효과음(잡음 칸)을 따로 줄 때만, 아니면 전부 */
     public static final String SND_FX_TARGET = "pocketcore_snd_target";
+    public static final String CALLOUT = "pocketcore_callout";       /* 182 타격 알림 — 켬(기본)·끔, 사무쇼2 */
 
     public static final class Item {
         public final String key, label, help;
@@ -177,6 +178,12 @@ public final class Settings {
                 + " · 약하게 = 번쩍 ¼ · 끔 = 원래대로. 프레임 패치가 켜져 있을 때.",
                 new String[]{ "strong", "half", "off" },
                 new String[]{ "거의 없게", "약하게", "끔" }, "strong").g("ss2"),
+            /* 182: 유저 2026-10-20 「맞을 때 이펙트 효과를 추가로 넣거나」 → 「화면 효과는 그런 거 말고 카운터 퍼스트어택 퍼니셔 리버설 같은 거」.
+               램을 읽기만 한다(게임은 그대로) — native callout.c. 앱 설정(코어 옵션 아님) */
+            new Item(CALLOUT, "타격 알림",
+                "경기 중 때린 쪽 가장자리에 라벨을 띄웁니다 — FIRST ATTACK(라운드 첫 타) · COUNTER(기술을 내던 상대를 맞힘)"
+                + " · PUNISHER(헛치거나 막힌 기술의 빈틈을 맞힘) · REVERSAL(맞음·가드·다운이 풀리자마자 공격). 게임은 그대로, 보이기만.",
+                ONOFF, ONOFF_K, "enabled").g("ss2"),
         });
         /* ── 움직임·반응 ── */
         /* 프레임 패치 — 151: 켬/끔 한 줄, 사무쇼2 만(유저 2026-10-16 「ss2만 되는걸로 해」·「프레임패치 온오프만 만들어」·
