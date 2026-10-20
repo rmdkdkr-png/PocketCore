@@ -7,6 +7,9 @@
          OPTS="k=v,…" · HZ · FAKECLK(속도 감시 시계 = 호출 / HZ) · HASHALL(hash.txt) · WHITELOG(«W 호출 흰 화소 수») · APPCOMP(앱 모드에서 앱식 이펙트 합성 뒤 해시)
          DUMP=a-b · DUMPLIST=파일 · DUMPEV=n(사건마다 n 호출 PPM, DUMPMAX) · SAVETEST(번쩍 다음 호출 앞 저장 — 상태에 흰 몸 없나·팔레트 그대로인가)
          LOADAT=f(그 프레임 상태 떠 두고 f+300 에 불러옴) · FRA(프론트엔드 런어헤드 1 흉내: 숨은 호출 → 저장 → 보이는 호출 → 불러오기)
+         STYLE=under,alpha(193 이펙트 그리는 법 — 기본 1,0 = 내 캐릭터 밑 · 컷 값마다 반투명, 0,256 = 192 식. 코어 retro_ngp_hit_style 과 APPCOMP 합성 둘 다)
+         코어 모드 ev.txt 에 «HITPOS 호출 p1 x,y p2 x,y cam 콤보 act 히트스톱» — 맞음마다 두 몸 자리
+         OBJLOG · RAMLOG · STY(조사용)
    ⚠ 롬 RTC 가 벽시계를 읽는다 — 견줄 판은 같은 초에 띄울 것(qbot_hx_par.sh). 앱 libretro.h 의 GET_AUDIO_VIDEO_ENABLE 값은 틀려서 여기선 47|0x10000 을 직접 쓴다. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,16 +60,26 @@ static void hash_frame(void)
 }
 static uint32_t rgb12(int c) { uint32_t r = (c & 15) * 17, g = ((c >> 4) & 15) * 17, b = ((c >> 8) & 15) * 17; return r | g << 8 | b << 16 | 0xFF000000u; }
 /* APPCOMP: 앱처럼 이펙트를 그림 줄에 얹는다(callout_fx_draw — RGBA) → 565 로 되돌려 g_frame 에 */
+/* 193: 코어처럼 내 캐릭터(P1 스프라이트 팔레트 0~4) 밑 · 컷 값마다 불투명도(흰 심 224 · 가운데 176 · 테두리 112 /256) — 따로 짠 같은 식.
+   STYLE=under,alpha(기본 1,0 — alpha 0 = 값마다 · 1~256 = 한 값) */
+static const uint8_t *(*g_owner)(void); static int st_u = 1, st_a = 0;
+static uint16_t mix565h(uint16_t s, uint16_t d, int a) { int na = 256 - a;
+  int r = (((s >> 11) & 31) * a + ((d >> 11) & 31) * na + 128) >> 8, g = (((s >> 5) & 63) * a + ((d >> 5) & 63) * na + 128) >> 8, b = ((s & 31) * a + (d & 31) * na + 128) >> 8;
+  return (uint16_t)(r << 11 | g << 5 | b); }
+typedef struct { int sub; const uint8_t *own; } hctx;
+static void hput(void *ctx, int gx, int gy, uint16_t c12, int v)
+{
+  const hctx *h = ctx; uint32_t c = rgb12(c12);
+  int r = c & 255, g = (c >> 8) & 255, b = (c >> 16) & 255, a = st_a ? st_a : v == 1 ? 224 : v == 2 ? 176 : 112;
+  uint16_t s = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+  if (h->own && h->own[gy * 160 + gx] >= 1 && h->own[gy * 160 + gx] <= 5) return;
+  for (int y = 0; y < h->sub; y++) for (int x = 0; x < h->sub; x++) { uint16_t *d = &g_frame[(gy * h->sub + y) * g_w + gx * h->sub + x]; *d = a >= 256 ? s : mix565h(s, *d, a); }
+}
 static void app_composite(void)
 {
-  static uint8_t rgba[640 * 608 * 4];
-  int sub = g_w == 640 ? 4 : 1;
+  hctx h = { g_w == 640 ? 4 : 1, st_u && g_owner ? g_owner() : NULL };
   if (!g_frame_ok || (g_w != 160 && g_w != 640)) return;
-  memset(rgba, 0, (size_t)g_w * g_h * 4);
-  callout_fx_draw(rgba, NULL, 0, (int)g_h, (int)g_w, 0, 0, sub, rgb12);
-  for (unsigned i = 0; i < g_w * g_h; i++) if (rgba[i * 4 + 3]) {
-    int r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2];
-    g_frame[i] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)); }
+  callout_fx_each(hput, &h);
 }
 static void dump(long call)
 {
@@ -83,7 +96,7 @@ static const uint8_t *(*g_shown)(int *, const uint8_t **);
 static void (*g_hitdbg)(int v[11]);
 static void (*g_fgstate)(int *, int *, unsigned *);
 static size_t (*g_sersize)(void); static bool (*g_ser)(void *, size_t);
-static const uint8_t *g_ram; static int mode;   /* 0 app · 1 core · 2 off */
+static const uint8_t *g_ram; static int mode; static int mask;   /* 0 app · 1 core · 2 off */
 static int sh_prev = -1;
 static void flsync(void) { if (!g_remap) return; static int had[2];
   for (int s2 = 0; s2 < 2; s2++) { uint16_t f[3], t[3]; int p = s2 ? 5 : 0, on = hitflash_remap(s2, f, t);
@@ -117,11 +130,18 @@ static void run1(void) {
     callout_fx_pal(sh_pal ? sh_pal : g_palram ? (const uint8_t *)g_palram() : NULL);
     int a[8], b[8]; callout_stats(a); callout_tick(sh_ram ? sh_ram : g_ram, 16384, g_calls / 60.0); callout_stats(b);
     for (int k = 0; k < 8; k++) if (b[k] != a[k]) { fprintf(evf, "EV %ld %d %d\n", g_calls, k, b[k] - a[k]); if (k < 4) g_ev_now = 1; }
-    int fs = callout_flash_take(); if (fs && g_palram) { hitflash_start((uint8_t *)g_palram(), fs - 1); flsync(); fprintf(evf, "FLASH %ld %d\n", g_calls, fs - 1); g_ev_now = 1; if (getenv("SAVETEST")) save_next = 1; }
+    int fs = callout_flash_take(); if (fs && g_palram) { hitflash_start((uint8_t *)g_palram(), fs - 1); flsync(); fprintf(evf, "FLASH %ld %d\n", g_calls, fs - 1); g_ev_now = 1;
+      { const uint8_t *r = sh_ram ? sh_ram : g_ram; int d = fs - 1, a = 1 - d;
+        int dx = r[0x0E30 + d * 0x40 + 8] | r[0x0E30 + d * 0x40 + 9] << 8, ax = r[0x0E30 + a * 0x40 + 8] | r[0x0E30 + a * 0x40 + 9] << 8;
+        int fy = r[0x0E30 + d * 0x40 + 0xA] | r[0x0E30 + d * 0x40 + 0xB] << 8;
+        fprintf(evf, "POS %ld d %d sx %d fy %d dir %d\n", g_calls, d, dx - r[0x176D], fy, ax <= dx ? 1 : -1); } if (getenv("SAVETEST")) save_next = 1; }
     int nfx = callout_fx_count(); if (nfx != pfx) fprintf(evf, "FX %ld %d\n", g_calls, nfx); pfx = nfx;
   } else if (mode == 1 && g_hitdbg) {
     int v[11]; g_hitdbg(v);
-    for (int k = 0; k < 8; k++) if (v[k] != pv[k]) { fprintf(evf, "EV %ld %d %d\n", g_calls, k, v[k] - pv[k]); if (k < 4) g_ev_now = 1; }
+    for (int k = 0; k < 8; k++) if (v[k] != pv[k]) { fprintf(evf, "EV %ld %d %d\n", g_calls, k, v[k] - pv[k]); if (k < 4 || (k == 4 && getenv("DUMPHIT"))) g_ev_now = 1;
+      if (k == 4 && g_ram) { const uint8_t *r = g_ram; int x0 = r[0x0E38] | r[0x0E39] << 8, x1 = r[0x0E78] | r[0x0E79] << 8, y0 = r[0x0E3A] | r[0x0E3B] << 8, y1 = r[0x0E7A] | r[0x0E7B] << 8;
+        fprintf(evf, "HITPOS %ld p1 %d,%d p2 %d,%d cam %d combo %d,%d act %03x,%03x hs %d\n", g_calls, x0, y0, x1, y1, r[0x176D], r[0x1980 + 0x117], r[0x1B80 + 0x117],
+                r[0x0E3E] | r[0x0E3F] << 8, r[0x0E7E] | r[0x0E7F] << 8, r[0x1DC7]); } }
     if (v[10] != pv[10]) { fprintf(evf, "FLASH %ld %d\n", g_calls, (v[9] & 2) ? 1 : 0); g_ev_now = 1; if (getenv("SAVETEST")) save_next = 1; }
     if (v[8] != pv[8]) fprintf(evf, "FX %ld %d\n", g_calls, v[8]);
     memcpy(pv, v, sizeof pv);
@@ -134,13 +154,25 @@ static void run1(void) {
       if (g_ev_now && nev < (getenv("DUMPMAX") ? atoi(getenv("DUMPMAX")) : 6)) { nev++; until = g_calls + atol(getenv("DUMPEV")); }
       if (g_calls <= until && g_frame_ok) dump(g_calls); }
     g_ev_now = 0; }
+  {  /* OBJLOG=파일: 호출마다 물체 표(0x4E30~ 32칸 × 0x40)·카메라·두 사람 조작·콤보·체력 — 원작 맞음 섬광 물체 찾기 */
+    static FILE *ol; static int oi;
+    if (!oi) { oi = 1; if (getenv("OBJLOG")) ol = fopen(getenv("OBJLOG"), "wb"); }
+    if (ol && g_ram) { const uint8_t *r = g_ram; uint32_t c = (uint32_t)g_calls; fwrite(&c, 4, 1, ol); fwrite(r + 0x0E30, 1, 0x800, ol);
+      uint8_t ex[16] = { r[0x176D], r[0x1DC7], r[0x1980 + 0x4E], r[0x1B80 + 0x4E], r[0x1980 + 0x117], r[0x1B80 + 0x117], r[0x1980 + 0xC6], r[0x1B80 + 0xC6], r[0xA7], r[0x1C2] };
+      fwrite(ex, 1, 16, ol); fwrite(r + 0x180, 1, 64, ol); }
+  }
+  {  /* RAMLOG=파일: 8 호출마다 작업 램 16KB + 그때 P1 입력 — 입력 칸 찾기 */
+    static FILE *rl; static int ri;
+    if (!ri) { ri = 1; if (getenv("RAMLOG")) rl = fopen(getenv("RAMLOG"), "wb"); }
+    if (rl && g_ram && (g_calls % 8) == 0) { uint32_t c = (uint32_t)g_calls, m = (uint32_t)mask; fwrite(&c, 4, 1, rl); fwrite(&m, 4, 1, rl); fwrite(g_ram, 1, 16384, rl); }
+  }
   if (mode == 0 && getenv("APPCOMP")) app_composite();
   hash_frame();
   if (getenv("WHITELOG") && g_frame_ok) fprintf(evf, "W %ld %d\n", g_calls, white_px());
   if (g_frame_ok && ((dlist && g_calls < dlist_n && dlist[g_calls]) || (g_calls >= d0 && g_calls <= d1))) dump(g_calls);
 }
 static double fakeclk(void) { return g_calls / (double)hz; }
-static int mask; static void poll(void) {}
+static void poll(void) {}
 static int16_t st(unsigned port, unsigned dev, unsigned idx, unsigned id) { (void)idx; return port == 0 && dev == RETRO_DEVICE_JOYPAD && id < 16 ? (mask >> id) & 1 : 0; }
 #define S(n) n##_t n = (n##_t)dlsym(h, #n)
 typedef void (*retro_set_environment_t)(retro_environment_t); typedef void (*retro_init_t)(void);
@@ -177,6 +209,9 @@ int main(int argc, char **argv) {
   g_palram = (void *(*)(void))dlsym(h, "retro_ngp_palram"); g_remap = (void (*)(int, int, int, int))dlsym(h, "retro_ngp_palremap");
   g_shown = (const uint8_t *(*)(int *, const uint8_t **))dlsym(h, "retro_ngp_shown_ram"); g_hitdbg = (void (*)(int *))dlsym(h, "retro_ngp_hit_debug");
   g_fgstate = (void (*)(int *, int *, unsigned *))dlsym(h, "retro_ngp_fg_state");
+  g_owner = (const uint8_t *(*)(void))dlsym(h, "retro_ngp_hit_owner");
+  if (getenv("STYLE")) sscanf(getenv("STYLE"), "%d,%d", &st_u, &st_a);
+  { void (*sty)(int, int) = (void (*)(int, int))dlsym(h, "retro_ngp_hit_style"); if (sty) sty(st_u, st_a); }
   { void (*setclk)(double (*)(void)) = (void (*)(double (*)(void)))dlsym(h, "retro_ngp_fg_set_clock"); if (setclk && getenv("FAKECLK")) setclk(fakeclk); }
   if (mode == 1 && !g_hitdbg) { fprintf(stderr, "core has no hit module\n"); return 1; }
   if (mode == 0) { callout_reset(); callout_enable(1); callout_fx_mode(FXM_ON); callout_flash_enable(1); }
@@ -185,7 +220,7 @@ int main(int argc, char **argv) {
   FILE *sc = fopen(getenv("PRELUDE"), "r"); char ln[256]; int lno = 0;
   while (sc && fgets(ln, sizeof ln, sc)) { int n; unsigned mm; if (sscanf(ln, "%d %x", &n, &mm) != 2) continue; lno++;
     if (lno == pokeat && chr_id >= 0) ram[0x0E3C] = (uint8_t)(chr_id * 4);
-    mask = (int)mm; n = (n + 1) / 2; for (int i = 0; i < n; i++) { run1(); run1(); } }
+    mask = (int)mm; n = (n + 1) / 2; for (int i = 0; i < n; i++) { if (getenv("STY") && lno > pokeat && ram[0xA7] != 241) ram[0x174C] = (uint8_t)atoi(getenv("STY")); run1(); run1(); } }
   if (sc) fclose(sc); mask = 0;
   unsigned rseed = getenv("SEED") ? (unsigned)atoi(getenv("SEED")) : 1u;
   #define RND() (rseed = rseed * 1103515245u + 12345u, (rseed >> 16) & 0x7fff)
@@ -193,6 +228,7 @@ int main(int argc, char **argv) {
   int calls_per = getenv("CPF") ? atoi(getenv("CPF")) : 2;
   for (long f = 0; f < idle; f++) {
     int b = ram[0xA7] == 241 && !(ram[0x0E36] == 0xFF && ram[0x0E37] == 0xFF);
+    { static int said; if (b && !said) { said = 1; fprintf(stderr, "fight: P1 ch %d P2 ch %d sty %d cur %02x\n", ram[0x1B51] >> 4, ram[0x1D51] >> 4, ram[0x174C], ram[0x0E3C]); } }
     if (b && getenv("PROBE")) {   /* 앞 강베기 대본: 쉼 40 · 중립 A 8 · 쉼 40 · 앞+A 8 · 쉼 40 · 아래+A 8 · 쉼 40 · 뒤+A 8(실제 프레임 × CPF 호출) */
       static int ph = 0, cnt = 0;
       if (!getenv("NOFIX")) ram[0x1A46] = 0x80;
@@ -200,6 +236,7 @@ int main(int argc, char **argv) {
       int fwd = p1x <= p2x ? 1 << 7 : 1 << 6, back = p1x <= p2x ? 1 << 6 : 1 << 7;
       static const int len[8] = { 40, 8, 40, 8, 40, 8, 40, 8 };
       if (cnt == 0) act = ph == 1 ? 1 : ph == 3 ? (1 | fwd) : ph == 5 ? (1 | (1 << 5)) : ph == 7 ? (1 | back) : 0;
+      if (cnt == 0 && act && evf) fprintf(evf, "PROBE %ld ph %d\n", g_calls, ph);
       mask = act;
       if (++cnt >= len[ph]) { cnt = 0; ph = (ph + 1) % 8; act = 0; }
     } else if (b) {

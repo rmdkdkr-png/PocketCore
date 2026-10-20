@@ -16,6 +16,11 @@
   앞 강베기는 혜성 없이 짧은 초승달 일섬 31×23 하나, 둘은 히트스톱 동안에도 컷 길이대로 넘어감). 봇 판 사건 줄·그림 해시 앱식 합성과 같음(1배·4배).
 193: 유저 「내가 넣는 번쩍 효과는 빼자 · 이펙트 겹치는 거 빼자 · 맞는 자에게 임팩트 포인트에서」·「가드 효과는 남겨 보자」·「나찰 하오마루 강베기 때는 강베기 효과가 안 뜨네」 —
   몸 번쩍 뺌 · 한 번에 하나(고리 없음) · 자리 = 타격 지점(맞은 몸 앞 6px, 높이는 때린 쪽 자세·장풍) · 강베기 = 보통 기술 피해 12↑ 또는 히트스톱 9↑ → 모두 작은 일섬.
+193(이어서): 유저 「베기 효과가 내 캐릭터를 너무 가림 / 반투명 적용 안 되나 위치 조정이랑 / 내 캐릭터 레이어 아래에 놓든지」 — gfx.c 가 화소마다 그린 쪽
+  (0 = 판·창 · 스프라이트 팔레트 + 1)을 떠 두고(그림·게임 영향 없음, 런어헤드면 보여 줄 프레임 것) 이펙트는 내 캐릭터(P1 팔레트 0~4) 화소를 건너뜀(그 밑) ·
+  컷 값마다 반투명(흰 심 88% · 가운데 69% · 테두리 44%) · 앞 강베기 일섬 자리 = 맞은 몸 가운데 4px 뒤. retro_ngp_hit_style(under, alpha)·retro_ngp_hit_owner() 는 시험용.
+  봇 판 그림 해시 = 같은 식을 따로 짠 앱식 합성과 같음(1배 · 4배 서기 그리기 · 런어헤드 2), (0, 256) = 192 식 그림과도 같음.
+
 diff --git a/src/Makefile.common b/src/Makefile.common
 index 970f27f..5d4e952 100644
 --- a/src/Makefile.common
@@ -34,7 +39,7 @@ index 970f27f..5d4e952 100644
  SOURCES_C += \
 diff --git a/src/callout.c b/src/callout.c
 new file mode 100644
-index 0000000..048b803
+index 0000000..13cb7ce
 --- /dev/null
 +++ b/src/callout.c
 @@ -0,0 +1,642 @@
@@ -222,7 +227,7 @@ index 0000000..048b803
 +   *y = dy - up;
 +}
 +
-+/* 맞은 쪽 d 에 하나 — 자리 = 타격 지점(impact). 가드 반달은 9px 앞 · 막타 일섬은 몸 가운데(X 그대로, 24px 위).
++/* 맞은 쪽 d 에 하나 — 자리 = 타격 지점(impact). 가드 반달은 9px 앞 · 막타 일섬은 몸 가운데(X 그대로, 24px 위) · 강베기 일섬은 몸 가운데 4px 뒤(높이는 타격 지점).
 +   색: 섬광·일섬 = 흰 + 때린 쪽 칼 궤적 · 가드·막타 = 고정 */
 +static void fx_spawn(const uint8_t *ram, int d, int kind, int ring)
 +{
@@ -233,7 +238,7 @@ index 0000000..048b803
 +   impact(ram, d, &ix, &iy, &dir);
 +   int dx = rd16(ram, OBJ(d) + 8), fy = rd16(ram, OBJ(d) + 0xA);
 +   e->kind = kind; e->ring = 0; e->dir = dir;
-+   e->wx = kind == FXK_K ? dx : kind == FXK_G ? dx - dir * 9 : ix;
++   e->wx = kind == FXK_K ? dx : kind == FXK_G ? dx - dir * 9 : kind == FXK_S ? dx + dir * 4 : ix;   /* 193 일섬은 맞은 몸 가운데 4px 뒤 — 31px 초승달이 때린 몸을 덮지 않게(유저 「위치 조정」) */
 +   e->y = kind == FXK_K ? fy - 24 : iy;
 +   e->hold = kind != FXK_T && kind != FXK_H && kind != FXK_S;   /* 192 혜성·앞 강베기 일섬은 히트스톱 동안에도 움직임(유저 「정지화면 뚝이라 애니메이션으로」) */
 +   if (kind == FXK_G) memcpy(e->col, COL_G, sizeof e->col);
@@ -637,9 +642,9 @@ index 0000000..048b803
 +
 +int callout_fx_count(void) { int n = 0; for (int i = 0; i < FX_MAX; i++) n += FX[i].on; return n; }
 +
-+/* 191 코어용(같은 파일을 코어도 쓴다) — 지금 이펙트의 화소마다 put(ctx, gx, gy, c12): 게임 좌표(놀이 칸 안·화면 안만) · 12비트 0x0BGR.
++/* 191 코어용(같은 파일을 코어도 쓴다) — 지금 이펙트의 화소마다 put(ctx, gx, gy, c12, v): 게임 좌표(놀이 칸 안·화면 안만) · 12비트 0x0BGR · 193 v = 컷 값(1 흰 심 · 2 가운데 · 3 테두리).
 +   먼저 낸 것부터(나중 것이 위) — callout_fx_draw 와 같은 차례·같은 자리 */
-+void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12), void *ctx)
++void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12, int v), void *ctx)
 +{
 +   if (!put || atomic_load(&fx_mode) == FXM_OFF) return;
 +   int idx[FX_MAX], n = 0;
@@ -660,7 +665,7 @@ index 0000000..048b803
 +               if (!v) continue;
 +               int gx = flip[l] ? sx + c->ax - xx : sx - c->ax + xx;
 +               if (gx < 0 || gx > 159) continue;
-+               put(ctx, gx, gy, pal[l][v - 1]);
++               put(ctx, gx, gy, pal[l][v - 1], v);
 +            }
 +         }
 +      }
@@ -682,7 +687,7 @@ index 0000000..048b803
 +}
 diff --git a/src/callout.h b/src/callout.h
 new file mode 100644
-index 0000000..e21f9a0
+index 0000000..89a5b43
 --- /dev/null
 +++ b/src/callout.h
 @@ -0,0 +1,82 @@
@@ -758,7 +763,7 @@ index 0000000..e21f9a0
 +   sub = 게임 화소당 텍셀 · rgb = 12비트 0x0BGR → 메모리 R,G,B,A 순 32비트(ov_rgb) · ph = 같은 줄의 쪽지(NULL 가능) — 이펙트 텍셀은 0. GL 스레드 */
 +void callout_fx_draw(uint8_t *rows, uint8_t *ph, int row0, int nrows, int fbw, int ox, int oy, int sub, uint32_t (*rgb)(int c12));   /* rows NULL = 쪽지만 */
 +int  callout_fx_count(void);          /* 시험 — 지금 이펙트 수 */
-+void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12), void *ctx);   /* 191 코어 — 이펙트 화소마다(게임 좌표·12비트 색) */
++void callout_fx_each(void (*put)(void *ctx, int gx, int gy, uint16_t c12, int v), void *ctx);   /* 191 코어 — 이펙트 화소마다(게임 좌표·12비트 색 · 193 v = 1 흰 심 · 2 가운데 · 3 테두리 — 코어가 값마다 불투명도를 다르게) */
 +/* 186 몸 번쩍 — 이번 tick 에 앞 강베기 맞음(189·190)이 있었으면 맞은 쪽 + 1(가져가면 0). callout_flash_enable 로 켰을 때만(191 — 전엔 이펙트를 켰을 때).
 +   native.c(앱)·ss2hit.c(코어)가 callout_tick 바로 뒤 → hitflash_start */
 +int  callout_flash_take(void);
@@ -1791,7 +1796,7 @@ index 0000000..05f136c
 +static const hfx_cel HFX_S[HFX_N_S] = { {31,23,15,11,HFX_PX_S0,1}, {31,23,15,11,HFX_PX_S1,1}, {31,23,15,11,HFX_PX_S2,2}, {31,23,15,11,HFX_PX_S3,2}, {31,23,15,11,HFX_PX_S4,2}, {31,23,15,11,HFX_PX_S5,2}, {31,23,15,11,HFX_PX_S6,2} };
 +#endif
 diff --git a/src/libretro.c b/src/libretro.c
-index 1ac4e50..a936b74 100644
+index 1ac4e50..f6a16df 100644
 --- a/src/libretro.c
 +++ b/src/libretro.c
 @@ -380,6 +380,7 @@ static bool update_video = false;
@@ -1922,7 +1927,7 @@ index 1ac4e50..a936b74 100644
     return true;
  }
  
-@@ -2320,6 +2356,13 @@ const uint8_t *retro_ngp_shown_ram(int *lead, const uint8_t **pal)
+@@ -2320,6 +2356,16 @@ const uint8_t *retro_ngp_shown_ram(int *lead, const uint8_t **pal)
     return shown_ok ? shown_ram : NULL;
  }
  
@@ -1932,6 +1937,9 @@ index 1ac4e50..a936b74 100644
 +void retro_ngp_hit_reset(void) { ss2hit_reset(); }
 +/* 시험 — v[0..3] 라벨 종류별 수 · [4] 맞음 · [5] 라운드 · [6] 잡기 · [7] 경직 끝→동작 · [8] 지금 이펙트 수 · [9] 번쩍 비트 · [10] 낸 번쩍 수 */
 +void retro_ngp_hit_debug(int v[11]) { ss2hit_debug(v); }
++/* 193 시험 — 이펙트 그리는 법(ss2hit_style) · 마지막으로 그린 프레임의 화소마다 그린 쪽(0 = 판·창 · 1~16 = 스프라이트 팔레트 + 1, 160×152) */
++void retro_ngp_hit_style(int under, int alpha) { ss2hit_style(under, alpha); }
++const uint8_t *retro_ngp_hit_owner(void) { return ngpgfx_owner_map(); }
 +
  size_t retro_get_memory_size(unsigned type)
  {
@@ -2005,10 +2013,63 @@ index c0cf15d..cbccfb0 100644
        "ngp_framegen_motion",
        "프레임 생성 — 동작 사이 그림(캐시)",
 diff --git a/src/mednafen/ngp/gfx.c b/src/mednafen/ngp/gfx.c
-index d87c26e..4808085 100644
+index d87c26e..770b266 100644
 --- a/src/mednafen/ngp/gfx.c
 +++ b/src/mednafen/ngp/gfx.c
-@@ -832,20 +832,43 @@ void retro_ngp_palremap(int idx, int slot, int from, int to)
+@@ -64,6 +64,12 @@ static const unsigned char mirrored[] = {
+     0x2f, 0x6f, 0xaf, 0xef, 0x3f, 0x7f, 0xbf, 0xff
+ };
+ 
++/* zzzzzzzzzzzzzzz_hitfx 193: 화소마다 «누가 그렸나» — 0 = 판·창 · 1~16 = 스프라이트 팔레트 + 1(사무쇼2 P1 = 0~4, P2 = 5~9). 그린 줄마다 프레임 지도에.
++   타격 이펙트를 내 캐릭터(P1) 밑으로 그릴 때 쓴다(유저 「베기 효과가 내 캐릭터를 너무 가림 … 내 캐릭터 레이어 아래에 놓든지」). 게임·그림 출력엔 영향 없음 */
++static uint8 g_owner_line[256], g_pat_owner;
++static uint8 ngpgfx_owner[SCREEN_HEIGHT * SCREEN_WIDTH];
++const uint8_t *ngpgfx_owner_map(void) { return ngpgfx_owner; }
++
+ static void drawColourPattern(ngpgfx_t *gfx, uint16_t *cfb_scanline, uint8_t *zbuffer,
+       uint8 screenx, uint16 tile, uint8 tiley, uint16 mirror, 
+       uint16* palette_ptr, uint8 pal, uint8 depth)
+@@ -121,6 +127,7 @@ static void drawColourPattern(ngpgfx_t *gfx, uint16_t *cfb_scanline, uint8_t *zb
+          data16 = ~data16;
+ 
+       *scan = data16;
++      g_owner_line[xx] = g_pat_owner;
+ 	}
+ }
+ 
+@@ -193,6 +200,7 @@ static void draw_scanline_colour(ngpgfx_t *gfx, uint16_t *cfb_scanline,
+       data16 = ~data16;
+ 
+    scan = &cfb_scanline[0];
++   memset(g_owner_line, 0, sizeof g_owner_line); g_pat_owner = 0;   /* zzzzzzzzzzzzzzz_hitfx */
+ 
+    /* Middle */
+    if (!(ngpc_scanline < gfx->winy) && ngpc_scanline < gfx->winy + gfx->winh)
+@@ -298,9 +306,11 @@ static void draw_scanline_colour(ngpgfx_t *gfx, uint16_t *cfb_scanline,
+ 			if (ngpc_scanline >= y && ngpc_scanline <= y + 7)
+ 			{
+ 				uint8_t row = (ngpc_scanline - y) & 7;	/* Which row? */
++				g_pat_owner = (uint8)((gfx->SpriteVRAMColor[spr] & 0xF) + 1);   /* zzzzzzzzzzzzzzz_hitfx */
+ 				drawColourPattern(gfx, cfb_scanline, zbuffer, (uint8)x, data16 & 0x01FF, 
+ 					(data16 & 0x4000) ? 7 - row : row, data16 & 0x8000,
+ 					(uint16_t*)gfx->ColorPaletteRAM, gfx->SpriteVRAMColor[spr] & 0xF, priority << 1); 
++				g_pat_owner = 0;
+ 			}
+ 		}
+ 	}
+@@ -693,7 +703,11 @@ bool ngpgfx_draw(ngpgfx_t *gfx, void *data, bool skip)
+       if (!gfx->K2GE_MODE)
+          draw_scanline_colour(gfx, cfb_scanline, gfx->layer_enable, gfx->raster_line);
+       else
++      {
+          draw_scanline_mono(gfx, cfb_scanline, gfx->layer_enable, gfx->raster_line);
++         memset(g_owner_line, 0, sizeof g_owner_line);
++      }
++      memcpy(ngpgfx_owner + gfx->raster_line * SCREEN_WIDTH, g_owner_line, SCREEN_WIDTH);   /* zzzzzzzzzzzzzzz_hitfx */
+ 
+       switch (surface->depth)
+       {
+@@ -832,20 +846,43 @@ void retro_ngp_palremap(int idx, int slot, int from, int to)
     pr_on[idx] |= (uint8)(1 << slot);
  }
  static uint16 pal_rd16(ngpgfx_t *gfx, uint32 idx) { return (uint16)((gfx->ColorPaletteRAM[idx * 2] | (gfx->ColorPaletteRAM[idx * 2 + 1] << 8)) & 0x0FFF); }
@@ -2063,25 +2124,27 @@ index d87c26e..4808085 100644
  }
  
 diff --git a/src/mednafen/ngp/gfx.h b/src/mednafen/ngp/gfx.h
-index 0ffcb2a..1b865ab 100644
+index 0ffcb2a..11280ee 100644
 --- a/src/mednafen/ngp/gfx.h
 +++ b/src/mednafen/ngp/gfx.h
-@@ -86,6 +86,9 @@ void ngpgfx_write16(ngpgfx_t *gfx, uint32_t address, uint16_t data);
+@@ -86,6 +86,11 @@ void ngpgfx_write16(ngpgfx_t *gfx, uint32_t address, uint16_t data);
  
  void ngpgfx_write8(ngpgfx_t *gfx, uint32_t address, uint8_t data);
  
 +/* zzzzzzzzzzzzzzz_hitfx: 몸 번쩍 층 — pal = 스프라이트 팔레트 0~63(−1 = 모두 끔), from·to = 색 1~3(12비트) · NULL = 그 팔레트 끔 */
 +void ngpgfx_flashlayer(int pal, const uint16_t *from, const uint16_t *to);
++/* 193: 마지막으로 그린 프레임의 화소마다 그린 쪽(0 = 판·창 · 1~16 = 스프라이트 팔레트 + 1), 160×152 */
++const uint8_t *ngpgfx_owner_map(void);
 +
  extern ngpgfx_t *NGPGfx;
  
  #ifdef __cplusplus
 diff --git a/src/ss2hit.c b/src/ss2hit.c
 new file mode 100644
-index 0000000..73e9314
+index 0000000..0c5defa
 --- /dev/null
 +++ b/src/ss2hit.c
-@@ -0,0 +1,205 @@
+@@ -0,0 +1,234 @@
 +/* ss2hit — 설명은 ss2hit.h. callout.c·hitflash.c(앱 Legacito 원본 그대로)를 코어의 프레임·그림·팔레트에 잇는다.
 + *
 + * 시계: 라벨 움직임은 진짜 프레임 수 / 60 초(앱은 vsync 시각 — 60Hz 게임에선 같다). 120Hz 합성 호출은 반 프레임 뒤.
@@ -2089,6 +2152,9 @@ index 0000000..73e9314
 + * 몸 번쩍: 실제 팔레트 램에 흰색 + gfx.c 번쩍 층(게임이 맞은 지 2 프레임 뒤 몸 팔레트를 다시 쓰는 것도 흰색으로 — 런어헤드에서도 보이게).
 + * 그림: 이펙트는 게임 화소(4배 그림이면 4×4, 쪽지 0) · 라벨은 4배 아틀라스(앱 GL 과 같은 그림) — 4배 그림엔 텍셀 그대로,
 + *       1배 그림엔 4×4 텍셀 평균(넓이 거르기). 놀이 칸·게임 사각형 밖은 안 그린다.
++ * 193: 이펙트는 내 캐릭터(P1 — 스프라이트 팔레트 0~4) 밑 · 반투명(흰 심 88% · 가운데 69% · 테두리 44%) — 유저 10-21 「베기 효과가 내 캐릭터를 너무 가림 /
++ *       반투명 적용 안 되나 위치 조정이랑 / 내 캐릭터 레이어 아래에 놓든지」. 화소마다 누가 그렸나는 gfx.c 가 마지막으로 그린 프레임 것
++ *       (런어헤드면 보여 줄 프레임 D — 숨은 프레임 중 그 하나만 그린다).
 + */
 +#include <stdlib.h>
 +#include <string.h>
@@ -2098,6 +2164,10 @@ index 0000000..73e9314
 +#include "hitflash.h"
 +
 +void ngpgfx_flashlayer(int pal, const uint16_t *from, const uint16_t *to);   /* mednafen/ngp/gfx.c */
++const uint8_t *ngpgfx_owner_map(void);                                        /* mednafen/ngp/gfx.c — 193 */
++
++static const int FX_A[4] = { 256, 224, 176, 112 };   /* 193 컷 값마다 불투명도(/256) — 흰 심 88% · 가운데 69% · 테두리 44%(테두리가 옅어 덜 덮고 심은 또렷) */
++static int h_under = 1, h_alpha = 0;   /* 시험(retro_ngp_hit_style): alpha 0 = 값마다(기본) · 1~256 = 한 값(256 = 192 까지처럼 다 가림) */
 +
 +static unsigned h_rf;                 /* 진짜 프레임 수(라벨 시계) */
 +static int      h_lead = -1;          /* 지난 판정의 앞선 프레임 수 */
@@ -2185,16 +2255,37 @@ index 0000000..73e9314
 +}
 +
 +/* ── 그리기 ── */
-+typedef struct { uint16_t *buf; int pitch, ox, oy, sub; uint8_t *ph; const uint32_t *cmap; } dctx;
++typedef struct { uint16_t *buf; int pitch, ox, oy, sub; uint8_t *ph; const uint32_t *cmap; const uint8_t *own; } dctx;
 +
-+static void fx_put(void *ctx, int gx, int gy, uint16_t c12)
++void ss2hit_style(int under, int alpha)
++{
++   h_under = under ? 1 : 0;
++   h_alpha = alpha <= 0 ? 0 : alpha > 256 ? 256 : alpha;
++}
++
++/* 565 섞기 — s 를 a/256 만큼 d 위에 */
++static uint16_t mix565(uint16_t s, uint16_t d, int a)
++{
++   int na = 256 - a;
++   int r = (((s >> 11) & 31) * a + ((d >> 11) & 31) * na + 128) >> 8;
++   int g = (((s >> 5) & 63) * a + ((d >> 5) & 63) * na + 128) >> 8;
++   int b = ((s & 31) * a + (d & 31) * na + 128) >> 8;
++   return (uint16_t)(r << 11 | g << 5 | b);
++}
++
++static void fx_put(void *ctx, int gx, int gy, uint16_t c12, int val)
 +{
 +   const dctx *c = (const dctx *)ctx;
 +   uint16_t v = (uint16_t)c->cmap[c12 & 0xFFF];
++   int a = h_alpha ? h_alpha : FX_A[val & 3];
++   if (c->own) {
++      unsigned o = c->own[gy * 160 + gx];
++      if (o >= 1 && o <= 5) return;      /* 193 내 캐릭터(P1 스프라이트 팔레트 0~4)가 그린 화소 — 이펙트는 그 밑 */
++   }
 +   for (int ty = 0; ty < c->sub; ty++) {
 +      size_t o = (size_t)(c->oy + gy * c->sub + ty) * (size_t)c->pitch + (size_t)(c->ox + gx * c->sub);
 +      for (int tx = 0; tx < c->sub; tx++) {
-+         c->buf[o + tx] = v;
++         c->buf[o + tx] = a >= 256 ? v : mix565(v, c->buf[o + tx], a);
 +         if (c->ph) c->ph[o + tx] = 0;   /* 이펙트 화소는 게임 화소 모눈에 맞춰 그렸다 */
 +      }
 +   }
@@ -2274,6 +2365,7 @@ index 0000000..73e9314
 +   dctx c;
 +   if (!buf || !cmap || (sub != 1 && sub != 2 && sub != 4)) return;
 +   c.buf = buf; c.pitch = pitch; c.ox = ox; c.oy = oy; c.sub = sub; c.ph = ph; c.cmap = cmap;
++   c.own = h_under ? ngpgfx_owner_map() : NULL;
 +   callout_fx_each(fx_put, &c);                       /* 이펙트(먼저 낸 것부터) — 라벨 밑 */
 +   if (callout_enabled()) {
 +      callout_t L[2 * CO_ROWS];
@@ -2289,10 +2381,10 @@ index 0000000..73e9314
 +}
 diff --git a/src/ss2hit.h b/src/ss2hit.h
 new file mode 100644
-index 0000000..8015d0d
+index 0000000..66f7a92
 --- /dev/null
 +++ b/src/ss2hit.h
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,29 @@
 +/* ss2hit — 앱 방 코어 패치 zzzzzzzzzzzzzzz_hitfx: 사무쇼2 타격 알림·타격 이펙트·몸 번쩍을 코어 안에서.
 + * 판정·그림은 앱(Legacito 182~190)의 callout.c·hitflash.c 를 그대로 같이 쓴다(이 파일들은 앱 쪽이 원본). 여기는 잇기만.
 + * 유저 10-20 「카운터랑 그렁 메시지도 코어에 쓰는게 좋겠는데 선택하게 하거나」 → 「코어」. 코어 옵션 셋(라벨·이펙트·몸 번쩍)으로 따로 켬/끔.
@@ -2318,5 +2410,7 @@ index 0000000..8015d0d
 +void ss2hit_save_end(uint8_t *pal);
 +/* 시험 — v[0..7] = callout_stats · [8] 지금 이펙트 수 · [9] 번쩍 비트 · [10] 낸 번쩍 수 */
 +void ss2hit_debug(int v[11]);
++/* 시험 — 193 이펙트 그리는 법: under = 내 캐릭터(P1) 밑으로(1, 기본) · alpha = 0 컷 값마다(기본) · 1~256 한 불투명도. (0, 256) = 192 까지 그림 */
++void ss2hit_style(int under, int alpha);
 +
 +#endif

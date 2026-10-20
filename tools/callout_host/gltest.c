@@ -95,7 +95,8 @@ static void make_frame(unsigned fw, unsigned fh)
 }
 
 static uint32_t rgb12_test(int c) { uint32_t r = (c & 15) * 17, g = ((c >> 4) & 15) * 17, b = ((c >> 8) & 15) * 17; return r | g << 8 | b << 16 | 0xFF000000u; }
-static void put_test(void *ctx, int gx, int gy, uint16_t c12) { uint32_t v = rgb12_test(c12); memcpy((uint8_t *)ctx + ((size_t)gy * 160 + gx) * 4, &v, 4); }
+static int put_badv;   /* 193 v(컷 값)가 1~3 이 아니거나 흰 심(1)이 흰색이 아님 */
+static void put_test(void *ctx, int gx, int gy, uint16_t c12, int v) { uint32_t c = rgb12_test(c12); if (v < 1 || v > 3 || (v == 1) != (c12 == 0xFFF)) put_badv++; memcpy((uint8_t *)ctx + ((size_t)gy * 160 + gx) * 4, &c, 4); }
 
 int main(int argc, char **argv)
 {
@@ -426,7 +427,7 @@ int main(int argc, char **argv)
          if (step == 0) HS = 0;
          TICK6();
       }
-      CHECK(same && cnt > 0, "191 fx_each = fx_draw(화소 %d 개, 14 프레임)", cnt);
+      CHECK(same && cnt > 0 && !put_badv, "191 fx_each = fx_draw(화소 %d 개, 14 프레임) · 193 컷 값 v 맞음(틀림 %d)", cnt, put_badv);
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
    }
    /* ── 192·193 강베기 일섬: 히트스톱 동안에도 움직임(7컷 12 프레임) · 크기 31×23 안 · 약 섬광은 그대로 멈춤 ·
@@ -460,6 +461,8 @@ int main(int argc, char **argv)
          for (int i = 0; i < 14; i++) { SNAP(B1); for (int y = 0; y < 152; y++) for (int x = 0; x < 160; x++) if (B1[(y * 160 + x) * 4 + 3]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } TICK7(); }
          HS = 0;
          CHECK(x1 >= x0 && x1 - x0 + 1 <= 31 && y1 - y0 + 1 <= 23, "192 일섬 크기 %d×%d(31×23 안)", x1 - x0 + 1, y1 - y0 + 1);
+         /* 193 자리 — 맞은 몸(x 100) 가운데 4px 뒤가 가운데(때린 몸 x 70 쪽으로 안 넘침): 그린 화소 상자가 89~119 안 */
+         CHECK(x0 >= 89 && x1 <= 119 && (x0 + x1) / 2 >= 102 && (x0 + x1) / 2 <= 106, "193 일섬 자리 x %d~%d(맞은 몸 100 · 때린 몸 70 — 89~119 안, 가운데 104 근처)", x0, x1);
       }
       {  /* 193 한 번에 하나 — 연달아 맞아도 이펙트 하나 */
          HIT7(0x50, 120, 3); HS = 0; TICK7(); CTRL(0) = 0; TICK7(); TICK7();
