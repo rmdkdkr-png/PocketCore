@@ -1,5 +1,5 @@
 /* 모든 모드 컬러 — look.h 참고. 리그 허브(league.c)에 있던 컬러 코드(PAL1·look_apply·look_preview·코어 바꿔 쓰기 표)를 떼어 와
-   허브와 상관없이 매 프레임 돈다. 표는 look_gen.py 가 만든 look_tab.h(프리셋 16 × 캐릭터 14 + 쿠로코 × 검질 2), 세로 글자·아이콘은
+   허브와 상관없이 매 프레임 돈다. 표는 tools/look_gen.py 가 만든 look_tab.h(프리셋 16 × 캐릭터 14 + 쿠로코 + 유가 × 검질 2 — 177: 프리셋 2~15 는 검질 무관), 세로 글자·아이콘은
    hub_glyphs.py 가 만든 hub_glyphs.h 의 LOOK_VLAB·SLASH_VLAB·SLASH_ICON, 베기 색은 slash.c(표 slash_tab.h).
 
    고르기(캐릭터 SCR 2 · 검질 SCR 4, MODE 240, 오른쪽 세로 칸이 있을 때만 — 이어하기 화면·인트로도 SCR 2/4 라서 칸으로 가린다, 실측)
@@ -103,9 +103,11 @@ static struct {
 void look_vram(void *chr, void *scr, void *pal) { vpanel_vram(chr, scr); vpanel_pal(pal); g_pal = (uint8_t *)pal; }
 void look_palremap_fn(void *fn) { if ((void *)g_remap != fn) rm_init = 0; *(void **)&g_remap = fn; }
 
-/* 표의 세 색 — 16·17 은 그 캐릭터의 내 색(없으면 기본). 쿠로코 줄(14)엔 내 색이 없다 */
+/* 표의 세 색 — 16·17 은 그 캐릭터의 내 색(없으면 기본). 쿠로코 줄(14)·유가 줄(15)엔 내 색이 없다.
+   177(166-5): 프리셋 2~15 는 검질과 무관 — 표도 두 검질 같은 값이지만(look_gen.py) 옛 표가 와도 수라 판 값으로(런타임 보증) */
 static void tri(int row, int sty, int idx, uint16_t o[3])
 {
+   if (idx >= 2 && idx < LOOK_NPRE) sty = 0;
    const uint16_t *t = LOOK_TAB[row][sty][0];
    if (idx >= 0 && idx < LOOK_NPRE) t = LOOK_TAB[row][sty][idx];
    else if (idx >= LOOK_NPRE && idx < LOOK_NIDX && row < 14 && K.cus_ok[row][idx - LOOK_NPRE]) t = K.cus[row][idx - LOOK_NPRE];
@@ -451,7 +453,7 @@ void look_status(int v[LOOK_NSTAT])
 void look_triples(int ch, int sty, int out[LOOK_NIDX * 3])
 {
    uint16_t t[3];
-   int row = ch >= 0 && ch < 15 ? ch : 0;
+   int row = ch == 14 ? LOOK_ROW_YUGA : ch >= 0 && ch < 14 ? ch : 0;   /* 177: 14 = 유가 줄(쿠로코 줄은 고르기 화면 미리보기 전용 — Java LookEditor 는 0~13 만) */
    pthread_mutex_lock(&K_mu);
    for (int i = 0; i < LOOK_NIDX; i++) { tri(row, sty & 1, i, t); for (int j = 0; j < 3; j++) out[i * 3 + j] = t[j]; }
    pthread_mutex_unlock(&K_mu);
