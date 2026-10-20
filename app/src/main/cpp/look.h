@@ -48,6 +48,7 @@ size_t look_blob(void *buf, size_t cap);                /* 상태 옆 .look(16�
 void look_resume(const void *buf, size_t n);            /* 불러온 뒤 — NULL = 없음(경기 컬러·베기 색을 잊는다) */
 void look_after_load(const uint8_t *ram, size_t n);     /* look_resume 바로 뒤 — 불러온 램으로 바꿔 쓰기 표를 새로 넣고 지금 팔레트도 고친다(첫 프레임부터 우리 색) */
 void look_forget(void);                                 /* 코어를 새로 올림·리셋·상태 불러오기 — 경기 컬러·화면 칸을 잊는다(기억·내 색·베기 색은 그대로) */
+void look_flash_sync(void);                             /* 186 COUNTER 몸 번쩍 시작·끝 바로 뒤 — 코어 바꿔 쓰기 표에 번쩍(→ 흰색)을 얹거나 뺀다(코어 잠금 안) */
 /* 177 상대 컬러(리그 랭크 경기만) — 스프라이트 팔레트 5(P2 몸) 자리 0 = 그 검질 기본 → 상대 색 · 자리 1 = 2P색(게임이 거울전 CPU 에 칠하는 색) → 상대 색.
    ch 0~14(14 = 유가 — look_tab 줄 15) · sty · 주 색 세 색(12비트, c1 < 0 = 끔) · 상대 베기 색 0~6(P2 칼 궤적 — 효과 팔레트 6~9 중 한 칸(+2 = 7 · 아수라 6) · P2 가 벤 섬광 10 — 내 베기 색과 같은 slash_build 규칙).
    같은 캐릭터 거울전에서 P1 이 보이는 세 색과 채널 차 합 ≤ OPP_CLASH 면 대신 색(OPP_FB 차례로 내 색·주 색 둘 다와 ≥ OPP_FAR 인 첫 것)을

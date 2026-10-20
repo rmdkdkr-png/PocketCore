@@ -29,6 +29,8 @@
    코어 바꿔 쓰기 표는 이 파일이 유일한 주인 — 스프라이트 팔레트 0~11 × 자리 2 × 색 1~3(idx = 팔레트×4 + 1 + 색). 0 몸 · 1~4 P1 효과(베기 색은 그중 칼 궤적 한 칸) · 11 내가 벤 섬광 ·
    5(P2 몸)·6~9(P2 효과 — 상대 베기 색은 칼 궤적 한 칸)·10(P2 가 벤 섬광)은 상대 커스텀 컬러 때. 동봉 코어(0966bed) 자리 2개 안에 다 든다.
 
+   186: hitflash.c(COUNTER 몸 번쩍)도 몸 팔레트 0·5 를 1~2 진짜 프레임 흰색으로 쓴다(코어 잠금 안, native.c 프레임 블록·저장 직전) — 표는 안 건드리고,
+     되돌릴 때 아직 자기 흰색일 때만 쓰며, 흰색인 동안엔 여기 match_want·opp_want 의 «아는 세 색일 때만» 규칙에 안 걸려 서로 안 밟는다.
    잠금: 자기 잠금 K_mu 만. league_hub_status(L_mu) 가 look_cur(K_mu) 를 부르므로 순서는 L_mu → K_mu 하나뿐 — 여기서는 L_mu 를 안 잡는다.
    팔레트·화면 램을 직접 쓰는 일은 look_tick·look_before_save·look_after_save·look_after_load(코어 잠금 안)에서만. Java(UI 스레드)의 nativeLook* 는 K_mu 만 잡고 값만 바꾼다. */
 #include <jni.h>
@@ -40,6 +42,7 @@
 #include "hub_glyphs.h"
 #include "vpanel.h"
 #include "slash.h"
+#include "hitflash.h"
 
 #define RAM_BASE 0x4000
 #define A(x) ((x) - RAM_BASE)
@@ -73,6 +76,8 @@ static void (*g_remap)(int idx, int slot, int from, int to);
 typedef int rm_t[RM_NP][2][3][2];     /* [팔레트][자리][색 1~3] = {from, to} — from −1 = 비움 */
 static rm_t rm_have;
 static int rm_init;                   /* 0 이면 다음에 코어 표를 통째로 비우고 시작(코어를 새로 올림) */
+static rm_t rm_base;                  /* 186: 이 파일이 바란 표(몸 번쩍을 겹치기 전) — look_flash_sync 가 번쩍을 얹거나 뺄 때 다시 넣는다 */
+static int rm_base_ok;
 static slash_want SW;                 /* 지금 넣은 베기 색 표(칼 궤적·벤 섬광 — P1 내 것 · P2 상대 것) — 창을 닫거나 바뀌면 우리 색을 게임 색으로 되돌린다 */
 enum { G_IDLE = 0, G_WAIT, G_SWALLOW };
 
@@ -176,6 +181,32 @@ static void rm_push(rm_t want)
 static void rm_want(rm_t want, int p, int slot, const uint16_t from[3], const uint16_t to[3])
 {
    for (int j = 0; j < 3; j++) { want[p][slot][j][0] = from[j]; want[p][slot][j][1] = to[j]; }
+}
+/* 186 COUNTER 몸 번쩍(hitflash.c) — 번쩍이는 몸 팔레트(0 P1 · 5 P2)의 표 줄을 «→ 흰색»으로 겹친다. 게임은 맞은 지 2 프레임 뒤 몸 팔레트를
+   롬에서 다시 쓰는데(봇 판 실측) 그 쓰기도 흰색이 되어, 보이는 그림이 2 프레임 앞인 런어헤드에서도 흰 몸이 나온다(직접 쓴 흰색만으론 안 보임).
+   컬러 표가 있는 팔레트면 그 to 를 흰색으로(게임이 쓰는 기본 색 → 흰 컬러), 없으면 자리 0 에 «번쩍 전 세 색 → 흰색». 게임 물들임 같은 다른 세 색은 그대로 */
+static void flash_want(rm_t want)
+{
+   for (int s = 0; s < 2; s++) {
+      uint16_t from[3], to[3];
+      int p = s ? 5 : 0, used = 0;
+      if (!hitflash_remap(s, from, to)) continue;
+      for (int k = 0; k < 2; k++) {
+         uint16_t t[3], w[3];
+         if (want[p][k][0][0] < 0) continue;
+         for (int j = 0; j < 3; j++) t[j] = (uint16_t)want[p][k][j][1];
+         hitflash_colors(t, w);
+         for (int j = 0; j < 3; j++) want[p][k][j][1] = w[j];
+         used = 1;
+      }
+      if (!used) rm_want(want, p, 0, from, to);
+   }
+}
+static void rm_push_fl(rm_t want)
+{
+   memcpy(rm_base, want, sizeof(rm_t)); rm_base_ok = 1;
+   flash_want(want);
+   rm_push(want);
 }
 static int next_idx(int row, int cur, int sty)
 {
@@ -364,7 +395,7 @@ void look_tick(uint8_t *ram, size_t n, int input, int ctx)
       if (!(md0 == 240 && (scr0 == 2 || scr0 == 4) && vpanel_layout())) opp_want(ram, want, 1, title0); else { OP.state = 0; OP.fb = -1; }
       if (OP.grace > 0) OP.grace--;
       slash_want_step(ram, want, title0);
-      rm_push(want);
+      rm_push_fl(want);
       if (g_pal) slash_fix(g_pal, &SW);
       look_in_block = 0; look_in_or = 0;
       pthread_mutex_unlock(&K_mu); return;
@@ -457,7 +488,7 @@ void look_tick(uint8_t *ram, size_t n, int input, int ctx)
    }
    block |= K.hold;                                                   /* 결정·A+B 를 낸 단추는 뗄 때까지(쥠이 풀려도 — 게임이 새로 누른 것으로 보지 않게) */
    if (block & (IN_A | IN_B)) block |= IN_ABFOLD;
-   rm_push(want);
+   rm_push_fl(want);
    if (g_pal) slash_fix(g_pal, &SW);                                  /* 프레임 뒤 보정(동봉 코어가 반쯤 바꾼 세 색 · 표보다 먼저 온 쓰기) */
    look_in_block = block; look_in_or = orr;
    pthread_mutex_unlock(&K_mu);
@@ -666,7 +697,7 @@ void look_after_load(const uint8_t *ram, size_t n)
    if (!sel_scr) opp_want(ram, want, 1, title);                       /* 177: 컬러 고르기를 꺼도 첫 프레임부터(K2) */
    slash_clear(&SW);                                                  /* 불러온 팔레트 램엔 옛 표의 우리 색이 없다(저장 전에 되돌림) — 되돌리기 없이 새로 */
    slash_want_step(ram, want, title);
-   rm_push(want);
+   rm_push_fl(want);
    if (g_pal) slash_fix(g_pal, &SW);
    pthread_mutex_unlock(&K_mu);
 }
@@ -678,8 +709,17 @@ void look_forget(void)
    OP.state = 0; OP.fb = -1;          /* 177: 상대 컬러는 끄지 않는다(−4 돌려보내기·리셋·불러오기마다 불림 — 끄는 것은 Java·코어 올림/내림) · 칠한 기록만 */
    K.ram = NULL;                      /* 165 고침: 코어를 내리면(load/unload_locked) 그 램도 없다 — 저장 직전 되돌리기가 옛 램을 안 읽게(다음 look_tick·look_after_load 가 다시) */
    slash_clear(&SW);
-   rm_init = 0; vpanel_forget();
+   rm_init = 0; rm_base_ok = 0; vpanel_forget();
    look_in_block = 0; look_in_or = 0;
+   pthread_mutex_unlock(&K_mu);
+}
+/* 186 몸 번쩍을 시작·끝낸 바로 뒤(코어 잠금 안) — 지난 look_tick 이 바란 표에 번쩍을 얹어(또는 빼서) 지금 코어 표로. 다음 look_tick 까지 기다리면
+   그 사이 진짜 프레임에서 게임이 몸 팔레트를 다시 쓸 수 있다 */
+void look_flash_sync(void)
+{
+   rm_t want;
+   pthread_mutex_lock(&K_mu);
+   if (rm_base_ok) { memcpy(want, rm_base, sizeof want); flash_want(want); rm_push(want); }
    pthread_mutex_unlock(&K_mu);
 }
 
