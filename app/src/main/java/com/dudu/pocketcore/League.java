@@ -122,7 +122,8 @@ final class League {
     private static boolean dbFresh;
     static synchronized JSONObject db() {
         if (db != null && !(dbFresh && file().exists())) return db;
-        if (db == null) wipeResume();                       /* 179: 리그 초기화가 중간에 끊겼으면 마저(같은 결과) — 읽기 전에 */
+        wipeResume();                                       /* 179: 리그 초기화가 중간에 끊겼으면 마저(같은 결과) — 읽기 전에. 리뷰 R2: 권한 전에 빈 기록으로 시작했다가
+                                                               진짜 파일이 나타난 때(아래 dbFresh 길)도 — 안 그러면 옛 기록을 읽고 .wipe 가 남아, 그 뒤 쌓은 기록을 다음 실행이 지웠다 */
         if (db != null) {                                   /* 진짜 파일이 나타났다 */
             JSONObject seen = read(file());
             if (seen == null) seen = read(bak());
