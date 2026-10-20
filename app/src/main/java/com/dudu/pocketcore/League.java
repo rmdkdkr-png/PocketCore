@@ -122,6 +122,8 @@ final class League {
     private static boolean dbFresh;
     static synchronized JSONObject db() {
         if (db != null && !(dbFresh && file().exists())) return db;
+        wipeResume();                                       /* 179: 리그 초기화가 중간에 끊겼으면 마저(같은 결과) — 읽기 전에. 리뷰 R2: 권한 전에 빈 기록으로 시작했다가
+                                                               진짜 파일이 나타난 때(아래 dbFresh 길)도 — 안 그러면 옛 기록을 읽고 .wipe 가 남아, 그 뒤 쌓은 기록을 다음 실행이 지웠다 */
         if (db != null) {                                   /* 진짜 파일이 나타났다 */
             JSONObject seen = read(file());
             if (seen == null) seen = read(bak());
@@ -1235,8 +1237,22 @@ final class League {
                         .put("av", String.format("%016x", AvatarGen.fnv1a64("av:" + p.id)));
             }
             pf.put("persona", p.persona);
+            OppLook.Col col = OppLook.of(rankSeed(), p);                 /* 177 상대 컬러 — 프로필과 함께(난수 줄은 따로 — 위 프로필·이름은 그대로) */
+            if (col != null) pf.put("col", col.json());
         } catch (Exception e) { pf = new JSONObject(); }
         return pf;
+    }
+    /** 177 이 상대의 컬러 — 프로필(만난 상대는 저장한 pf)의 col, 없거나 깨졌으면 같은 함수로 계산(결정론 — 옛 pf·기록이 지워진 상대도 늘 같은 색).
+     *  상대가 될 수 없는 캐릭터면 null */
+    static synchronized OppLook.Col colOf(android.content.Context c, RankCore.Player p) {
+        if (p == null) return null;
+        OppLook.Col col = OppLook.fromJson(pfOf(c, p).optJSONObject("col"));
+        return col != null ? col : OppLook.of(rankSeed(), p);
+    }
+    /** 177 경기 기록의 상대 컬러(opp_snap.col — 정본, 이어 하기는 이것만). 없거나 깨졌으면 null(옛 경기 — 판 중간에 색이 생기지 않게 끈다) */
+    static OppLook.Col matchCol(JSONObject m) {
+        JSONObject s = m != null ? m.optJSONObject("opp_snap") : null;
+        return s != null ? OppLook.fromJson(s.optJSONObject("col")) : null;
     }
     static String nickOf(android.content.Context c, RankCore.Player p) { return pfOf(c, p).optString("nick", p.nick); }
 
@@ -1291,6 +1307,7 @@ final class League {
             if (openMatch() != null || p == null || k == null || !oppSupported(p.ch, p.sty)) return null;
             RankCore.Me me = rankMe();
             JSONObject pf = pfOf(c, p);
+            OppLook.Col col = colOf(c, p);                                /* 177: 처음 만날 때 굳힌다(기록 사본 = 정본) */
             JSONObject m = new JSONObject();
             m.put("id", java.util.UUID.randomUUID().toString());
             m.put("mode", "ranked");
@@ -1311,12 +1328,14 @@ final class League {
             m.put("opp_snap", new JSONObject().put("nick", pf.optString("nick", p.nick)).put("ch", p.ch).put("sty", p.sty).put("label", v.label)
                     .put("lp", v.lp).put("mr", v.master ? v.mr : 0).put("title", pf.optString("title")).put("region", ProfileGen.regionLabel(pf))
                     .put("av", pf.optString("av")).put("persona", p.persona).put("mood", pf.optString("mood")).put("legacy", p.legacy));
+            if (col != null) m.optJSONObject("opp_snap").put("col", col.json());
             m.put("rematch_n", rematchN);
             m.put("look", new JSONObject().put("stage", stage).put("color", 0));
             JSONObject ps = players();
             JSONObject pr = ps.optJSONObject(p.id);
             if (pr == null) { pr = new JSONObject().put("w", 0).put("l", 0).put("d", 0).put("last", 0).put("broke", 0).put("mmr_adj", 0).put("lp_adj", 0); ps.put(p.id, pr); }
             if (pr.optJSONObject("pf") == null) pr.put("pf", pf);       /* 처음 만난 모습을 글자 그대로 */
+            if (col != null && OppLook.fromJson(pr.optJSONObject("pf").optJSONObject("col")) == null) pr.optJSONObject("pf").put("col", col.json());   /* 177: 옛 pf(col 없음)엔 이번 색을 */
             pr.put("at", System.currentTimeMillis());
             trimPlayers(ps);
             JSONArray rm = rmatches();
@@ -1798,6 +1817,100 @@ final class League {
         }
     }
 
+    /* ── 179 리그 초기화 — 처음 설치한 때의 리그로 ───────────────────────
+       지우는 것: 경기 기록 전부(정산·기권·보류·무효·치트 표 — 치트 판 수도) · 랭크 칸(MMR·LP·티어·시즌·지난 시즌 줄·상대 전적·최근 상대·잡힌 상대·
+       세션·오늘 첫 승) · 씨앗(새 씨앗 = 새 상대 풀·새 상대 컬러·새 순위표) · 예전 칸(me 점수·전적 · opps 전적) · 멈춘 경기 · 체크포인트·.look ·
+       보관 파일(archive/) · 못 읽어 옆에 둔 옛 파일 · 내 캐릭터(pref.main).
+       남기는 것(앱 설정): 내 이름(me.name) · pref 의 lgm(메뉴 설정)·stage(배경 고르기)·last_rom(리그를 연 롬)·color(옛 값 — Look.migrate 가 한 번 읽음) ·
+       리그 롬(rom/)·리그 세이브(saves/ — 게임 쪽 세이브, 기록 아님). 몸 컬러·베기 색은 Look(앱 설정)이라 여기 없음.
+       죽어도 안전: ① 새 기록을 .wipe 에 원자 저장 — 여기서 실패면 아무것도 안 바뀜 ② league.json·.bak 을 새 기록으로(원자 이름 바꾸기 — 여기서 실패면
+       .wipe 를 지우고 그대로) ③ 리그 폴더에서 남길 것(WIPE_KEEP) 밖은 모두 .trash/ 로 옮김 ④ .wipe 지움 ⑤ .trash 지움. ②~⑤ 사이에 죽으면 다음 db() 가
+       .wipe 를 보고 ②~⑤ 를 마저 한다(같은 내용 · 여러 번 해도 같다). .wipe 없이 .trash 만 남았으면 지운다.
+       리그 폴더를 통째로 .trash 로 옮기지 않는 것은 롬·세이브를 두려고(경기 중 서랍에서 부르면 게임이 그 세이브 폴더를 쥐고 있다) — 그 밖은 통째와 같다. */
+    static final String WIPE_MARK = ".wipe", WIPE_TRASH = ".trash";
+    /** 초기화가 리그 폴더에 남기는 것 — 새 기록 둘 · 리그 롬(rom/) · 리그 세이브(saves/ — 게임 쪽) · 초기화 표·쓰레기 자리.
+     *  그 밖(경기 기록 임시·체크포인트·.look·보관 archive/·못 읽은 옛 파일·끊긴 .wipe.tmp·모르는 파일)은 모두 옛 리그 것으로 지운다 */
+    private static final java.util.Set<String> WIPE_KEEP = new java.util.HashSet<>(java.util.Arrays.asList(
+            "league.json", "league.json.bak", "rom", "saves", WIPE_MARK, WIPE_TRASH));
+    /** 초기화한 기록 — 첫 설치와 같은 길(fresh → upgrade → upgradeRanked: 새 SecureRandom 씨앗 · 배치 5판 · LP 0)에 내 이름·앱 설정 칸만 옮긴다 */
+    static JSONObject wipedDb(JSONObject old) throws Exception {
+        JSONObject j = fresh();
+        JSONObject me0 = old != null ? old.optJSONObject("me") : null;
+        String nm = me0 != null ? cleanName(me0.optString("name", "")) : "";
+        if (!nm.isEmpty()) j.optJSONObject("me").put("name", nm);
+        JSONObject p0 = old != null ? old.optJSONObject("pref") : null;
+        if (p0 != null) {
+            JSONObject p = new JSONObject();
+            for (String k : new String[]{ "lgm", "stage", "last_rom", "color" }) if (p0.has(k)) p.put(k, p0.get(k));
+            if (p.length() > 0) j.put("pref", p);
+        }
+        upgrade(j);
+        upgradeRanked(j);
+        return j;
+    }
+    /** 리그 초기화 — 막힘(기록 파일 문제 · 게임 속 리그가 살아 있는데 inGame 아님)·저장 실패면 false(기록 그대로).
+     *  열린 경기(준비·진행·멈춤)도 함께 지운다(부르는 쪽 — 게임 속 리그면 먼저 무장을 풀고 판을 타이틀로). 된 뒤 메모리 캐시(프로필·순위표)도 버린다 */
+    static synchronized boolean wipeAll(boolean inGame) {
+        if (dbProblem != null || (liveHub && !inGame)) return false;
+        File mark = new File(dir(), WIPE_MARK);
+        byte[] b;
+        JSONObject n;
+        try {
+            n = wipedDb(db());
+            if (dbProblem != null) return false;
+            b = n.toString(1).getBytes("UTF-8");
+        } catch (Exception e) {
+            android.util.Log.e("PocketCore", "league wipe failed", e);
+            return false;
+        }
+        if (!atomicWrite(mark, b)) return false;                                       /* ① */
+        if (!atomicWrite(file(), b)) { mark.delete(); return false; }                  /* ② 실패면 league.json 은 옛것 그대로 */
+        db = n; dbFresh = false;
+        wipeTail(b);                                                                   /* ②의 .bak · ③④⑤ */
+        PF_CACHE.clear();
+        BoardCache.invalidate();
+        return true;
+    }
+    /** .bak 을 새 기록으로(못 쓰면 옛 .bak 을 치움 — 본 파일이 깨질 때 옛 기록이 되살아나지 않게) · WIPE_KEEP 밖을 .trash 로 · .wipe 지움 · .trash 지움 */
+    private static void wipeTail(byte[] b) {
+        File d = dir(), trash = new File(d, WIPE_TRASH);
+        if (!atomicWrite(bak(), b)) { bak().delete(); new File(bak().getPath() + ".tmp").delete(); }
+        trash.mkdirs();
+        File[] fs = d.listFiles();
+        for (int i = 0; fs != null && i < fs.length; i++) {
+            String nm = fs[i].getName();
+            if (WIPE_KEEP.contains(nm)) continue;                                      /* 남길 것 밖은 모두 옛 리그 것(통째 옮기기와 같게) */
+            File to = new File(trash, nm);
+            if (to.exists()) rmTree(to);
+            if (!fs[i].renameTo(to)) rmTree(fs[i]);                               /* 옮기지 못하면 그 자리에서 지움 */
+        }
+        new File(d, WIPE_MARK).delete();                                               /* ④ — 여기부터는 새 기록이 정본(남은 .trash 는 쓰레기) */
+        rmTree(trash);                                                                 /* ⑤ */
+    }
+    /** db() 첫 읽기 전 — 끊긴 초기화를 마저. .wipe 를 못 읽으면(반쯤 쓴 임시는 atomicWrite 가 안 남김 — 깨진 경우만) 버리고 옛 기록 그대로 */
+    private static void wipeResume() {
+        File d = dir(), mark = new File(d, WIPE_MARK), trash = new File(d, WIPE_TRASH);
+        if (mark.exists()) {
+            JSONObject n = read(mark);
+            if (n == null) { mark.delete(); rmTree(trash); return; }
+            try {
+                byte[] b = n.toString(1).getBytes("UTF-8");
+                if (!atomicWrite(file(), b)) { mark.delete(); return; }                /* 못 쓰면 초기화를 버림(지금 league.json 그대로 — 나중에 저절로 지워지지 않게) */
+                wipeTail(b);
+                PF_CACHE.clear();
+            } catch (Exception e) { mark.delete(); }
+        } else if (trash.exists()) rmTree(trash);
+    }
+    /** 지우기 — 바로가기(심볼 링크)는 링크만 지우고 따라 들어가지 않는다(리그 폴더 밖을 지우지 않게) */
+    private static void rmTree(File f) {
+        if (f == null) return;
+        boolean link = java.nio.file.Files.isSymbolicLink(f.toPath());
+        if (!link && !f.exists()) return;
+        File[] fs = !link && f.isDirectory() ? f.listFiles() : null;
+        for (int i = 0; fs != null && i < fs.length; i++) rmTree(fs[i]);
+        f.delete();
+    }
+
     /** 시즌을 바꾸기 전 랭크 «준비» 경기를 무효로(사용자가 스스로 그만둔 것 — miss 아님). 메모리만 — 저장은 호출자. 닫은 id.
      *  예전 칸(위쪽 matches)의 «준비»는 안 건드린다(점수 없음 — 리그 화면 voidReady 가 닫는다) */
     private static java.util.List<String> cancelReadyMem(String why) throws Exception {
@@ -1831,8 +1944,11 @@ final class League {
 
     /* ── 168 §2 게임 안 서랍 «리그» 탭 자료 ── */
 
-    /** 리그 탭 사본 — UI 스레드에서 한 번(MenuModel.LeagueInfo · 불변). pause = 쉼(경기 중)에서 연 서랍: 시즌 도구·내 캐릭터 줄은 안 넣는다 */
-    static synchronized MenuModel.LeagueInfo leagueInfo(boolean pause) {
+    /** 리그 탭 사본 — UI 스레드에서 한 번(MenuModel.LeagueInfo · 불변). pause = 쉼·결판(경기 판)에서 연 서랍: 내 캐릭터 줄은 안 넣는다.
+     *  179: 시즌 도구(새 시즌·처음부터·리그 초기화)는 어디서 연 서랍이든 넣는다(유저 «초기화는 어디서 하나» — 경기 중 OPTION 서랍엔 «내 이름»만 있었다) */
+    static synchronized MenuModel.LeagueInfo leagueInfo(boolean pause) { return leagueInfo(pause, null); }
+    /** liveId = 지금 이 판에서 도는 경기 id(쉼에서 연 서랍 · 없으면 null) — 그 경기가 열린 경기면 두 번 묻기 글이 «지금 경기…» */
+    static synchronized MenuModel.LeagueInfo leagueInfo(boolean pause, String liveId) {
         MenuModel.LeagueInfo li = new MenuModel.LeagueInfo();
         RankCore.Me me = rankMe();
         li.season = season();
@@ -1854,10 +1970,11 @@ final class League {
         li.placementPlayed = 5 - me.placementLeft;
         SeasonPreview sp = newSeasonPreview();
         if (sp != null) { li.lp0 = sp.lp0; li.lp1 = sp.lp1; li.label0 = sp.label0; li.label1 = sp.label1; }
-        li.canSeason = !pause && dbProblem == null;
+        li.canSeason = dbProblem == null;
         li.canMain = !pause;
         JSONObject open = startedOpenMatch();
         li.openVs = open != null ? oppNick(open) : null;
+        li.openLive = open != null && liveId != null && liveId.equals(open.optString("id"));
         if (open != null && isRanked(open)) {
             ForfeitPreview fp = forfeitPreview(open);
             li.openForfeit = fp.kind == ForfeitPreview.PLACEMENT ? "배치 1패" : fp.kind == ForfeitPreview.LP && fp.lpDelta != 0 ? signed(fp.lpDelta) + " LP" : "기권패";

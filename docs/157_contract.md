@@ -389,6 +389,7 @@ W 층 한 장면 ≤ 512 타일(권장 배분 §10.2) · 팔레트 ≤ 16(층마
 ### 7.5 터치(게임 px)
 
 - EmuActivity 가 gameBox 위(패드 위)에 투명 터치 뷰를 둔다 — gl 뷰와 같은 자리·크기라 뷰 좌표 = GL 뷰 좌표. DOWN 에서 `menu.hitTest(gx, gy)` 가 false 면 그 터치를 안 받음(패드로 감). 뷰 좌표 → 게임 px: `gx = (x − VX)·160/VW`, `gy = (y − VY)·152/VH`(OVS_VX.. — 상태를 UI 에서 읽음).
+  179(B): 그보다 먼저 `PadView.ownsDown(x, y)`(패드 좌표 = 층 좌표 + 층 자리)가 참이면 안 받음 — 그림 위에 놓인 패드 단추(십자·버튼·알약)는 늘 패드가 먼저(§23).
 - 줄 탭 = 커서 · 같은 줄 다시 탭 = 결정 · 무대 줄 왼쪽/오른쪽 반 = ◀/▶ · 서랍 탭 줄 = 탭 바꿈 · 기권은 늘 두 단계.
 - 쉼에서 칼집 밖 탭 = 이어하기 — **세로 화면만**(가로는 패드 단추가 게임 상자에 겹칠 수 있어 hitTest 를 칼집·판 정보 패로만).
 
@@ -424,6 +425,9 @@ UI 스레드에서 `MenuModel.result(ctx, m, Ctx)` / `pause(...)` 로 한 번 �
 - 쉼 줄: started → RESUME · DRAWER · LATER(오른쪽 «저장») · FORFEIT(오른쪽 «−18» = stakes 진 값, 배치면 «배치», 수련생 «±0») / 첫 라운드 전 → RESUME · DRAWER · VOIDQUIT.
 - rowDesc(r18 짧은 설명) 예: 다음 상대 «새 상대와 바로 한 판» · 재대결 «같은 상대와 한 판 더» · 설욕전 «같은 상대와 바로 다시» · 새 캐릭터 «이번 판만 직접 골라요» · 순위·전적 «순위표와 전적 보기» · 그만하기 «리그는 켠 채 쉬어요» · 이어하기 «멈춘 곳에서 바로 이어서» · 나중에 «지금 자리 저장하고 리그 화면으로» · 기권 «패배로 기록돼요».
 - 쉼 머리: «쉼 · n라운드 a:b»(OVS_W1/W2 — 모르면 «쉼»만) · 판 정보 패: vs 닉 · 티어★ LP · 꼬리표 «[설] 나와 4-6 · 설욕전» · «이기면 +31 · 지면 −18»(stakes, 없으면 배치·무쌍 줄).
+- 177 상대 컬러 견본: 판 정보 패 r6 오른쪽 c8–9(x64–79, 타일 2개) · 쉼 장면 팔레트 7(`P_OPPCOL` — 쉼은 0~7 만 씀) · 3색 막대(옷 색 2 5px · 밝은색 색 1 5px · 테 색 3 5px, 둘레 1px 투명).
+  색 = `MenuModel.oppSwatch` = `Ctx.look`(nativeLookStatus) [18] 0 → 없음 · 1 → `opp_snap.col.t` · 2 → `LookTab.TAB[상대 줄][검질][19]`(거울 대신 색). r6 글(티어★ LP · 무쌍 MR)은 x ≤ 62 —
+  넘으면 견본을 빼서 글 색이 안 바뀌게(LgmPages 시험이 모든 티어·별·LP 로 잰다). 결판 띠·VS 띠·순위표에는 안 넣는다(설계 177 §8).
 - 아래 띠 순위: rankNow(BoardCache 지금) · ▲▼ = rankBefore − rankNow(rankBefore = 이 판 전 판, 없으면 세션 rank0 — G1 은 157-B). 둘 다 모르면 칸을 비워 두고 나중에 patch.
 
 ---
@@ -759,7 +763,7 @@ vsync 마다 그린 텍스처의 이름표 줄 = 날 그림 + 자바로 따로 �
 | 리그 판 바 | `PadView.setRankedBar(true)` — 슬롯·저장·로드 칸 없음 · 리셋 아래 «저장 후 타이틀» · 메뉴 알약 길게(빠른 저장) 없음 · `handleAction` 은 저장·로드·되돌리기·슬롯을 글 없이 무시 · 같은 «리그 대전» 칸이 «리그 메뉴»(`leagueMenuCell` — 경기 중 쉼 · 그 밖 대기) |
 | 대기(K_LOBBY · ST_LOBBY · SC_LOBBY 8 / CONFIRM 10 / QUIT 11) | 자격 `lobbyEligible`: 리그 랭크 판 · 허브 1 · 메뉴 화면 0(데모 아님 — K5) · 경기 기록·겹창·카드·창 없음. 여는 길: 타이틀 OPTION 탭(`optionGate` → `lgmWantLobby`) · 타이틀에서 뒤로 · 바 «리그 메뉴» · 옛 카드 «리그 메뉴». 줄(못 쓰는 줄은 안 넣음): 상대 찾기 / 이어서 하기 · 순위·전적·리그 · 내 캐릭터 · (멈춘 경기) 기권(두 번 묻기) · (앱 탓) 무효로 닫기 · 리그 나가기(내 게임 · 게임 목록 · 취소). Actions: `lgmWantLobby · lgmSearch · lgmResumeOpen · lgmMain · lgmOpenForfeit · lgmOpenVoid · lgmSeason(kind) · lgmName` |
 | 서랍 4탭 | 보이는 차례 `Prefs.TAB_ORDER` = 순위 · 전적 · 리그(3) · 설정(2) — 저장 값 번호 그대로(옛 0~2 읽힘) · ◀▶ 는 차례 안에서 돎 |
-| 리그 탭(SC_LEAGUE 9 / CONFIRM 12) | 줄 `LG_NEW_SEASON 301`(배치 끝난 뒤만) · `LG_RESTART 302` · `LG_MAIN 303`(이 셋은 대기에서 연 서랍만) · `LG_NAME 304`(늘). 시즌 둘은 첫 A 펼침(`Scene.variants` — 그 줄 맥박 · 아래 띠 «A 한 번 더») · 둘째 A(CONFIRM_MIN 뒤) = `lgmSeason`. 멈춘 경기가 있으면 펼침 글 «멈춘 경기(vs …)는 기권패로 닫고 …» → `League.newSeason/restartRanked(true, true)` 가 한 저장 안에서 기권(보관 파일 = 기권 뒤) · 뒤에 `sessionReset`(M1). 아래 목록(L): 시즌 · 지난 시즌 · 치트 판 수 · 멈춘 경기 · 보류·무효 · 규칙(`League.rulesShort` — 리그 화면 규칙은 `League.rulesText`) |
+| 리그 탭(SC_LEAGUE 9 / CONFIRM 12) | (179 에서 바뀜 — §23) 줄 `LG_NEW_SEASON 301`(배치 끝난 뒤만) · `LG_RESTART 302` · `LG_MAIN 303`(이 셋은 대기에서 연 서랍만) · `LG_NAME 304`(늘). 시즌 둘은 첫 A 펼침(`Scene.variants` — 그 줄 맥박 · 아래 띠 «A 한 번 더») · 둘째 A(CONFIRM_MIN 뒤) = `lgmSeason`. 멈춘 경기가 있으면 펼침 글 «멈춘 경기(vs …)는 기권패로 닫고 …» → `League.newSeason/restartRanked(true, true)` 가 한 저장 안에서 기권(보관 파일 = 기권 뒤) · 뒤에 `sessionReset`(M1). 아래 목록(L): 시즌 · 지난 시즌 · 치트 판 수 · 멈춘 경기 · 보류·무효 · 규칙(`League.rulesShort` — 리그 화면 규칙은 `League.rulesText`) |
 | 내 캐릭터 먼저(허브 9 H_PICK_SOLO) | `hubPickOnly(viaReset)` — 결판 «새 캐릭터»는 −5, 타이틀·찾기·대기는 `nativeHubPickOnly`. 상대 없이 고르기 → 이야기 시작에 native 가 남김(PO.done) → `League.setMain` → `rankNext(false)`. 허브 9 는 3 이 아니라 «허브 3 → 경기 기록»에 안 걸림(K1) · 고르기에서 뒤로 = 예전 캐릭터 그대로 · 멈춘 경기가 있으면 setMain 만 하고 타이틀(M5) · main 이 없을 때 찾기도 이 길 · 175 컬러: 허브 9 는 look ctx FREE(대신 누르는 nav 동안만 BUSY) — OPTION 몸 컬러 · A+B 베기 색 다음 것 · A·B 모두 결정(보통 색 — 2P색 없음) · 세로 칸 이름·문양 칸 아이콘 · 몸 컬러는 캐릭터 기억·pref.main colour, 베기 색은 look 전역 값(`Look.saveFx`) — −4 자동 고르기(AUTO)가 그대로 경기에 · 멈춤·이어 하기는 체크포인트 .look(171) |
 | 리그 치트 | native why 4(씀) · `cheat_match_bits`(무장 때 비움) → `leagueCheatSync`/멈추기/다시 올리기/onPause 때 `League.orCheat` · `League.settle(id, st, cheatBits)` 면제는 그 치트가 설명하는 것만(TIME → 실효 시간 0x80 · DIFF → 손잡이·난도) · LP 반영(D1) · 기록 `cheat` → 결판 «치» 도장(E_CHEAT 13) · 전적 «치트 n» · 줄 «… · 치트». 리그 판엔 왼쪽 위 «치트» 이름표 없음(HUD 이름표) · 치트 창에 올카드 줄 없음 |
 | «치트» 알약 | PadView `ACT_CHEAT 19` · 사무쇼2 치트 판(`setCheatPill`)만 · 세로 (0.27, 0.955, ×0.90) · 가로 (0.38, 0.96) · 배치 편집에서 끌기·크기·두 번 톡 숨김(배치 파일 «,h») · 누르면 `LaunchSheet.showCheats`(겉 창 없음) — 덧판·카드·컬러 창이 떠 있으면 무시 |
@@ -786,3 +790,22 @@ vsync 마다 그린 텍스처의 이름표 줄 = 날 그림 + 자바로 따로 �
 | 타이틀 언어만 | 경기 밖이고 언어만 바뀌었는데 멈춘 경기가 있으면 `matchLang(그 경기, 새 언어)` 가 지금 창 언어와 같을 때 다시 올리지 않고 미룸(새 창도 그 판으로 고정이라 바뀔 게 없다) |
 
 시험: `u168/sim/j/SimTest.java` 장면 cards_off · cards_temp · cards_save · cards_nat · rnow · optlobby · optsearch · collback · bootlobby · cardlobby · barcell · backstale · actblock · cheatind · langtitle · `u168/h/pad/t/PadGeomTest.java`(기기 6종 × 세로·가로) · `Lgm168Test`(시즌 도구 글).
+
+## §23 179 — 경기 중 OPTION 서랍에도 시즌 도구 · «리그 초기화» · 그림 위 패드 단추(w177-oppcol)
+
+유저(175 기기): «초기화는 어디서 하나 / 리그 초기화» — 경기 중 OPTION › 리그 탭엔 «내 이름» 한 줄뿐이었다(`League.leagueInfo(pause)` 가 canSeason·canMain 을 끔).
+«옵션 눌러서 움직일 때 위로 누르면 나가짐» — 세로에서 그림을 키우거나 패드를 올려 ▲ 가 그림 안에 들어오면 화면 ▲ 한 번에 쉼·대기가 닫혔다.
+
+| 무엇 | 정함 |
+|---|---|
+| 리그 탭 줄 | `LG_NEW_SEASON 301`(배치 끝난 뒤만) · `LG_RESTART 302` · **`LG_WIPE 305` «리그 초기화»** — 이 셋(시즌 도구)은 대기·쉼·결판 어디서 연 서랍이든(`leagueInfo(pause, liveId)`: canSeason = 기록 파일 문제 없음) · `LG_MAIN 303` 은 대기에서 연 서랍만 · `LG_NAME 304` 늘. 두 번 묻는 줄 = `LgmPages.lgConfirmRow`(셋 다 첫 A 펼침 · 둘째 A(CONFIRM_MIN 뒤) = `lgmSeason(1·2·3)`) · B/OPTION/◀▶ = 거둠 · ▲▼ = 거두고 옮김 |
+| 줄 자리 | 줄 넷까지 r4–11 · 설명 r12 · 목록 r13–16(4줄 · 자르기 104..135). 줄 다섯(대기 서랍 · 배치 끝난 뒤)이면 r4–13 · 설명 r14 · 목록 r15–16(2줄 · 자르기 120..135 — 넘김 그대로). 설명 창고 r21–25. 줄 이름 갈무리11(«리그 초기화» 64px — x12) ↔ 오른쪽 값 갈무리7(«모두 지움» 34px · 156 오른쪽 맞춤) 안 겹침. 칼집 줄 52px 규칙은 칼집(쉼·대기·결판)만 — 서랍 줄은 해당 없음(«처음부터 다시» 75px 그대로) |
+| 펼침 글(r17) | `LgmPages.confirmWhat` — 새 시즌·처음부터: 열린 경기가 있으면 «지금 경기는(쉼 서랍 · `openLive`)/멈춘 경기는 기권패로 닫고 새 시즌/처음부터 · vs …», 없으면 예전 글. 초기화: «지금/멈춘 경기도 함께 지워요 · vs …» / «기록·시즌·상대 모두 지움 · 이름은 그대로». r18 «A 한 번 더 = 새 시즌/처음부터/초기화 · B 취소». 아래 목록의 열린 경기 줄 `LgmPages.openLine`: 쉼 서랍(`openLive`)은 «지금 경기 · vs …»(175 는 지금 하는 경기에도 «멈춘 경기 · … · 타이틀에서 A» — 유저 화면), 대기·결판 서랍은 그대로 |
+| `League.wipeAll(inGame)` | 처음 설치한 때의 리그(`wipedDb`: fresh → upgrade → upgradeRanked — 새 SecureRandom 씨앗 = 새 상대 풀·새 상대 컬러(OppLook)·새 순위표 · 배치 5판 · LP 0 · 시즌 1). **지움**: 경기 기록 전부(정산·기권·보류·무효·치트 표 → 치트 판 수 0) · 랭크 칸(MMR·LP·시즌·지난 시즌 줄·상대 전적·최근 상대·잡힌 상대·세션·오늘 첫 승) · 예전 칸 전적 · 멈춘 경기 · 체크포인트·.look·.tmp · `archive/` · 못 읽어 옆에 둔 옛 파일 · 내 캐릭터(pref.main). **남김**: 내 이름(me.name) · pref 의 lgm(메뉴 설정)·stage·last_rom·color · `rom/`·`saves/` · 몸 컬러·베기 색(Look — 앱 설정). 막힘: 기록 파일 문제 · 게임 속 리그가 살아 있는데 inGame 아님(런처). 된 뒤 PF_CACHE·BoardCache 버림 |
+| 죽어도 안전 | ① 새 기록을 `league/.wipe` 에 원자 저장(실패 = 아무 일 없음) ② league.json 원자 저장(실패 = .wipe 지우고 옛 기록 그대로 — false) · .bak(못 쓰면 옛 .bak 지움) ③ 리그 폴더에서 `WIPE_KEEP`(league.json · .bak · `rom/` · `saves/` · .wipe · .trash) 밖은 모두 → `.trash/`(체크포인트·.look·`archive/`·못 읽은 옛 파일·임시·끊긴 .wipe.tmp·모르는 파일까지 — 폴더 통째 옮기기와 같은 결과) ④ .wipe 지움 ⑤ .trash 지움(바로가기는 링크만 — 폴더 밖을 따라가 지우지 않음). `db()` 첫 읽기 전(권한 전에 빈 기록으로 시작했다가 진짜 파일이 나타난 다시 읽기 때도 — 리뷰 R2: 안 그러면 옛 기록을 읽고 .wipe 가 남아 그 뒤 기록을 다음 실행이 지웠다) `wipeResume`: .wipe 가 있으면 ②~⑤ 를 마저(못 쓰면 버림 — 나중에 저절로 지워지지 않게) · 깨진 .wipe 는 버림 · .wipe 없는 .trash 는 지움. 폴더를 통째로 이름 바꾸지 않는 것은 롬·세이브를 두려고(경기 중 서랍에서 부르면 게임이 `saves/` 를 쥐고 있다) |
+| 쉼·결판 서랍에서 한 뒤 | `EmuActivity.lgmSeason`: (무장된 판이면 `leagueSyncStarted` · 결판이 막 잡혔으면 덧판만 닫고 poll 이 결과로) → 새 시즌·처음부터는 `newSeason/restartRanked(true, 열린 경기 있음)` = 지금 경기 기권패(지난 시즌 줄 · 처음부터면 보관 파일) · 초기화는 `wipeAll(true)` = 함께 지움 → `League.sessionReset()`(셋 다 — 리뷰 R1: 초기화 기록엔 세션이 없어 허브가 살아 있는 동안 그 뒤 판이 «오늘»·rank0 에 안 셈해졌다 · 대기 서랍도) → `leagueDone`·`nativeLeagueDisarm` · `pushMain`(초기화면 대신 고르기 끔 · 옛 리그의 `lgmMeBefore/After`·`rankPick` 버림) · `hubReturn(-1)`(덧판 닫기 · 상대 컬러 끔 · 허브 타이틀) · **알림 글 없음**. 대기 서랍은 예전처럼 그 자리에서 다시 그림(`lobbyRedraw` · `lgmDrawer`). 실패 글은 저장 실패·기록 파일 문제만 |
+| 런처 시즌 도구 | `LeagueActivity` «리그 초기화» 단추(«처음부터 다시» 아래) — 두 번 묻는 창(«리그를 초기화할까요?» 무엇이 지워지고 남나 · 멈춘 경기도 함께 → [다음] → «정말 모두 지울까요?» [모두 지우기]) · 물은 뒤 멈춘 경기가 바뀌었으면 다시 그림 · 막힘은 `seasonToolWhy` · 된 때 글 없음 |
+| (B) 그림 위 패드 단추 | 덧판 터치 층(`lgmTouch` — root 의 마지막 자식이라 PadView 위)이 그림 자리 터치를 먼저 받는데, 세로 쉼·대기는 `portraitOutside` 라 그림 전체가 메뉴 자리(hitTest 참) → «칼집 밖 탭 = 이어하기»(터치 종류 5)가 ▲·SP 등을 먹었다. 이제 `lgmTouchL` DOWN 에서 `PadView.ownsDown(x, y)` 가 참이면 안 받음 — onTouchEvent DOWN 차례 그대로: 되돌리기 칩 · 메뉴 알약(그 자리 탭 = 앱 바 — 서랍과 같게) · 열린 바/배치 = 전부 · 숨긴 버튼(«자동» 첫 터치 전·«숨김»)은 아님(덧판이 받음) · 치트 알약 · 배속/목록 1.3R · 십자 1.35R · 버튼 1.25R·OPTION 알약. 그 밖의 그림 자리(줄 탭·빈 그림 탭 = 이어하기)는 그대로 덧판. 키 길(feed → handle → moveCursor floorMod)은 원래 맞음 — 맨 위 ▲ = 감아 돎 |
+
+시험(scratch `u177r/` — `jvm/`·`simA/`·`simB/`): JVM `Lgm179Test`(초기화 지움·남김·되풀이·죽어도 안전 (a)~(f)·(g) 모르는 파일·바로가기·새 씨앗 = 다른 풀·컬러 · leagueInfo · 장면 줄·자리·펼침 글·글 폭·예산 · LeagueMenu 쉼 서랍 두 번 묻기·B·▲·터치) · `Lgm168Test`(168 정답 중 179 가 바꾼 넷) · `LgmBudget`(리그 탭 대기·쉼 × 이름 × 배치/LP/무쌍 × 열린 경기 × 펼침) · `LgmFuzz`(openLive) · LeagueMenuTest·MenuModelTest·LgmData·PostTest·Lgm177Test 그대로. 기기 흉내 `simA` 장면 ff179 · rs179 · wipe179(경기 중 서랍 — 사용자 화면 배치·기본) · wipe179susp(대기 서랍 · 멈춘 경기) · res179(결판 서랍 — 초기화·새 시즌) · upexit·upexitlobby(shot·def) · 회귀 lobby·lobbyff·pausedrawer·actblock·reset·name.
+

@@ -15,7 +15,8 @@ void slash_clear(slash_want *w);
 /* 경기 쪽 창 — (MODE 241 이고 이야기 序章(SCR 0 · FIGHT 0)이 아님) 또는 (MODE 240 이고 SCR ≥ 8 = 전투 로드·인트로·라운드 사이).
    고르기·카드(SCR 2/4/6)는 미리보기가 팔레트 1~4 에 커서 캐릭터 효과 색을 실어서, 序章은 P1 블록(0x5B51)이 앞 판 값이라 뺀다(실측) */
 int  slash_window(const uint8_t *ram);
-/* side 0 = P1(키 0x5B51 → 팔레트 1~4 · 내가 벤 섬광 11) · 1 = P2(키 0x5D51 → 6~9 · 10 — 상대 커스텀 컬러 때. 이번엔 안 부름).
+/* side 0 = P1(키 0x5B51 → 팔레트 1~4 중 칼 궤적 한 칸 · 내가 벤 섬광 11) · 1 = P2(키 0x5D51 → 6~9 중 칼 궤적 한 칸 · P2 가 벤 섬광 10 —
+   177 리그 상대 베기 색, look.c opp_fx_now). 두 쪽 같은 규칙(칼 궤적 + 벤 섬광만 · 필살 효과는 원래 색).
    preset 0 이나 범위 밖이면 그 쪽은 비움. w 의 다른 쪽 칸은 건드리지 않는다(두 쪽을 한 표에 — 부르는 쪽이 먼저 slash_clear) */
 void slash_build(const uint8_t *ram, int side, int preset, slash_want *w);
 /* 고르기 화면 아이콘 세 색(core · mid · edge) — 프리셋 1~6 = 그 T, 0 = 그 캐릭터·검질의 원래 +2 궤적을 밝기 순으로(+2 가 어두우면 +1·+3 —

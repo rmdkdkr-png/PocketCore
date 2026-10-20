@@ -4,7 +4,7 @@
 # 컬러판(모든 모드 컬러 look.c): 세로 칸의 컬러 이름 넷(«기본·2P색·컬러3·컬러4»)을 HUB_VLAB 에서 빼고(HUB_VLAB_N = 9 — 배경 8 + 무작위),
 #       컬러 18개(프리셋 16 · 내 색 1·2 — look_tab.h LOOK_NAME · Java Look.NAMES 와 같은 순서)를 LOOK_VLAB 로 따로 낸다(look.c 가 #define HUB_WANT_LOOK 로 받음).
 # 165 베기 색: SLASH_VLAB(«베기 + 이름» 7개)·SLASH_ICON(아이콘 4타일)을 같은 HUB_WANT_LOOK 안에(기존 배열은 바이트까지 그대로).
-import sys, json
+import sys, os, json
 RI_GEU = [   # 메뉴 «리그» 16x8 (원래 «2 인» 자리, 7px 글꼴 · 잉크 1 · 바탕 3)
  "####..#..######.",
  "...#..#.......#.",
@@ -128,14 +128,41 @@ def vglyph_gap(lab, gap):   # «베기» 두 글자 + gap px + 이름 두 글자
                     X, Y = x + ox, y0 + y
                     if 0 <= X < 16 and 0 <= Y < 72: col[Y][X] = 1
     return enc_tiles(col, 16, 72)
+# 177 §10-8 나/상대 고르기 화면 구분 — 머리말 «내 캐릭터»(80x16 = 머리말 10칸 × 2줄 통째, 같은 칠: 잉크 1 · 바깥테 3 · 바탕 0 — 갈무리11 12px 를
+#   SANG_DAE 와 같은 자리(ox 8 · oy 2)에. 글은 x < 72 — 한글판은 1줄 14칸이 0x159(0줄 14칸과 같은 타일)라 마지막 칸 타일 둘은 비워 둔다) ·
+#   «상대» 도장 16x16(문양 칸 2x2 — 색 1 바탕 · 2 글 · 0 둥근 모서리, 갈무리7 8px). 둘째 판 팔레트(허브가 빌린 빨강)로 칠한다
+def hdr_mask(txt, font, W, H):
+    im = Image.new('L', (W, H), 0); ImageDraw.Draw(im).text((0, 0), txt, font=font, fill=255)
+    bb = im.getbbox()
+    return [''.join('#' if im.getpixel((x, y)) > 127 else '.' for x in range(bb[0], bb[2])) for y in range(bb[1], bb[3])]
+def seal16(txt, font):
+    im = Image.new('L', (16, 16), 0); ImageDraw.Draw(im).text((0, 0), txt, font=font, fill=255)
+    bb = im.getbbox(); w, hh = bb[2] - bb[0], bb[3] - bb[1]
+    ox, oy = (16 - w + 1) // 2 - bb[0], (16 - hh) // 2 - bb[1]
+    px = [[1] * 16 for _ in range(16)]
+    for (x, y) in ((0, 0), (15, 0), (0, 15), (15, 15)): px[y][x] = 0
+    for y in range(16):
+        for x in range(16):
+            sx, sy = x - ox, y - oy
+            if 0 <= sx < 16 and 0 <= sy < 16 and im.getpixel((sx, sy)) > 127: px[y][x] = 2
+    return px
+naechar_tiles = []; seal_tiles = []
 if len(sys.argv) > 3:
     from PIL import Image, ImageDraw, ImageFont
     fnt = ImageFont.truetype(sys.argv[3], 12)
     vtiles = [vglyph(lab) for lab in VLABELS]
     ltiles = [vglyph(lab) for lab in LOOK_VLABELS]
     stiles = [vglyph_gap(lab, 6) for lab in SLASH_VLABELS]
+    NAE_CHAR = hdr_mask('내 캐릭터', fnt, 80, 16)
+    nae = outlined(NAE_CHAR, 80, 16, 8, 2)
+    assert all(v == 0 for row in nae for v in row[72:]), '«내 캐릭터» 가 마지막 칸(한글판 0x159)을 침범'
+    naechar_tiles = enc_tiles(nae, 80, 16)                               # 위 10타일(0x150~0x159) 뒤 아래 10타일(0x15A~0x163)
+    f7 = ImageFont.truetype(os.path.join(os.path.dirname(os.path.abspath(sys.argv[3])), 'galmuri7.ttf'), 8)
+    seal_tiles = enc_tiles(seal16('상대', f7), 16, 16)
 open(sys.argv[1],'w').write('/* hub_glyphs.py 로 만든 글자 타일 — 「리그」(타이틀 메뉴 2번째 줄 앞 두 타일) · 「상대」(캐릭터 고르기 머리말 앞 6칸 × 2줄) · 「선택」(순정판 머리말 뒤 4칸 × 2줄) */\n'
    + carr('HUB_MENU_RIGEU', mt) + carr('HUB_HDR_SANGDAE', ht) + carr('HUB_HDR_SEONTAEK', st)
+   + ('/* 177 §10-8 머리말 «내 캐릭터»(10칸 × 2줄 — 위 10타일 뒤 아래 10타일, 한글판은 마지막 칸 타일을 안 씀) · «상대» 도장(문양 칸 2x2, 색 1 바탕 · 2 글) */\n'
+      + carr('HUB_HDR_NAECHAR', naechar_tiles) + carr('HUB_SEAL_SANGDAE', seal_tiles) if naechar_tiles else '')
    + ('#define HUB_VLAB_N %d   /* 세로 글자(캐릭터 고르기 오른쪽 이름 칸): 배경 0~7 · 8 무작위 — 하나에 9줄 × 2칸 = 18타일.\n'
       '                    갈무리11(Galmuri11, SIL OFL 1.1 — 앱 assets/fonts/pixel.ttf 와 같은 글꼴) 12px 로 그림 */\n' % len(vtiles)
       + carr('HUB_VLAB', [t for v in vtiles for t in v]) if vtiles else '')

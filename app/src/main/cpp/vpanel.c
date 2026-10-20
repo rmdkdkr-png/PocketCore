@@ -73,12 +73,16 @@ int vpanel_icon_layout(void)
 static void pal_get(int p, uint16_t c[3]) { const uint8_t *e = v_pal + 0x100 + p * 8 + 2; for (int j = 0; j < 3; j++) c[j] = (uint16_t)(rd16(e + 2 * j) & 0xFFF); }
 static void pal_set(int p, const uint16_t c[3]) { uint8_t *e = v_pal + 0x100 + p * 8 + 2; for (int j = 0; j < 3; j++) wr16(e + 2 * j, c[j]); }
 static int tri_eq(const uint16_t a[3], const uint16_t b[3]) { return a[0] == b[0] && a[1] == b[1] && a[2] == b[2]; }
-/* 둘째 판 칸 중 팔레트 p 를 쓰는 것이 있나 — 우리 아이콘 칸 넷은 뺀다 */
+/* 177 §10-8: 허브가 머리말 칸(0~1줄 5~14칸)도 아이콘이 빌린 팔레트로 칠하는 중(상대 화면 빨강 — 같은 팔레트) */
+static int hdr_mark;
+void vpanel_hdr_mark(int on) { hdr_mark = on ? 1 : 0; }
+/* 둘째 판 칸 중 팔레트 p 를 쓰는 것이 있나 — 우리 아이콘 칸 넷은 뺀다(허브가 머리말을 빌린 팔레트로 칠하는 동안엔 그 칸도) */
 static int pal_used(int p)
 {
    for (int i = 0; i < 1024; i++) {
       int r = i >> 5, c = i & 31;
       if (r < 2 && (c == 17 || c == 18)) continue;
+      if (hdr_mark && r < 2 && c >= 5 && c <= 14) continue;
       if (((rd16(v_scr + 0x800 + i * 2) >> 9) & 15) == p) return 1;
    }
    return 0;
@@ -137,7 +141,7 @@ void vpanel_restore(void)
    if (vp_tsaved && v_chr && !memcmp(v_chr + VP_T0 * 16, vp_tlast, sizeof vp_tlast)) memcpy(v_chr + VP_T0 * 16, vp_tsave, sizeof vp_tsave);
    vp_tsaved = 0;
 }
-void vpanel_forget(void) { vp_on = 0; vp_tsaved = 0; memset(&IC, 0, sizeof IC); IC.pal = -1; }
+void vpanel_forget(void) { vp_on = 0; vp_tsaved = 0; memset(&IC, 0, sizeof IC); IC.pal = -1; hdr_mark = 0; }
 int vpanel_on(void) { return vp_on || IC.on; }
 
 /* 타이틀 메뉴가 떠 있나 — 메뉴 글자 타일이 제자리에 있는지로 본다(램 표시는 리셋 뒤에 안 서는 게 있고, 이어하기 뒤 SCR 0 이 8프레임 서는 일도 있어

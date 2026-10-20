@@ -15,7 +15,7 @@ import java.util.Iterator;
  *   pocketcore_ss2_look      enabled / disabled (설정 «컬러 고르기», 기본 켬)
  *   pocketcore_ss2_look_mem  16개 정수 "0,2,0,9,…" — 칸 0~13 캐릭터 · 14 안 씀(유가) · 15 가운데 무작위 칸, 값 0·2~17(옛 1 = 2P색은 0 으로 읽음)
  *   pocketcore_ss2_look_cus  JSON {"v":1,"c":{"11":[[3039,744,65],null], …}} — 캐릭터 → [내 색 1, 내 색 2], 각 [밝은 색, 옷 색, 테 색] 12비트 0x0BGR 또는 null
- *   pocketcore_ss2_slash     "0"~"6" — 베기 색(칼 궤적·필살 이펙트·내가 벤 섬광, native slash.c) 하나로 기억(캐릭터마다 아님). 그 밖·없음 = 0(원래 색)
+ *   pocketcore_ss2_slash     "0"~"6" — 베기 색(칼 궤적·내가 벤 섬광 — 177 부터 필살 효과는 원래 색, native slash.c) 하나로 기억(캐릭터마다 아님). 그 밖·없음 = 0(원래 색)
  * 번호(기록·기억에 남는 값) = NAMES 순서 = native look_tab.h LOOK_NAME = 세로 칸 글자 LOOK_VLAB 순서. 베기 색 번호 = FX_NAMES = slash.h SLASH_NAME.
  * 몸 컬러를 캐릭터마다 기억하는 것은 스파6·길티기어식 — 16가지면 캐릭터마다 어울리는 색이 다르다. 베기 색은 밝기 순서로 맞춰 넣어 어느 캐릭터나 같은 «내 색»이라 하나.
  */

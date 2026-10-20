@@ -85,8 +85,9 @@ final class MenuModel {
         int season; String since, wld; String[] pastRows = new String[0];   // 시즌 줄 · 지난 시즌(새것부터)
         boolean placement; int placementPlayed;                            // 배치 중이면 새 시즌 줄 없음(못 쓰는 줄은 안 넣는다)
         int lp0, lp1; String label0, label1;                                // 새 시즌 미리보기 LP lp0 → lp1
-        boolean canSeason, canMain;                                         // 시즌 도구·내 캐릭터 줄을 넣나(쉼에서 연 서랍 · 기록 파일 문제면 false)
+        boolean canSeason, canMain;                                         // 시즌 도구(새 시즌·처음부터·179 리그 초기화) 줄 · 내 캐릭터 줄을 넣나(179: 시즌 도구는 쉼·결판에서 연 서랍도 — 기록 파일 문제면 false · 내 캐릭터는 대기만)
         String openVs, openForfeit;                                         // 멈춘 경기(시작한 열린 경기) 상대 닉 · 기권 몫(«−18 LP»/«배치 1패») — 두 번 묻기 글
+        boolean openLive;                                                   // 179: 그 열린 경기가 지금 이 판에서 도는 경기(쉼에서 연 서랍) — 두 번 묻기 글 «지금 경기…»(아니면 «멈춘 경기…»)
         String[] holds = new String[0];                                     // 보류·무효 줄(새것부터 5)
         String mainLabel, name;                                             // 내 캐릭터(null = 아직) · 내 이름
         String[] rules = new String[0];                                     // 짧은 규칙 줄
@@ -144,6 +145,7 @@ final class MenuModel {
     final String oppTag;                        // RankCore 꼬리표 첫째(«설욕전»·«라이벌»…) 없으면 null
     final int[] stakes;                         // {이기면, 지면} LP — 배치·무쌍이면 null
     final Forfeit forfeit;                      // G10
+    final int[] oppSwatch;                      // 177 쉼 정보 패 상대 컬러 견본 — 상대가 지금 보이는 세 색(거울 대신 색이면 그 색) · 상대 컬러가 없으면 null
 
     /** 만들 때 필요한 그 밖의 값(UI 스레드가 채움) */
     static final class Ctx {
@@ -151,6 +153,7 @@ final class MenuModel {
         int stageSel;                    // League.prefStage()
         int[] ov;                        // Emu.nativeOvStatus()(라운드 승수 — 없으면 null)
         boolean started;                 // 쉼: 첫 라운드를 봤나
+        int[] look;                      // 177 Emu.nativeLookStatus() — [18] 상대 컬러 상태 · [19] 대신 색 번호(옛 native·없으면 null)
         BoardCache.Board board, boardBefore;   // 지금 · 이 판 전(없으면 null)
         Prefs prefs;
     }
@@ -318,6 +321,16 @@ final class MenuModel {
         }
     }
 
+    /** 177 쉼 견본 — native 가 이 프레임 실제로 칠한 것(look [18]): 0 → null · 1 주 색(기록 opp_snap.col.t) · 2 거울 대신 색(LookTab — 상대 줄·검질의 [19] 번) */
+    static int[] oppSwatch(JSONObject m, int[] look) {
+        if (m == null || look == null || look.length < 20 || look[18] == 0) return null;
+        if (look[18] == 1) { OppLook.Col c = League.matchCol(m); return c != null ? c.t.clone() : null; }
+        JSONObject r = m.optJSONObject("rule");
+        int row = LookTab.row(r != null ? r.optInt("char", -1) : -1), sty = r != null ? r.optInt("style") & 1 : 0, i = look[19];
+        if (look[18] != 2 || row < 0 || i < 0 || i >= LookTab.NPRE) return null;
+        short[] t = LookTab.TAB[row][sty][i];
+        return new int[]{ t[0], t[1], t[2] };
+    }
     /** 쉼 사본 — m = 진행 중인 랭크 경기 기록 */
     static MenuModel pause(android.content.Context c, JSONObject m, Ctx ctx) {
         try {
@@ -337,6 +350,7 @@ final class MenuModel {
             RankCore.Player rp = League.rankPlayer(oid);
             boolean legacy = rp != null && rp.legacy || m.optJSONObject("opp_snap") != null && m.optJSONObject("opp_snap").optBoolean("legacy");
             b.oppTag = firstTag(h, legacy);
+            b.oppSwatch = oppSwatch(m, ctx.look);
             b.stakes = RankCore.stakes(me, s0.optDouble("opp_mmr", me.mmr));
             b.mode = s0.optInt("placement_left", me.placementLeft) > 0 ? M_PLACEMENT : s0.optBoolean("master") ? M_MASTER : M_LP;
             b.lpBefore = b.lpAfter = me.lp; b.mrBefore = b.mrAfter = me.mr;
@@ -639,7 +653,7 @@ final class MenuModel {
         String event; int[] ribbons = new int[0]; Tag[] tags = new Tag[0]; boolean eventful;
         int[] rows = new int[0]; boolean[] rowOn = new boolean[0]; String[] rowDesc = new String[0]; String[] rowRight = new String[0];
         int defaultRow, rematchPlayed, stageSel;
-        boolean started; int roundsMe = -1, roundsOpp = -1; String oppTag; int[] stakes; Forfeit forfeit;
+        boolean started; int roundsMe = -1, roundsOpp = -1; String oppTag; int[] stakes; Forfeit forfeit; int[] oppSwatch;
         B() { }
         B(MenuModel x) {
             kind = x.kind; matchId = x.matchId; me = x.me; opp = x.opp; prefs = x.prefs;
@@ -659,7 +673,7 @@ final class MenuModel {
             event = x.event; ribbons = x.ribbons; tags = x.tags; eventful = x.eventful;
             rows = x.rows; rowOn = x.rowOn; rowDesc = x.rowDesc; rowRight = x.rowRight;
             defaultRow = x.defaultRow; rematchPlayed = x.rematchPlayed; stageSel = x.stageSel;
-            started = x.started; roundsMe = x.roundsMe; roundsOpp = x.roundsOpp; oppTag = x.oppTag; stakes = x.stakes; forfeit = x.forfeit;
+            started = x.started; roundsMe = x.roundsMe; roundsOpp = x.roundsOpp; oppTag = x.oppTag; stakes = x.stakes; forfeit = x.forfeit; oppSwatch = x.oppSwatch;
         }
     }
 
@@ -682,5 +696,6 @@ final class MenuModel {
         rows = b.rows.clone(); rowOn = b.rowOn.clone(); rowDesc = b.rowDesc.clone(); rowRight = b.rowRight.clone();
         defaultRow = b.defaultRow; rematchPlayed = b.rematchPlayed; stageSel = b.stageSel;
         started = b.started; roundsMe = b.roundsMe; roundsOpp = b.roundsOpp; oppTag = b.oppTag; stakes = b.stakes != null ? b.stakes.clone() : null; forfeit = b.forfeit;
+        oppSwatch = b.oppSwatch != null ? b.oppSwatch.clone() : null;
     }
 }

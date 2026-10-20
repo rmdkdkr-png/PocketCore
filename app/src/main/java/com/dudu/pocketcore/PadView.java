@@ -1051,6 +1051,25 @@ public class PadView extends View {
         return (float) Math.sqrt(dx * dx + dy * dy);
     }
 
+    /** u177(B) — 이 점의 누름(DOWN)을 패드가 받나: onTouchEvent DOWN 의 차례 그대로(되돌리기 칩 · 메뉴 알약 · 열린 바·배치 = 전부 ·
+     *  숨긴 버튼 = 아님 · 치트 알약 · 배속 · 목록 · 십자 잡기 1.35R · 버튼 1.25R · OPTION 알약). 덧판 메뉴 터치 층(EmuActivity.lgmTouchL)이
+     *  게임 그림 위에 놓인 패드 단추를 먹지 않게 — 그 밖의 그림 자리는 덧판이 받는다 */
+    public boolean ownsDown(float x, float y) {
+        if (fx == null || getWidth() <= 0 || getHeight() <= 0) return false;
+        if (!undoChip.isEmpty() && undoLive() && !(barOpen || edit) && undoChip.contains(x, y)) return true;
+        if (handleHit(x, y)) return true;
+        if (barOpen || edit) return true;
+        if (hidesTouch()) return false;
+        if (cheatPid < 0 && cheatDownHit(x, y)) return true;
+        int fi = ffIndex();
+        if (fi >= 0 && dist(x, y, cx(fi), cy(fi)) < radOf(fi) * 1.3f) return true;
+        int xi = exitIndex();
+        if (xi >= 0 && dist(x, y, cx(xi), cy(xi)) < radOf(xi) * 1.3f) return true;
+        int di = dpadIndex();
+        if (di >= 0 && dist(x, y, cx(di), cy(di)) < radOf(di) * 1.35f) return true;
+        return hitButtons(x, y) != 0;
+    }
+
     @Override public boolean onTouchEvent(MotionEvent e) {
         int act = e.getActionMasked();
         /* 버튼을 숨긴 동안은 눌림(DOWN)만 메뉴 알약·유틸 바·«다시 꺼내기»용으로 받는다 */

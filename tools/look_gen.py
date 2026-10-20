@@ -5,13 +5,14 @@
 프리셋 정의는 colorgen.py 의 FINAL(같은 폴더). 세로 이름 칸 글자(LOOK_VLAB)는 hub_glyphs.py 가 hub_glyphs.h 에 만든다.
 177(166-5): 프리셋 2~15 는 검질과 무관 — 수라 판 값(그 캐릭터 수라 기본·2P색으로 계산)을 두 검질에 같이 쓴다. 0 기본·1 2P색만 검질마다 게임 색.
    겹침(LOOK_DUP)은 합친 값으로 다시 센다(그 검질 기본과 같은 프리셋은 그 검질에서만 건너뜀).
-177: 줄 15 = 유가(상대 컬러 전용 — 리그 상대가 유가일 때. P1 코드는 row < 14 그대로). 롬 0x259310 + 14*0x40 의 [0]·[4]·[5]·[6].
+177: 줄 15 = 유가(상대 컬러 전용 — 리그 상대가 유가일 때. P1 코드는 row < 14 그대로). 롬 0x259310 + 14*0x40 의 [0]·[3]·[5]·[6](실측 경기 팔레트 5).
 177: 둘째 인자를 주면 LookTab.java 도 — 자바가 상대 컬러를 native 없이 정하고(OppLook) 쉼 견본(MenuModel)을 그린다. tools/check_golden.py 가 두 표가 같은지 본다."""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import colorgen as G
 KUROKO = ((0xEEE, 0x666, 0x000), (0xEEE, 0x666, 0x000))   # 가운데 무작위 칸 미리보기(쿠로코) — 실측 eee/666/000, 2P색 없음
-YUGA = (((0xFBB, 0xC61, 0x402), (0xFFF, 0xFF0, 0xF70)), ((0xFCC, 0xA38, 0x303), (0xFEB, 0xBA0, 0x420)))   # 롬 0x259310+14*0x40 [0][4] · [5][6] (실측 경기 팔레트 5 와 같음)
+YUGA = (((0xFBB, 0xC61, 0x402), (0xFFB, 0x570, 0x330)), ((0xFCC, 0xA38, 0x303), (0xFEB, 0xBA0, 0x420)))   # 롬 0x259310+14*0x40 [0][3] · [5][6] — 177 실측 경기 P2 팔레트 5
+#   (수라 기본 FBB/C61/402 · 수라 거울 2P FFB/570/330 · 나찰 기본 FCC/A38/303 · 나찰 거울 2P FEB/BA0/420 — 설계의 수라 2P «[4] FFF/FF0/F70» 은 게임이 안 씀)
 out = sys.argv[1]; jout = sys.argv[2] if len(sys.argv) > 2 else None
 rows = [G.PAL1[c] for c in range(14)] + [(KUROKO, KUROKO), YUGA]
 NROW = len(rows)
