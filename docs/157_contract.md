@@ -809,3 +809,14 @@ vsync 마다 그린 텍스처의 이름표 줄 = 날 그림 + 자바로 따로 �
 
 시험(scratch `u177r/` — `jvm/`·`simA/`·`simB/`): JVM `Lgm179Test`(초기화 지움·남김·되풀이·죽어도 안전 (a)~(f)·(g) 모르는 파일·바로가기·새 씨앗 = 다른 풀·컬러 · leagueInfo · 장면 줄·자리·펼침 글·글 폭·예산 · LeagueMenu 쉼 서랍 두 번 묻기·B·▲·터치) · `Lgm168Test`(168 정답 중 179 가 바꾼 넷) · `LgmBudget`(리그 탭 대기·쉼 × 이름 × 배치/LP/무쌍 × 열린 경기 × 펼침) · `LgmFuzz`(openLive) · LeagueMenuTest·MenuModelTest·LgmData·PostTest·Lgm177Test 그대로. 기기 흉내 `simA` 장면 ff179 · rs179 · wipe179(경기 중 서랍 — 사용자 화면 배치·기본) · wipe179susp(대기 서랍 · 멈춘 경기) · res179(결판 서랍 — 초기화·새 시즌) · upexit·upexitlobby(shot·def) · 회귀 lobby·lobbyff·pausedrawer·actblock·reset·name.
 
+
+## §24 181 합침 — 180(치트 미터·메뉴 효과음·검질 무관 컬러·다른 세션 음색 다듬기/칼 궤적만) + w177-oppcol(177 상대 컬러 · 179)
+
+| 무엇 | 정함 |
+|---|---|
+| 상대 베기 색 × 칼 궤적만 | 상대 베기 색(177 · `look.c opp_fx_now`)은 내 베기 색과 같은 `slash_build`(side 1)라 다른 세션 177 규칙을 그대로 따른다: **P2 칼 궤적 칸 하나**(+2 = 팔레트 7 · 아수라 +1 = 6) + P2 가 벤 섬광(10)만. P2 필살 효과 칸(나머지 +1~+4)·짝꿍·B7 은 원래 색. 내 베기 색과 같으면 상대 쪽 0(M2) 그대로 |
+| 리그 탭 «리그 초기화» × 메뉴 효과음 | `LG_WIPE` 는 `LgmPages.lgConfirmRow` 라 176 두 번 묻기 소리 길을 그대로: ▲▼ 커서 · 첫 A(펼침) 결정 · B/OPTION/◀▶ 거둠 뒤로 · ▲▼ 거두고 옮김 커서 · 둘째 A 결정 → `lgmSeason(3)`. 쉼(경기 중) 서랍도 같은 `ST_DRAWER` 길 |
+| 그림 위 패드(179 B) × 바 «치트» 칸·알약(176) | `PadView.ownsDown` = onTouchEvent DOWN 차례 — 바가 열렸으면 전부 패드(바 «치트» 칸 포함), 치트 알약은 `cheatDownHit`. 덧판 위에서도 바 칸·알약이 먼저 |
+| 대미지 숫자·프레임 미터 × 나/상대 머리말·상대 컬러 | 숫자는 경기 HUD 줄 3 칸 8~10(팔레트 4)·전투측(MODE 241)만 · 머리말은 고르기 화면(vpanel 빌린 팔레트) · 상대 컬러는 스프라이트 팔레트 5 — 같은 화면·같은 칸에 안 겹친다. 연습 흐름은 176 보기가 꺼짐(league_session_owner 2) |
+
+시험(scratch `u181/`): t_opp slash 에 «상대 칼 궤적만»(P2 필살 칸에 상대 베기 색 0) · sim SimTest `p2Ctl`(slash9* · v_slashview — 상대 궤적 칸 상대 색 · 궤적 원래 색 0 · 필살 칸 상대 색 0) · `LgmSfxTest` 리그 초기화 줄 소리.
