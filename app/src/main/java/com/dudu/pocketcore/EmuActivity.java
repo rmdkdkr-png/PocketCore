@@ -677,7 +677,8 @@ public class EmuActivity extends Activity {
         }});
         int[] fx = new int[Settings.SND_FX_KEYS.length];   /* 178 세부(50 = 기본 ②) — 바뀌었으면 native 가 새로 만들어 콜백이 다음 묶음에 바꿔 낀다 */
         for (int i = 0; i < fx.length; i++) fx[i] = Settings.pctOf(m, Settings.SND_FX_KEYS[i], 50);
-        Emu.nativeSetSoundFx(!"disabled".equals(m.get(Settings.SND_FX)), fx[0], fx[1], fx[2], fx[3], fx[4]);   /* 176 음색 다듬기 켬/끔 — 소리 카드 콜백이 다음 묶음부터 봄 */
+        Emu.nativeSetSoundFx(!"disabled".equals(m.get(Settings.SND_FX)), fx[0], fx[1], fx[2], fx[3], fx[4],
+                             !"all".equals(m.get(Settings.SND_FX_TARGET)));   /* 176 켬/끔 · 179 배경음만(기본) — 코어 소리 콜백이 다음 묶음부터 봄 */
     }
 
     /* ── 게임 중에 바로 바꿀 수 있는 코어 옵션 ──

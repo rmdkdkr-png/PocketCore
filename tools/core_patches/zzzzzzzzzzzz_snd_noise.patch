@@ -1,0 +1,284 @@
+앱 방 코어 패치 zzzzzzzzzzzz_snd_noise — 잡음 칸(ch3)만 담은 소리를 한 벌 더 내준다(앱 179 «음색 다듬기 › 다듬을 소리 › 배경음만»).
+유저 10-20 「음색 다듬기 에러 심하면 배경음만 하던지」. 사무쇼2 효과음은 대전 중 잡음 칸만 쓴다 — 곡을 끈 롬(앱 Ss1Music.mute)으로
+데모 90초 + 봇 4캐릭터 184초씩: 사각파 ch0·ch1 효과음 0, ch2 는 메뉴 커서 소리 5번(대전 중 0), 대전 효과음은 모두 ch3. DAC 는 안 씀.
+- 잡음 발진기(T6W28_Noise)가 본 출력과 같은 변화를 두 번째 Stereo_Buffer(nbuf)에도 적는다(noise_dup). 본 소리(buf)는 손대지 않는다.
+- Flush 가 retro_run 의 sound_buf 에 본 소리를 읽을 때 같은 수의 잡음 샘플을 남기고(다른 버퍼면 읽어 버려 nbuf 가 buf 와 늘 같은 자리),
+  clear·상태 불러오기·Recover 는 둘 다. 예측 프레임은 ngp_fg_mute 라 둘 다 안 건드린다.
+- retro_ngp_snd_noise(data, frames): 앱이 audio_batch 콜백 안에서 — 받은 소리 자리의 잡음 칸을 같은 길이로(2배 출력의 뒷 반 fg_audio_tail 도).
+  모르는 자리면 NULL(앱은 통째로).
+호스트(172 바탕과 견줌, 데모 5400 프레임): 본 소리·그림 해시 바이트까지 같음(프레임 생성 끔·2배 120Hz 둘 다), 잡음 칸 못 받은 묶음 0,
+곡을 끈 롬에서 «본 소리 − 잡음» = 0(효과음이 모두 잡음 칸), 앱 native.c 그대로 넣은 끝에서 끝 시험 — 배경음만 = 기준 계산과 바이트 같음.
+diff --git a/src/libretro.c b/src/libretro.c
+index 4949de4..c4ad38e 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -401,6 +401,10 @@ static unsigned fg_frames = 0;         /* retro_run 호출 수 */
+ static unsigned fg_runahead_seen = 0;  /* 런어헤드용 저장이 마지막으로 보인 호출 번호 */
+ static int16_t  fg_audio_tail[0x8000]; /* 실제 프레임 소리의 뒷 반 — 합성 호출에서 보낸다 */
+ static int      fg_audio_tail_n = 0;
++/* snd_noise(앱 방 코어 패치): 위 뒷 반의 잡음 칸만 · retro_run 의 소리 버퍼 — retro_ngp_snd_noise 가 본다 */
++static int16_t  fg_noise_tail[0x8000];
++static int      fg_noise_tail_n = 0;
++static const int16_t *rr_sound_buf = NULL;
+ static uint16_t fg_real[FB_WIDTH * FB_HEIGHT];   /* 마지막 실제 프레임(후처리 전) */
+ static int      fg_rate_block = 0;     /* 호출 속도 감시가 '화면이 120Hz 가 아님' 으로 판정 — 재시도 때까지 끔 */
+ static double   fg_t_prev = 0, fg_win_sum = 0;
+@@ -1806,6 +1810,8 @@ void retro_run(void)
+    bool updated = false;
+    int synth = 0, hidden = 0, ss2_paused;
+    idle_out_slot = -1;                                  /* 서기 사이 그림 조각 — 이번 출력이 쓸 칸은 아래에서 정한다 */
++   rr_sound_buf = sound_buf;                            /* snd_noise: Flush 가 이 버퍼에 읽을 때만 잡음 칸을 남긴다 */
++   MDFNNGPCSOUND_NoiseTarget(sound_buf);
+ 
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
+       check_variables();
+@@ -2008,6 +2014,16 @@ void retro_run(void)
+          fg_audio_tail_n = n - half;
+          if (fg_audio_tail_n > (int)(sizeof(fg_audio_tail) / 4)) fg_audio_tail_n = sizeof(fg_audio_tail) / 4;
+          memcpy(fg_audio_tail, sound_buf + half*2, (size_t)fg_audio_tail_n * 2 * sizeof(int16_t));
++         {  /* snd_noise: 뒷 반의 잡음 칸도 같이 */
++            int32_t nn = 0;
++            const int16_t *nz = MDFNNGPCSOUND_Noise(sound_buf, &nn);
++            fg_noise_tail_n = 0;
++            if (nz && nn >= half + fg_audio_tail_n)
++            {
++               memcpy(fg_noise_tail, nz + half*2, (size_t)fg_audio_tail_n * 2 * sizeof(int16_t));
++               fg_noise_tail_n = fg_audio_tail_n;
++            }
++         }
+       }
+       else
+       {
+@@ -2219,6 +2235,22 @@ void *retro_get_memory_data(unsigned type)
+ 
+ /* zzz_fg_phase: 방금 video_cb 로 낸 그림이 4배(서기 사이 그림)면 화소마다의 원래 모눈 어긋남(x 0..3 | y 0..3 << 2, 피치 *pitch 바이트) —
+    앱이 video 콜백 안에서 부른다. 1배 그림이면 NULL */
++/* snd_noise(앱 방 코어 패치): 앱이 audio_batch 콜백 안에서 — 방금 받은 소리(data, frames)의 잡음 칸(ch3)만 같은 자리·같은 길이로.
++   모르는 자리(다른 버퍼·뒷 반이 없을 때)면 NULL — 앱은 그 묶음을 통째로 다룬다. 본 소리는 그대로라 «본 소리 − 잡음» = 사각파 셋(곡) */
++const int16_t *retro_ngp_snd_noise(const int16_t *data, unsigned frames)
++{
++   int32_t nn = 0;
++   const int16_t *nz;
++   uintptr_t d = (uintptr_t)data, e = d + (uintptr_t)frames * 2 * sizeof(int16_t);
++   if (!data) return NULL;
++   nz = MDFNNGPCSOUND_Noise(rr_sound_buf, &nn);
++   if (nz && rr_sound_buf && d >= (uintptr_t)rr_sound_buf && e <= (uintptr_t)(rr_sound_buf + (size_t)nn * 2))
++      return nz + (data - rr_sound_buf);
++   if (fg_noise_tail_n && d >= (uintptr_t)fg_audio_tail && e <= (uintptr_t)(fg_audio_tail + (size_t)fg_noise_tail_n * 2))
++      return fg_noise_tail + (data - fg_audio_tail);
++   return NULL;
++}
++
+ const uint8_t *retro_ngp_fg_phase(unsigned *w, unsigned *h, unsigned *pitch)
+ {
+    if (!idle_ph_ok) return NULL;
+diff --git a/src/mednafen/ngp/T6W28_Apu.cpp b/src/mednafen/ngp/T6W28_Apu.cpp
+index a3ff348..2dc0f1e 100644
+--- a/src/mednafen/ngp/T6W28_Apu.cpp
++++ b/src/mednafen/ngp/T6W28_Apu.cpp
+@@ -152,12 +152,14 @@ void T6W28_Noise::run( long time, long end_time )
+     {
+       last_amp_left = amp_left;
+       synth.offset( time, delta_left, outputs[2] );
++      if ( dup_left ) synth.offset( time, delta_left, dup_left );
+     }
+ 
+     if ( delta_right )
+     {
+       last_amp_right = amp_right;
+       synth.offset( time, delta_right, outputs[1] );
++      if ( dup_right ) synth.offset( time, delta_right, dup_right );
+     }
+    }
+ 
+@@ -170,6 +172,8 @@ void T6W28_Noise::run( long time, long end_time )
+    {
+       Blip_Buffer* const output_left = this->outputs[2];
+       Blip_Buffer* const output_right = this->outputs[1];
++      Blip_Buffer* const dl = this->dup_left;
++      Blip_Buffer* const dr = this->dup_right;
+ 
+       unsigned l_shifter = this->shifter;
+       int delta_left     = amp_left * 2;
+@@ -187,9 +191,11 @@ void T6W28_Noise::run( long time, long end_time )
+          {
+             delta_left = -delta_left;
+             synth.offset_inline( time, delta_left, output_left );
++            if ( dl ) synth.offset_inline( time, delta_left, dl );
+ 
+             delta_right = -delta_right;
+             synth.offset_inline( time, delta_right, output_right );
++            if ( dr ) synth.offset_inline( time, delta_right, dr );
+          }
+          time += l_period;
+       }
+@@ -213,6 +219,8 @@ T6W28_Apu::T6W28_Apu()
+       oscs [i] = &squares [i];
+    }
+    oscs [3] = &noise;
++   noise.dup_left = NULL;
++   noise.dup_right = NULL;
+ 
+    volume( 1.0 );
+    reset();
+@@ -243,6 +251,12 @@ void T6W28_Apu::osc_output( int index, Blip_Buffer* center, Blip_Buffer* left, B
+ 	osc.outputs [3] = center;
+ }
+ 
++void T6W28_Apu::noise_dup( Blip_Buffer* left, Blip_Buffer* right )
++{
++	noise.dup_left = left;
++	noise.dup_right = right;
++}
++
+ void T6W28_Apu::output( Blip_Buffer* center, Blip_Buffer* left, Blip_Buffer* right )
+ {
+    int i;
+diff --git a/src/mednafen/ngp/T6W28_Apu.h b/src/mednafen/ngp/T6W28_Apu.h
+index 40d39d8..49c7869 100644
+--- a/src/mednafen/ngp/T6W28_Apu.h
++++ b/src/mednafen/ngp/T6W28_Apu.h
+@@ -44,6 +44,9 @@ class T6W28_Apu
+       enum { osc_count = 4 };
+       void osc_output( int index, Blip_Buffer* center, Blip_Buffer* left, Blip_Buffer* right );
+ 
++      // 앱 방 snd_noise: 잡음 발진기의 변화를 이 버퍼들에도(본 출력은 그대로). NULL 이면 끔.
++      void noise_dup( Blip_Buffer* left, Blip_Buffer* right );
++
+       // Reset oscillators and internal state
+       void reset();
+ 
+diff --git a/src/mednafen/ngp/T6W28_Oscs.h b/src/mednafen/ngp/T6W28_Oscs.h
+index 5f65c4f..1d7ccde 100644
+--- a/src/mednafen/ngp/T6W28_Oscs.h
++++ b/src/mednafen/ngp/T6W28_Oscs.h
+@@ -39,6 +39,8 @@ struct T6W28_Square : T6W28_Osc
+ 
+ struct T6W28_Noise : T6W28_Osc
+ {
++	Blip_Buffer* dup_left;   /* 앱 방 snd_noise: 같은 변화를 한 벌 더(잡음만 담는 버퍼) — NULL 이면 안 씀 */
++	Blip_Buffer* dup_right;
+ 	const int* period;
+ 	int period_extra;
+ 	unsigned shifter;
+diff --git a/src/mednafen/ngp/sound.cpp b/src/mednafen/ngp/sound.cpp
+index 9263655..ee82854 100644
+--- a/src/mednafen/ngp/sound.cpp
++++ b/src/mednafen/ngp/sound.cpp
+@@ -1,4 +1,5 @@
+ #include <stdlib.h>
++#include <string.h>
+ 
+ #include "neopop.h"
+ #include "sound.h"
+@@ -13,6 +14,17 @@ static T6W28_Apu apu;
+ 
+ static Stereo_Buffer buf;
+ 
++/* 앱 방 코어 패치 snd_noise — 잡음 칸(ch3)만 담은 소리를 한 벌 더. 앱의 «음색 다듬기 › 배경음만»이 «본 소리 − 잡음»(사각파 셋 = 곡)에만
++   음색 다듬기를 하고 잡음(사무쇼2 대전 효과음 — 효과음은 대전 중 잡음 칸만 쓴다, 곡을 끈 롬으로 봇 4판 실측)은 그대로 더한다.
++   본 소리(buf)는 바이트까지 그대로 — 잡음 발진기가 같은 변화를 nbuf 에도 적을 뿐. Flush 가 «대상» 버퍼(retro_run 의 sound_buf)에
++   본 소리를 읽을 때 같은 수의 잡음 샘플을 snd_noise 에 남기고, 다른 버퍼(없음 — 예측 프레임은 ngp_fg_mute)면 읽어 버려 nbuf 가 buf 와
++   늘 같은 자리에 있게 한다 */
++static Stereo_Buffer nbuf;
++static int16_t snd_noise[0x10000];
++static int16_t snd_noise_drop[0x10000];
++static const int16_t *snd_noise_target = NULL, *snd_noise_for = NULL;
++static int32_t snd_noise_n = 0;
++
+ static uint8_t LastDACLeft = 0, LastDACRight = 0;
+ static uint8_t CurrentDACLeft = 0, CurrentDACRight = 0;
+ 
+@@ -73,11 +85,27 @@ extern "C" int32_t MDFNNGPCSOUND_Flush(int16_t *SoundBuf, const int32_t MaxSound
+ 
+    apu.end_frame(ngpc_soundTS >> 1);
+    buf.end_frame(ngpc_soundTS >> 1);
++   nbuf.end_frame(ngpc_soundTS >> 1);
+ 
+    if(SoundBuf)
++   {
+       FrameCount = buf.read_samples(SoundBuf, MaxSoundFrames * 2) / 2;
++      {  /* snd_noise: 같은 수만큼 */
++         int16_t *dst = (SoundBuf == snd_noise_target && FrameCount * 2 <= (int32_t)(sizeof(snd_noise) / sizeof(snd_noise[0]))) ? snd_noise : snd_noise_drop;
++         int32_t want = FrameCount * 2, got = 0;
++         if (want > (int32_t)(sizeof(snd_noise) / sizeof(snd_noise[0]))) want = (int32_t)(sizeof(snd_noise) / sizeof(snd_noise[0]));
++         got = (int32_t)nbuf.read_samples(dst, want);
++         if (got < want) memset(dst + got, 0, (size_t)(want - got) * sizeof(int16_t));
++         if (dst == snd_noise) { snd_noise_for = SoundBuf; snd_noise_n = FrameCount; }
++         else if (SoundBuf == snd_noise_for) snd_noise_for = NULL;
++      }
++   }
+    else
++   {
+       buf.clear();
++      nbuf.clear();
++      snd_noise_for = NULL;
++   }
+ 
+    return(FrameCount);
+ }
+@@ -86,16 +114,33 @@ extern "C" void MDFNNGPCSOUND_Init(void)
+ {
+    MDFNNGPC_SetSoundRate();
+    buf.clock_rate((long)(3072000));
++   nbuf.clock_rate((long)(3072000));
+ 
+    apu.output(buf.center(), buf.left(), buf.right());
++   apu.noise_dup(nbuf.left(), nbuf.right());
+    apu.volume(0.30);
+    synth.volume(0.40);
+    buf.bass_freq(20);
++   nbuf.bass_freq(20);
+ }
+ 
+ extern "C" void MDFNNGPC_SetSoundRate(void)
+ {
+    buf.set_sample_rate(44100, 60);
++   nbuf.set_sample_rate(44100, 60);
++}
++
++/* snd_noise: Flush 가 잡음을 남길 버퍼(retro_run 의 sound_buf) · 마지막으로 남긴 잡음(buf 가 그 버퍼일 때만, 아니면 NULL) */
++extern "C" void MDFNNGPCSOUND_NoiseTarget(const int16_t *target)
++{
++   snd_noise_target = target;
++}
++
++extern "C" const int16_t *MDFNNGPCSOUND_Noise(const int16_t *for_buf, int32_t *frames)
++{
++   if (!for_buf || for_buf != snd_noise_for) return NULL;
++   if (frames) *frames = snd_noise_n;
++   return snd_noise;
+ }
+ 
+ /* 상태에 소리 칸이 없을 때(패치 99d) — 게임은 켤 때 소리칩을 한 번 켜고(0xB8=0x55) 다시 안 켠다. 소리 칸이 빠진 상태를
+@@ -106,6 +151,8 @@ extern "C" void MDFNNGPCSOUND_Recover(void)
+    schipenable = 1;
+    apu.reset();
+    buf.clear();
++   nbuf.clear();
++   snd_noise_for = NULL;
+    CurrentDACLeft = CurrentDACRight = 0;
+    LastDACLeft = LastDACRight = 0;
+ }
+@@ -143,6 +190,8 @@ extern "C" int MDFNNGPCSOUND_StateAction(void *data, int load, int data_only)
+    if(load)
+    {
+       buf.clear();
++      nbuf.clear();
++      snd_noise_for = NULL;
+       apu.load_state(&sn_state);
+ 
+       LastDACLeft = CurrentDACLeft;
+diff --git a/src/mednafen/ngp/sound.h b/src/mednafen/ngp/sound.h
+index a6e7d2e..90b1885 100644
+--- a/src/mednafen/ngp/sound.h
++++ b/src/mednafen/ngp/sound.h
+@@ -31,6 +31,8 @@ void MDFNNGPCSOUND_SetEnable(bool set);
+ void MDFNNGPCSOUND_Init(void);
+ int MDFNNGPCSOUND_StateAction(void *data, int load, int data_only);
+ void MDFNNGPCSOUND_Recover(void);   /* 99d: 소리 칸 없는 상태 — 소리칩 켜기 */
++void MDFNNGPCSOUND_NoiseTarget(const int16_t *target);                      /* snd_noise: 잡음을 남길 소리 버퍼 */
++const int16_t *MDFNNGPCSOUND_Noise(const int16_t *for_buf, int32_t *frames); /* snd_noise: 그 버퍼에 읽은 소리의 잡음 칸만(없으면 NULL) */
+ void MDFNNGPC_SetSoundRate(void);
+ int32_t MDFNNGPCSOUND_Flush(int16_t *SoundBuf, const int32_t MaxSoundFrames);
+ 

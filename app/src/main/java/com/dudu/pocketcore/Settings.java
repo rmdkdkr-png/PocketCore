@@ -27,6 +27,8 @@ public final class Settings {
     public static final String SND_FX = "pocketcore_snd_fx";
     /** 178 음색 다듬기 세부(0..100, 50 = 들어 보기 ② = 176) — 저음 보강·고음 눅이기·좌우 넓힘·울림·울림 길이. native sndfx_from_pct 와 같은 순서 */
     public static final String[] SND_FX_KEYS = { "pocketcore_snd_bass", "pocketcore_snd_treble", "pocketcore_snd_width", "pocketcore_snd_reverb", "pocketcore_snd_room" };
+    /** 179 음색 다듬기를 어디에 — bgm(배경음만, 기본) / all(전부). 배경음만은 동봉 사무쇼2 코어가 효과음(잡음 칸)을 따로 줄 때만, 아니면 전부 */
+    public static final String SND_FX_TARGET = "pocketcore_snd_target";
 
     public static final class Item {
         public final String key, label, help;
@@ -266,13 +268,18 @@ public final class Settings {
             /* 176 음색 다듬기(native sndfx.c) — 곡·효과음은 그대로, 게임 소리 위에 저음 보강·고음 눅이기·좌우 넓힘·방 울림.
                유저 10-20 「소리가 역시 너무 심심한데」 → 들어 보기 넷(원래·다듬기·악기 화풍·악기 밴드) 중 「2 가 나은 방식이네」 */
             new Item(SND_FX, "음색 다듬기",
-                "켬 = 게임 소리에 저음 보강·고음 눅이기·좌우 넓힘·방 울림을 얹어요(곡·효과음은 그대로, 지연 없음). 아래 다섯 줄로 세기를 고르고, 가운데(기본)가 들어 보기 ②. 모든 게임, 바로 반영.",
+                "켬 = 게임 소리에 저음 보강·고음 눅이기·좌우 넓힘·방 울림을 얹어요(지연 없음). 아래에서 다듬을 소리(배경음만·전부)와 세기를 고르고, 가운데(기본)가 들어 보기 ②. 바로 반영.",
                 ONOFF, ONOFF_K, "enabled").l(),
+            /* 179 다듬을 소리 — 유저 10-20 「음색 다듬기 에러 심하면 배경음만 하던지」. 사무쇼2 효과음은 대전 중 잡음 칸만 쓴다(곡을 끈 롬·봇 4판 실측) —
+               동봉 코어가 잡음 칸을 따로 내주고(snd_noise 패치) native 가 «소리 − 잡음»(곡)에만 다듬는다 */
+            new Item(SND_FX_TARGET, "다듬을 소리",
+                "배경음만 = 곡에만 얹고 효과음(베기·맞기 — 잡음 칸)은 원래 소리 그대로. 사무쇼2 에서만 되고, 다른 게임은 전부로.",
+                new String[]{ "bgm", "all" }, new String[]{ "배경음만", "전부" }, "bgm"),
             /* 178 세부 — 유저 10-20 「음색 다듬기도 설정이 있잖아 조절해 보게 해 줘」. 크기는 값을 바꿔도 원래 소리와 같게 맞춘다(native sndfx.c 모델) */
             fxPct(SND_FX_KEYS[0], "저음 보강", "180Hz 아래를 키움 — 얇은 사각파에 바닥. 끔 = 원래 저음.", 0),
             fxPct(SND_FX_KEYS[1], "고음 눅이기", "4.5kHz 위를 줄임 — 사각파의 쨍한 날. 끔 = 원래 고음, 많이 = 더 둥글게.", 1),
             fxPct(SND_FX_KEYS[2], "좌우 넓힘", "가운데 소리를 살짝 늦춰 좌우로 벌림. 끔 = 원래 폭. 폰 스피커에서 소리가 울렁이면 줄여 보세요.", 2),
-            fxPct(SND_FX_KEYS[3], "울림", "방 울림의 양 — 효과음에도 붙어요. 끔 = 마른 소리.", 3),
+            fxPct(SND_FX_KEYS[3], "울림", "방 울림의 양. 끔 = 마른 소리(«다듬을 소리 › 전부»면 효과음에도 붙어요).", 3),
             fxPct(SND_FX_KEYS[4], "울림 길이", "울림이 사라지는 데 걸리는 시간 — 짧으면 작은 방, 길면 큰 홀.", 4),
             new Item("pocketcore_launcher_snd", "런처 소리",
                 "롬 고르는 화면의 부팅음과 테마곡. 게임에 들어가면 멈춥니다.",
