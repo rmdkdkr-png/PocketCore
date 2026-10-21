@@ -1,5 +1,5 @@
 /* qbot_fx core.so rom state frames outdir — qbot_hx 와 같되 callout.c 를 소스째 넣어 이펙트(FX·S)를 읽는다(014·015 이펙트 비교 · 196 막타 실측).
-   더한 환경: DUMPSPAWN=n(이펙트가 새로 날 때마다 n 호출 o······.ppm 원작 · f······.ppm 합성 뒤) · DUMPKINDS=«0234567»(FXK 번호) · DUMPKINDMAX(종류마다 몇 번)
+   더한 환경: FXGPT(196 앱 합성도 GPT 그림) · DUMPSPAWN=n(이펙트가 새로 날 때마다 n 호출 o······.ppm 원작 · f······.ppm 합성 뒤) · DUMPKINDS=«0234567»(FXK 번호) · DUMPKINDMAX(종류마다 몇 번)
               P2HP·P1HP=n(라운드 중·히트스톱 아닐 때 체력을 n 으로 — 진짜 KO 가 나게. P1 은 NOFIX 와 같이) · ONEHIT=비트(1 P1 · 2 P2 — 치트 «한 방» 흉내:
               판정 뒤에 깎인 체력을 0) · KOLOG(체력 0 부터 400 호출 «KF» 줄) · RLOG=a-b(호출별 판정 재료 «R»·«RK» 줄) · POSAT=a-b(두 몸 자리).
    벽시계 고정: LD_PRELOAD=ftime.so FIXT=유닉스초(롬 RTC 가 벽시계를 읽어 판이 띄운 시각에 따라 갈림 — ftime.c).
@@ -262,7 +262,7 @@ int main(int argc, char **argv) {
   { void (*sty)(int, int) = (void (*)(int, int))dlsym(h, "retro_ngp_hit_style"); if (sty) sty(st_u, st_a); }
   { void (*setclk)(double (*)(void)) = (void (*)(double (*)(void)))dlsym(h, "retro_ngp_fg_set_clock"); if (setclk && getenv("FAKECLK")) setclk(fakeclk); }
   if (mode == 1 && !g_hitdbg) { fprintf(stderr, "core has no hit module\n"); return 1; }
-  if (mode == 0) { callout_reset(); callout_enable(1); callout_fx_mode(FXM_ON); callout_flash_enable(1); if (getenv("FXBIG")) callout_fx_size(1); }
+  if (mode == 0) { callout_reset(); callout_enable(1); callout_fx_mode(FXM_ON); callout_flash_enable(1); if (getenv("FXBIG")) callout_fx_size(1); if (getenv("FXGPT")) callout_fx_art(1); }   /* 196 FXGPT = GPT 그림(코어는 OPTS ngp_hit_fx_art=gpt) */
   int chr_id = getenv("CHAR") ? atoi(getenv("CHAR")) : -1, pokeat = getenv("POKEAT") ? atoi(getenv("POKEAT")) : 17;
   long idle = getenv("IDLE") ? atol(getenv("IDLE")) : 1200;
   FILE *sc = fopen(getenv("PRELUDE"), "r"); char ln[256]; int lno = 0;

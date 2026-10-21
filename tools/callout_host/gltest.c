@@ -463,7 +463,7 @@ int main(int argc, char **argv)
          HS = 0;
          CHECK(x1 >= x0 && x1 - x0 + 1 <= 31 && y1 - y0 + 1 <= 23, "192 일섬 크기 %d×%d(31×23 안)", x1 - x0 + 1, y1 - y0 + 1);
          /* 193 자리 — 맞은 몸(x 100) 가운데 4px 뒤가 가운데(때린 몸 x 70 쪽으로 안 넘침): 그린 화소 상자가 89~119 안 */
-         CHECK(x0 >= 89 && x1 <= 119 && (x0 + x1) / 2 >= 100 && (x0 + x1) / 2 <= 106, "193 일섬 자리 x %d~%d(맞은 몸 100 · 때린 몸 70 — 89~119 안, 가운데 100~106 — 196 GPT 그림 기준점 17)", x0, x1);
+         CHECK(x0 >= 89 && x1 <= 119 && (x0 + x1) / 2 >= 102 && (x0 + x1) / 2 <= 106, "193 일섬 자리 x %d~%d(맞은 몸 100 · 때린 몸 70 — 89~119 안, 가운데 104 근처)", x0, x1);
       }
       {  /* 193 한 번에 하나 — 연달아 맞아도 이펙트 하나 */
          HIT7(0x50, 120, 3); HS = 0; TICK7(); CTRL(0) = 0; TICK7(); TICK7();
@@ -481,8 +481,7 @@ int main(int argc, char **argv)
             for (int y = 0; y < 152; y++) for (int x = 0; x < 160; x++) if (B1[(y * 160 + x) * 4 + 3]) { sy += y; n++; }
             cy[v] = n ? (int)(sy / n) : -1; HS = 0;
          }
-         CHECK(abs(cy[0] - (128 - 24)) <= 1 && abs(cy[1] - (128 - 32)) <= 1 && abs(cy[2] - (128 - 12)) <= 1,
-               "193 타격 지점 높이 서서 %d · 점프 %d · 앉아 %d(104 · 96 · 116 ±1 — 196 GPT 약 섬광은 화소 무게가 1px 위)", cy[0], cy[1], cy[2]);
+         CHECK(cy[0] == 128 - 24 && cy[1] == 128 - 32 && cy[2] == 128 - 12, "193 타격 지점 높이 서서 %d · 점프 %d · 앉아 %d(104 · 96 · 116)", cy[0], cy[1], cy[2]);
       }
       {  /* 195 크게 — 일섬 47×35 안 · 작게보다 큼 · 같은 길이(12) · 약 섬광 23×23 안. 다음에 낼 것부터(이미 떠 있는 건 그대로) */
          int x0 = 999, y0 = 999, x1 = -1, y1 = -1, lifeb = 1;
@@ -535,8 +534,10 @@ int main(int argc, char **argv)
          CHECK(callout_fx_count() <= 1 && moved >= 5 && moved <= 7, "196 칼 부딪힘 첫 컷이 히트스톱 30 중 %d 프레임째에 넘어감(6 근처)", moved);
          HS = 0;
       }
-      {  /* 196 크게 — 크게가 없던 다섯(T·G·C·D·K)도 작게보다 큼: 막타 일섬·칼 부딪힘으로 */
-         int a[2], c2[2];
+      {  /* 196 크게 — GPT 그림은 여덟 종 모두 큼(막타 일섬·칼 부딪힘으로) · 195 그림은 막타·부딪힘 크게가 없어 작게 그대로 */
+         int a[2], c2[2], ka[2], kc[2];
+         for (int art = 1; art >= 0; art--) {
+         callout_fx_art(art);
          for (int big = 0; big < 2; big++) {
             callout_fx_size(big);
             callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
@@ -549,8 +550,22 @@ int main(int argc, char **argv)
             SNAP(B1); { int x0 = 999, x1 = -1; for (int q = 0; q < 160 * 152; q++) if (B1[q * 4 + 3]) { if (q % 160 < x0) x0 = q % 160; if (q % 160 > x1) x1 = q % 160; } c2[big] = x1 - x0 + 1; }
             HS = 0;
          }
+         if (art) { ka[0] = a[0]; ka[1] = a[1]; kc[0] = c2[0]; kc[1] = c2[1]; }
+         }
          callout_fx_size(0);
-         CHECK(a[1] > a[0] && c2[1] > c2[0] && a[0] > 0 && c2[0] > 0, "196 크게 막타 일섬 폭 %d > 작게 %d · 칼 부딪힘 폭 %d > %d", a[1], a[0], c2[1], c2[0]);
+         CHECK(ka[1] > ka[0] && kc[1] > kc[0] && ka[0] > 0 && kc[0] > 0, "196 GPT 크게 막타 일섬 폭 %d > 작게 %d · 칼 부딪힘 폭 %d > %d", ka[1], ka[0], kc[1], kc[0]);
+         CHECK(a[1] == a[0] && c2[1] == c2[0] && a[0] > 0, "196 195 그림은 막타·부딪힘 크게 없음 — 작게 그대로(막타 %d=%d · 부딪힘 %d=%d)", a[1], a[0], c2[1], c2[0]);
+      }
+      {  /* 196 그림 고르기 — 기본 195 · GPT 로 바꾸면 다음에 낼 것부터(강베기 일섬 화소가 다름) · 이미 떠 있는 건 그대로 */
+         static uint8_t C1[160 * 152 * 4], C2[160 * 152 * 4];
+         CHECK(callout_fx_art_get() == 0, "196 그림 기본 = 195");
+         HIT7(0x68, 108, 10); SNAP(C1); HS = 0;
+         callout_fx_art(1);
+         SNAP(C2); int same_live = !memcmp(C1, C2, sizeof C1);
+         HIT7(0x68, 108, 10); SNAP(C2); HS = 0;
+         int diff = 0; for (int q = 0; q < 160 * 152; q++) if (memcmp(C1 + q * 4, C2 + q * 4, 4)) diff++;
+         callout_fx_art(0);
+         CHECK(same_live && diff > 20, "196 GPT 로 바꾸면 다음 강베기부터 다른 그림(떠 있던 것 그대로 %d · 다른 화소 %d)", same_live, diff);
       }
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
    }
@@ -567,8 +582,14 @@ int main(int argc, char **argv)
       Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 3, 3, 1);
       CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "inkband") && !strcmp(opt_get("ngp_hit_fx", "?"), "under") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "big") && g_var_dirty,
             "195 모양 → 코어 옵션(먹 띠 · 때린 몸 밑 · 크게 — %s %s %s)", opt_get("ngp_hit_callout", "?"), opt_get("ngp_hit_fx", "?"), opt_get("ngp_hit_fx_size", "?"));
+      CHECK(!strcmp(opt_get("ngp_hit_fx_art", "?"), "classic"), "196 크기만(bit0) → 그림은 195(%s)", opt_get("ngp_hit_fx_art", "?"));
+      Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 0, 1, 3);
+      CHECK(!strcmp(opt_get("ngp_hit_fx_art", "?"), "gpt") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "big"), "196 bit1 → 그림 GPT · bit0 크게(%s %s)", opt_get("ngp_hit_fx_art", "?"), opt_get("ngp_hit_fx_size", "?"));
+      Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 0, 1, 2);
+      CHECK(!strcmp(opt_get("ngp_hit_fx_art", "?"), "gpt") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small"), "196 bit1 만 → GPT · 작게(%s %s)", opt_get("ngp_hit_fx_art", "?"), opt_get("ngp_hit_fx_size", "?"));
       Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 1, 2, 0);
-      CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "brush") && !strcmp(opt_get("ngp_hit_fx", "?"), "opaque") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small"), "195 모양 → 코어 옵션(붓 한자 · 불투명 · 작게)");
+      CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "brush") && !strcmp(opt_get("ngp_hit_fx", "?"), "opaque") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small") && !strcmp(opt_get("ngp_hit_fx_art", "?"), "classic"),
+            "195 모양 → 코어 옵션(붓 한자 · 불투명 · 작게 · 196 그림 195)");
       Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 9, 0, 0);
       CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "pixel") && !strcmp(opt_get("ngp_hit_fx", "?"), "translucent"), "195 이상한 모양 번호 → 기본(큰 한글 도트 · 반투명)");
       g_var_dirty = 0;
@@ -588,16 +609,17 @@ int main(int argc, char **argv)
       }
       {  /* 195 옛 «enabled» = 큰 한글 도트 · 새 값 그대로 */
          char tp[] = "/tmp/gltest_optsXXXXXX"; int fd = mkstemp(tp); FILE *o = fdopen(fd, "w");
-         fprintf(o, "pocketcore_callout=enabled\npocketcore_hitfx=opaque\npocketcore_hitfx_size=big\n"); fclose(o);
+         fprintf(o, "pocketcore_callout=enabled\npocketcore_hitfx=opaque\npocketcore_hitfx_size=big\npocketcore_hitfx_art=gpt\n"); fclose(o);
          load_options(tp); unlink(tp);
+         CHECK(!strcmp(opt_get("ngp_hit_fx_art", "?"), "gpt"), "196 옵션 파일 그림 gpt → ngp_hit_fx_art=gpt(%s)", opt_get("ngp_hit_fx_art", "?"));
          CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "pixel") && !strcmp(opt_get("ngp_hit_fx", "?"), "opaque") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "big"),
                "195 옵션 파일 → 코어 옵션(옛 enabled = 큰 한글 도트 · 불투명 · 크게 — %s %s %s)", opt_get("ngp_hit_callout", "?"), opt_get("ngp_hit_fx", "?"), opt_get("ngp_hit_fx_size", "?"));
          o = NULL; (void)o;
          char tp2[] = "/tmp/gltest_optsXXXXXX"; fd = mkstemp(tp2); o = fdopen(fd, "w");
          fprintf(o, "pocketcore_callout=plaque\npocketcore_hitfx=off\n"); fclose(o);
          load_options(tp2); unlink(tp2);
-         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "plaque") && !strcmp(opt_get("ngp_hit_fx", "?"), "disabled") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small"),
-               "195 옵션 파일 → 코어 옵션(명패 · 이펙트 끔)");
+         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "plaque") && !strcmp(opt_get("ngp_hit_fx", "?"), "disabled") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small") && !strcmp(opt_get("ngp_hit_fx_art", "?"), "classic"),
+               "195 옵션 파일 → 코어 옵션(명패 · 이펙트 끔 · 196 그림 없으면 195)");
       }
    }
    fprintf(stderr, "%s (%d 실패)\n", fails ? "실패" : "통과", fails);

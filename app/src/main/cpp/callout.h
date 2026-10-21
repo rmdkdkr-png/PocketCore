@@ -68,6 +68,8 @@ int  callout_fx_mode_get(void);
 /* 195 이펙트 크기(유저 「큰 효과 작은 효과도」) — 0 작게(기본, 192 그림) · 1 크게(약 섬광 23×23 · 혜성 40×15 · 일섬 47×35, 같은 움직임). 다음에 낼 것부터. 아무 스레드 */
 void callout_fx_size(int big);
 int  callout_fx_size_get(void);
+void callout_fx_art(int gpt);           /* 196 그림 0 = 195 · 1 = GPT 외주 — 다음에 낼 것부터. 아무 스레드 */
+int  callout_fx_art_get(void);
 void callout_fx_pal(const uint8_t *pal);   /* 코어 스프라이트 팔레트 램(0x8200~) — tick 바로 앞(코어 잠금 안, GL 스레드) */
 /* 지금 이펙트가 덮는 게임 줄(gy0..gy1 포함, 놀이 칸 안) — 없으면 0. GL 스레드 */
 int  callout_fx_span(int *gy0, int *gy1);

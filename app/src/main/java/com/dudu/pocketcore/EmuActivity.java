@@ -687,7 +687,8 @@ public class EmuActivity extends Activity {
         final int coStyle = Settings.calloutStyle(m.get(Settings.CALLOUT));              /* 195 라벨 모양(−1 끔) */
         final boolean callouts = coStyle >= 0 && ss2;                                    /* 182 타격 알림 — 사무쇼2 램만 */
         final int fxStyle = Settings.hitFxStyle(m.get(Settings.HITFX));                 /* 195 반투명·불투명·때린 몸 밑 */
-        final int fxBig = "big".equals(m.get(Settings.HITFX_SIZE)) ? 1 : 0;              /* 195 크기 */
+        final int fxBig = ("big".equals(m.get(Settings.HITFX_SIZE)) ? 1 : 0)              /* 195 크기 */
+                        | ("gpt".equals(m.get(Settings.HITFX_ART)) ? 2 : 0);              /* 196 그림(195 · GPT 외주) */
         gl.queueEvent(new Runnable() { @Override public void run() {                    /* 191: 코어가 그리면 코어 옵션으로 — 코어 잠금을 잡으므로 GL 스레드에서 */
             Emu.nativeSetHitStyle(Math.max(0, coStyle), Math.max(1, fxStyle), fxBig);
             Emu.nativeSetHitFx(hitFx);

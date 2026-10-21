@@ -32,6 +32,7 @@ public final class Settings {
     public static final String CALLOUT = "pocketcore_callout";       /* 182 타격 알림 — 195: 모양 pixel(기본)·brush·plaque·inkband · disabled, 사무쇼2(옛 enabled = pixel) */
     public static final String HITFX = "pocketcore_hitfx";           /* 184 타격 이펙트(도트) — 195: translucent(기본)·opaque·under · off, 사무쇼2(옛 on = translucent) */
     public static final String HITFX_SIZE = "pocketcore_hitfx_size"; /* 195 타격 이펙트 크기 — small(기본)·big */
+    public static final String HITFX_ART = "pocketcore_hitfx_art";   /* 196 타격 이펙트 그림 — classic(195, 기본)·gpt(GPT 외주) */
     public static final String HITFLASH = "pocketcore_hitflash";     /* 191 몸 번쩍(앞 강베기) — 193 에서 뺌(유저 「내가 넣는 번쩍 효과는 빼자」). 열쇠만 남김 */
     /** 타격 이펙트 값 → native 번호(callout.h FXM_*: 0 끔 · 1 켬) */
     public static int hitFxMode(String v) { return "off".equals(v) ? 0 : 1; }
@@ -215,20 +216,24 @@ public final class Settings {
                194: 「피격자 위 공격자 아래로 하잔 말임」 → 1P 가 아니라 때린 몸 밑 · 맞은 몸 위.
                195: 「이펙트 너무 안 보인다 반투명 + 캐릭터 위나 안 투명이 낫겠노」 → 그리는 법 고르기(반투명·맨 위 기본 · 불투명 · 때린 몸 밑) ·
                「큰 효과 작은 효과도」 → 크기 고르기 · 「네 개 다 해 줘 바꿔 보게」 → 타격 알림 모양 넷.
-               196: GPT 외주 그림(015 «넣음») — 작게 약 섬광·강베기 일섬·다단·흙먼지, 크게 여덟 종 모두(가드·칼 부딪힘·흙먼지·막타도 이제 큼) ·
-               막타 일섬이 실제 KO 에서 안 나던 것 고침 · 칼 부딪힘 첫 컷 멈춤 6 프레임까지.
+               196: 막타 일섬이 실제 KO 에서 안 나던 것 고침 · 칼 부딪힘 첫 컷 멈춤 6 프레임까지 · 그림 고르기 — 195 그림(기본) · GPT 외주 그림
+               (유저 「지금 195 이펙트도 맘에 들긴 하거든」 → 「해 볼 수 있게 올려 줘 둘 다」).
                옛 코어로 앱이 그릴 때는 예전처럼(불투명·맨 위 · 라벨은 옛 글씨) */
             new Item(HITFX, "타격 이펙트",
-                "맞을 때 맞은 몸의 타격 지점에 원작 도트 결의 이펙트를 하나 얹습니다(게임은 그대로, 보이기만 · 한 번에 하나). 약한 맞음·필살은 작은 X 불꽃 섬광,"
+                "맞을 때 맞은 몸의 타격 지점에 원작 도트 결의 이펙트를 하나 얹습니다(게임은 그대로, 보이기만 · 한 번에 하나). 약한 맞음·필살은 작은 별 섬광,"
                 + " 강베기는 그어졌다 벌어지며 사라지는 작은 초승달 일섬 — 색은 때린 캐릭터의 칼 궤적 색을 따릅니다. 가드는 푸른 반달, 칼끼리 부딪히면 «깡» 불티,"
                 + " 쓰러지면 발밑 흙먼지, 라운드를 끝낸 맞음엔 붉은 일섬. 반투명 = 캐릭터 위에 살짝 비치게 · 불투명 = 캐릭터 위에 그대로 ·"
                 + " 때린 몸 밑 = 때린 캐릭터 뒤 · 맞은 캐릭터 앞(반투명). 화면 흔들림·몸 번쩍은 없습니다."
                 + " 코어가 게임 그림에 그려서 업스케일러·필터도 이펙트에 같이 걸립니다.",
                 new String[]{ "translucent", "opaque", "under", "off" }, new String[]{ "반투명", "불투명", "때린 몸 밑", "끔" }, "translucent").g("ss2"),
             new Item(HITFX_SIZE, "타격 이펙트 크기",
-                "작게 = 약 섬광 17 · 강베기 일섬 31×23 · 막타 일섬 49×37 게임 화소. 크게 = 이펙트 여덟 종 모두 다시 그린 큰 그림(약 섬광 23 · 강베기 일섬 47×35 ·"
-                + " 가드 반달 26×32 · 칼 부딪힘 50×38 · 흙먼지 62×20 · 막타 일섬 74×56) — 도트 결 그대로, 움직임은 같습니다.",
+                "작게 = 약 섬광 17 · 강베기 일섬 31×23 게임 화소. 크게 = 다시 그린 큰 그림, 움직임은 같습니다 — 195 그림은 약 섬광·혜성·강베기 일섬만 커지고(23 · 40×15 · 47×35),"
+                + " GPT 외주 그림은 여덟 종 모두 커집니다(가드 반달 26×32 · 칼 부딪힘 50×38 · 흙먼지 62×20 · 막타 일섬 74×56 까지).",
                 new String[]{ "small", "big" }, new String[]{ "작게", "크게" }, "small").g("ss2"),
+            new Item(HITFX_ART, "타격 이펙트 그림",
+                "195 = 지금까지 쓰던 그림. GPT 외주 = GPT 가 새로 그린 그림(X 불꽃 섬광 · 흰 심 초승달 일섬 · 뾰족 흙먼지 · 긴 막타 일섬 등) — 크기·자리·박자는 같고 모양만 다릅니다."
+                + " 작게의 가드·칼 부딪힘·막타는 아직 가는 선이라 다시 그리는 중. 둘을 바꿔 가며 보세요.",
+                new String[]{ "classic", "gpt" }, new String[]{ "195", "GPT 외주" }, "classic").g("ss2"),
             new Item(CALLOUT, "타격 알림",
                 "경기 중 때린 쪽(1P 왼쪽 · 2P 오른쪽) 위에 라벨을 띄웁니다 — 선제(FIRST ATTACK, 라운드 첫 타) · 반격(COUNTER, 기술을 내던 상대를 맞힘)"
                 + " · 응징(PUNISHER, 헛치거나 막힌 기술의 빈틈을 맞힘) · 역습(REVERSAL, 맞음·가드·다운이 풀리자마자 공격). 모양 넷:"
