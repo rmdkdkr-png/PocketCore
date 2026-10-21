@@ -1,10 +1,10 @@
 {
-  "versionCode": 201,
+  "versionCode": 202,
   "versionName": "0.9",
   "packageId": "com.dudu.legacito.next",
-  "apk": "legacito-next-201.apk",
-  "sha256": "c7fbd7dbc2233c25554d82d8614ac203955840d7313e04515cc2fccc08912f42",
-  "bytes": 5770800,
+  "apk": "legacito-next-202.apk",
+  "sha256": "35dc28fe7afac2d5cd698ee9589cde2e80441ad373f09a35fd3878737ea72d9a",
+  "bytes": 5774896,
   "signingCertificateSHA256": "4b92871c65eb55b9519d9be059d1f877f3c63d0cf27b610b7c146d99b19df8d5",
-  "notes": "랭크 상대 확인 후 버튼/A로 시작. 작은 한글·영문 도트(선제공격 포함), 먹 베기 띠 글씨·한자 낙관 정리. 200과 같은 앱·서명·자료 폴더."
+  "notes": "글자 2·3번 제거: 작은 한글·영어 도트와 먹 베기 띠 유지. 업데이트 중단·실패 상태 안내와 다시 받기/브라우저 받기 추가. 201 게임·이펙트·랭크 동작 유지."
 }
