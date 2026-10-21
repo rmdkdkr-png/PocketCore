@@ -31,6 +31,7 @@ enum { C_NONE = 0, C_HIT, C_BLOCK, C_THROW, C_OTHER, C_MULTI };
 
 static atomic_int co_on = 0;
 static atomic_int fx_mode = 0;                 /* 타격 이펙트 FXM_* (0 = 끔) */
+static atomic_int fx_big = 0;                  /* 195 이펙트 크기 — 1 = 크게(약 섬광·혜성·일섬을 1.4~1.5배로 다시 그린 묶음) */
 static const uint8_t *fx_pal;                  /* 코어 스프라이트 팔레트 램(0x8200~) — 칼 궤적 색(GL 스레드, tick 앞에 받음) */
 static atomic_int co_reset_req = 1;            /* 지우기는 GL 스레드에서만(tick·get 이 먼저 본다) — 다른 스레드는 부탁만 */
 static struct {
@@ -56,6 +57,7 @@ typedef struct {
    uint16_t col[3];             /* 12비트 0x0BGR — 1 흰 심 · 2 가운데 · 3 테두리(때린 쪽 칼 궤적 색) */
    uint32_t seq;                /* 낸 차례(다 차면 가장 오래된 것) */
    int att;                     /* 194 때린 쪽(0 P1 · 1 P2 · −1 없음 — 칼 부딪힘·흙먼지) — 코어가 그 몸 밑 · 맞은 몸 위로 그린다 */
+   int big;                     /* 195 낼 때의 크기(1 = 크게) */
 } dfx_t;
 enum { FXK_L = 0, FXK_H, FXK_T, FXK_G, FXK_C, FXK_D, FXK_K, FXK_S };   /* 섬광 약·강·작은 것 · 185: 가드 반달 · 칼 부딪힘 · 넘어짐 먼지 · 막타 일섬 · 187: 강베기 일섬(칼 궤적 색) */
 static dfx_t FX[FX_MAX];
@@ -99,6 +101,8 @@ void callout_fx_mode(int mode)
    if (atomic_exchange(&fx_mode, mode) == FXM_OFF && mode != FXM_OFF && !atomic_load(&co_on) && !atomic_load(&fl_on)) atomic_store(&co_reset_req, 1);
 }
 int callout_fx_mode_get(void) { return atomic_load(&fx_mode); }
+void callout_fx_size(int big) { atomic_store(&fx_big, big ? 1 : 0); }
+int callout_fx_size_get(void) { return atomic_load(&fx_big); }
 
 static void reset_now(void)
 {
@@ -116,8 +120,14 @@ static void reset_now(void)
 
 static int rd16(const uint8_t *ram, int o) { return ram[o] | (ram[o + 1] << 8); }
 
-static const hfx_cel *fx_cels(int kind, int *n)
+static const hfx_cel *fx_cels(int kind, int big, int *n)
 {
+   if (big) switch (kind) {                          /* 195 크게 — 같은 컷 수·길이(작게와 바꿔 써도 컷 번호 그대로) */
+   case FXK_L: *n = HFX_N_LB; return HFX_LB;
+   case FXK_H: *n = HFX_N_HB; return HFX_HB;
+   case FXK_S: *n = HFX_N_SB; return HFX_SB;
+   default: break;
+   }
    switch (kind) {
    case FXK_H: *n = HFX_N_H; return HFX_H;
    case FXK_T: *n = HFX_N_T; return HFX_T;
@@ -156,7 +166,7 @@ static dfx_t *fx_new(void)
 {
    if (atomic_load(&fx_mode) == FXM_OFF) return NULL;
    memset(FX, 0, sizeof FX);
-   FX[0].on = 1; FX[0].seq = ++fx_seq; FX[0].att = -1;
+   FX[0].on = 1; FX[0].seq = ++fx_seq; FX[0].att = -1; FX[0].big = atomic_load(&fx_big);
    return &FX[0];
 }
 
@@ -194,7 +204,7 @@ static void fx_spawn(const uint8_t *ram, int d, int kind, int ring)
    impact(ram, d, &ix, &iy, &dir);
    int dx = rd16(ram, OBJ(d) + 8), fy = rd16(ram, OBJ(d) + 0xA);
    e->kind = kind; e->ring = 0; e->dir = dir; e->att = a;
-   e->wx = kind == FXK_K ? dx : kind == FXK_G ? dx - dir * 9 : kind == FXK_S ? dx + dir * 4 : ix;   /* 193 일섬은 맞은 몸 가운데 4px 뒤 — 31px 초승달이 때린 몸을 덮지 않게(유저 「위치 조정」) */
+   e->wx = kind == FXK_K ? dx : kind == FXK_G ? dx - dir * 9 : kind == FXK_S ? dx + dir * (e->big ? 6 : 4) : ix;   /* 193 일섬은 맞은 몸 가운데 4px 뒤 — 31px 초승달이 때린 몸을 덮지 않게(유저 「위치 조정」) · 195 크게(47px)는 6px */
    e->y = kind == FXK_K ? fy - 24 : iy;
    e->hold = kind != FXK_T && kind != FXK_H && kind != FXK_S;   /* 192 혜성·앞 강베기 일섬은 히트스톱 동안에도 움직임(유저 「정지화면 뚝이라 애니메이션으로」) */
    if (kind == FXK_G) memcpy(e->col, COL_G, sizeof e->col);
@@ -248,7 +258,7 @@ static void fx_advance(int hs)
    for (int i = 0; i < FX_MAX; i++) {
       dfx_t *e = &FX[i]; int n, dur;
       if (!e->on) continue;
-      const hfx_cel *cs = fx_cels(e->kind, &n);
+      const hfx_cel *cs = fx_cels(e->kind, e->big, &n);
       if (e->cel >= n) { e->on = 0; continue; }
       if (e->hold && e->cel == 0 && hs) continue;
       e->hold = 0;
@@ -424,6 +434,14 @@ int callout_get(callout_t *out, int max, double now)
    return n;
 }
 
+/* 195 줄 하나의 마지막 라벨(수명이 지났어도 — 줄 1 자리를 줄 0 라벨 높이로 정할 때) */
+int callout_peek(int side, int row, callout_t *out)
+{
+   if (side < 0 || side > 1 || row < 0 || row >= CO_ROWS || L[side][row].kind < 0 || !out) return 0;
+   *out = L[side][row];
+   return 1;
+}
+
 int callout_anim(double age, float *slide, float *alpha, float *flash)
 {
    double f = age * 60.0;
@@ -525,7 +543,7 @@ void callout_stats(int v[8]) { memcpy(v, S.stats, sizeof S.stats); }
 static int fx_layers(const dfx_t *e, const hfx_cel **cel, uint16_t pal[2][3], int *flip, int *nl)
 {
    int n, k = 0;
-   const hfx_cel *cs = fx_cels(e->kind, &n);
+   const hfx_cel *cs = fx_cels(e->kind, e->big, &n);
    if (e->cel >= n) return 0;
    if (e->ring && e->cel < HFX_N_R) {                              /* 반격 고리가 밑 — COUNTER 노랑·주황 · PUNISHER 빨강(라벨 색과 같게) */
       cel[k] = &HFX_R[e->cel]; flip[k] = 0;

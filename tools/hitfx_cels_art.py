@@ -254,3 +254,93 @@ def front_slash():
     for (x, y) in ((C - 9, Cy - 9), (C + 10, Cy + 6)): put(g, x, y, 3)
     cels.append(g); durs.append(2)
     return cels, (C, Cy), durs
+
+# ── 195 «크게»(유저 10-21 13:06 「큰효과 작은효과도 넣어 줄 수 있니」) — 약 섬광·혜성·앞 강베기 일섬을 1.4~1.5배로 새로 그림(늘리지 않고 다시 그어 도트 결 그대로).
+#    움직임(컷 차례·길이)은 작게와 같다. 나머지(가드·부딪힘·먼지·막타)는 하나뿐 ──
+def spark_light_big():
+    """약 섬광 크게 — 23×23, 가운데 11,11 (작게 17×17 의 1.4배)"""
+    C = 11; cels = []
+    g = blank(23, 23); disc(g, C, C, 1.4, 1)
+    for a in (0, 90, 180, 270): ray(g, C, C, math.radians(a), 1, 6, 2)
+    cels.append(outline(g, 3))
+    g = blank(23, 23); disc(g, C, C, 2.1, 1)
+    for a in range(0, 360, 45): ray(g, C, C, math.radians(a), 1, 8 if a % 90 == 0 else 6, 2 if a % 90 == 0 else 1)
+    cels.append(outline(g, 3))
+    g = blank(23, 23)
+    for a in range(0, 360, 45): ray(g, C, C, math.radians(a + 22), 7, 10 if a % 90 == 0 else 8, 2)
+    ring(g, C, C, 6, 3, gaps=4)
+    cels.append(g)
+    g = blank(23, 23)
+    for a in (30, 120, 210, 300): put(g, int(C + math.cos(math.radians(a)) * 10), int(C - math.sin(math.radians(a)) * 10), 2)
+    for a in (75, 255): put(g, int(C + math.cos(math.radians(a)) * 8), int(C - math.sin(math.radians(a)) * 8), 3)
+    cels.append(g)
+    return cels, (C, C)
+
+def spark_heavy_big():
+    """혜성 크게 — 40×15, 닿은 자리 10,7 (184~191 크기, 192 의 뻗어 가는 움직임)"""
+    W, H, X0, Y = 40, 15, 10, 7
+    cels, durs = [], []
+    def comet(g, x0, length, th):
+        for i in range(length):
+            t = i / max(length - 1, 1)
+            half = th * (1 - t) ** 0.6
+            for dy in range(-int(math.ceil(half)), int(math.ceil(half)) + 1):
+                if abs(dy) <= half: put(g, x0 + i, Y + dy, 2)
+            if t < 0.75:
+                put(g, x0 + i, Y, 1, over=True)
+                if half > 2.2: put(g, x0 + i, Y - 1, 1, over=True)
+    g = blank(W, H); disc(g, X0, Y, 2.2, 1); comet(g, X0 - 3, 9, 2.4); cels.append(outline(g, 3)); durs.append(1)
+    g = blank(W, H); disc(g, X0 + 1, Y, 2.0, 1); comet(g, X0 - 3, 18, 3.0); cels.append(outline(g, 3)); durs.append(1)
+    g = blank(W, H); disc(g, X0 + 3, Y, 1.5, 1); comet(g, X0 - 3, 26, 3.0)
+    for (x, y) in ((X0 + 8, Y - 6), (X0 + 11, Y + 6)): put(g, x, y, 1)
+    cels.append(outline(g, 3)); durs.append(2)
+    g = blank(W, H)
+    for i in range(24):
+        t = i / 23; off = 1.5 + t * 3.3
+        put(g, X0 + 1 + i, int(round(Y - off)), 2 if t < 0.6 else 3); put(g, X0 + 1 + i, int(round(Y + off)), 2 if t < 0.6 else 3)
+    for (x, y) in ((X0 + 14, Y - 7), (X0 + 18, Y + 7)): put(g, x, y, 1); put(g, x - 1, y, 2)
+    cels.append(g); durs.append(2)
+    g = blank(W, H)
+    for (x, y) in ((X0 + 18, Y - 7), (X0 + 24, Y + 7), (X0 + 27, Y - 1)): put(g, x, y, 2)
+    cels.append(g); durs.append(2)
+    g = blank(W, H)
+    for (x, y) in ((X0 + 23, Y - 7), (X0 + 29, Y + 7)): put(g, x, y, 3)
+    cels.append(g); durs.append(2)
+    return cels, (X0, Y), durs
+
+def front_slash_big():
+    """앞 강베기 일섬 크게 — 47×35, 닿은 자리 23,17 (작게 31×23 의 1.5배, 같은 컷·같은 길이)"""
+    W, H, C, Cy = 47, 35, 23, 17
+    P0, P1 = (-17, -12), (17, 12)
+    cels, durs = [], []
+    def sparks(g, k, col):
+        base = [(-0.62, -0.78, 1.0), (0.55, 0.83, 1.0), (0.95, -0.3, 1.3), (-0.9, 0.42, 0.8), (0.3, -0.95, 0.7), (-0.25, 0.97, 0.9)]
+        for (vx, vy, sp) in base:
+            d = 4.5 + k * 3.9 * sp
+            x, y = C + vx * d, Cy + vy * d
+            put(g, int(round(x)), int(round(y)), col)
+            if col == 1: put(g, int(round(x - vx)), int(round(y - vy)), 2)
+    g = blank(W, H); disc(g, C, Cy, 1.8, 1)
+    for a in (0, 90, 180, 270): ray(g, C, Cy, math.radians(a + 35), 1, 4, 2)
+    stroke(g, P0, P1, 3.3, 1.5, 0.0, 0.40, C, Cy); cels.append(outline(g, 3)); durs.append(1)
+    g = blank(W, H); disc(g, C, Cy, 2.4, 1)
+    for a in (0, 90, 180, 270): ray(g, C, Cy, math.radians(a + 35), 3, 6, 2)
+    stroke(g, P0, P1, 3.3, 2.7, 0.0, 0.78, C, Cy, core_th=0.9); cels.append(outline(g, 3)); durs.append(1)
+    g = blank(W, H); stroke(g, P0, P1, 3.3, 3.0, 0.0, 1.0, C, Cy, core_th=1.1); sparks(g, 0, 1); cels.append(outline(g, 3)); durs.append(2)
+    g = blank(W, H); stroke(g, P0, P1, 3.3, 2.0, 0.0, 1.0, C, Cy, core_th=0.8); sparks(g, 1, 1); cels.append(outline(g, 3)); durs.append(2)
+    g = blank(W, H)
+    stroke(g, P0, P1, 3.3, 0.45, 0.06, 0.94, C, Cy, shift=-2.2, gap=[(0.46, 0.54)])
+    stroke(g, P0, P1, 3.3, 0.45, 0.06, 0.94, C, Cy, shift=2.2, gap=[(0.30, 0.37), (0.63, 0.70)])
+    sparks(g, 2, 1); cels.append(g); durs.append(2)
+    g = blank(W, H)
+    stroke(g, P0, P1, 3.3, 0.45, 0.12, 0.88, C, Cy, shift=-3.6, gap=[(0.22, 0.42), (0.52, 0.76)])
+    stroke(g, P0, P1, 3.3, 0.45, 0.12, 0.88, C, Cy, shift=3.6, gap=[(0.30, 0.52), (0.62, 0.82)])
+    for y in range(H):
+        for x in range(W):
+            if g[y][x]: g[y][x] = 3
+    sparks(g, 3, 2)
+    cels.append(g); durs.append(2)
+    g = blank(W, H); sparks(g, 4, 3)
+    for (x, y) in ((C - 14, Cy - 13), (C + 15, Cy + 9)): put(g, x, y, 3)
+    cels.append(g); durs.append(2)
+    return cels, (C, Cy), durs

@@ -29,11 +29,26 @@ public final class Settings {
     public static final String[] SND_FX_KEYS = { "pocketcore_snd_bass", "pocketcore_snd_treble", "pocketcore_snd_width", "pocketcore_snd_reverb", "pocketcore_snd_room" };
     /** 179 음색 다듬기를 어디에 — bgm(배경음만, 기본) / all(전부). 배경음만은 동봉 사무쇼2 코어가 효과음(잡음 칸)을 따로 줄 때만, 아니면 전부 */
     public static final String SND_FX_TARGET = "pocketcore_snd_target";
-    public static final String CALLOUT = "pocketcore_callout";       /* 182 타격 알림 — 켬(기본)·끔, 사무쇼2 */
-    public static final String HITFX = "pocketcore_hitfx";           /* 184 타격 이펙트(도트) — on(기본)·off, 사무쇼2. 183 의 auto·fire·elec·impact 는 켬으로 */
+    public static final String CALLOUT = "pocketcore_callout";       /* 182 타격 알림 — 195: 모양 pixel(기본)·brush·plaque·inkband · disabled, 사무쇼2(옛 enabled = pixel) */
+    public static final String HITFX = "pocketcore_hitfx";           /* 184 타격 이펙트(도트) — 195: translucent(기본)·opaque·under · off, 사무쇼2(옛 on = translucent) */
+    public static final String HITFX_SIZE = "pocketcore_hitfx_size"; /* 195 타격 이펙트 크기 — small(기본)·big */
     public static final String HITFLASH = "pocketcore_hitflash";     /* 191 몸 번쩍(앞 강베기) — 193 에서 뺌(유저 「내가 넣는 번쩍 효과는 빼자」). 열쇠만 남김 */
     /** 타격 이펙트 값 → native 번호(callout.h FXM_*: 0 끔 · 1 켬) */
     public static int hitFxMode(String v) { return "off".equals(v) ? 0 : 1; }
+    /* 195 모양 번호 — native nativeSetHitStyle 과 같은 차례 */
+    public static int calloutStyle(String v) {
+        if ("disabled".equals(v)) return -1;
+        if ("brush".equals(v)) return 1;
+        if ("plaque".equals(v)) return 2;
+        if ("inkband".equals(v)) return 3;
+        return 0;
+    }
+    public static int hitFxStyle(String v) {
+        if ("off".equals(v)) return 0;
+        if ("opaque".equals(v)) return 2;
+        if ("under".equals(v)) return 3;
+        return 1;
+    }
 
     public static final class Item {
         public final String key, label, help;
@@ -198,18 +213,26 @@ public final class Settings {
                옛 코어(없으면)면 앱이 예전처럼 그린다. 몸 번쩍은 이펙트와 따로 켬/끔(유저 「번쩍 … 번쩍효과 없애고 씀」)
                193: 유저 「베기 효과가 내 캐릭터를 너무 가림 / 반투명 … 위치 조정 … 내 캐릭터 레이어 아래에」 → 코어가 1P 스프라이트 화소를 건너뛰고(그 밑) 반투명으로 · 일섬은 맞은 몸 가운데 뒤로.
                194: 「피격자 위 공격자 아래로 하잔 말임」 → 1P 가 아니라 때린 몸 밑 · 맞은 몸 위.
-               옛 코어로 앱이 그릴 때는 예전처럼(불투명·맨 위) */
+               195: 「이펙트 너무 안 보인다 반투명 + 캐릭터 위나 안 투명이 낫겠노」 → 그리는 법 고르기(반투명·맨 위 기본 · 불투명 · 때린 몸 밑) ·
+               「큰 효과 작은 효과도」 → 크기 고르기 · 「네 개 다 해 줘 바꿔 보게」 → 타격 알림 모양 넷.
+               옛 코어로 앱이 그릴 때는 예전처럼(불투명·맨 위 · 라벨은 옛 글씨) */
             new Item(HITFX, "타격 이펙트",
                 "맞을 때 맞은 몸의 타격 지점에 원작 도트 결의 이펙트를 하나 얹습니다(게임은 그대로, 보이기만 · 한 번에 하나). 약한 맞음·필살은 작은 별 섬광,"
                 + " 강베기는 그어졌다 벌어지며 사라지는 작은 초승달 일섬 — 색은 때린 캐릭터의 칼 궤적 색을 따릅니다. 가드는 푸른 반달, 칼끼리 부딪히면 «깡» 불티,"
-                + " 쓰러지면 발밑 흙먼지, 라운드를 끝낸 맞음엔 붉은 일섬. 이펙트는 반투명이고 때린 캐릭터 뒤 · 맞은 캐릭터 앞에 그립니다."
-                + " 화면 흔들림·몸 번쩍은 없습니다."
+                + " 쓰러지면 발밑 흙먼지, 라운드를 끝낸 맞음엔 붉은 일섬. 반투명 = 캐릭터 위에 살짝 비치게 · 불투명 = 캐릭터 위에 그대로 ·"
+                + " 때린 몸 밑 = 때린 캐릭터 뒤 · 맞은 캐릭터 앞(반투명). 화면 흔들림·몸 번쩍은 없습니다."
                 + " 코어가 게임 그림에 그려서 업스케일러·필터도 이펙트에 같이 걸립니다.",
-                new String[]{ "on", "off" }, new String[]{ "켬", "끔" }, "on").g("ss2"),
+                new String[]{ "translucent", "opaque", "under", "off" }, new String[]{ "반투명", "불투명", "때린 몸 밑", "끔" }, "translucent").g("ss2"),
+            new Item(HITFX_SIZE, "타격 이펙트 크기",
+                "작게 = 약 섬광 17 · 혜성 26×11 · 강베기 일섬 31×23 게임 화소. 크게 = 23 · 40×15 · 47×35 — 다시 그린 그림이라 도트 결 그대로, 움직임은 같습니다.",
+                new String[]{ "small", "big" }, new String[]{ "작게", "크게" }, "small").g("ss2"),
             new Item(CALLOUT, "타격 알림",
-                "경기 중 때린 쪽 가장자리에 라벨을 띄웁니다 — FIRST ATTACK(라운드 첫 타) · COUNTER(기술을 내던 상대를 맞힘)"
-                + " · PUNISHER(헛치거나 막힌 기술의 빈틈을 맞힘) · REVERSAL(맞음·가드·다운이 풀리자마자 공격). 게임은 그대로, 보이기만.",
-                ONOFF, ONOFF_K, "enabled").g("ss2"),
+                "경기 중 때린 쪽(1P 왼쪽 · 2P 오른쪽) 위에 라벨을 띄웁니다 — 선제(FIRST ATTACK, 라운드 첫 타) · 반격(COUNTER, 기술을 내던 상대를 맞힘)"
+                + " · 응징(PUNISHER, 헛치거나 막힌 기술의 빈틈을 맞힘) · 역습(REVERSAL, 맞음·가드·다운이 풀리자마자 공격). 모양 넷:"
+                + " 큰 한글 도트(타이머 숫자 결, 떨어져 튐) · 붓 한자 도장(先制·反撃·確反·切返, 판 시작 一本 결) · 이름 명패(판 시작 이름판 결) ·"
+                + " 먹 베기 띠(먹 띠 + 영어 + 낙관, 베고 갈라지며 사라짐). 게임은 그대로, 보이기만.",
+                new String[]{ "pixel", "brush", "plaque", "inkband", "disabled" },
+                new String[]{ "큰 한글 도트", "붓 한자 도장", "이름 명패", "먹 베기 띠", "끔" }, "pixel").g("ss2"),
         });
         /* ── 움직임·반응 ── */
         /* 프레임 패치 — 151: 켬/끔 한 줄, 사무쇼2 만(유저 2026-10-16 「ss2만 되는걸로 해」·「프레임패치 온오프만 만들어」·

@@ -233,10 +233,22 @@ static const char *opt_get(const char *k, const char *def)
    g_want_* = Java 가 마지막으로 바란 값(사무쇼2 판 + 설정). 옵션 파일엔 앱 열쇠(pocketcore_callout · _hitfx · _hitflash)만 있다 —
    코어를 올리기 전에 거기서 ngp_hit_* 를 만들어 둔다(코어가 처음 읽는 값부터 맞게). 코어는 사무쇼2 롬에서만 일한다 */
 static int g_core_hits = 0, g_want_co = 0, g_want_fx = 0, g_want_fl = 0;
+/* 195 모양 — 라벨 0 큰 한글 도트 · 1 붓 한자 · 2 명패 · 3 먹 띠 / 이펙트 1 반투명 · 2 불투명 · 3 때린 몸 밑 / 크기 0 작게 · 1 크게(유저 「네 개 다 해 줘 바꿔 보게」·
+   「반투명 + 캐릭터 위나 안 투명이 낫겠노」·「큰 효과 작은 효과도」). 코어 옵션 값 이름 = 아래 표, 앱 옵션 파일 값도 같은 이름(옛 enabled·on 은 기본) */
+static int g_co_style = 0, g_fx_style = 1, g_fx_big = 0;
+static const char *const CO_STYLE_V[4] = { "pixel", "brush", "plaque", "inkband" };
+static const char *const FX_STYLE_V[4] = { "disabled", "translucent", "opaque", "under" };
+static int style_of(const char *v, const char *const *tab, int n, int def)
+{
+   for (int i = 0; i < n; i++) if (v && !strcmp(v, tab[i])) return i;
+   return def;
+}
 static void hits_opts_from_file(void)
 {
-   opt_put("ngp_hit_callout", strcmp(opt_get("pocketcore_callout", "enabled"), "disabled") ? "enabled" : "disabled");
-   opt_put("ngp_hit_fx", strcmp(opt_get("pocketcore_hitfx", "on"), "off") ? "enabled" : "disabled");
+   const char *co = opt_get("pocketcore_callout", "pixel"), *fx = opt_get("pocketcore_hitfx", "translucent");
+   opt_put("ngp_hit_callout", !strcmp(co, "disabled") ? "disabled" : CO_STYLE_V[style_of(co, CO_STYLE_V, 4, 0)]);
+   opt_put("ngp_hit_fx", !strcmp(fx, "off") ? "disabled" : FX_STYLE_V[style_of(fx, FX_STYLE_V + 1, 3, 0) + 1]);
+   opt_put("ngp_hit_fx_size", !strcmp(opt_get("pocketcore_hitfx_size", "small"), "big") ? "big" : "small");
    opt_put("ngp_hit_flash", "disabled");   /* 193 몸 번쩍 뺌(유저 「내가 넣는 번쩍 효과는 빼자」) — 옛 코어 옵션도 늘 끔 */
 }
 static void hits_route(void)
@@ -244,6 +256,7 @@ static void hits_route(void)
    int app = !g_core_hits;
    callout_enable(app && g_want_co);
    callout_fx_mode(app ? g_want_fx : FXM_OFF);
+   callout_fx_size(g_fx_big);                 /* 195 옛 코어로 앱이 그릴 때도 크기는 따름(반투명·밑은 코어만) */
    callout_flash_enable(app && g_want_fl);
 }
 
@@ -1621,8 +1634,9 @@ static void hits_push(void)
 {
    int ch = 0;
    CORE_LOCK();
-   ch |= opt_put("ngp_hit_callout", g_want_co ? "enabled" : "disabled");
-   ch |= opt_put("ngp_hit_fx", g_want_fx ? "enabled" : "disabled");
+   ch |= opt_put("ngp_hit_callout", g_want_co ? CO_STYLE_V[g_co_style & 3] : "disabled");
+   ch |= opt_put("ngp_hit_fx", g_want_fx ? FX_STYLE_V[g_fx_style >= 1 && g_fx_style <= 3 ? g_fx_style : 1] : "disabled");
+   ch |= opt_put("ngp_hit_fx_size", g_fx_big ? "big" : "small");
    ch |= opt_put("ngp_hit_flash", "disabled");                         /* 193 몸 번쩍 뺌 */
    if (ch) g_var_dirty = 1;
    hits_route();
@@ -1630,6 +1644,16 @@ static void hits_push(void)
 }
 JNI(void, nativeSetCallouts)(JNIEnv *env, jclass cls, jboolean on)
 { (void)env; (void)cls; g_want_co = on ? 1 : 0; hits_push(); }
+
+/* 195 라벨 모양(0 큰 한글 도트 · 1 붓 한자 · 2 명패 · 3 먹 띠) · 이펙트 그리는 법(1 반투명 · 2 불투명 · 3 때린 몸 밑) · 크기(0 작게 · 1 크게) — 켬/끔은 위 둘. 아무 스레드 */
+JNI(void, nativeSetHitStyle)(JNIEnv *env, jclass cls, jint label, jint fx, jint big)
+{
+   (void)env; (void)cls;
+   g_co_style = label >= 0 && label <= 3 ? label : 0;
+   g_fx_style = fx >= 1 && fx <= 3 ? fx : 1;
+   g_fx_big = big ? 1 : 0;
+   hits_push();
+}
 
 /* 191 몸 번쩍(앞 강베기) — 이펙트와 따로. Java 가 사무쇼2 판에서만 켬. 아무 스레드 */
 JNI(void, nativeSetHitFlash)(JNIEnv *env, jclass cls, jboolean on)

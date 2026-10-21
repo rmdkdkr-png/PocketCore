@@ -684,8 +684,12 @@ public class EmuActivity extends Activity {
                              !"all".equals(m.get(Settings.SND_FX_TARGET)));   /* 176 켬/끔 · 179 배경음만(기본) — 코어 소리 콜백이 다음 묶음부터 봄 */
         boolean ss2 = game != null && "ss2".equals(game.id);
         final int hitFx = ss2 ? Settings.hitFxMode(m.get(Settings.HITFX)) : 0;          /* 182 타격 이펙트 — 사무쇼2 램만 */
-        final boolean callouts = !"disabled".equals(m.get(Settings.CALLOUT)) && ss2;     /* 182 타격 알림 — 사무쇼2 램만 */
+        final int coStyle = Settings.calloutStyle(m.get(Settings.CALLOUT));              /* 195 라벨 모양(−1 끔) */
+        final boolean callouts = coStyle >= 0 && ss2;                                    /* 182 타격 알림 — 사무쇼2 램만 */
+        final int fxStyle = Settings.hitFxStyle(m.get(Settings.HITFX));                 /* 195 반투명·불투명·때린 몸 밑 */
+        final int fxBig = "big".equals(m.get(Settings.HITFX_SIZE)) ? 1 : 0;              /* 195 크기 */
         gl.queueEvent(new Runnable() { @Override public void run() {                    /* 191: 코어가 그리면 코어 옵션으로 — 코어 잠금을 잡으므로 GL 스레드에서 */
+            Emu.nativeSetHitStyle(Math.max(0, coStyle), Math.max(1, fxStyle), fxBig);
             Emu.nativeSetHitFx(hitFx);
             Emu.nativeSetCallouts(callouts);
         }});

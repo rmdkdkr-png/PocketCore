@@ -37,6 +37,8 @@ void callout_resync(void);            /* 187 보는 램이 바뀜(런어헤드 �
 void callout_tick(const uint8_t *ram, size_t ramsz, double now);
 /* 지금 보이는 라벨(수명 안) — 그릴 차례(오래된 것 먼저) */
 int  callout_get(callout_t *out, int max, double now);
+/* 195 줄 하나(side 0 왼쪽 · 1 오른쪽, row)의 마지막 라벨 — 수명이 지났어도(코어가 줄 1 자리를 줄 0 라벨 높이로 정할 때). 없으면 0 */
+int  callout_peek(int side, int row, callout_t *out);
 /* 움직임: age 초 → slide(0 = 제자리, 1 = 라벨 폭 + 여백만큼 바깥) · alpha · flash(흰색 섞기). 수명 밖이면 0 */
 int  callout_anim(double age, float *slide, float *alpha, float *flash);
 /* 그릴 자리 — 게임 좌표(160×152, 소수) 사각형 x,y,w,h · 텍스처 사각형 tr{x,y,w,h} · 알파 · 번쩍. 수명 밖·아틀라스 실패면 0.
@@ -63,6 +65,9 @@ enum { FXM_OFF = 0, FXM_ON, FXM_N };
 #define FX_MAX 6
 void callout_fx_mode(int mode);       /* FXM_* — 아무 스레드 */
 int  callout_fx_mode_get(void);
+/* 195 이펙트 크기(유저 「큰 효과 작은 효과도」) — 0 작게(기본, 192 그림) · 1 크게(약 섬광 23×23 · 혜성 40×15 · 일섬 47×35, 같은 움직임). 다음에 낼 것부터. 아무 스레드 */
+void callout_fx_size(int big);
+int  callout_fx_size_get(void);
 void callout_fx_pal(const uint8_t *pal);   /* 코어 스프라이트 팔레트 램(0x8200~) — tick 바로 앞(코어 잠금 안, GL 스레드) */
 /* 지금 이펙트가 덮는 게임 줄(gy0..gy1 포함, 놀이 칸 안) — 없으면 0. GL 스레드 */
 int  callout_fx_span(int *gy0, int *gy1);

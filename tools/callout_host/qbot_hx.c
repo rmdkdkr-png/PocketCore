@@ -7,7 +7,8 @@
          OPTS="k=v,…" · HZ · FAKECLK(속도 감시 시계 = 호출 / HZ) · HASHALL(hash.txt) · WHITELOG(«W 호출 흰 화소 수») · APPCOMP(앱 모드에서 앱식 이펙트 합성 뒤 해시)
          DUMP=a-b · DUMPLIST=파일 · DUMPEV=n(사건마다 n 호출 PPM, DUMPMAX) · SAVETEST(번쩍 다음 호출 앞 저장 — 상태에 흰 몸 없나·팔레트 그대로인가)
          LOADAT=f(그 프레임 상태 떠 두고 f+300 에 불러옴) · FRA(프론트엔드 런어헤드 1 흉내: 숨은 호출 → 저장 → 보이는 호출 → 불러오기)
-         STYLE=under,alpha(193·194 이펙트 그리는 법 — 기본 1,0 = 때린 몸 밑 · 컷 값마다 반투명, 0,256 = 192 식. 코어 retro_ngp_hit_style 과 APPCOMP 합성 둘 다)
+         STYLE=under,alpha(APPCOMP 합성의 이펙트 그리는 법 — 기본 0,0 = 195 반투명·맨 위, 1,0 = 때린 몸 밑, 0,256 = 불투명. 코어는 OPTS ngp_hit_fx 로 맞출 것 —
+               retro_ngp_hit_style 은 첫 retro_run 의 옵션 읽기가 덮는다) · FXBIG(APPCOMP 합성도 크게 — 코어는 ngp_hit_fx_size=big)
          OWNDUMP=호출,호출…(그 호출의 그린 쪽 지도 own_호출.pgm — 0 판·창 · 스프라이트 팔레트 + 1)
          코어 모드 ev.txt 에 «HITPOS 호출 p1 x,y p2 x,y cam 콤보 act 히트스톱» — 맞음마다 두 몸 자리
          OBJLOG · RAMLOG · STY(조사용)
@@ -63,7 +64,7 @@ static uint32_t rgb12(int c) { uint32_t r = (c & 15) * 17, g = ((c >> 4) & 15) *
 /* APPCOMP: 앱처럼 이펙트를 그림 줄에 얹는다(callout_fx_draw — RGBA) → 565 로 되돌려 g_frame 에 */
 /* 193·194: 코어처럼 때린 몸(P1 스프라이트 팔레트 0~4 · P2 5~9) 밑 · 컷 값마다 불투명도(흰 심 224 · 가운데 176 · 테두리 112 /256) — 따로 짠 같은 식.
    STYLE=under,alpha(기본 1,0 — alpha 0 = 값마다 · 1~256 = 한 값) */
-static const uint8_t *(*g_owner)(void); static int st_u = 1, st_a = 0;
+static const uint8_t *(*g_owner)(void); static int st_u = 0, st_a = 0;   /* 195 기본 = 반투명·맨 위 */
 static uint16_t mix565h(uint16_t s, uint16_t d, int a) { int na = 256 - a;
   int r = (((s >> 11) & 31) * a + ((d >> 11) & 31) * na + 128) >> 8, g = (((s >> 5) & 63) * a + ((d >> 5) & 63) * na + 128) >> 8, b = ((s & 31) * a + (d & 31) * na + 128) >> 8;
   return (uint16_t)(r << 11 | g << 5 | b); }
@@ -71,7 +72,7 @@ typedef struct { int sub; const uint8_t *own; } hctx;
 static void hput(void *ctx, int gx, int gy, uint16_t c12, int v, int att)
 {
   const hctx *h = ctx; uint32_t c = rgb12(c12);
-  int r = c & 255, g = (c >> 8) & 255, b = (c >> 16) & 255, a = st_a ? st_a : v == 1 ? 224 : v == 2 ? 176 : 112;
+  int r = c & 255, g = (c >> 8) & 255, b = (c >> 16) & 255, a = st_a ? st_a : v == 1 ? 256 : v == 2 ? 218 : 154;   /* 195 흰 심 100 · 가운데 85 · 테두리 60% */
   uint16_t s = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
   if (h->own && att >= 0) { int o = h->own[gy * 160 + gx], lo = att == 1 ? 6 : 1; if (o >= lo && o < lo + 5) return; }   /* 194 때린 몸 밑 */
   for (int y = 0; y < h->sub; y++) for (int x = 0; x < h->sub; x++) { uint16_t *d = &g_frame[(gy * h->sub + y) * g_w + gx * h->sub + x]; *d = a >= 256 ? s : mix565h(s, *d, a); }
@@ -219,7 +220,7 @@ int main(int argc, char **argv) {
   { void (*sty)(int, int) = (void (*)(int, int))dlsym(h, "retro_ngp_hit_style"); if (sty) sty(st_u, st_a); }
   { void (*setclk)(double (*)(void)) = (void (*)(double (*)(void)))dlsym(h, "retro_ngp_fg_set_clock"); if (setclk && getenv("FAKECLK")) setclk(fakeclk); }
   if (mode == 1 && !g_hitdbg) { fprintf(stderr, "core has no hit module\n"); return 1; }
-  if (mode == 0) { callout_reset(); callout_enable(1); callout_fx_mode(FXM_ON); callout_flash_enable(1); }
+  if (mode == 0) { callout_reset(); callout_enable(1); callout_fx_mode(FXM_ON); callout_flash_enable(1); if (getenv("FXBIG")) callout_fx_size(1); }
   int chr_id = getenv("CHAR") ? atoi(getenv("CHAR")) : -1, pokeat = getenv("POKEAT") ? atoi(getenv("POKEAT")) : 17;
   long idle = getenv("IDLE") ? atol(getenv("IDLE")) : 1200;
   FILE *sc = fopen(getenv("PRELUDE"), "r"); char ln[256]; int lno = 0;

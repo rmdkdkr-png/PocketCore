@@ -483,6 +483,22 @@ int main(int argc, char **argv)
          }
          CHECK(cy[0] == 128 - 24 && cy[1] == 128 - 32 && cy[2] == 128 - 12, "193 타격 지점 높이 서서 %d · 점프 %d · 앉아 %d(104 · 96 · 116)", cy[0], cy[1], cy[2]);
       }
+      {  /* 195 크게 — 일섬 47×35 안 · 작게보다 큼 · 같은 길이(12) · 약 섬광 23×23 안. 다음에 낼 것부터(이미 떠 있는 건 그대로) */
+         int x0 = 999, y0 = 999, x1 = -1, y1 = -1, lifeb = 1;
+         callout_fx_size(1);
+         HIT7(0x68, 108, 10);
+         for (int i = 0; i < 14; i++) { SNAP(B1); for (int y = 0; y < 152; y++) for (int x = 0; x < 160; x++) if (B1[(y * 160 + x) * 4 + 3]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } TICK7(); if (callout_fx_count()) lifeb++; else break; }
+         HS = 0;
+         CHECK(x1 >= x0 && x1 - x0 + 1 <= 47 && y1 - y0 + 1 <= 35 && x1 - x0 + 1 > 31 && lifeb == 12, "195 크게 일섬 %d×%d(31×23 보다 크고 47×35 안) · 길이 %d(12)", x1 - x0 + 1, y1 - y0 + 1, lifeb);
+         x0 = y0 = 999; x1 = y1 = -1;
+         HIT7(0x50, 120, 3);
+         for (int i = 0; i < 6; i++) { SNAP(B1); for (int y = 0; y < 152; y++) for (int x = 0; x < 160; x++) if (B1[(y * 160 + x) * 4 + 3]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } if (i == 0) HS = 0; TICK7(); }
+         CHECK(x1 >= x0 && x1 - x0 + 1 <= 23 && y1 - y0 + 1 <= 23 && x1 - x0 + 1 > 17, "195 크게 약 섬광 %d×%d(17 보다 크고 23×23 안)", x1 - x0 + 1, y1 - y0 + 1);
+         callout_fx_size(0);
+         HIT7(0x68, 108, 10);
+         { int big = 0; SNAP(B1); TICK7(); TICK7(); SNAP(B1); for (int y = 0; y < 152; y++) for (int x = 0; x < 160; x++) if (B1[(y * 160 + x) * 4 + 3]) big++; HS = 0;
+           CHECK(big > 0 && callout_fx_size_get() == 0, "195 작게로 돌리면 다음 것부터 작게(화소 %d)", big); }
+      }
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
    }
    /* ── 191 코어가 그리면(g_core_hits) 앱 쪽은 꺼진 채 코어 옵션만 바뀜 ── */
@@ -492,8 +508,16 @@ int main(int argc, char **argv)
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
       Java_com_dudu_pocketcore_Emu_nativeSetHitFlash(NULL, NULL, 0);
       CHECK(!callout_enabled() && callout_fx_mode_get() == FXM_OFF, "191 코어가 그리면 앱 라벨·이펙트 끔");
-      CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "enabled") && !strcmp(opt_get("ngp_hit_fx", "?"), "enabled") && !strcmp(opt_get("ngp_hit_flash", "?"), "disabled") && g_var_dirty,
-            "191 코어 옵션 ngp_hit_* = 설정(%s %s %s)", opt_get("ngp_hit_callout", "?"), opt_get("ngp_hit_fx", "?"), opt_get("ngp_hit_flash", "?"));
+      CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "pixel") && !strcmp(opt_get("ngp_hit_fx", "?"), "translucent") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small") && !strcmp(opt_get("ngp_hit_flash", "?"), "disabled") && g_var_dirty,
+            "191·195 코어 옵션 ngp_hit_* = 설정(%s %s %s %s)", opt_get("ngp_hit_callout", "?"), opt_get("ngp_hit_fx", "?"), opt_get("ngp_hit_fx_size", "?"), opt_get("ngp_hit_flash", "?"));
+      g_var_dirty = 0;
+      Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 3, 3, 1);
+      CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "inkband") && !strcmp(opt_get("ngp_hit_fx", "?"), "under") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "big") && g_var_dirty,
+            "195 모양 → 코어 옵션(먹 띠 · 때린 몸 밑 · 크게 — %s %s %s)", opt_get("ngp_hit_callout", "?"), opt_get("ngp_hit_fx", "?"), opt_get("ngp_hit_fx_size", "?"));
+      Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 1, 2, 0);
+      CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "brush") && !strcmp(opt_get("ngp_hit_fx", "?"), "opaque") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small"), "195 모양 → 코어 옵션(붓 한자 · 불투명 · 작게)");
+      Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 9, 0, 0);
+      CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "pixel") && !strcmp(opt_get("ngp_hit_fx", "?"), "translucent"), "195 이상한 모양 번호 → 기본(큰 한글 도트 · 반투명)");
       g_var_dirty = 0;
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
       CHECK(!g_var_dirty, "191 같은 값이면 코어에 다시 읽으라 안 함");
@@ -506,8 +530,21 @@ int main(int argc, char **argv)
          char tp[] = "/tmp/gltest_optsXXXXXX"; int fd = mkstemp(tp); FILE *o = fdopen(fd, "w");
          fprintf(o, "pocketcore_callout=disabled\npocketcore_hitfx=on\n"); fclose(o);
          load_options(tp); unlink(tp);
-         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "disabled") && !strcmp(opt_get("ngp_hit_fx", "?"), "enabled") && !strcmp(opt_get("ngp_hit_flash", "?"), "disabled"),
-               "191 옵션 파일 → 코어 옵션(라벨 끔 · 이펙트 켬 · 193 번쩍은 늘 끔)");
+         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "disabled") && !strcmp(opt_get("ngp_hit_fx", "?"), "translucent") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small") && !strcmp(opt_get("ngp_hit_flash", "?"), "disabled"),
+               "191 옵션 파일 → 코어 옵션(라벨 끔 · 옛 «on» = 반투명 · 193 번쩍은 늘 끔)");
+      }
+      {  /* 195 옛 «enabled» = 큰 한글 도트 · 새 값 그대로 */
+         char tp[] = "/tmp/gltest_optsXXXXXX"; int fd = mkstemp(tp); FILE *o = fdopen(fd, "w");
+         fprintf(o, "pocketcore_callout=enabled\npocketcore_hitfx=opaque\npocketcore_hitfx_size=big\n"); fclose(o);
+         load_options(tp); unlink(tp);
+         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "pixel") && !strcmp(opt_get("ngp_hit_fx", "?"), "opaque") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "big"),
+               "195 옵션 파일 → 코어 옵션(옛 enabled = 큰 한글 도트 · 불투명 · 크게 — %s %s %s)", opt_get("ngp_hit_callout", "?"), opt_get("ngp_hit_fx", "?"), opt_get("ngp_hit_fx_size", "?"));
+         o = NULL; (void)o;
+         char tp2[] = "/tmp/gltest_optsXXXXXX"; fd = mkstemp(tp2); o = fdopen(fd, "w");
+         fprintf(o, "pocketcore_callout=plaque\npocketcore_hitfx=off\n"); fclose(o);
+         load_options(tp2); unlink(tp2);
+         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "plaque") && !strcmp(opt_get("ngp_hit_fx", "?"), "disabled") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small"),
+               "195 옵션 파일 → 코어 옵션(명패 · 이펙트 끔)");
       }
    }
    fprintf(stderr, "%s (%d 실패)\n", fails ? "실패" : "통과", fails);
