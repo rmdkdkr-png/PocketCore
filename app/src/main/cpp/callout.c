@@ -58,7 +58,9 @@ typedef struct {
    uint32_t seq;                /* 낸 차례(다 차면 가장 오래된 것) */
    int att;                     /* 194 때린 쪽(0 P1 · 1 P2 · −1 없음 — 칼 부딪힘·흙먼지) — 코어가 그 몸 밑 · 맞은 몸 위로 그린다 */
    int big;                     /* 195 낼 때의 크기(1 = 크게) */
+   int held;                    /* 196 히트스톱 동안 첫 컷을 멈춘 프레임 수(칼 부딪힘은 FX_C_HOLD 까지만) */
 } dfx_t;
+#define FX_C_HOLD 6             /* 196 칼 부딪힘 첫 컷 멈춤 상한(프레임) — 게임 히트스톱이 24~36 이라 별이 오래 굳어 있었음(GPT 015 제안 · 유저 «정지화면 뚝» 싫음) */
 enum { FXK_L = 0, FXK_H, FXK_T, FXK_G, FXK_C, FXK_D, FXK_K, FXK_S };   /* 섬광 약·강·작은 것 · 185: 가드 반달 · 칼 부딪힘 · 넘어짐 먼지 · 막타 일섬 · 187: 강베기 일섬(칼 궤적 색) */
 static dfx_t FX[FX_MAX];
 static uint32_t fx_seq;
@@ -126,6 +128,11 @@ static const hfx_cel *fx_cels(int kind, int big, int *n)
    case FXK_L: *n = HFX_N_LB; return HFX_LB;
    case FXK_H: *n = HFX_N_HB; return HFX_HB;
    case FXK_S: *n = HFX_N_SB; return HFX_SB;
+   case FXK_T: *n = HFX_N_TB; return HFX_TB;     /* 196 크게 나머지 다섯(GPT 외주 그림) */
+   case FXK_G: *n = HFX_N_GB; return HFX_GB;
+   case FXK_C: *n = HFX_N_CB; return HFX_CB;
+   case FXK_D: *n = HFX_N_DB; return HFX_DB;
+   case FXK_K: *n = HFX_N_KB; return HFX_KB;
    default: break;
    }
    switch (kind) {
@@ -260,7 +267,7 @@ static void fx_advance(int hs)
       if (!e->on) continue;
       const hfx_cel *cs = fx_cels(e->kind, e->big, &n);
       if (e->cel >= n) { e->on = 0; continue; }
-      if (e->hold && e->cel == 0 && hs) continue;
+      if (e->hold && e->cel == 0 && hs && (e->kind != FXK_C || ++e->held < FX_C_HOLD)) continue;   /* 196 칼 부딪힘은 6 프레임까지만 */
       e->hold = 0;
       dur = cs[e->cel].dur ? cs[e->cel].dur : 2;
       if (++e->sub < dur) continue;
@@ -293,7 +300,11 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
    if (atomic_load(&fx_mode) != FXM_OFF) dust_tick(ram);
    S.cam = ram[R_CAMX];
    live = ram[R_MODE] == 241 && ram[R_FIGHT] == 1 && ram[R_RES] == 0 && ram[R_RES2] == 0 && ram[R_PAUSE] != 1;
-   if (!live) { S.live_prev = 0; S.have_prev = 0; return; }
+   /* 196 막타 프레임 — 게임은 막타가 닿는 바로 그 프레임에 판 끝남(0x5823)을 세운다(실측: 체력 0 · 히트스톱 0→5 · 콤보 0→1 과 같은 프레임). 그래서 live 가
+      막타를 한 번도 못 봤다 — 막타 일섬·막타 라벨이 실제 KO 에서 안 났음(봇 판이 늘 시간 끝이라 몰랐음 — 유저 10-21 「시간끝 ㅇㅈㄹ 야 연습모드는 버렸니」).
+      바로 앞 프레임까지 판정 중이었고 지금 0x5823 만 새로 섰으면 이 한 프레임은 닿음만 본다(칸 셈은 안 함 · 끝에서 끔) */
+   int ko_edge = !live && S.live_prev && S.have_prev && ram[R_MODE] == 241 && ram[R_FIGHT] == 1 && ram[R_RES] == 0 && ram[R_RES2] != 0 && ram[R_PAUSE] != 1;
+   if (!live && !ko_edge) { S.live_prev = 0; S.have_prev = 0; return; }
    if (!S.live_prev) {                                   /* 라운드 조작이 (다시) 시작 — 둘 다 만피면 새 라운드 */
       S.live_prev = 1;
       if (ram[PB(0) + O_HP] == 128 && ram[PB(1) + O_HP] == 128) { S.first_done = 0; S.stats[5]++; }
@@ -369,7 +380,7 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
       }
       proj[0] = proj[1] = 0;
       for (int k = 4; k < 32; k++) if (S.armed[k] >= 0) proj[S.armed[k]] = 1;
-      if (frozen) goto keep;                            /* 히트스톱 동안은 칸을 안 센다(앞 칸 그대로) */
+      if (frozen || ko_edge) goto keep;                 /* 히트스톱 동안은 칸을 안 센다(앞 칸 그대로) · 196 막타 프레임은 닿음만(쓰러지는 몸의 FF 를 «새 동작»으로 봐 역습 라벨이 났다) */
       for (p = 0; p < 2; p++) {
          int act_now = S.boxq[p][1], proj_now = S.armq[p][1], c;
          S.boxq[p][1] = S.boxq[p][0]; S.boxq[p][0] = box[p];
@@ -419,6 +430,17 @@ keep:
    for (p = 0; p < 2; p++) { S.p_ctrl[p] = ctrl[p]; S.p_combo[p] = combo[p]; S.p_act[p] = act[p]; S.p_hp[p] = ram[PB(p) + O_HP]; }
    memcpy(S.p_cap, cap, sizeof cap);
    S.have_prev = 1;
+   if (ko_edge) {
+      /* 196 막타가 앞 프레임에 이미 판정됐고(그때 체력 > 0) 이제야 0 이 된 경우 — 치트 «한 방»(판정 뒤에 체력을 0 으로) · 한 프레임 늦게 깎인 막타.
+         맞은 쪽 체력이 0 이고 그 맞음의 이펙트가 아직 첫 컷이면 막타 일섬으로 바꾼다 */
+      dfx_t *e = &FX[0];
+      if (e->on && e->cel == 0 && e->att >= 0 && (e->kind == FXK_L || e->kind == FXK_S || e->kind == FXK_T) && ram[PB(1 - e->att) + O_HP] == 0) {
+         int d = 1 - e->att;
+         e->kind = FXK_K; e->wx = rd16(ram, OBJ(d) + 8); e->y = rd16(ram, OBJ(d) + 0xA) - 24; e->hold = 1; e->sub = 0;
+         memcpy(e->col, COL_K, sizeof e->col);
+      }
+      S.live_prev = 0; S.have_prev = 0;
+   }
 }
 
 int callout_get(callout_t *out, int max, double now)

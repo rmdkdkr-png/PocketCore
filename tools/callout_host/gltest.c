@@ -463,7 +463,7 @@ int main(int argc, char **argv)
          HS = 0;
          CHECK(x1 >= x0 && x1 - x0 + 1 <= 31 && y1 - y0 + 1 <= 23, "192 일섬 크기 %d×%d(31×23 안)", x1 - x0 + 1, y1 - y0 + 1);
          /* 193 자리 — 맞은 몸(x 100) 가운데 4px 뒤가 가운데(때린 몸 x 70 쪽으로 안 넘침): 그린 화소 상자가 89~119 안 */
-         CHECK(x0 >= 89 && x1 <= 119 && (x0 + x1) / 2 >= 102 && (x0 + x1) / 2 <= 106, "193 일섬 자리 x %d~%d(맞은 몸 100 · 때린 몸 70 — 89~119 안, 가운데 104 근처)", x0, x1);
+         CHECK(x0 >= 89 && x1 <= 119 && (x0 + x1) / 2 >= 100 && (x0 + x1) / 2 <= 106, "193 일섬 자리 x %d~%d(맞은 몸 100 · 때린 몸 70 — 89~119 안, 가운데 100~106 — 196 GPT 그림 기준점 17)", x0, x1);
       }
       {  /* 193 한 번에 하나 — 연달아 맞아도 이펙트 하나 */
          HIT7(0x50, 120, 3); HS = 0; TICK7(); CTRL(0) = 0; TICK7(); TICK7();
@@ -481,7 +481,8 @@ int main(int argc, char **argv)
             for (int y = 0; y < 152; y++) for (int x = 0; x < 160; x++) if (B1[(y * 160 + x) * 4 + 3]) { sy += y; n++; }
             cy[v] = n ? (int)(sy / n) : -1; HS = 0;
          }
-         CHECK(cy[0] == 128 - 24 && cy[1] == 128 - 32 && cy[2] == 128 - 12, "193 타격 지점 높이 서서 %d · 점프 %d · 앉아 %d(104 · 96 · 116)", cy[0], cy[1], cy[2]);
+         CHECK(abs(cy[0] - (128 - 24)) <= 1 && abs(cy[1] - (128 - 32)) <= 1 && abs(cy[2] - (128 - 12)) <= 1,
+               "193 타격 지점 높이 서서 %d · 점프 %d · 앉아 %d(104 · 96 · 116 ±1 — 196 GPT 약 섬광은 화소 무게가 1px 위)", cy[0], cy[1], cy[2]);
       }
       {  /* 195 크게 — 일섬 47×35 안 · 작게보다 큼 · 같은 길이(12) · 약 섬광 23×23 안. 다음에 낼 것부터(이미 떠 있는 건 그대로) */
          int x0 = 999, y0 = 999, x1 = -1, y1 = -1, lifeb = 1;
@@ -498,6 +499,58 @@ int main(int argc, char **argv)
          HIT7(0x68, 108, 10);
          { int big = 0; SNAP(B1); TICK7(); TICK7(); SNAP(B1); for (int y = 0; y < 152; y++) for (int x = 0; x < 160; x++) if (B1[(y * 160 + x) * 4 + 3]) big++; HS = 0;
            CHECK(big > 0 && callout_fx_size_get() == 0, "195 작게로 돌리면 다음 것부터 작게(화소 %d)", big); }
+      }
+      {  /* 196 막타 — 게임이 막타 프레임에 판 끝남(0x5823)을 같이 세움: 그 프레임도 판정해 막타 일섬(빨강 0x23F)이 나야 */
+         #define KRED(B, n) do { n = 0; for (int q = 0; q < 160 * 152; q++) if (B[q * 4] == 255 && B[q * 4 + 1] == 51 && B[q * 4 + 2] == 34) n++; } while (0)
+         int nk = 0, nk2 = 0, nk3 = 0;
+         callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
+         RAM[RA(0x4E30) + 0x40 + 0x0E] = 0x50; RAM[RA(0x4E30) + 0x40 + 0x0F] = 0; TICK7(); TICK7();
+         HS = 5; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 0; RAM[RA(0x5823)] = 136; TICK7();
+         SNAP(B1); KRED(B1, nk);
+         int n_after = callout_fx_count();
+         for (int i = 0; i < 3; i++) TICK7();                       /* 판 끝 뒤엔 판정 안 함 — 그래도 이펙트는 끝까지 */
+         SNAP(B2); KRED(B2, nk2);
+         CHECK(nk > 20 && n_after == 1 && nk2 > 20, "196 막타 프레임에 판 끝남이 같이 서도 막타 일섬(빨강 화소 %d · 이펙트 %d · 3프레임 뒤 %d)", nk, n_after, nk2);
+         /* 치트 «한 방» — 판정 뒤에 체력 0: 맞은 프레임엔 약 섬광, 다음 프레임(판 끝남)에 막타 일섬으로 바뀜 */
+         callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
+         RAM[RA(0x4E30) + 0x40 + 0x0E] = 0x50; RAM[RA(0x4E30) + 0x40 + 0x0F] = 0; TICK7(); TICK7();
+         HS = 5; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 118; TICK7();
+         SNAP(B1); KRED(B1, nk);
+         RAM[RA(0x5980) + 0xC6] = 0; TICK7(); RAM[RA(0x5823)] = 136; TICK7();
+         SNAP(B2); KRED(B2, nk3);
+         CHECK(nk == 0 && nk3 > 20, "196 치트 한 방(판정 뒤 체력 0) — 약 섬광(빨강 %d) → 판 끝남 프레임에 막타 일섬(빨강 %d)", nk, nk3);
+         /* 판 끝남이 섰는데 앞 프레임이 판정 중이 아니었으면(라운드 시작 전 등) 아무것도 안 냄 */
+         callout_reset(); base(); RAM[RA(0x5823)] = 136; TICK7(); TICK7();
+         HS = 5; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 0; TICK7();
+         CHECK(callout_fx_count() == 0, "196 판 끝남이 먼저 서 있던 판(판정 밖)엔 이펙트 없음(%d)", callout_fx_count());
+         RAM[RA(0x5823)] = 0;
+      }
+      {  /* 196 칼 부딪힘 — 게임 히트스톱이 길어도(30) 첫 컷은 6 프레임까지만 */
+         int moved = -1;
+         callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
+         TICK7(); TICK7();
+         HS = 30; TICK7();                                         /* 맞음·가드 없이 히트스톱만 = 칼 부딪힘 */
+         SNAP(B1);
+         for (int i = 1; i <= 12 && moved < 0; i++) { TICK7(); SNAP(B2); if (memcmp(B1, B2, sizeof B1)) moved = i; }
+         CHECK(callout_fx_count() <= 1 && moved >= 5 && moved <= 7, "196 칼 부딪힘 첫 컷이 히트스톱 30 중 %d 프레임째에 넘어감(6 근처)", moved);
+         HS = 0;
+      }
+      {  /* 196 크게 — 크게가 없던 다섯(T·G·C·D·K)도 작게보다 큼: 막타 일섬·칼 부딪힘으로 */
+         int a[2], c2[2];
+         for (int big = 0; big < 2; big++) {
+            callout_fx_size(big);
+            callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
+            RAM[RA(0x4E30) + 0x40 + 0x0E] = 0x50; RAM[RA(0x4E30) + 0x40 + 0x0F] = 0; TICK7(); TICK7();
+            HS = 5; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 0; RAM[RA(0x5823)] = 136; TICK7();
+            SNAP(B1); { int x0 = 999, x1 = -1; for (int q = 0; q < 160 * 152; q++) if (B1[q * 4 + 3]) { if (q % 160 < x0) x0 = q % 160; if (q % 160 > x1) x1 = q % 160; } a[big] = x1 - x0 + 1; }
+            RAM[RA(0x5823)] = 0;
+            callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
+            TICK7(); TICK7(); HS = 30; TICK7();
+            SNAP(B1); { int x0 = 999, x1 = -1; for (int q = 0; q < 160 * 152; q++) if (B1[q * 4 + 3]) { if (q % 160 < x0) x0 = q % 160; if (q % 160 > x1) x1 = q % 160; } c2[big] = x1 - x0 + 1; }
+            HS = 0;
+         }
+         callout_fx_size(0);
+         CHECK(a[1] > a[0] && c2[1] > c2[0] && a[0] > 0 && c2[0] > 0, "196 크게 막타 일섬 폭 %d > 작게 %d · 칼 부딪힘 폭 %d > %d", a[1], a[0], c2[1], c2[0]);
       }
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
    }
