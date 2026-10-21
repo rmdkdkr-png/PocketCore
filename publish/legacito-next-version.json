@@ -3,7 +3,7 @@
   "versionName": "0.9",
   "packageId": "com.dudu.legacito.next",
   "apk": "legacito-next-200.apk",
-  "sha256": "7ee494b24c14bf38c32370157afcfeebcde6d396d6fa95dc4a34d38b03c4c7c4",
+  "sha256": "707542991204be5cb351c91303e7fbea9eccb1579e0f85a440bf69bbb5494e92",
   "bytes": 5746224,
   "signingCertificateSHA256": "4b92871c65eb55b9519d9be059d1f877f3c63d0cf27b610b7c146d99b19df8d5",
   "notes": "별도 설치 앱. 타격 이펙트 구성 선택, 카운터·리버설·퍼니시, 내 공격 프레임 미터, 랭크 매칭·인계 오류 수정. 기존 앱·자료 보존."
