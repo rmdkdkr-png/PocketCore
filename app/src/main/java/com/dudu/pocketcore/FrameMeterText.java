@@ -68,7 +68,7 @@ public final class FrameMeterText {
                 if (v == NONE) continue;
                 out.add(new Part(kindWord(kind[i], true) + " " + signed(v), kind[i] == curKind && contact != C_NONE, Integer.signum(v)));
             }
-        } else if (s[S_ADV_ATT] == 1 && s[S_ADV_ID] > 0 && s[S_ADV] != NONE) {   /* 상대 기술을 받음 — 내 쪽 유불리 */
+        } else if (s[S_ADV_ATT] == 1 && s[S_ADV_ID] > 0 && s[S_ADV] != NONE) {   /* 상대 기술을 받음 — 내 쪽 유불리(198 부터 native 가 focus 1 · att 1 을 안 내 쓰이지 않음 — 옛 자료 호환) */
             out.add(new Part(kindWord(s[S_ADV_KIND], false) + " " + signed(s[S_ADV]), true, Integer.signum(s[S_ADV])));
         }
         return out.toArray(new Part[0]);

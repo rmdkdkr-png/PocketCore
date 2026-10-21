@@ -405,7 +405,10 @@ static void game_writes(uint8_t *ram, int input)
                맞는 줄(0A·0C·10·12·콤보·닿음)에 들어가면 0 이 될 때까지 경직(기상 02 도 다운으로).
      동작      움직일 수 있음·대시·점프에서 동작 값으로 바뀌면 시작. 보통 공격(02) 중 필살(ACT ≥ 0x180)로 바뀌면 캔슬 = 새 동작.
      유불리    닿은 뒤 각자 조작이 처음 0 이 된 프레임(히트스톱 0)의 차 = P2 − P1(+ = 내가 먼저). combat_ref 와 같은 규칙(무작위 7대진 35000프레임 같음).
-     순서      누가 움직이기 시작하면 새 순서(미터 비움). 둘 다 움직일 수 있게 되면 끝(미터는 그대로 남김).
+     순서      198 내 공격만(유저 10-21 「프레임미터는 내 공격만 표시」): 내(P1) 동작(발동·지속·경직 칸)이 시작될 때만 새 순서(미터 비움).
+               순서는 내가 움직이는 동안(동작·점프·대시·경직) · 상대가 맞음·막음·다운인 동안(내 공격의 결과) · 내 장풍이 날아가는 동안만 이어 가고,
+               아니면 끝(미터는 그대로 남김) — 상대 혼자 하는 동작(점프·대시·공격)은 새 순서를 안 열고 내 미터를 지우지도 않는다(이전: 누가 움직이든 새 순서).
+               숫자 줄은 늘 내 동작, 유불리는 내가 맞힌·막힌 닿음만(상대가 나를 맞히면 기다리던 유불리도 버림).
                한 사람은 움직일 수 있고 다른 사람은 같은 경직이 8칸 넘게 이어지면 · 장풍만 날아가면 한 칸(줄임)만 남기고 센다. 80칸 넘으면 감는다. */
 #define FD_VIEW 80
 #define FD_MEM  32
@@ -469,7 +472,7 @@ static void fd_end(int p, int why)          /* why 0 = 움직일 수 있게 됨 
          if (*c != FK_EMPTY && (*c & 0x0F) == FK_STARTUP) *c = (uint8_t)((*c & 0xF0) | FK_ACTION);
       }
    FdSum *s = &FD.sum[p];
-   if (p == 0 || a->contact) FD.focus = p;    /* 숫자 줄이 보여 줄 동작 — 내 동작은 늘 · 상대 동작은 닿았을 때만 */
+   if (p == 0) FD.focus = p;                  /* 숫자 줄이 보여 줄 동작 — 198 내 동작만(이전: 상대 동작도 닿았으면) */
    s->id++; s->total = a->n; s->contact = a->contact; s->kc = a->kc; s->ka = a->ka; s->ks = a->ks;
    s->pstart = a->pfirst < 0 ? -1 : a->pfirst + 1; s->plen = a->pfirst < 0 ? 0 : a->plast - a->pfirst + 1;
    if (a->first < 0) { s->startup = s->active = s->recovery = -1; }
@@ -524,7 +527,9 @@ static void fd_tick(const uint8_t *ram)
          for (int q = 0; q < 2 && d < 0; q++) if (combo[q] > FD.p_combo[q]) { d = q; kind = FD.p_combo[q] == 0 ? FC_THROW : (FD.last_kind ? FD.last_kind : FC_HIT); }
       }
       if (kind) {
-         FD.wait_on = 1; FD.wait[0] = FD.wait[1] = -1; FD.contact_f = FD.f; FD.last_kind = kind; FD.att = d >= 0 ? 1 - d : -1;
+         FD.last_kind = kind;
+         if (d == 0) FD.wait_on = 0;                /* 198 상대가 나를 맞힘·막게 함 — 유불리는 내 공격만(기다리던 것도 버림) */
+         else { FD.wait_on = 1; FD.wait[0] = FD.wait[1] = -1; FD.contact_f = FD.f; FD.att = d >= 0 ? 1 - d : -1; }
          if (d >= 0) {
             FD.mode[d] = 2; FD.stun[d] = kind == FC_BLOCK ? FC_BLOCK : FC_HIT;
             FdAct *a = &FD.act[1 - d];
@@ -583,8 +588,10 @@ static void fd_tick(const uint8_t *ram)
          }
          cls[p] = c | flags | pflag;
       }
-      int actor = (cls[0] & 0x0F) != FK_IDLE || (cls[1] & 0x0F) != FK_IDLE, flying = proj[0] || proj[1];
-      if (!FD.seq_on && (actor || flying)) {
+      /* 198 내 공격만 — 열기: 내 동작 칸 · 잇기: 내가 가만있지 않음(동작·점프·대시·경직) 또는 상대가 경직(내 공격의 결과) · 날기: 내 장풍 */
+      int c0 = cls[0] & 0x0F, mine_start = c0 == FK_STARTUP || c0 == FK_ACTIVE || c0 == FK_RECOVERY;
+      int actor = c0 != FK_IDLE || fd_stun_kind(cls[1]), flying = proj[0];
+      if (!FD.seq_on && mine_start) {
          FD.seq_on = 1; FD.seq_id++; FD.len = 0; FD.gap_open = 0; FD.gap_n = 0; FD.run = 0; FD.last_pair = -1; FD.frozen_n = 0;
          memset(FD.cell, FK_EMPTY, sizeof FD.cell);
          for (int p = 0; p < 2; p++) if (FD.act[p].live && FD.mode[p] == 1) FD.act[p].start = 0;
