@@ -1,10 +1,10 @@
 {
-  "versionCode": 200,
+  "versionCode": 201,
   "versionName": "0.9",
   "packageId": "com.dudu.legacito.next",
-  "apk": "legacito-next-200.apk",
-  "sha256": "707542991204be5cb351c91303e7fbea9eccb1579e0f85a440bf69bbb5494e92",
-  "bytes": 5746224,
+  "apk": "legacito-next-201.apk",
+  "sha256": "c7fbd7dbc2233c25554d82d8614ac203955840d7313e04515cc2fccc08912f42",
+  "bytes": 5770800,
   "signingCertificateSHA256": "4b92871c65eb55b9519d9be059d1f877f3c63d0cf27b610b7c146d99b19df8d5",
-  "notes": "별도 설치 앱. 타격 이펙트 구성 선택, 카운터·리버설·퍼니시, 내 공격 프레임 미터, 랭크 매칭·인계 오류 수정. 기존 앱·자료 보존."
+  "notes": "랭크 상대 확인 후 버튼/A로 시작. 작은 한글·영문 도트(선제공격 포함), 먹 베기 띠 글씨·한자 낙관 정리. 200과 같은 앱·서명·자료 폴더."
 }
