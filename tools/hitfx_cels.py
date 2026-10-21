@@ -5,14 +5,13 @@
 + 185: 가드 반달 3컷 · 칼 부딪힘 4컷 · 넘어짐 먼지 4컷 · 막타 일섬 5컷. 컷마다 2프레임(1/30초), 첫 컷은 히트스톱 내내.
 + 192: 혜성을 작게(26×11) · 앞 강베기 일섬 따로(31×23) — 둘은 컷마다 길이(dur, 프레임)를 적고 히트스톱 동안에도 넘어간다. dur 0 = 2 프레임.
 + 195: «크게» 묶음 LB(약 섬광 23×23) · HB(혜성 40×15) · SB(일섬 47×35) — 작게와 같은 컷·길이.
-+ 196: GPT 외주 그림(tools/hitfx_gpt/v1 — PIL 필요) — HFXG_* 따로(여덟 종 × 작게·크게). 코어 옵션 ngp_hit_fx_art = classic(195 그림, 기본) · gpt."""
++ 196: GPT 외주 그림(tools/hitfx_gpt/v1)을 고르기로 실었다가 197 에서 뺌(유저 「195가 좋다」) — 표는 195 그대로."""
 import json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hitfx_cels_art as A
 
-# 196: GPT 외주 그림(014 의뢰 → from_gpt/ss2_hitfx_v1.zip, 015 실제 대전 비교) — tools/hitfx_gpt/v1 의 manifest·PNG(열쇠색 4) 그대로.
-#      유저 20:26 「지금 195 이펙트도 맘에 들긴 하거든」 → 20:28 「해 볼 수 있게 올려 줘 둘 다」 — 그림 고르기(ngp_hit_fx_art): 195 그림(HFX_*, 기본)과
-#      GPT 그림(HFXG_* — 여덟 종 × 작게·크게 모두)을 둘 다 싣는다.
+# 196: GPT 외주 그림(014 의뢰 → from_gpt/ss2_hitfx_v1.zip, 015 실제 대전 비교)을 «그림 고르기»로 실었다가(test90) 유저 10-21 20:50 「195가 좋다」 →
+#      197 에서 뺐다. 원본은 tools/hitfx_gpt/v1(manifest·PNG)에 남김 — 다시 쓰려면 아래 gpt() 로 읽어 SETS 에 더하면 된다.
 GPT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hitfx_gpt', 'v1')
 _KEY = {(255, 255, 255): 1, (255, 192, 64): 2, (192, 64, 0): 3}
 def gpt(kind, size):
@@ -45,8 +44,7 @@ SETS = [('L', A.spark_light), ('H', A.spark_heavy), ('R', A.counter_ring), ('T',
         ('G', A.guard_arc), ('C', A.clash), ('D', A.dust), ('K', A.ko_slash),   # 185: 가드·칼 부딪힘·넘어짐 먼지·막타 일섬
         ('S', A.front_slash),                                                     # 192: 앞 강베기 일섬
         ('LB', A.spark_light_big), ('HB', A.spark_heavy_big), ('SB', A.front_slash_big)]   # 195: «크게» — 약 섬광·혜성·일섬
-# 196: GPT 그림 — HFXG_<종류>(작게) · HFXG_<종류>B(크게), 여덟 종 모두(같은 종류의 작게·크게는 같은 컷 수·길이)
-SETS += [('G_' + k + sz, (lambda k=k, size=size: gpt(k, size))) for k in 'LHTGCDKS' for (sz, size) in (('', 'small'), ('B', 'big'))]
+
 out = ['/* 자동 생성(tools/hitfx_cels.py) — 타격 이펙트 도트 컷(게임 화소). 값 0 투명 · 1 흰 심 · 2 가운데 · 3 테두리 */',
        '#ifndef HITFX_CELS_H', '#define HITFX_CELS_H', '#include <stdint.h>',
        'typedef struct { uint8_t w, h, ax, ay; const uint8_t *px; uint8_t dur; } hfx_cel;   /* dur = 이 컷 프레임 수(0 = 2, 히트스톱 동안 첫 컷 멈춤) */']

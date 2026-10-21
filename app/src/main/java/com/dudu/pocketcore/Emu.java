@@ -37,7 +37,7 @@ public final class Emu {
     public static native void nativeRunFrames(int n); /* GL 없이 n프레임 — 썸네일 캡처용 */
     public static native void nativeSetHitFx(int mode);        /* 182 타격 이펙트 — 0 끔 · 1 켬, 사무쇼2 판에서만. 191: 코어 옵션도 넣으므로 GL 스레드에서 */
     public static native void nativeSetCallouts(boolean on);   /* 182 타격 알림(COUNTER·PUNISHER·FIRST ATTACK·REVERSAL) — 사무쇼2 판에서만 켬. 191: GL 스레드에서 */
-    public static native void nativeSetHitStyle(int label, int fx, int big);   /* 195 라벨 모양 0~3 · 이펙트 1 반투명 2 불투명 3 때린 몸 밑 · 크기 bit0 0/1 · 196 그림 bit1(0 195 · 1 GPT) — GL 스레드에서 */
+    public static native void nativeSetHitStyle(int label, int fx, int big);   /* 195 라벨 모양 0~3 · 이펙트 1 반투명 2 불투명 3 때린 몸 밑 · 크기 0/1 — GL 스레드에서 */
     public static native void nativeSetHitFlash(boolean on);   /* 191 몸 번쩍(앞 강베기) — 이펙트와 따로, 사무쇼2 판에서만 켬. GL 스레드(코어 옵션) */
     public static native int  nativeCoreHits();                /* 191 지금 코어가 타격 알림·이펙트·몸 번쩍을 그리나(비트 1·2·4, 0 = 앱이 그림) */
     /* 151: 앱 보간(nativeSetFrameGen·nativeFrameGenActive) 폐기 — 120Hz 사이 칸은 코어의 프레임 패치만 */

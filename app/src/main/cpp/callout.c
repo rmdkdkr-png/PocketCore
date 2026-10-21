@@ -32,7 +32,6 @@ enum { C_NONE = 0, C_HIT, C_BLOCK, C_THROW, C_OTHER, C_MULTI };
 static atomic_int co_on = 0;
 static atomic_int fx_mode = 0;                 /* 타격 이펙트 FXM_* (0 = 끔) */
 static atomic_int fx_big = 0;                  /* 195 이펙트 크기 — 1 = 크게(약 섬광·혜성·일섬을 1.4~1.5배로 다시 그린 묶음) */
-static atomic_int fx_art = 0;                  /* 196 그림 — 0 = 195 그림(기본) · 1 = GPT 외주 그림(여덟 종 × 작게·크게) */
 static const uint8_t *fx_pal;                  /* 코어 스프라이트 팔레트 램(0x8200~) — 칼 궤적 색(GL 스레드, tick 앞에 받음) */
 static atomic_int co_reset_req = 1;            /* 지우기는 GL 스레드에서만(tick·get 이 먼저 본다) — 다른 스레드는 부탁만 */
 static struct {
@@ -60,7 +59,6 @@ typedef struct {
    int att;                     /* 194 때린 쪽(0 P1 · 1 P2 · −1 없음 — 칼 부딪힘·흙먼지) — 코어가 그 몸 밑 · 맞은 몸 위로 그린다 */
    int big;                     /* 195 낼 때의 크기(1 = 크게) */
    int held;                    /* 196 히트스톱 동안 첫 컷을 멈춘 프레임 수(칼 부딪힘은 FX_C_HOLD 까지만) */
-   int art;                     /* 196 낼 때의 그림(1 = GPT 외주) */
 } dfx_t;
 #define FX_C_HOLD 6             /* 196 칼 부딪힘 첫 컷 멈춤 상한(프레임) — 게임 히트스톱이 24~36 이라 별이 오래 굳어 있었음(GPT 015 제안 · 유저 «정지화면 뚝» 싫음) */
 enum { FXK_L = 0, FXK_H, FXK_T, FXK_G, FXK_C, FXK_D, FXK_K, FXK_S };   /* 섬광 약·강·작은 것 · 185: 가드 반달 · 칼 부딪힘 · 넘어짐 먼지 · 막타 일섬 · 187: 강베기 일섬(칼 궤적 색) */
@@ -107,8 +105,6 @@ void callout_fx_mode(int mode)
 int callout_fx_mode_get(void) { return atomic_load(&fx_mode); }
 void callout_fx_size(int big) { atomic_store(&fx_big, big ? 1 : 0); }
 int callout_fx_size_get(void) { return atomic_load(&fx_big); }
-void callout_fx_art(int gpt) { atomic_store(&fx_art, gpt ? 1 : 0); }
-int callout_fx_art_get(void) { return atomic_load(&fx_art); }
 
 static void reset_now(void)
 {
@@ -126,20 +122,8 @@ static void reset_now(void)
 
 static int rd16(const uint8_t *ram, int o) { return ram[o] | (ram[o + 1] << 8); }
 
-_Static_assert(HFXG_N_L == HFXG_N_LB && HFXG_N_H == HFXG_N_HB && HFXG_N_T == HFXG_N_TB && HFXG_N_G == HFXG_N_GB && HFXG_N_C == HFXG_N_CB &&
-               HFXG_N_D == HFXG_N_DB && HFXG_N_K == HFXG_N_KB && HFXG_N_S == HFXG_N_SB, "196 GPT 작게·크게는 컷 수가 같아야(크기를 바꿔도 컷 번호 그대로)");
-static const hfx_cel *fx_cels(int kind, int big, int art, int *n)
+static const hfx_cel *fx_cels(int kind, int big, int *n)
 {
-   if (art) switch (kind) {                          /* 196 GPT 외주 그림 — 여덟 종 × 작게·크게(같은 종류는 같은 컷 수·길이) */
-   case FXK_H: *n = HFXG_N_H; return big ? HFXG_HB : HFXG_H;
-   case FXK_T: *n = HFXG_N_T; return big ? HFXG_TB : HFXG_T;
-   case FXK_G: *n = HFXG_N_G; return big ? HFXG_GB : HFXG_G;
-   case FXK_C: *n = HFXG_N_C; return big ? HFXG_CB : HFXG_C;
-   case FXK_D: *n = HFXG_N_D; return big ? HFXG_DB : HFXG_D;
-   case FXK_K: *n = HFXG_N_K; return big ? HFXG_KB : HFXG_K;
-   case FXK_S: *n = HFXG_N_S; return big ? HFXG_SB : HFXG_S;
-   default:    *n = HFXG_N_L; return big ? HFXG_LB : HFXG_L;
-   }
    if (big) switch (kind) {                          /* 195 크게 — 같은 컷 수·길이(작게와 바꿔 써도 컷 번호 그대로) · 나머지는 작게 그대로 */
    case FXK_L: *n = HFX_N_LB; return HFX_LB;
    case FXK_H: *n = HFX_N_HB; return HFX_HB;
@@ -184,7 +168,7 @@ static dfx_t *fx_new(void)
 {
    if (atomic_load(&fx_mode) == FXM_OFF) return NULL;
    memset(FX, 0, sizeof FX);
-   FX[0].on = 1; FX[0].seq = ++fx_seq; FX[0].att = -1; FX[0].big = atomic_load(&fx_big); FX[0].art = atomic_load(&fx_art);
+   FX[0].on = 1; FX[0].seq = ++fx_seq; FX[0].att = -1; FX[0].big = atomic_load(&fx_big);
    return &FX[0];
 }
 
@@ -276,7 +260,7 @@ static void fx_advance(int hs)
    for (int i = 0; i < FX_MAX; i++) {
       dfx_t *e = &FX[i]; int n, dur;
       if (!e->on) continue;
-      const hfx_cel *cs = fx_cels(e->kind, e->big, e->art, &n);
+      const hfx_cel *cs = fx_cels(e->kind, e->big, &n);
       if (e->cel >= n) { e->on = 0; continue; }
       if (e->hold && e->cel == 0 && hs && (e->kind != FXK_C || ++e->held < FX_C_HOLD)) continue;   /* 196 칼 부딪힘은 6 프레임까지만 */
       e->hold = 0;
@@ -367,7 +351,8 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
                   강베기는 모두 같은 작은 일섬. 0x40 밑(장풍이 날아가는 동안 주인이 선 자세 등)·필살(≥ 0x180 — 원작 이펙트가 큼)은 작은 섬광 */
                int normal = act[a] >= 0x40 && act[a] < 0x180;
                int ko = ram[PB(d) + O_HP] == 0, heavy = normal && (dmg >= 12 || hs >= 9);
-               fx_spawn(ram, d, ko ? FXK_K : heavy ? FXK_S : FXK_L, 0);   /* 185: 체력 0 = 막타 일섬 · 193: 강베기 = 일섬 하나(고리·혜성 없이) */
+               fx_spawn(ram, d, heavy ? FXK_S : FXK_L, 0);   /* 193: 강베기 = 일섬 하나(고리·혜성 없이) · 197: 막타도 보통 맞음과 같이 — 붉은 막타 일섬(185) 뺌
+                                                                (유저 10-21 「일섬 효과는 좀 과하다 별로네」 — 196 에서 처음 실제로 보임) */
                {  /* 186 흔들림 — 필살도 센 맞음이면(그림은 절제해도 손맛은). 187: 강베기는 막타와 같은 가장 큰 흔들림 */
                   int sd = rd16(ram, OBJ(a) + 8) <= rd16(ram, OBJ(d) + 8) ? 1 : -1;
                   if (ko || heavy) shake(3, sd); else if (dmg >= 12) shake(2, sd); else if (ctr) shake(1, sd);
@@ -377,7 +362,7 @@ void callout_tick(const uint8_t *ram, size_t ramsz, double now)
          }
       }
       if (d >= 0 && kind == C_MULTI) {
-         fx_spawn(ram, d, ram[PB(d) + O_HP] == 0 ? FXK_K : FXK_T, 0);
+         fx_spawn(ram, d, FXK_T, 0);                     /* 197 막타 일섬 뺌 — 연타 막타도 작은 섬광 */
          if (ram[PB(d) + O_HP] == 0) shake(3, rd16(ram, OBJ(1 - d) + 8) <= rd16(ram, OBJ(d) + 8) ? 1 : -1);   /* 186 연타 막타도 */
       }
       if (d >= 0 && kind == C_BLOCK) fx_spawn(ram, d, FXK_G, 0);          /* 185 가드 반달 */
@@ -442,15 +427,7 @@ keep:
    memcpy(S.p_cap, cap, sizeof cap);
    S.have_prev = 1;
    if (ko_edge) {
-      /* 196 막타가 앞 프레임에 이미 판정됐고(그때 체력 > 0) 이제야 0 이 된 경우 — 치트 «한 방»(판정 뒤에 체력을 0 으로) · 한 프레임 늦게 깎인 막타.
-         맞은 쪽 체력이 0 이고 그 맞음의 이펙트가 아직 첫 컷이면 막타 일섬으로 바꾼다 */
-      dfx_t *e = &FX[0];
-      if (e->on && e->cel == 0 && e->att >= 0 && (e->kind == FXK_L || e->kind == FXK_S || e->kind == FXK_T) && ram[PB(1 - e->att) + O_HP] == 0) {
-         int d = 1 - e->att;
-         e->kind = FXK_K; e->wx = rd16(ram, OBJ(d) + 8); e->y = rd16(ram, OBJ(d) + 0xA) - 24; e->hold = 1; e->sub = 0;
-         memcpy(e->col, COL_K, sizeof e->col);
-      }
-      S.live_prev = 0; S.have_prev = 0;
+      S.live_prev = 0; S.have_prev = 0;               /* 197: 막타 일섬을 빼서 치트 «한 방» 막타를 바꿔 끼우던 것(196)도 없음 */
    }
 }
 
@@ -576,7 +553,7 @@ void callout_stats(int v[8]) { memcpy(v, S.stats, sizeof S.stats); }
 static int fx_layers(const dfx_t *e, const hfx_cel **cel, uint16_t pal[2][3], int *flip, int *nl)
 {
    int n, k = 0;
-   const hfx_cel *cs = fx_cels(e->kind, e->big, e->art, &n);
+   const hfx_cel *cs = fx_cels(e->kind, e->big, &n);
    if (e->cel >= n) return 0;
    if (e->ring && e->cel < HFX_N_R) {                              /* 반격 고리가 밑 — COUNTER 노랑·주황 · PUNISHER 빨강(라벨 색과 같게) */
       cel[k] = &HFX_R[e->cel]; flip[k] = 0;

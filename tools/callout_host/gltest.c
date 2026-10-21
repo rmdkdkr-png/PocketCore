@@ -443,6 +443,7 @@ int main(int argc, char **argv)
                                      RAM[RA(0x4E30) + 0x40 + 0x0E] = (uint8_t)(actv); RAM[RA(0x4E30) + 0x40 + 0x0F] = (uint8_t)((actv) >> 8); TICK7(); TICK7(); \
                                      HS = (hsv); COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = (uint8_t)(hp); TICK7(); } while (0)
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
+      callout_fx_size(0);                                          /* 197 기본이 크게라(native g_fx_big = 1) 아래 192·193 작게 그림 검사는 작게로 */
       static const struct { int act, hp, hs; const char *nm; int heavy; } KC[] = {
          { 0x68, 108, 10, "앞 강베기(아수라 0x68)", 1 }, { 0x6C, 100, 11, "앞 강베기(나찰 하오마루 0x6C)", 1 },
          { 0x88, 120, 11, "나찰 하오마루 0x88 — 피해 8 · 히트스톱 11", 1 }, { 0x50, 120, 3, "약베기", 0 }, { 0x1B0, 100, 10, "필살", 0 },
@@ -499,25 +500,26 @@ int main(int argc, char **argv)
          { int big = 0; SNAP(B1); TICK7(); TICK7(); SNAP(B1); for (int y = 0; y < 152; y++) for (int x = 0; x < 160; x++) if (B1[(y * 160 + x) * 4 + 3]) big++; HS = 0;
            CHECK(big > 0 && callout_fx_size_get() == 0, "195 작게로 돌리면 다음 것부터 작게(화소 %d)", big); }
       }
-      {  /* 196 막타 — 게임이 막타 프레임에 판 끝남(0x5823)을 같이 세움: 그 프레임도 판정해 막타 일섬(빨강 0x23F)이 나야 */
+      {  /* 196 막타 — 게임이 막타 프레임에 판 끝남(0x5823)을 같이 세움: 그 프레임도 판정해야. 197: 붉은 막타 일섬은 뺌 — 막타도 보통 맞음 이펙트(약 섬광) */
          #define KRED(B, n) do { n = 0; for (int q = 0; q < 160 * 152; q++) if (B[q * 4] == 255 && B[q * 4 + 1] == 51 && B[q * 4 + 2] == 34) n++; } while (0)
          int nk = 0, nk2 = 0, nk3 = 0;
          callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
          RAM[RA(0x4E30) + 0x40 + 0x0E] = 0x50; RAM[RA(0x4E30) + 0x40 + 0x0F] = 0; TICK7(); TICK7();
          HS = 5; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 0; RAM[RA(0x5823)] = 136; TICK7();
          SNAP(B1); KRED(B1, nk);
-         int n_after = callout_fx_count();
+         int n_after = callout_fx_count(), px1 = 0; for (int q = 0; q < 160 * 152; q++) if (B1[q * 4 + 3]) px1++;
          for (int i = 0; i < 3; i++) TICK7();                       /* 판 끝 뒤엔 판정 안 함 — 그래도 이펙트는 끝까지 */
          SNAP(B2); KRED(B2, nk2);
-         CHECK(nk > 20 && n_after == 1 && nk2 > 20, "196 막타 프레임에 판 끝남이 같이 서도 막타 일섬(빨강 화소 %d · 이펙트 %d · 3프레임 뒤 %d)", nk, n_after, nk2);
-         /* 치트 «한 방» — 판정 뒤에 체력 0: 맞은 프레임엔 약 섬광, 다음 프레임(판 끝남)에 막타 일섬으로 바뀜 */
+         CHECK(nk == 0 && n_after == 1 && px1 > 0 && nk2 == 0 && callout_fx_count() == 1,
+               "196·197 막타 프레임에 판 끝남이 같이 서도 판정 — 보통 이펙트(화소 %d · 이펙트 %d · 빨강 %d·%d)", px1, n_after, nk, nk2);
+         /* 치트 «한 방» — 판정 뒤에 체력 0: 맞은 프레임의 약 섬광이 그대로(197 — 막타 일섬으로 안 바꿈) */
          callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
          RAM[RA(0x4E30) + 0x40 + 0x0E] = 0x50; RAM[RA(0x4E30) + 0x40 + 0x0F] = 0; TICK7(); TICK7();
          HS = 5; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 118; TICK7();
          SNAP(B1); KRED(B1, nk);
          RAM[RA(0x5980) + 0xC6] = 0; TICK7(); RAM[RA(0x5823)] = 136; TICK7();
          SNAP(B2); KRED(B2, nk3);
-         CHECK(nk == 0 && nk3 > 20, "196 치트 한 방(판정 뒤 체력 0) — 약 섬광(빨강 %d) → 판 끝남 프레임에 막타 일섬(빨강 %d)", nk, nk3);
+         CHECK(nk == 0 && nk3 == 0 && callout_fx_count() == 1, "197 치트 한 방(판정 뒤 체력 0) — 약 섬광 그대로(빨강 %d·%d · 이펙트 %d)", nk, nk3, callout_fx_count());
          /* 판 끝남이 섰는데 앞 프레임이 판정 중이 아니었으면(라운드 시작 전 등) 아무것도 안 냄 */
          callout_reset(); base(); RAM[RA(0x5823)] = 136; TICK7(); TICK7();
          HS = 5; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 0; TICK7();
@@ -534,39 +536,6 @@ int main(int argc, char **argv)
          CHECK(callout_fx_count() <= 1 && moved >= 5 && moved <= 7, "196 칼 부딪힘 첫 컷이 히트스톱 30 중 %d 프레임째에 넘어감(6 근처)", moved);
          HS = 0;
       }
-      {  /* 196 크게 — GPT 그림은 여덟 종 모두 큼(막타 일섬·칼 부딪힘으로) · 195 그림은 막타·부딪힘 크게가 없어 작게 그대로 */
-         int a[2], c2[2], ka[2], kc[2];
-         for (int art = 1; art >= 0; art--) {
-         callout_fx_art(art);
-         for (int big = 0; big < 2; big++) {
-            callout_fx_size(big);
-            callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
-            RAM[RA(0x4E30) + 0x40 + 0x0E] = 0x50; RAM[RA(0x4E30) + 0x40 + 0x0F] = 0; TICK7(); TICK7();
-            HS = 5; COMBO(0) = 1; CTRL(0) = 0x0A; RAM[RA(0x5980) + 0xC6] = 0; RAM[RA(0x5823)] = 136; TICK7();
-            SNAP(B1); { int x0 = 999, x1 = -1; for (int q = 0; q < 160 * 152; q++) if (B1[q * 4 + 3]) { if (q % 160 < x0) x0 = q % 160; if (q % 160 > x1) x1 = q % 160; } a[big] = x1 - x0 + 1; }
-            RAM[RA(0x5823)] = 0;
-            callout_reset(); base(); RAM[RA(0x4E30) + 8] = 100; RAM[RA(0x4E30) + 0x40 + 8] = 70; RAM[RA(0x4E30) + 0xA] = 128; RAM[RA(0x4E30) + 0x40 + 0xA] = 128;
-            TICK7(); TICK7(); HS = 30; TICK7();
-            SNAP(B1); { int x0 = 999, x1 = -1; for (int q = 0; q < 160 * 152; q++) if (B1[q * 4 + 3]) { if (q % 160 < x0) x0 = q % 160; if (q % 160 > x1) x1 = q % 160; } c2[big] = x1 - x0 + 1; }
-            HS = 0;
-         }
-         if (art) { ka[0] = a[0]; ka[1] = a[1]; kc[0] = c2[0]; kc[1] = c2[1]; }
-         }
-         callout_fx_size(0);
-         CHECK(ka[1] > ka[0] && kc[1] > kc[0] && ka[0] > 0 && kc[0] > 0, "196 GPT 크게 막타 일섬 폭 %d > 작게 %d · 칼 부딪힘 폭 %d > %d", ka[1], ka[0], kc[1], kc[0]);
-         CHECK(a[1] == a[0] && c2[1] == c2[0] && a[0] > 0, "196 195 그림은 막타·부딪힘 크게 없음 — 작게 그대로(막타 %d=%d · 부딪힘 %d=%d)", a[1], a[0], c2[1], c2[0]);
-      }
-      {  /* 196 그림 고르기 — 기본 195 · GPT 로 바꾸면 다음에 낼 것부터(강베기 일섬 화소가 다름) · 이미 떠 있는 건 그대로 */
-         static uint8_t C1[160 * 152 * 4], C2[160 * 152 * 4];
-         CHECK(callout_fx_art_get() == 0, "196 그림 기본 = 195");
-         HIT7(0x68, 108, 10); SNAP(C1); HS = 0;
-         callout_fx_art(1);
-         SNAP(C2); int same_live = !memcmp(C1, C2, sizeof C1);
-         HIT7(0x68, 108, 10); SNAP(C2); HS = 0;
-         int diff = 0; for (int q = 0; q < 160 * 152; q++) if (memcmp(C1 + q * 4, C2 + q * 4, 4)) diff++;
-         callout_fx_art(0);
-         CHECK(same_live && diff > 20, "196 GPT 로 바꾸면 다음 강베기부터 다른 그림(떠 있던 것 그대로 %d · 다른 화소 %d)", same_live, diff);
-      }
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 0);
    }
    /* ── 191 코어가 그리면(g_core_hits) 앱 쪽은 꺼진 채 코어 옵션만 바뀜 ── */
@@ -576,20 +545,15 @@ int main(int argc, char **argv)
       Java_com_dudu_pocketcore_Emu_nativeSetHitFx(NULL, NULL, 1);
       Java_com_dudu_pocketcore_Emu_nativeSetHitFlash(NULL, NULL, 0);
       CHECK(!callout_enabled() && callout_fx_mode_get() == FXM_OFF, "191 코어가 그리면 앱 라벨·이펙트 끔");
-      CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "pixel") && !strcmp(opt_get("ngp_hit_fx", "?"), "translucent") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small") && !strcmp(opt_get("ngp_hit_flash", "?"), "disabled") && g_var_dirty,
-            "191·195 코어 옵션 ngp_hit_* = 설정(%s %s %s %s)", opt_get("ngp_hit_callout", "?"), opt_get("ngp_hit_fx", "?"), opt_get("ngp_hit_fx_size", "?"), opt_get("ngp_hit_flash", "?"));
+      CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "pixel") && !strcmp(opt_get("ngp_hit_fx", "?"), "translucent") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "big") && !strcmp(opt_get("ngp_hit_flash", "?"), "disabled") && g_var_dirty,
+            "191·195 코어 옵션 ngp_hit_* = 설정(197 기본 크게 — %s %s %s %s)", opt_get("ngp_hit_callout", "?"), opt_get("ngp_hit_fx", "?"), opt_get("ngp_hit_fx_size", "?"), opt_get("ngp_hit_flash", "?"));
       g_var_dirty = 0;
       Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 3, 3, 1);
       CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "inkband") && !strcmp(opt_get("ngp_hit_fx", "?"), "under") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "big") && g_var_dirty,
             "195 모양 → 코어 옵션(먹 띠 · 때린 몸 밑 · 크게 — %s %s %s)", opt_get("ngp_hit_callout", "?"), opt_get("ngp_hit_fx", "?"), opt_get("ngp_hit_fx_size", "?"));
-      CHECK(!strcmp(opt_get("ngp_hit_fx_art", "?"), "classic"), "196 크기만(bit0) → 그림은 195(%s)", opt_get("ngp_hit_fx_art", "?"));
-      Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 0, 1, 3);
-      CHECK(!strcmp(opt_get("ngp_hit_fx_art", "?"), "gpt") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "big"), "196 bit1 → 그림 GPT · bit0 크게(%s %s)", opt_get("ngp_hit_fx_art", "?"), opt_get("ngp_hit_fx_size", "?"));
-      Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 0, 1, 2);
-      CHECK(!strcmp(opt_get("ngp_hit_fx_art", "?"), "gpt") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small"), "196 bit1 만 → GPT · 작게(%s %s)", opt_get("ngp_hit_fx_art", "?"), opt_get("ngp_hit_fx_size", "?"));
       Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 1, 2, 0);
-      CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "brush") && !strcmp(opt_get("ngp_hit_fx", "?"), "opaque") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small") && !strcmp(opt_get("ngp_hit_fx_art", "?"), "classic"),
-            "195 모양 → 코어 옵션(붓 한자 · 불투명 · 작게 · 196 그림 195)");
+      CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "brush") && !strcmp(opt_get("ngp_hit_fx", "?"), "opaque") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small") && opt_get("ngp_hit_fx_art", NULL) == NULL,
+            "195 모양 → 코어 옵션(붓 한자 · 불투명 · 작게 · 197 그림 옵션 없음)");
       Java_com_dudu_pocketcore_Emu_nativeSetHitStyle(NULL, NULL, 9, 0, 0);
       CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "pixel") && !strcmp(opt_get("ngp_hit_fx", "?"), "translucent"), "195 이상한 모양 번호 → 기본(큰 한글 도트 · 반투명)");
       g_var_dirty = 0;
@@ -604,22 +568,22 @@ int main(int argc, char **argv)
          char tp[] = "/tmp/gltest_optsXXXXXX"; int fd = mkstemp(tp); FILE *o = fdopen(fd, "w");
          fprintf(o, "pocketcore_callout=disabled\npocketcore_hitfx=on\n"); fclose(o);
          load_options(tp); unlink(tp);
-         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "disabled") && !strcmp(opt_get("ngp_hit_fx", "?"), "translucent") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small") && !strcmp(opt_get("ngp_hit_flash", "?"), "disabled"),
-               "191 옵션 파일 → 코어 옵션(라벨 끔 · 옛 «on» = 반투명 · 193 번쩍은 늘 끔)");
+         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "disabled") && !strcmp(opt_get("ngp_hit_fx", "?"), "translucent") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "big") && !strcmp(opt_get("ngp_hit_flash", "?"), "disabled"),
+               "191 옵션 파일 → 코어 옵션(라벨 끔 · 옛 «on» = 반투명 · 193 번쩍은 늘 끔 · 197 크기 없으면 크게)");
       }
       {  /* 195 옛 «enabled» = 큰 한글 도트 · 새 값 그대로 */
          char tp[] = "/tmp/gltest_optsXXXXXX"; int fd = mkstemp(tp); FILE *o = fdopen(fd, "w");
-         fprintf(o, "pocketcore_callout=enabled\npocketcore_hitfx=opaque\npocketcore_hitfx_size=big\npocketcore_hitfx_art=gpt\n"); fclose(o);
+         fprintf(o, "pocketcore_callout=enabled\npocketcore_hitfx=opaque\npocketcore_hitfx_size=small\npocketcore_hitfx_art=gpt\n"); fclose(o);
          load_options(tp); unlink(tp);
-         CHECK(!strcmp(opt_get("ngp_hit_fx_art", "?"), "gpt"), "196 옵션 파일 그림 gpt → ngp_hit_fx_art=gpt(%s)", opt_get("ngp_hit_fx_art", "?"));
-         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "pixel") && !strcmp(opt_get("ngp_hit_fx", "?"), "opaque") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "big"),
-               "195 옵션 파일 → 코어 옵션(옛 enabled = 큰 한글 도트 · 불투명 · 크게 — %s %s %s)", opt_get("ngp_hit_callout", "?"), opt_get("ngp_hit_fx", "?"), opt_get("ngp_hit_fx_size", "?"));
+         CHECK(opt_get("ngp_hit_fx_art", NULL) == NULL, "197 옛 옵션 파일의 그림 gpt(test90)는 무시(%s)", opt_get("ngp_hit_fx_art", "없음"));
+         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "pixel") && !strcmp(opt_get("ngp_hit_fx", "?"), "opaque") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small"),
+               "195 옵션 파일 → 코어 옵션(옛 enabled = 큰 한글 도트 · 불투명 · 작게 — %s %s %s)", opt_get("ngp_hit_callout", "?"), opt_get("ngp_hit_fx", "?"), opt_get("ngp_hit_fx_size", "?"));
          o = NULL; (void)o;
          char tp2[] = "/tmp/gltest_optsXXXXXX"; fd = mkstemp(tp2); o = fdopen(fd, "w");
          fprintf(o, "pocketcore_callout=plaque\npocketcore_hitfx=off\n"); fclose(o);
          load_options(tp2); unlink(tp2);
-         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "plaque") && !strcmp(opt_get("ngp_hit_fx", "?"), "disabled") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "small") && !strcmp(opt_get("ngp_hit_fx_art", "?"), "classic"),
-               "195 옵션 파일 → 코어 옵션(명패 · 이펙트 끔 · 196 그림 없으면 195)");
+         CHECK(!strcmp(opt_get("ngp_hit_callout", "?"), "plaque") && !strcmp(opt_get("ngp_hit_fx", "?"), "disabled") && !strcmp(opt_get("ngp_hit_fx_size", "?"), "big"),
+               "195 옵션 파일 → 코어 옵션(명패 · 이펙트 끔 · 197 크기 없으면 크게)");
       }
    }
    fprintf(stderr, "%s (%d 실패)\n", fails ? "실패" : "통과", fails);
