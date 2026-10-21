@@ -58,6 +58,12 @@ checks.append(('identity 게임 수 9 (lbj 포함)', len(D['games']) == 9))
 checks.append(('features 핵심', D['games']['svc']['features'] == ['sp:svc','band','basics','actshow','fastcd:svc']
                and D['games']['kofr2']['features'] == ['sp:kof','fastcd:kof']
                and D['games']['ss2']['features'] == ['sp:ss2','comm','sides']))
+# 177: 컬러 표 — native look_tab.h 와 Java LookTab.java 가 같은 값인가(tools/check_looktab.py — 혼자 돌려도 됨)
+from check_looktab import look_tables_equal as _look_tables
+try:
+    checks.append(('컬러 표 look_tab.h == LookTab.java (177)', _look_tables()))
+except (OSError, ValueError, AttributeError) as e:
+    checks.append(('컬러 표 look_tab.h == LookTab.java (177): %s' % e, False))
 bad = 0
 for name, ok in checks:
     print(('  ✓ ' if ok else '  ✗✗ ') + name); bad += (not ok)

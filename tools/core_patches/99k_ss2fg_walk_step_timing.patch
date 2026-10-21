@@ -1,0 +1,84 @@
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index b1c8524..e555030 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -1431,6 +1431,11 @@ static uint64_t   id_cur[2], id_prev[2];     /* 지금 포즈, 그 앞 포즈(
+ static unsigned   id_start[2];
+ static unsigned   id_sp_at[2];    /* 99h: 이 머묾(id_start+1)에 뒤 포즈를 모른 채(K=0) 고르게 편 사이 그림(배운 바뀜·캐시)을 그렸나 */
+ static uint64_t   id_sp_b[2];     /* 99h: 그때 향한 뒤 포즈 — 실제로 온 뒤 포즈가 다르면(예측이 빗나감) 편 적 없는 것으로 */
++static unsigned   id_hold_prev[2];  /* 99k: 바로 앞 포즈가 머문 프레임 수 */
++static uint8_t    id_prev_link[2];  /* 99k: 앞 포즈 → 지금 포즈가 되풀이 동작(캐시 순환 표·배운 순환)의 한 걸음이었나 */
++static uint8_t    id_prev_moved[2]; /* 99k: 앞 포즈 동안 몸이 움직였나(걷기) — 서기 순환은 장마다 길이가 달라(18·8·8…) 앞 걸음 길이를 안 쓴다 */
++static int8_t     id_ti_last[2];    /* 99k: 이 머묾에서 마지막으로 낸 캐시 사이 그림 칸(-1 = 아직 없음, 0·1·2 = ¼·½·¾) */
++static uint64_t   id_ti_sb[2];      /* 99k: 그때 향한 뒤 포즈 */
+ static int        id_ax[2], id_ay[2], id_still[2];
+ static id_req_t   id_rq[2][2];               /* [출력 칸: 0 = τD, 1 = τD+½][몸] */
+ static id_patch_t id_pt[2][2];
+@@ -1448,6 +1453,8 @@ void ss2fg_set_idle(int on)
+       memset(id_rq, 0, sizeof id_rq);
+       memset(id_sp_at, 0, sizeof id_sp_at);
+       memset(id_sp_b, 0, sizeof id_sp_b);
++      memset(id_hold_prev, 0, sizeof id_hold_prev); memset(id_prev_link, 0, sizeof id_prev_link); memset(id_prev_moved, 0, sizeof id_prev_moved);
++      id_ti_last[0] = id_ti_last[1] = -1;
+       id_pt[0][0].on = id_pt[0][1].on = id_pt[1][0].on = id_pt[1][1].on = 0;
+    }
+    id_on = on ? 1 : 0;
+@@ -2046,7 +2053,12 @@ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+          uint64_t cb = mc_loop_next(id_cur[p], &h2);
+          if (cb && h2 >= 3 && h2 <= 60 && (!K || sb == cb)) { nb = cb; hold = h2; loop = 1; }
+       }
+-      if (loop && (K ? 2 * (int)(realn + (unsigned)K - id_start[p]) : 2 * (int)(realn - id_start[p]) + 6) > 2 * (int)hold + 4)
++      /* 99k: 걸음 길이는 바로 앞 걸음 것으로 — 캐시 순환 표·배운 길이는 모아 둔 판의 대표값이라 지금 걷는 빠르기와 다를 수 있다
++         (갈포드 앞으로 걷기: 표 14 프레임, 실제 6 — 걸음은 장마다 길이가 같다). 길게 잡으면 다리가 ¼ 에서 멈춰 있다가, 바뀔 때가 보이면(미리 돌린 D+1·D+2)
++         ¾ 로 툭 건너뛰었다 — 몸은 ¼ px 로 매끄럽게 가니(99i) 더 눈에 띔(유저 2026-10-14 「걷는 거 또 찐빠 난 거 같은데」) */
++      if (loop && id_prev_link[p] && id_prev_moved[p] && id_hold_prev[p] >= 3 && id_hold_prev[p] <= 60) hold = id_hold_prev[p];
++      if (loop && (K ? 2 * (int)(realn + (unsigned)K - id_start[p]) : 2 * (int)(realn - id_start[p]) + 6) > 2 * (int)hold + 4
++          && !(K && id_ti_last[p] >= 0 && id_ti_sb[p] == sb))   /* 99k: 같은 뒤 포즈로 펴던 중 바뀜이 보이면 이어서(¼ 로 되돌아가지 않게) */
+          loop = 0;                     /* 99e: 배운 길이보다 오래 머묾 — 순환이 아니라 붙잡은 자세. 바뀌기 직전 2 프레임만(아래).
+                                           99h: 길이는 바뀔 때를 알면 실제 길이, 모르면 가장 짧은 길이(D+2 까진 안 바뀜 — 3 프레임 더).
+                                           예전엔 출력 반 칸(h)까지 더 쳐서, 배운 길이보다 1 프레임 길게 머문 걸음이 마지막에 ¾ → ¼ 로 뒤로 갔다 */
+@@ -2064,8 +2076,16 @@ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+          if (!K && tot2 < e2 + 6) tot2 = e2 + 6;                                 /* D+2 까진 안 바뀜 — 적어도 3 프레임 남음 */
+          if (tot2 <= 0 || e2 < 0) return 0;
+          ti = (8 * e2 + tot2) / (2 * tot2) - 1;                                   /* round(4t) − 1 */
+-         if (ti < 0) return 0;
+          if (ti > 2) ti = 2;
++         if (!K && ti > 1) ti = 1;   /* 99k: 바뀔 때가 안 보이면(미리 돌린 D+1·D+2 에 아직 없음) ½ 까지만 — ¾ 는 바뀜이 보인 마지막 2 프레임에.
++                                        길이가 맞으면 원래도 ¾ 는 그 2 프레임이라 같고, 빗나가 오래 머물면(걷다 미끄러지며 포즈만 멈춤 등)
++                                        ¾ 에서 앞 포즈로 툭 돌아가던 것이 ½ 에서로 준다 */
++         if (id_ti_last[p] >= 0)
++         {  /* 99k: 한 걸음 안에서는 뒤로 가지 않고 한 칸씩만 — 길이 추정이 빗나가도 ¼ → ½ → ¾ 를 건너뛰지 않는다 */
++            if (ti < id_ti_last[p]) ti = id_ti_last[p];
++            if (ti > id_ti_last[p] + 1) ti = id_ti_last[p] + 1;
++         }
++         if (ti < 0) return 0;
+       }
+       else
+       {
+@@ -2100,6 +2120,7 @@ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+       rq->sx4 = (ti + 1) * dx; rq->sy4 = (ti + 1) * dy;   /* t = (ti+1)/4 → 4배 화소로 t·차·4 */
+    }
+    if (!K) { id_sp_at[p] = id_start[p] + 1u; id_sp_b[p] = sb; }   /* 99h: K 를 모르는데 그린다 = 순환으로 고르게 펴는 중 */
++   id_ti_last[p] = (int8_t)ti; id_ti_sb[p] = sb;                   /* 99k */
+    rq->on = 1; rq->kind = 1; rq->pr = 0; rq->t256 = 64 * (ti + 1);
+    rq->e = e; rq->ti = ti; rq->A = A; rq->B = B;
+    rq->ax = f0->ob_x[p]; rq->ay = f0->ob_y[p];              /* 몸 자리는 보여 줄 D 의 것 — 움직이는 몸은 그리기에서 몸 조각의 옮김만큼 더 민다(패치 98) */
+@@ -2150,11 +2171,16 @@ void ss2fg_idle_observe(const ss2fg_frame *f, unsigned realn)
+       if (sg == id_cur[p]) { if (ax != id_ax[p] || ay != id_ay[p]) id_still[p] = 0; continue; }
+       if (id_cur[p])
+       {  /* 움직이는 바뀜도 배운다(패치 99) — 걷기 순환을 알아야 사이 그림을 한 걸음 내내 펼 수 있다. 서기 그리기(±3)는 여전히 제자리만 */
+-         unsigned hold = realn - id_start[p];
++         unsigned hold = realn - id_start[p], h3 = 0;
++         uint64_t ln = mc_ln ? mc_loop_next(id_cur[p], &h3) : 0;
++         id_prev_link[p] = (uint8_t)(ln == sg || (id_next(p, id_cur[p], id_prev[p], 0) == sg && id_loop(p, id_cur[p], sg)));
++         id_hold_prev[p] = hold;
++         id_prev_moved[p] = (uint8_t)(!id_still[p] || ax != id_ax[p] || ay != id_ay[p]);
+          if (hold >= 3 && hold <= 60) id_learn_add(p, id_cur[p], sg, hold);
+          id_prev[p] = id_cur[p];
+       }
+-      else id_prev[p] = 0;
++      else { id_prev[p] = 0; id_prev_link[p] = 0; id_hold_prev[p] = 0; id_prev_moved[p] = 0; }
++      id_ti_last[p] = -1; id_ti_sb[p] = 0;
+       id_cur[p] = sg; id_start[p] = realn; id_ax[p] = ax; id_ay[p] = ay; id_still[p] = 1;
+    }
+ }

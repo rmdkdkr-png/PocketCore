@@ -1,0 +1,85 @@
+앱 방 코어 패치 zzzzz_fg_walk3 — 상대 걸음 미끄러짐(유저 10-18 「겐쥬로 미끄러져 오는데」·「쥬베이도」·「상대방 말야」·「난 되는데 상대방만 안 되는」).
+걸음 내내 사이 그림을 펴려면 다음 걸음 포즈와 바뀌는 때를 미리 알아야 하는데, 상대(왼쪽 보는 그림)는 캐시 순환 표에 거의 없어(봇 판 걸음의 14%,
+내 몸 31%) 몰래 앞서 돌려 보기(zzz_fg_walk)에 기댄다. 그런데 앞서 돌려 보기는 내 입력이 바뀌면 통째로 버리고 처음부터 다시 돌아,
+손 입력(터치 십자 흔들림·버튼)처럼 몇 프레임마다 바뀌면 다음 걸음 포즈를 끝내 못 찾고 걸음 끝 2 프레임에만 사이 그림이 나왔다.
+① 대전 중 입력이 바뀌어도 상대 몸 미리 보기는 이어 본다(이어 보는 프레임은 새 입력, 빗나가면 D+1·D+2 의 실제 포즈가 먼저). 내 몸·대전 밖은 예전처럼 버림.
+② 바뀔 때를 아는 걷는 몸은 사이 그림 칸을 floor(4t) − 1 로 — 앞·¼·½·¾ 네 장을 같은 길이로(반올림이면 ¾ 가 걸음의 ⅜).
+③ 미리 보기가 찾자마자 이 머묾의 기억(id_kn)에 넣음. ④ 이어 보는 첫 프레임의 걸음 x 검사 기준을 미리 보기 시작 프레임(D+2·D+4)으로.
+호스트(봇 입력을 프레임마다 30% 흔듦, 상대 판 10 × 시드 2, 상대 걷기 머묾 186): 앞 절반에 사이 그림 시작 83 → 95%(꾹 누름 97%),
+앞 포즈 그대로 39 → 30%, 한 걸음 가장 긴 미끄러짐 p90 9.0 → 6.0px(꾹 누름 5.8). 빗나간 사이 그림 머묾 117 → 115.
+꾹 누름 봇 66판: 걸음 사이 그림 비율 A·¼·½·¾ .22·.18·.25·.35 → .24·.26·.25·.25, 가장 긴 미끄러짐 p90 5.2 → 4.5px.
+
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index 4b9ba4a..236a7b4 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -2207,6 +2207,10 @@ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+          if (!K && tot2 < e2 + 6) tot2 = e2 + 6;                                 /* D+2 까진 안 바뀜 — 적어도 3 프레임 남음 */
+          if (tot2 <= 0 || e2 < 0) return 0;
+          ti = (8 * e2 + tot2) / (2 * tot2) - 1;                                   /* round(4t) − 1 */
++         if (K && !id_still[p]) ti = 4 * e2 / tot2 - 1;
++            /* zzzzz_fg_walk3: 바뀔 때를 아는 걷는 몸은 floor(4t) − 1 — 앞·¼·½·¾ 네 장을 같은 길이로. 반올림이면 ¾ 가 걸음의 ⅜(14 프레임
++               걸음이면 5 프레임)를 차지해 그동안 다리가 멈춘 채 몸만 5px 가 «미끄러져 온다»(유저 10-18 「겐쥬로 미끄러져 오는데」·「쥬베이도」).
++               앞 포즈 ¼ 도 미리 보기가 다음 포즈를 찾는 데 드는 2~3 프레임을 덮는다 */
+          if (!K && tot2 >= 20) ti = 3 * e2 / (tot2 - 4) - 1;                      /* 99u: 긴 머묾 — 바뀜이 보이기 전 시간을 셋으로(앞·¼·½) */
+          if (ti > 2) ti = 2;
+          if (!K && ti > 1) ti = 1;   /* 99k: 바뀔 때가 안 보이면(미리 돌린 D+1·D+2 에 아직 없음) ½ 까지만 — ¾ 는 바뀜이 보인 마지막 2 프레임에.
+@@ -2296,7 +2300,15 @@ static void probe_check(const ss2fg_frame *f)
+       }
+       else if (f->ob_x[p] != w->ax || f->ob_y[p] != w->ay || f->ch[p] != w->ch) { w->on = 0; continue; }   /* 움직이기 시작·캐릭터 바뀜 */
+       s = body_sig(f, mm);
+-      if (s != w->from) { w->found = 1; w->on = 0; w->sb = s; w->at = pb.pos; w->fk = *f; }
++      if (s != w->from)
++      {
++         w->found = 1; w->on = 0; w->sb = s; w->at = pb.pos; w->fk = *f;
++         if (w->walk && w->from == id_cur[p] && w->start == id_start[p] && f->fight)
++         {  /* zzzzz_fg_walk3: 찾자마자 머묾 기억(id_kn)에 — 바로 다음 실제 프레임에 입력이 바뀌면 찾은 것을 통째로 버려(probe_stop)
++               그 걸음은 사이 그림 없이 미끄러졌다(유저 「겐쥬로 미끄러져 오는데」 — 겐쥬로 걸음은 한 포즈 12 프레임) */
++            id_kn_sb[p] = s; id_kn_at[p] = pb.pos; id_kn_st[p] = w->start;
++         }
++      }
+    }
+    if (!pb.w[0].on && !pb.w[1].on) pb.run = 0;
+ }
+@@ -2305,11 +2317,23 @@ int ss2fg_probe_want(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_f
+    int p, any = 0;
+    if (!id_on || !mc_on || !mc_f || !f0 || !f0->valid || f0->mono || !f0->body_ok) { probe_stop(); return 0; }
+    if (input != pb.input)
+-   {  /* 입력이 바뀜 — 미리 본 것은 다 버리고, 상대 몸은 새 입력으로 다시 볼 수 있게 «이미 봄» 표시도 지운다
+-         (예전엔 남아 있어 그 머묾 동안 다시 못 봤다 — 상대 걸음은 내 입력이 바뀔 때마다 끊겼다). 내 몸은 입력이 바뀌면 걸음이 끝나는 게 보통이라
+-         다시 보면 헛계산이다. 이 머묾에서 알아낸 것(id_kn)은 남는다 */
+-      if (pb.w[1].on || pb.w[1].found) pb.done_from[1] = 0;
+-      probe_stop();
++   {  /* 입력이 바뀜 — 예전(zzz_fg_walk2)엔 미리 본 것을 다 버리고 상대 몸은 새 입력으로 처음부터 다시 봤다. 이 머묾에서 알아낸 것(id_kn)은 남는다 */
++      /* zzzzz_fg_walk3: 상대 몸(1)은 버리지 않고 이어 본다 — 손 입력(터치 십자 흔들림·버튼)은 몇 프레임마다 바뀌어, 그때마다 처음부터 다시 보면
++         다음 걸음 포즈를 끝내 못 찾고 걸음 끝 2 프레임에만 사이 그림이 나와 상대만 미끄러졌다(유저 10-18 「난 되는데 상대방만 안 되는」 —
++         봇 입력을 프레임마다 30% 흔들면 상대 걸음의 «앞 포즈 그대로» 30 → 39%, 가장 긴 미끄러짐 p90 5.8 → 9.0px).
++         상대 걸음은 내 입력과 거의 상관없이 이어진다. 이어 보는 프레임은 새 입력으로 돈다. 빗나가면(다른 포즈가 D+1·D+2 에 보임) 그쪽이 먼저.
++         내 몸은 입력이 바뀌면 걸음이 끝나는 게 보통이라 버린다. 대전 밖(99v 제자리 미리 보기 — 고르기·소개 화면)은 예전처럼 다 버린다(버튼이 장면을 넘긴다) */
++      if (f0->fight)
++      {
++         pb.w[0].on = pb.w[0].found = 0;
++         pb.run = pb.w[1].on;
++         pb.input = input;
++      }
++      else
++      {
++         if (pb.w[1].on || pb.w[1].found) pb.done_from[1] = 0;
++         probe_stop();
++      }
+    }
+    for (p = 0; p < 2; p++)
+    {
+@@ -2362,8 +2386,12 @@ int ss2fg_probe_want(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_f
+ }
+ void ss2fg_probe_started(unsigned pos, const ss2fg_frame *last)
+ {
++   int p;
+    if (!last || !last->valid) { pb.w[0].on = pb.w[1].on = 0; pb.run = 0; return; }
+    pb.run = 1; pb.pos = pos; pb.last = *last;
++   for (p = 0; p < 2; p++)   /* zzzzz_fg_walk3: 미리 보기는 last(D+2, 99o 를 돌렸으면 D+4)에서 이어 간다 — 걷는 몸의 «한 프레임 4px» 검사도 거기서부터.
++                                예전엔 D+2 의 세계 x 와 견줘 D+4 다음 프레임이면 3 프레임 몫(1.5px/프레임 걸음이면 6px)이 한 번에 잡혀 첫 프레임에 멈췄다 */
++      if (pb.w[p].on && pb.w[p].walk) pb.w[p].lwx = last->wx[p];
+ }
+ void ss2fg_probe_begin(void)
+ {

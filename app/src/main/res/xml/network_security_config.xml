@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 154: 평문(http) 통신 막음 — 옛 「PC 릴리즈 서버(http)」 업데이트 주소용으로 열어 두었던 것(usesCleartextTraffic) -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

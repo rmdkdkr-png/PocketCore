@@ -1,0 +1,558 @@
+{
+  "format": "ss2_hitfx/1",
+  "name": "ss2_hitfx_v1",
+  "author": "gpt (imagegen artwork; native encoding)",
+  "date": "2026-10-21",
+  "keys": {
+    "1": "#FFFFFF",
+    "2": "#FFC040",
+    "3": "#C04000"
+  },
+  "proposal": "C의 첫 컷 24~36프레임 정지는 아트만으로 줄일 수 없습니다. 규격의 hold_first=true를 유지했습니다. 별도 코어 시험안: 게임 히트스톱은 유지하고 이펙트 첫 컷 표시만 최대 4~6프레임 후 다음 컷으로 진행. 이 ZIP은 코어를 변경하지 않습니다. K 실제 막타, H 예비 미발동, 때린 몸 밑 마스킹 및 좌우 뒤집기는 Claude 실제 게임 검증이 필요합니다. 큰 T/G/C/D/K 표는 014 안내대로 별도 지원이 필요합니다.",
+  "effects": [
+    {
+      "kind": "S",
+      "size": "small",
+      "anchor": [
+        17,
+        11
+      ],
+      "hold_first": false,
+      "flip": true,
+      "colors": "trail",
+      "cels": [
+        {
+          "file": "S_small_0.png",
+          "dur": 1
+        },
+        {
+          "file": "S_small_1.png",
+          "dur": 1
+        },
+        {
+          "file": "S_small_2.png",
+          "dur": 2
+        },
+        {
+          "file": "S_small_3.png",
+          "dur": 2
+        },
+        {
+          "file": "S_small_4.png",
+          "dur": 2
+        },
+        {
+          "file": "S_small_5.png",
+          "dur": 2
+        },
+        {
+          "file": "S_small_6.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending."
+    },
+    {
+      "kind": "S",
+      "size": "big",
+      "anchor": [
+        23,
+        18
+      ],
+      "hold_first": false,
+      "flip": true,
+      "colors": "trail",
+      "cels": [
+        {
+          "file": "S_big_0.png",
+          "dur": 1
+        },
+        {
+          "file": "S_big_1.png",
+          "dur": 1
+        },
+        {
+          "file": "S_big_2.png",
+          "dur": 2
+        },
+        {
+          "file": "S_big_3.png",
+          "dur": 2
+        },
+        {
+          "file": "S_big_4.png",
+          "dur": 2
+        },
+        {
+          "file": "S_big_5.png",
+          "dur": 2
+        },
+        {
+          "file": "S_big_6.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending."
+    },
+    {
+      "kind": "L",
+      "size": "small",
+      "anchor": [
+        8,
+        8
+      ],
+      "hold_first": true,
+      "flip": false,
+      "colors": "trail",
+      "cels": [
+        {
+          "file": "L_small_0.png",
+          "dur": 2
+        },
+        {
+          "file": "L_small_1.png",
+          "dur": 2
+        },
+        {
+          "file": "L_small_2.png",
+          "dur": 2
+        },
+        {
+          "file": "L_small_3.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending."
+    },
+    {
+      "kind": "L",
+      "size": "big",
+      "anchor": [
+        12,
+        10
+      ],
+      "hold_first": true,
+      "flip": false,
+      "colors": "trail",
+      "cels": [
+        {
+          "file": "L_big_0.png",
+          "dur": 2
+        },
+        {
+          "file": "L_big_1.png",
+          "dur": 2
+        },
+        {
+          "file": "L_big_2.png",
+          "dur": 2
+        },
+        {
+          "file": "L_big_3.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending."
+    },
+    {
+      "kind": "D",
+      "size": "small",
+      "anchor": [
+        20,
+        12
+      ],
+      "hold_first": false,
+      "flip": false,
+      "colors": "fixed",
+      "cels": [
+        {
+          "file": "D_small_0.png",
+          "dur": 2
+        },
+        {
+          "file": "D_small_1.png",
+          "dur": 2
+        },
+        {
+          "file": "D_small_2.png",
+          "dur": 2
+        },
+        {
+          "file": "D_small_3.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending.",
+      "fixed_colors": [
+        "#EEDDBB",
+        "#CCAA77",
+        "#886644"
+      ]
+    },
+    {
+      "kind": "D",
+      "size": "big",
+      "anchor": [
+        31,
+        19
+      ],
+      "hold_first": false,
+      "flip": false,
+      "colors": "fixed",
+      "cels": [
+        {
+          "file": "D_big_0.png",
+          "dur": 2
+        },
+        {
+          "file": "D_big_1.png",
+          "dur": 2
+        },
+        {
+          "file": "D_big_2.png",
+          "dur": 2
+        },
+        {
+          "file": "D_big_3.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending.",
+      "fixed_colors": [
+        "#EEDDBB",
+        "#CCAA77",
+        "#886644"
+      ]
+    },
+    {
+      "kind": "G",
+      "size": "small",
+      "anchor": [
+        9,
+        10
+      ],
+      "hold_first": true,
+      "flip": true,
+      "colors": "fixed",
+      "cels": [
+        {
+          "file": "G_small_0.png",
+          "dur": 2
+        },
+        {
+          "file": "G_small_1.png",
+          "dur": 2
+        },
+        {
+          "file": "G_small_2.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending.",
+      "fixed_colors": [
+        "#FFFFFF",
+        "#88DDFF",
+        "#2266CC"
+      ]
+    },
+    {
+      "kind": "G",
+      "size": "big",
+      "anchor": [
+        8,
+        16
+      ],
+      "hold_first": true,
+      "flip": true,
+      "colors": "fixed",
+      "cels": [
+        {
+          "file": "G_big_0.png",
+          "dur": 2
+        },
+        {
+          "file": "G_big_1.png",
+          "dur": 2
+        },
+        {
+          "file": "G_big_2.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending.",
+      "fixed_colors": [
+        "#FFFFFF",
+        "#88DDFF",
+        "#2266CC"
+      ]
+    },
+    {
+      "kind": "K",
+      "size": "small",
+      "anchor": [
+        22,
+        20
+      ],
+      "hold_first": true,
+      "flip": true,
+      "colors": "fixed",
+      "cels": [
+        {
+          "file": "K_small_0.png",
+          "dur": 2
+        },
+        {
+          "file": "K_small_1.png",
+          "dur": 2
+        },
+        {
+          "file": "K_small_2.png",
+          "dur": 2
+        },
+        {
+          "file": "K_small_3.png",
+          "dur": 2
+        },
+        {
+          "file": "K_small_4.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending.",
+      "fixed_colors": [
+        "#FFFFFF",
+        "#FF3322",
+        "#770000"
+      ]
+    },
+    {
+      "kind": "K",
+      "size": "big",
+      "anchor": [
+        35,
+        28
+      ],
+      "hold_first": true,
+      "flip": true,
+      "colors": "fixed",
+      "cels": [
+        {
+          "file": "K_big_0.png",
+          "dur": 2
+        },
+        {
+          "file": "K_big_1.png",
+          "dur": 2
+        },
+        {
+          "file": "K_big_2.png",
+          "dur": 2
+        },
+        {
+          "file": "K_big_3.png",
+          "dur": 2
+        },
+        {
+          "file": "K_big_4.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending.",
+      "fixed_colors": [
+        "#FFFFFF",
+        "#FF3322",
+        "#770000"
+      ]
+    },
+    {
+      "kind": "C",
+      "size": "small",
+      "anchor": [
+        16,
+        12
+      ],
+      "hold_first": true,
+      "flip": false,
+      "colors": "fixed",
+      "cels": [
+        {
+          "file": "C_small_0.png",
+          "dur": 2
+        },
+        {
+          "file": "C_small_1.png",
+          "dur": 2
+        },
+        {
+          "file": "C_small_2.png",
+          "dur": 2
+        },
+        {
+          "file": "C_small_3.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending.",
+      "fixed_colors": [
+        "#FFFFFF",
+        "#FFFF99",
+        "#FFAA22"
+      ]
+    },
+    {
+      "kind": "C",
+      "size": "big",
+      "anchor": [
+        24,
+        19
+      ],
+      "hold_first": true,
+      "flip": false,
+      "colors": "fixed",
+      "cels": [
+        {
+          "file": "C_big_0.png",
+          "dur": 2
+        },
+        {
+          "file": "C_big_1.png",
+          "dur": 2
+        },
+        {
+          "file": "C_big_2.png",
+          "dur": 2
+        },
+        {
+          "file": "C_big_3.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending.",
+      "fixed_colors": [
+        "#FFFFFF",
+        "#FFFF99",
+        "#FFAA22"
+      ]
+    },
+    {
+      "kind": "T",
+      "size": "small",
+      "anchor": [
+        3,
+        3
+      ],
+      "hold_first": false,
+      "flip": false,
+      "colors": "trail",
+      "cels": [
+        {
+          "file": "T_small_0.png",
+          "dur": 2
+        },
+        {
+          "file": "T_small_1.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending."
+    },
+    {
+      "kind": "T",
+      "size": "big",
+      "anchor": [
+        5,
+        6
+      ],
+      "hold_first": false,
+      "flip": false,
+      "colors": "trail",
+      "cels": [
+        {
+          "file": "T_big_0.png",
+          "dur": 2
+        },
+        {
+          "file": "T_big_1.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending."
+    },
+    {
+      "kind": "H",
+      "size": "small",
+      "anchor": [
+        10,
+        5
+      ],
+      "hold_first": false,
+      "flip": true,
+      "colors": "trail",
+      "cels": [
+        {
+          "file": "H_small_0.png",
+          "dur": 1
+        },
+        {
+          "file": "H_small_1.png",
+          "dur": 1
+        },
+        {
+          "file": "H_small_2.png",
+          "dur": 2
+        },
+        {
+          "file": "H_small_3.png",
+          "dur": 2
+        },
+        {
+          "file": "H_small_4.png",
+          "dur": 2
+        },
+        {
+          "file": "H_small_5.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending."
+    },
+    {
+      "kind": "H",
+      "size": "big",
+      "anchor": [
+        17,
+        7
+      ],
+      "hold_first": false,
+      "flip": true,
+      "colors": "trail",
+      "cels": [
+        {
+          "file": "H_big_0.png",
+          "dur": 1
+        },
+        {
+          "file": "H_big_1.png",
+          "dur": 1
+        },
+        {
+          "file": "H_big_2.png",
+          "dur": 2
+        },
+        {
+          "file": "H_big_3.png",
+          "dur": 2
+        },
+        {
+          "file": "H_big_4.png",
+          "dur": 2
+        },
+        {
+          "file": "H_big_5.png",
+          "dur": 2
+        }
+      ],
+      "note": "New imagegen-authored cels; small/big separately drawn. Common per-row crop, nearest native resampling, exact opaque key-color encoding; no procedural line/circle artwork. Game validation pending. WARN 설명: 독립 생성한 큰 판의 첫 컷 실제 폭이 8px로 작은 판 9px보다 1px 좁습니다. 전체 캔버스와 후속 컷은 더 큽니다. 미사용 예비 H의 이 차이를 숨기지 않고 비교 검토용으로 보냅니다."
+    }
+  ]
+}

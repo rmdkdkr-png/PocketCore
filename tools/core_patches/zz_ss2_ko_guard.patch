@@ -1,0 +1,62 @@
+앱 방 코어 패치 — 사무쇼2 막타 반응 표 지킴이(유저 «프리징»: 우쿄 일어나며 B 슬라이딩으로 등 돌린 모로즈미 KO 에서 멈춤).
+한글패치가 KO 반응 표 자리(0x224A84~)에 글자 그림을 덮어 반응 0x7B~0x7F 가 나오면 대본이 표 밖으로 튄다. 비교 두 바이트만 메모리에서 고친다.
+
+diff --git a/src/mednafen/ngp/rom.c b/src/mednafen/ngp/rom.c
+index f7ef010..a65da14 100644
+--- a/src/mednafen/ngp/rom.c
++++ b/src/mednafen/ngp/rom.c
+@@ -33,8 +33,29 @@
+ RomInfo ngpc_rom;
+ RomHeader* rom_header = NULL;
+ 
+-static void rom_hack(void)
++/* 코어 패치 zz_ss2_ko_guard — 사무쇼2 막타 반응 표 지킴이.
++   막타(맞는 쪽 체력 0)의 반응은 0x2246FE 에서 KO 전용 표(포인터 0x224825 → 0x224A7F·0x224BA8, 297칸씩)를 먼저 본다.
++   원판은 두 표가 0xFF(= 보통 표를 써라)뿐이고 0x77 이 12칸 있을 뿐이다. 한글패치(동봉 ss2_ko.ips·v1.01 모두)가
++   이 «빈 것처럼 보이는» 0xFF 자리에 글자 그림을 넣어, 막타가 반응 0x7B~0x7F(반응 대본 표 0x2414F1 은 123개뿐)를 고르면
++   대본이 엉뚱한 데로 튄다 — 0x7C 는 그 프레임에서 멈춤(유저 «프리징»), 0x7B·0x7E 는 KO 뒤 라운드가 안 끝남.
++   비교 두 바이트만 바꿔 «0x77 일 때만 KO 표 값을 쓰고, 아니면 보통 표»로 한다:
++   cp D,0xFF / jr Z  →  cp D,0x77 / jr NZ. 원판에선 칸이 0xFF·0x77 뿐이라 동작이 똑같다(실측: 램 바이트까지 같음).
++   롬 파일·md5 는 그대로 — 메모리 안 사본만 고친다. 상태 불러오기가 롬을 orig_data 로 되돌리므로(system.c) 거기서도 다시 부른다. */
++static void ss2_ko_reaction_guard(void)
+ {
++   static const uint8 want[14] = { 0xC3,0x07,0xEC,0xE4,0x24, 0xCC,0xCF,0xFF, 0x66,0x04, 0xCC,0x8B, 0x68,0x0F };
++   if (!MATCH_CATALOG(48, 26) || ngpc_rom.length < 0x024716)
++      return;                                   /* 사무쇼2 가 아니다 */
++   if (memcmp(ngpc_rom.data + 0x024708, want, sizeof want))
++      return;                                   /* 모르는 판 — 손대지 않는다 */
++   ngpc_rom.data[0x02470F] = 0x77;              /* cp D,0xFF → cp D,0x77 */
++   ngpc_rom.data[0x024710] = 0x6E;              /* jr Z      → jr NZ     */
++}
++
++void rom_hack(void)
++{
++   ss2_ko_reaction_guard();
++
+    /*=============================
+     * SPECIFIC ROM HACKS !
+     *=============================
+diff --git a/src/mednafen/ngp/rom.h b/src/mednafen/ngp/rom.h
+index 6511dc5..cff39a2 100644
+--- a/src/mednafen/ngp/rom.h
++++ b/src/mednafen/ngp/rom.h
+@@ -63,6 +63,7 @@ extern RomHeader *rom_header;
+ /*! Call this function when a rom has just been loaded, it will perform
+ 	the system independent actions required. */
+ void rom_loaded(uint8_t *buf, size_t len);
++void rom_hack(void);   /* 코어 패치 zz_ss2_ko_guard — 상태 불러오기가 롬을 되돌린 뒤 다시 부른다 */
+ 
+ /*!	Tidy up the rom and free the resources used. */
+ void rom_unload(bool is_persistent);
+diff --git a/src/mednafen/ngp/system.c b/src/mednafen/ngp/system.c
+index 2829f3a..f07aeb3 100644
+--- a/src/mednafen/ngp/system.c
++++ b/src/mednafen/ngp/system.c
+@@ -208,6 +208,7 @@ int FLASH_StateAction(void *data, int load, int data_only)
+    if(load)
+    {
+       memcpy(ngpc_rom.data, ngpc_rom.orig_data, ngpc_rom.length);
++      rom_hack();                               /* 코어 패치 zz_ss2_ko_guard — 메모리 롬 고침을 되살린다 */
+       do_flash_read(flashdata);
+    }
+ 

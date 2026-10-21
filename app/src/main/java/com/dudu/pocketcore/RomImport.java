@@ -28,6 +28,8 @@ import java.util.List;
  *     직접 골라 오면 앱이 roms/ 로 복사한다 (여러 개 동시 선택 가능).
  *  3. 저장소 스캔 — 내장 저장소를 훑어 .ngc/.ngp/.npc 를 전부 찾아 보여 주고,
  *     체크한 것을 한꺼번에 복사한다.
+ *  ※ 셋 다 .zip/.7z 안의 롬도 꺼낸다(Archives). 유저 2026-10-10 「ss1 롬을 롬스캔에서 안 끌어오는 것 같아」 —
+ *     받아 둔 롬이 7z 째라 스캔에 안 걸렸다.
  *
  * 어느 길이든 **원본은 그대로 두고 사본을 만든다** — 패치와 같은 원칙.
  */
@@ -65,42 +67,94 @@ public final class RomImport {
         }
     }
 
-    /** onActivityResult(REQ_PICK) 에서 호출 — 고른 파일들을 roms/ 로 복사. */
-    public static void onPicked(Activity a, Intent data) {
+    /** onActivityResult(REQ_PICK) 에서 호출 — 고른 파일들을 roms/ 로 복사(압축이면 안의 롬을 꺼냄). */
+    public static void onPicked(final Activity a, Intent data) {
         if (data == null) return;
-        List<Uri> uris = new ArrayList<>();
+        final List<Uri> uris = new ArrayList<>();
         if (data.getClipData() != null)
             for (int i = 0; i < data.getClipData().getItemCount(); i++)
                 uris.add(data.getClipData().getItemAt(i).getUri());
         else if (data.getData() != null) uris.add(data.getData());
 
-        int ok = 0, skip = 0, notRom = 0;
-        for (Uri u : uris) {
-            String name = displayName(a, u);
-            if (name == null || !isRom(name)) { notRom++; continue; }
-            File dst = new File(MainActivity.romsDir(), name);
-            try {
-                long len = -1;
-                try (InputStream in = a.getContentResolver().openInputStream(u)) {
-                    len = copy(in, dst, dst.exists() ? dst.length() : -1);
+        new Thread(new Runnable() { @Override public void run() {
+            final int[] cnt = new int[3];                        /* ok, skip, notRom */
+            for (Uri u : uris) {
+                final String name = displayName(a, u);
+                if (name == null) { cnt[2]++; continue; }
+                try {
+                    if (Archives.isArchiveName(name)) {
+                        File tmp = new File(a.getCacheDir(), "pick_" + System.nanoTime() + (name.toLowerCase().endsWith(".7z") ? ".7z" : ".zip"));
+                        try (InputStream in = a.getContentResolver().openInputStream(u)) { stream(in, tmp); }
+                        int before = cnt[0] + cnt[1];
+                        Archives.forEachRom(tmp, new Archives.Visitor() {
+                            @Override public boolean rom(String e, byte[] d) {
+                                File dst = new File(MainActivity.romsDir(), Archives.baseName(e));
+                                try {
+                                    long r = copy(new java.io.ByteArrayInputStream(d), dst, dst.exists() ? dst.length() : -1);
+                                    if (r < 0) cnt[1]++; else { cnt[0]++; changed = true; }
+                                } catch (Exception x) { /* 개별 실패는 집계만 */ }
+                                return true;
+                            }
+                        });
+                        if (cnt[0] + cnt[1] == before) cnt[2]++;        /* 압축 안에 롬이 없음 */
+                        tmp.delete();
+                        continue;
+                    }
+                    if (!isRom(name)) { cnt[2]++; continue; }
+                    File dst = new File(MainActivity.romsDir(), name);
+                    long len;
+                    try (InputStream in = a.getContentResolver().openInputStream(u)) {
+                        len = copy(in, dst, dst.exists() ? dst.length() : -1);
+                    }
+                    if (len < 0) cnt[1]++; else { cnt[0]++; changed = true; }
+                } catch (final Exception e) {
+                    a.runOnUiThread(new Runnable() { @Override public void run() {
+                        Toast.makeText(a, name + " 복사 실패", Toast.LENGTH_SHORT).show();
+                    }});
                 }
-                if (len < 0) skip++; else { ok++; changed = true; }
-            } catch (Exception e) {
-                Toast.makeText(a, name + " 복사 실패", Toast.LENGTH_SHORT).show();
             }
-        }
-        report(a, ok, skip, notRom);
+            a.runOnUiThread(new Runnable() { @Override public void run() { report(a, cnt[0], cnt[1], cnt[2]); }});
+        }}).start();
     }
 
     /* ── 3. 저장소 스캔 ── */
+
+    /** 찾은 롬 하나 — 그냥 파일이거나, 압축(src) 안의 항목(entry). */
+    private static final class Found {
+        final File src; final String entry, name; final long size;
+        Games.Game game; String md5;
+        Found(File src, String entry, String name, long size) {
+            this.src = src; this.entry = entry; this.name = name; this.size = size;
+        }
+    }
 
     public static void scan(final Activity a) {
         final AlertDialog wait = new AlertDialog.Builder(a)
                 .setMessage("저장소에서 롬을 찾는 중…").setCancelable(false).create();
         wait.show();
         new Thread(new Runnable() { @Override public void run() {
-            final List<File> found = new ArrayList<>();
-            walk(Environment.getExternalStorageDirectory(), 0, new int[]{ 0 }, found);
+            final List<File> files = new ArrayList<>(), archives = new ArrayList<>();
+            walk(Environment.getExternalStorageDirectory(), 0, new int[]{ 0 }, files, archives);
+            /* 롬 폴더 자신은 건너뛰지만, 거기 넣어 둔 압축은 풀어 줘야 한다(압축째로는 못 돈다). */
+            File[] own = MainActivity.romsDir().listFiles();
+            if (own != null) for (File f : own) if (f.isFile() && Archives.isArchiveName(f.getName())) archives.add(f);
+            final List<Found> found = new ArrayList<>();
+            for (File f : files) {
+                Found x = new Found(f, null, f.getName(), f.length());
+                x.game = Games.identify(f.getPath());
+                found.add(x);
+            }
+            for (final File ar : archives) {
+                Archives.forEachRom(ar, new Archives.Visitor() {
+                    @Override public boolean rom(String e, byte[] d) {
+                        Found x = new Found(ar, e, Archives.baseName(e), d.length);
+                        x.game = Games.identifyBytes(d);
+                        x.md5 = md5(d);
+                        found.add(x);
+                        return true;
+                    }
+                });
+            }
             /* 머리표를 읽어 «패치가 준비된 게임»만 가려낸다. 파일마다 12바이트를 읽으므로
                반드시 여기(작업 스레드)에서 한다 — 목록 그릴 때 하면 화면이 걸린다. */
             java.util.Map<String, java.util.Set<String>> known = knownRoms();
@@ -108,10 +162,10 @@ public final class RomImport {
                없었고, 그때 스캔이 82개를 전부 「순정」이라 적었다(제보 2026-09-05). */
             if (known.isEmpty() && Updater.fetchIndex()) known = knownRoms();
             final boolean noIndex = known.isEmpty();
-            final List<File> ready = new ArrayList<>();
-            final java.util.Map<File, String> why = new java.util.HashMap<>();   /* 빠진 이유 — 라벨에 단다 */
-            for (File f : found) {
-                Games.Game g = Games.identify(f.getPath());
+            final List<Found> ready = new ArrayList<>();
+            final java.util.Map<Found, String> why = new java.util.HashMap<>();   /* 빠진 이유 — 라벨에 단다 */
+            for (Found f : found) {
+                Games.Game g = f.game;
                 if (g == null)          { why.put(f, "모르는 롬"); continue; }
                 if (!g.patchable)       { why.put(f, "한글패치 없음"); continue; }      /* ① 한패가 있는 게임만 */
                 java.util.Set<String> hs = known.get(g.id);
@@ -121,7 +175,8 @@ public final class RomImport {
                     ready.add(f);                                                     /* 보이되 기본 체크는 해제(라벨의 ⚠ 가 푼다) */
                     continue;
                 }
-                if (!hs.contains(md5(f))) {                                           /* ② 아는 원본만 */
+                if (f.md5 == null) f.md5 = md5(f.src);
+                if (!hs.contains(f.md5)) {                                            /* ② 아는 원본만 */
                     why.put(f, "확인 안 한 덤프이거나 이미 패치된 롬");
                     continue;
                 }
@@ -134,8 +189,9 @@ public final class RomImport {
         }}).start();
     }
 
-    /** 재귀 탐색 — Android/(앱 전용)·숨김·roms 자신은 건너뛴다. 깊이 8, 폴더 4000개 상한. */
-    private static void walk(File dir, int depth, int[] visited, List<File> out) {
+    /** 재귀 탐색 — Android/(앱 전용)·숨김·roms 자신은 건너뛴다. 깊이 8, 폴더 4000개 상한.
+     *  .zip/.7z 는 따로 모은다(1GB 이하) — 안의 롬은 scan 이 꺼내 본다. */
+    private static void walk(File dir, int depth, int[] visited, List<File> out, List<File> archives) {
         if (depth > 8 || visited[0] > 4000) return;
         visited[0]++;
         File[] fs = dir.listFiles();
@@ -147,9 +203,11 @@ public final class RomImport {
             if (f.isDirectory()) {
                 if (depth == 0 && n.equals("Android")) continue;
                 if (f.getAbsolutePath().equals(self)) continue;
-                walk(f, depth + 1, visited, out);
+                walk(f, depth + 1, visited, out, archives);
             } else if (isRom(n) && f.length() > 0 && f.length() <= 8 * 1024 * 1024) {
                 out.add(f);
+            } else if (Archives.isArchiveName(n) && f.length() > 0 && f.length() <= 1024L * 1024 * 1024) {
+                archives.add(f);
             }
         }
     }
@@ -158,14 +216,14 @@ public final class RomImport {
      * 찾은 것을 보여 준다. 기본은 **패치가 준비된 롬만** (유저 지시) — 남은 것은
      * 「나머지 N개도 보기」로 언제든 꺼낼 수 있다. 조용히 빼면 스캔이 고장 난 걸로 읽힌다.
      */
-    private static void showList(final Activity a, final List<File> found,
-                                 final List<File> ready, final java.util.Map<File, String> why,
+    private static void showList(final Activity a, final List<Found> found,
+                                 final List<Found> ready, final java.util.Map<Found, String> why,
                                  final boolean all, final boolean noIndex) {
         final int etc = found.size() - ready.size();
-        final List<File> show = all ? found : ready;
+        final List<Found> show = all ? found : ready;
         if (show.isEmpty()) {
             String msg = found.isEmpty()
-                    ? "저장소에서 롬(.ngc/.ngp/.npc)을 찾지 못했습니다."
+                    ? "저장소에서 롬(.ngc/.ngp/.npc, zip·7z 안 포함)을 찾지 못했습니다."
                     : "롬 " + found.size() + "개를 찾았지만, 한글패치가 있는 순정 롬이 없습니다.\n"
                             + "(이미 패치된 롬이거나, 우리가 확인하지 않은 덤프일 수 있습니다)";
             AlertDialog.Builder b = new AlertDialog.Builder(a)
@@ -186,15 +244,16 @@ public final class RomImport {
         final String[] labels = new String[show.size()];
         final boolean[] checked = new boolean[show.size()];
         for (int i = 0; i < show.size(); i++) {
-            File f = show.get(i);
-            File dst = new File(MainActivity.romsDir(), f.getName());
-            boolean dup = dst.exists() && dst.length() == f.length();
-            String rel = f.getAbsolutePath().startsWith(base)
-                    ? f.getAbsolutePath().substring(base.length() + 1) : f.getAbsolutePath();
-            Games.Game g = Games.identify(f.getPath());
+            Found f = show.get(i);
+            File dst = new File(MainActivity.romsDir(), f.name);
+            boolean dup = dst.exists() && dst.length() == f.size;
+            String rel = f.src.getAbsolutePath().startsWith(base)
+                    ? f.src.getAbsolutePath().substring(base.length() + 1) : f.src.getAbsolutePath();
+            if (f.entry != null) rel += " › " + f.entry;                /* 압축 안 */
+            Games.Game g = f.game;
             String reason = why.get(f);                                  /* 걸러진 롬이면 왜 걸러졌나 */
             labels[i] = (g == null ? rel : g.ko + "\n" + rel)
-                    + String.format("  (%.1fMB)", f.length() / 1048576f)
+                    + String.format("  (%.1fMB)", f.size / 1048576f)
                     + (dup ? " — 이미 있음" : "")
                     + (reason != null ? "\n⚠ " + reason : "");
             /* 걸러진 롬은 「전부 보기」에서도 기본 체크 해제 — 유저가 «일부러» 켜야 들어온다.
@@ -213,17 +272,9 @@ public final class RomImport {
                         })
                 .setPositiveButton("가져오기", new DialogInterface.OnClickListener() {
                     @Override public void onClick(DialogInterface d, int w) {
-                        int ok = 0, skip = 0;
-                        for (int i = 0; i < show.size(); i++) {
-                            if (!checked[i]) continue;
-                            File src = show.get(i);
-                            File dst = new File(MainActivity.romsDir(), src.getName());
-                            try (InputStream in = new FileInputStream(src)) {
-                                long r = copy(in, dst, dst.exists() ? dst.length() : -1);
-                                if (r < 0) skip++; else { ok++; changed = true; }
-                            } catch (Exception e) { /* 개별 실패는 집계만 */ }
-                        }
-                        report(a, ok, skip, 0);
+                        final List<Found> pick = new ArrayList<>();
+                        for (int i = 0; i < show.size(); i++) if (checked[i]) pick.add(show.get(i));
+                        importFound(a, pick);
                     }
                 })
                 .setNegativeButton("취소", null);
@@ -235,6 +286,50 @@ public final class RomImport {
                         }
                     });
         b.show();
+    }
+
+    /** 고른 것들을 roms/ 로 — 압축 안 항목은 압축마다 한 번만 풀어 꺼낸다. 작업 스레드에서. */
+    private static void importFound(final Activity a, final List<Found> pick) {
+        final AlertDialog wait = new AlertDialog.Builder(a)
+                .setMessage("가져오는 중…").setCancelable(false).create();
+        wait.show();
+        new Thread(new Runnable() { @Override public void run() {
+            final int[] cnt = new int[2];
+            java.util.Map<File, java.util.Map<String, Found>> byArc = new java.util.LinkedHashMap<>();
+            for (Found f : pick) {
+                if (f.entry == null) {
+                    File dst = new File(MainActivity.romsDir(), f.name);
+                    try (InputStream in = new FileInputStream(f.src)) {
+                        long r = copy(in, dst, dst.exists() ? dst.length() : -1);
+                        if (r < 0) cnt[1]++; else { cnt[0]++; changed = true; }
+                    } catch (Exception e) { /* 개별 실패는 집계만 */ }
+                } else {
+                    java.util.Map<String, Found> m = byArc.get(f.src);
+                    if (m == null) { m = new java.util.HashMap<>(); byArc.put(f.src, m); }
+                    m.put(f.entry, f);
+                }
+            }
+            for (java.util.Map.Entry<File, java.util.Map<String, Found>> en : byArc.entrySet()) {
+                final java.util.Map<String, Found> m = en.getValue();
+                Archives.forEachRom(en.getKey(), new Archives.Visitor() {
+                    @Override public boolean rom(String e, byte[] d) {
+                        Found f = m.remove(e);
+                        if (f != null) {
+                            File dst = new File(MainActivity.romsDir(), f.name);
+                            try {
+                                long r = copy(new java.io.ByteArrayInputStream(d), dst, dst.exists() ? dst.length() : -1);
+                                if (r < 0) cnt[1]++; else { cnt[0]++; changed = true; }
+                            } catch (Exception x) { /* 개별 실패는 집계만 */ }
+                        }
+                        return !m.isEmpty();
+                    }
+                });
+            }
+            a.runOnUiThread(new Runnable() { @Override public void run() {
+                wait.dismiss();
+                report(a, cnt[0], cnt[1], 0);
+            }});
+        }}).start();
     }
 
     /* ── 「아는 원본」 표 ─────────────────────────────────────────── */
@@ -264,6 +359,18 @@ public final class RomImport {
             }
         } catch (Exception ignored) { }
         return out;
+    }
+
+    /** 메모리 롬 md5. */
+    static String md5(byte[] d) {
+        try {
+            java.security.MessageDigest m = java.security.MessageDigest.getInstance("MD5");
+            StringBuilder sb = new StringBuilder();
+            for (byte x : m.digest(d)) sb.append(String.format("%02x", x));
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     /** 파일 md5. 못 읽으면 빈 문자열 — 그러면 「아는 원본」에 안 들어가 나머지로 간다. */
@@ -330,6 +437,7 @@ public final class RomImport {
         if (notRom > 0) sb.append(sb.length() > 0 ? " · " : "").append(notRom).append("개는 롬이 아님");
         if (sb.length() == 0) sb.append("가져온 것이 없습니다");
         Toast.makeText(a, sb.toString(), Toast.LENGTH_LONG).show();
+        if (a instanceof MainActivity) ((MainActivity) a).romsChanged();
     }
 
     private RomImport() { }

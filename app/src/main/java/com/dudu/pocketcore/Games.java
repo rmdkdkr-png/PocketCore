@@ -217,6 +217,16 @@ public final class Games {
         return null;
     }
 
+    /** 메모리에 든 롬(압축에서 꺼낸 것)을 머리표로 가른다. */
+    public static Game identifyBytes(byte[] rom) {
+        if (rom == null || rom.length < TAG_OFF + TAG_LEN) return null;
+        String tag;
+        try { tag = new String(rom, TAG_OFF, TAG_LEN, "US-ASCII"); } catch (Exception e) { return null; }
+        for (Game g : ALL)   if (tag.startsWith(g.tag)) return g;
+        for (Game g : EXTRA) if (tag.startsWith(g.tag)) return g;
+        return null;
+    }
+
     /** 내장표 + 내려받은 것. 진열장·설정이 게임을 훑을 때 쓴다. */
     public static Game[] allIncludingExtras() {
         if (EXTRA.length == 0) return ALL;

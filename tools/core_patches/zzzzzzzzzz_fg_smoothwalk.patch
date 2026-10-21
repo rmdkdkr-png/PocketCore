@@ -1,0 +1,69 @@
+앱 방 코어 패치 zzzzzzzzzz_fg_smoothwalk — 걷는·대시하는 상대도 내 몸처럼 매끄럽게, CPU 걸음 장은 첫 걸음부터
+(유저 10-19 「상대방 이동시 끊기는 듯 움직여서(30hz 마냥) 패치의 의미가 사라짐」·「플레이어처럼 애니메이션 해 줄 순 없냐」).
+① 디딤(zzzzzz_fg_walkstep·walkstep2·zzzzzzz_fg_dashstep) 기본 끔(walkstep_mode 0): 걷는·대시하는 상대 몸을 원작처럼 2 프레임마다 툭툭
+   옮겨 120Hz 에서 30Hz 처럼 보였다. 다리 그림이 없어 미끄러져 보이던 걸 가리려던 것인데, 170 부터 CPU 걷기에 원작 걸음 장이 돌아
+   이제는 몸도 내 몸처럼 ¼ px 로 옮긴다. 호스트 시험은 예전처럼 SS2_WALKSTEP=1 로 켤 수 있다.
+② 걸음 장 첫 바뀜: 걷는 몸 멀리 미리 보기(zzz_fg_walk·walk2 — 이 머묾을 몰래 앞서 돌려 본 것)가 상대 몸이 이 포즈로
+   «지금까지 간 거리 + 미리 본 데까지 더 갈 거리 ≥ h0 + 한 장» 가는 걸 봤으면 첫 장도 한 장(st)만 — 사람 걸음처럼 첫 걸음부터
+   다리가 돈다. 모르면 예전처럼 h0. 상대 몸(1)만: 내 몸은 묶일 일이 없고, 미리 본 앞날이 손 입력으로 바뀐다(밀려 더 간 거리가
+   섞여 갈포드 뒷걸음 한 장에 걸음 장이 낀 일이 있었다 — 첫 시안).
+호스트(봇 16판, 76,800 출력): 걷는 상대 화면 자리 출력 4장 «툭툭» 70.7 → 1.2% · «고르게» 28.2 → 95.5%(내 몸 95.0%),
+대시 툭툭 94.2 → 0.6%. CPU 걸음 장 첫 바뀜 중앙 1.62 → 1.14 장, 이상(안 움직일 때·공중·다른 포즈) 0.
+사람이 걷는 14캐릭터(CPU 멈춤) — 내 몸 계획 170 과 같음(다른 출력은 모두 밀리는 상대 몸 자리), 다른 시드·CPU 움직임 14판 내 몸 같음 · 걸음 장 0.
+
+diff --git a/src/libretro.c b/src/libretro.c
+index e07772d..4949de4 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -754,7 +754,10 @@ static int fg_no_next = 0;                       /* 60Hz 사이 그림 — τ=D
+    움직여 종종걸음으로 읽히는데, 120Hz 로 몸을 매끄럽게 옮기면 발이 얼음 위를 미는 것처럼 보였다(유저 10-18 「겐쥬로 미끄러져 오는데」·「쥬베이도」·
+    「상대방 말야」·「ㅈㄴ 미끄러지는데」). 사이 그림(다리 포즈)·배경·카메라·다른 동작은 그대로 120Hz.
+    1 = 상대 몸(1)만(유저 「난 되는데 상대방만」) · 2 = 두 몸 · 0 = 끔. 호스트 시험은 환경 변수 SS2_WALKSTEP */
+-static int walkstep_mode = 1;
++/* zzzzzzzzzz_fg_smoothwalk: 기본 끔 — 170 부터 CPU 걷기에 원작 걸음 장이 돌아 다리가 움직이니, 몸 자리도 내 몸처럼 120Hz ¼ px 로 매끄럽게.
++   디딤(165~167)은 걷는·대시하는 상대를 2 프레임마다 툭툭(30Hz) 옮겨 프레임 패치가 없는 것처럼 보였다(유저 10-19 「상대방 이동시 끊기는 듯
++   움직여서(30hz 마냥) 패치의 의미가 사라짐」·「플레이어처럼 애니메이션 해 줄 순 없냐」) */
++static int walkstep_mode = 0;
+ /* zzzzzz_fg_walkstep2: 165 는 디딤 사이 장에 «카메라 몫»만큼 몸을 매끄럽게 옮겼다(땅에 붙임). 카메라가 움직이면(나와 상대가 같이 움직일 때 —
+    봇 판 상대 걷기의 절반) 걷는 몸이 화면에서 뒤로 스르륵 갔다가 앞으로 툭 — 문워크처럼 보였다(유저 10-19 「나랑 적이 같이 움직일 때만 안 되는 거냐」).
+    원작은 몸 자리를 2 프레임에 한 번 «화면에서» 툭툭 옮긴다(걸음 사이 4 프레임 쉼에 카메라만큼 뒤로 1px 도 툭). 이제 걷는 동안은 화면 자리를
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index 4b87092..a0096a1 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -2345,6 +2345,7 @@ static uint64_t gl_sig[2];                   /* 거리를 재는 포즈 */
+ static int      gl_dist[2];                  /* 그 포즈로 땅 위에서 간 거리(px) — 상대 쪽 +, 멀어지는 쪽 − */
+ static unsigned gl_mv[2];                    /* 마지막으로 움직인 실제 프레임 */
+ static uint8_t  gl_wx[2], gl_ct[2];
++static uint8_t  gl_stk[2];                   /* zzzzzzzzzz_fg_smoothwalk: 이 머묾은 사람 걸음의 한 장보다 길게 감 — 멀리 미리 보기로 확인(머묾 동안 유지) */
+ static int      gl_stats[4];                 /* 장마다 그린 수(0 = 원래 포즈) */
+ void ss2fg_set_glide(int m) { gl_mode = m; }
+ void ss2fg_glide_stats(int *o4) { int i; for (i = 0; i < 4; i++) o4[i] = gl_stats[i]; }
+@@ -2353,7 +2354,7 @@ static void gl_observe(const ss2fg_frame *f, int p, uint64_t sg, unsigned realn)
+ {
+    int d;
+    if (!sg || !f->fight || (f->st[p] & 0xE0) != 0x20 || !gl_ctok(f->ct[p]) || sg != gl_sig[p] || f->ct[p] != gl_ct[p])
+-   { gl_sig[p] = sg; gl_ct[p] = f->ct[p]; gl_dist[p] = 0; gl_mv[p] = 0; gl_wx[p] = f->wx[p]; return; }
++   { gl_sig[p] = sg; gl_ct[p] = f->ct[p]; gl_dist[p] = 0; gl_mv[p] = 0; gl_wx[p] = f->wx[p]; gl_stk[p] = 0; return; }
+    d = (int8_t)(uint8_t)(f->wx[p] - gl_wx[p]);
+    if (d && d >= -12 && d <= 12)
+    {
+@@ -2393,7 +2394,17 @@ static int gl_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+          사람이 한 장으로 가장 길게 간 거리(포즈마다 다름: 아수라 13px · 주베이 17px 등 — 한 걸음 반을 넘는 것도 있었다)보다
+          길어야 걸음 장을 그린다 — 그 전에 그리면 사람 걸음에 다음 장이 몇 프레임 일찍 끼었다.
+          CPU 는 첫 장에 묶여 h0 를 넘기니 그때부터 한 걸음마다. 뒷걸음도 같은 길이로 거꾸로 */
+-      k = ad < h0 ? 0 : 1 + (ad - h0) / st;
++      /* zzzzzzzzzz_fg_smoothwalk: 걷는 몸 멀리 미리 보기(zzz_fg_walk·walk2 — 이 머묾을 몰래 앞서 돌려 본 것)가 이 포즈로 h0 넘게 가는 걸 이미 봤으면
++         (지금까지 간 거리 + 미리 본 데까지 더 갈 거리 ≥ h0 + 한 장 — 사람 걸음은 그 전에 다음 장으로 넘어간다) 첫 장도 한 걸음(st)만:
++         플레이어 걸음처럼 첫 걸음부터 다리가 돈다(유저 10-19 「플레이어처럼 애니메이션 해 줄 순 없냐」). 몰라도 h0 를 넘기면 예전처럼.
++         상대 몸(1)만 — 내 몸은 미리 본 앞날이 손 입력으로 바뀌고(밀려 더 간 거리가 섞여 갈포드 뒷걸음 한 장에 걸음 장이 낀 일이 있었다) 묶일 일도 없다 */
++      if (!gl_stk[p] && p == 1 && pb.w[p].walk && pb.w[p].from == id_cur[p] && pb.w[p].start == id_start[p])
++      {
++         int fut = (int8_t)(uint8_t)((pb.w[p].found ? pb.w[p].fk.wx[p] : pb.w[p].lwx) - f0->wx[p]);
++         if (fut < 0) fut = -fut;
++         if (fut <= 96 && ad + fut >= h0 + st) gl_stk[p] = 1;
++      }
++      k = gl_stk[p] ? ad / st : ad < h0 ? 0 : 1 + (ad - h0) / st;
+       if (d < 0) k = -k;
+       k %= nn; if (k < 0) k += nn;
+       ph = wk->ord[k];

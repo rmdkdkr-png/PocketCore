@@ -14,6 +14,19 @@
 #include <aaudio/AAudio.h>
 #include <time.h>
 #include "libretro.h"
+#include "pace.h"
+#include "sndfx.h"
+#include <stdatomic.h>
+#include "league.h"
+#include "practice.h"
+#include "look.h"
+#include "cheat.h"
+#include "ovplane.h"
+#include "uisfx.h"
+#include "callout.h"
+#include "hitflash.h"
+#include "display_shaders.h"
+#include <math.h>
 
 #define TAG "PocketCore"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
@@ -40,6 +53,15 @@ static void   (*c_get_system_info)(struct retro_system_info *);
 static void   (*c_get_system_av_info)(struct retro_system_av_info *);
 static void   (*c_set_controller_port_device)(unsigned, unsigned);
 static void  *(*c_get_memory_data)(unsigned);
+static void  *c_palremap;   /* retro_ngp_palremap — 게임이 팔레트를 쓰는 순간 컬러 바꿔 넣기(가상 리그 컬러, 옛 코어엔 없음) */
+static void (*c_fg_state)(int *, int *, unsigned *);   /* retro_ngp_fg_state — 코어 2배 출력(120Hz) 중 이번 호출이 «합성»(에뮬레이션 없음)인가 */
+static const uint8_t *(*c_fg_phase)(unsigned *, unsigned *, unsigned *);   /* retro_ngp_fg_phase — 4배 그림의 화소마다 원래 모눈 어긋남(코어 zzz_fg_phase) */
+static void  *(*c_charram)(void), *(*c_scrollram)(void), *(*c_palram)(void);   /* 사무쇼2 코어의 K1GE 문자·스크롤·팔레트 램(가상 리그가 화면 글자·컬러를 바꿀 때) */
+static int (*c_hit_caps)(void);   /* 191 retro_ngp_hit_caps — 코어가 타격 알림·이펙트·몸 번쩍을 그린다(코어 패치 zzzzzzzzzzzzzzz_hitfx). 있으면 앱 쪽은 끈다 */
+static const uint8_t *(*c_shown_ram)(int *, const uint8_t **);   /* 187 retro_ngp_shown_ram — 런어헤드로 보여 준 프레임(N + ra)의 작업 램·팔레트 사본(없으면 NULL) */
+static void  *(*c_spriteram)(void);   /* K1GE 스프라이트 램 — 연습 메뉴 창이 빌릴 타일을 고를 때(스프라이트가 가리키는 타일은 안 빌림) */
+static void (*c_sndonly)(int);   /* retro_ngp_sndonly_run — 182: 메인 CPU 를 세운 채 소리 CPU(Z80·소리 칩)만 retro_run n 번 몫(코어 패치 zzzzzzzzzzzzz_snd_only, 옛 코어엔 없음) */
+static void (*c_snd_div)(int);   /* retro_ngp_snd_div — 182: 소리만 1/d 빠르기(4배속 자동 진행 동안 4 — 곡이 보통 빠르기) */
 static size_t (*c_get_memory_size)(unsigned);
 static size_t (*c_serialize_size)(void);
 static bool   (*c_serialize)(void *, size_t);
@@ -59,24 +81,110 @@ static uint8_t  *g_fb = NULL;          /* RGBA8888 staging buffer      */
 static unsigned  g_fb_cap = 0;
 static unsigned  g_fb_w = 0, g_fb_h = 0;
 static int       g_fb_dirty = 0;
+/* 프레임 패치 쪽지 — 코어가 4배 그림(640×608)과 함께 넘기는 «화소마다 원래 화소의 4×4 칸이 몇 칸 비켜 시작하나»(x 0..3 | y 0..3 << 2).
+   화면 필터(업스케일러·격자·스캔라인)가 화소마다 제 모눈으로 원래 화소를 읽어 ¼ px 자리를 지킨다 — 전엔 게임 칸마다 가운데
+   한 점만 읽어(업스케일러는 1배로 줄여) ¼·½ 이 0 으로 반올림됐다(유저 2026-10-17 「필터를 켜면 그리 된다는 게 말이 되나」 → 「해봐」).
+   색 버퍼와 따로 둬서 스크린샷·잔상은 그대로 */
+static uint8_t  *g_ph = NULL;
+static unsigned  g_ph_cap = 0;
+static int       g_fb_ph = 0;          /* g_fb 의 그림에 쪽지가 있나(g_ph 에 같은 크기) */
+
+/* 151: 앱 보간(framegen.c 움직임·섞기, fg_cadence.c 박자) 폐기 — 유저 2026-10-16 「앱보간 폐기해라」.
+   완성된 화면에서 움직임을 짐작해 사이 그림을 끼우던 것 — 다음 그림을 기다려 25ms 늦고, 포즈 바뀜은 못 잇고, 이동은 짐작이라
+   체감이 거의 없었다. 120Hz 사이 칸은 코어의 «프레임 패치»(옛 코어 보간)만 */
+static double    g_vsync_ema = 0.0;      /* 실측 vsync 간격(초) — 120Hz 인지는 이걸로 판단 */
+static double    g_last_vsync = 0.0;
+static float     g_panel_hz_hint = 0.f;  /* Java 가 알려 준 Display.getRefreshRate() — 실측 전 대용 */
+
+/* 패널 주사율 — 코어의 GET_TARGET_REFRESH_RATE 에 답한다(ss2 코어 프레임 생성 「자동」이 이걸 본다).
+   vsync 실측값을 흔한 주사율로 맞춰 돌려준다(120Hz 면 120.0, 60 이면 60.0). 실측 전이면 Java 값. */
+static float panel_hz(void)
+{
+   static const float std_hz[] = { 48.f, 50.f, 60.f, 72.f, 90.f, 96.f, 120.f, 144.f, 165.f, 240.f };
+   float hz = g_vsync_ema > 0.0 ? (float)(1.0 / g_vsync_ema) : g_panel_hz_hint;
+   if (hz <= 0.f) return 60.f;
+   float best = std_hz[0], bd = 1e9f;
+   for (unsigned i = 0; i < sizeof std_hz / sizeof std_hz[0]; i++) {
+      float d = hz > std_hz[i] ? hz - std_hz[i] : std_hz[i] - hz;
+      if (d < bd) { bd = d; best = std_hz[i]; }
+   }
+   return best;
+}
 
 static volatile int32_t g_input = 0;   /* bitmask of RETRO_DEVICE_ID_* */
 static int g_loaded = 0;
 
 /* GL */
 static GLuint g_prog = 0, g_tex = 0;
+static unsigned g_tex_w = 0, g_tex_h = 0;   /* g_tex 에 지금 잡힌 크기 — 같으면 glTexSubImage2D 로 덮기만 */
+static GLuint g_tex_ph = 0;                 /* 쪽지 텍스처(LUMINANCE, 0..15) — 텍스처 단위 1 */
+static unsigned g_tph_w = 0, g_tph_h = 0;
+static int g_tex_has_ph = 0;                /* 지금 g_tex 의 그림에 쪽지가 있나 */
 static GLint  a_pos, a_uv, u_tex;
 static int    g_vw = 1, g_vh = 1;
 static int    g_integer_scale = 1;
+
+/* 화면 표시 — 업스케일러(도트를 키우는 방식) 하나 + 필터(덧입히기) 여럿, 둘 다 세기(%).
+   Java 가 설정에서 nativeSetDisplay 로 넣는다(GL 스레드에서). 전부 0 이면 예전 단순 셰이더 그대로. */
+typedef struct {
+   GLuint prog; int failed;
+   GLint a_pos, a_uv, u_tex, u_size, u_out, u_mix, u_grid, u_scan, u_color, u_soft;
+   GLint u_sub, u_phase, u_ph;   /* 텍스처 배율(1·4) · 쪽지 있음 · 쪽지 텍스처 */
+} disp_prog;
+static disp_prog g_dp[DISP_N_UP];
+static int g_d_up = 0, g_d_mix = 100, g_d_grid = 0, g_d_scan = 0, g_d_ghost = 0, g_d_color = 0, g_d_soft = 0;
+/* 잔상(LCD 응답 느림 흉내) — 셰이더가 아니라 CPU 누적: 화면에 낸 그림을 지수 평균한다.
+   acc 는 값×256(16비트)이라 끝까지 따라간다(8비트로 섞으면 희미한 찌꺼기가 남는다). */
+static uint16_t *g_gh = NULL;
+static uint8_t  *g_gh_out = NULL;
+static unsigned  g_gh_cap = 0, g_gh_w = 0, g_gh_h = 0;
+static int       g_gh_valid = 0;
+static GLuint    g_tex_gh = 0;
+/* 157 덧판 — 합성한 그림(ovplane.c 버퍼)을 올리는 따로 텍스처. g_tex(날것 g_fb)는 그대로 */
+static GLuint    g_tex_ov = 0;
+static unsigned  g_tex_ov_w = 0, g_tex_ov_h = 0;
+static uint32_t  g_tex_tag = 0;            /* 157 post: g_tex 의 이름표 줄에 지금 덧칠된 HUD 이름표 서명(0 = 날 그림 그대로) */
+/* 160: 프레임 패치 쪽지 × 덧판 — 덧판 합성 그림(g_tex_ov)엔 ovplane 이 같이 합성한 쪽지(g_tex_ovph: 덧판이 칠한 화소 0 · 나머지는 게임 쪽지를 같이 옮김).
+   이름표만 덧칠하는 게임 텍스처(g_tex)엔 쪽지 텍스처(g_tex_ph)의 그 줄도 이름표 화소만 0 으로(g_tph_tag = 지금 덮인 서명) */
+static GLuint    g_tex_ovph = 0;
+static unsigned  g_tovph_w = 0, g_tovph_h = 0;
+static uint32_t  g_tph_tag = 0;
+/* 182 타격 알림(callout.c) — 라벨 아틀라스 텍스처(미리 곱한 알파로 올림)와 작은 셰이더. 처음 그릴 때 만든다(새 컨텍스트면 gl_setup 이 0 으로) */
+static GLuint    g_co_prog = 0, g_co_tex = 0;
+static int       g_co_failed = 0, g_co_aw = 0, g_co_ah = 0;
+static GLint     g_co_apos, g_co_auv, g_co_utex, g_co_ualpha, g_co_uflash;
+/* 184 타격 이펙트(도트) — 게임 텍스처의 줄에 합성한다(업스케일러·필터가 이펙트에도 같이 걸리게). 지금 g_tex·g_tex_ph 에 이펙트가 든 텍스처 줄(포함, y1 < y0 = 없음) */
+static int       g_fxd_y0 = 0, g_fxd_y1 = -1, g_fxp_y0 = 0, g_fxp_y1 = -1;
+static uint8_t  *g_fxrow = NULL, *g_fxph = NULL;
+static size_t    g_fxrow_cap = 0, g_fxph_cap = 0;
 
 /* audio ring buffer (stereo int16) */
 #define ARING_FRAMES 16384
 static int16_t g_ring[ARING_FRAMES * 2];
 static volatile uint32_t g_rd = 0, g_wr = 0;
 static AAudioStream *g_stream = NULL;
+/* 150: 소리 늘리고 줄이기 — 코어를 화면 vsync 수로 돌리면(pace.c) 게임이 60.25 → 60.0 처럼 조금 느려져 소리가 모자란다.
+   고리 버퍼를 «소리 카드가 한 번에 가져가는 양 + 700» 근처로 지키게 ±0.5% 늘리고 줄인다(음높이 차이 8.6 cent 안 — 안 들림) */
+static pace_t g_pace;
+static drc_t  g_drc;
+static volatile int32_t g_cb_frames = 0;   /* 소리 카드가 한 번에 가져간 가장 큰 양(오디오 스레드가 적는다) */
+static int16_t g_drc_out[8192 * 2];
+static int g_turbo_audio = 0;             /* 배속 중 — 소리를 늘리고 줄이지 않는다(nativeFrame 이 g_turbo 를 옮겨 적는다) */
 
-/* core options loaded from a plain key=value text file (no menus) */
-#define MAX_OPTS 64
+/* 코어 자물쇠(116) — libretro 코어는 한 스레드에서만 불려야 한다. 예전엔 onPause 오토세이브·SRAM 저장·옵션 바꾸기를
+   UI 스레드에서 바로 불러, GL 스레드가 retro_run 을 도는 도중과 겹쳤다. 숨은 프레임(런어헤드·프레임 생성)이 «소리 칸을
+   뺀 가벼운 저장» 표시를 세운 순간과 겹치면 오토세이브에 소리 칸이 빠져, 다음에 이어하기 하면 소리칩이 꺼진 채였다
+   (유저 2026-10-11 「사운드가 자주 안 나옴 // 리셋하면 나옴」 — 하니스로 겹쳐 저장 40번 중 34번 무음 재현).
+   코어로 들어가는 모든 호출(retro_run 한 번 단위)을 이 자물쇠 안에서 한다. 콜백 안에서는 잡지 않는다(이미 잡혀 있다). */
+static pthread_mutex_t g_core_mx  = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_audio_mx = PTHREAD_MUTEX_INITIALIZER;   /* 오디오 스트림 열고 닫기 — GL·UI 스레드가 같이 만진다 */
+#define CORE_LOCK()   pthread_mutex_lock(&g_core_mx)
+#define CORE_UNLOCK() pthread_mutex_unlock(&g_core_mx)
+
+/* core options loaded from a plain key=value text file (no menus)
+   114: 64 → 256 + 같은 키는 한 칸(뒤 줄이 이긴다). 앱은 새 키를 options.txt 끝에 붙이는데(Settings.put), 64 칸이 차면
+   그 뒤 키가 코어에 조용히 안 넘어갔다 — 설정을 많이 만진 기기에서 111 의 «동작 사이 그림» 같은 새 키가 빠질 수 있었다(검수 2026-10-11) */
+#define MAX_OPTS 256
 static struct { char k[64]; char v[96]; } g_opt[MAX_OPTS];
 static int g_nopt = 0;
 static int g_var_dirty = 0;   /* 런타임 옵션 변경 — 코어가 다음 프레임에 다시 읽는다 */
@@ -104,6 +212,54 @@ static void core_log(enum retro_log_level lvl, const char *fmt, ...)
                        "core", "%s", buf);
 }
 
+/* g_opt 한 칸 넣기·바꾸기(잠금은 부르는 쪽) — 값이 바뀌었으면 1 */
+static int opt_put(const char *k, const char *v)
+{
+   int i;
+   for (i = 0; i < g_nopt; i++)
+      if (!strcmp(g_opt[i].k, k)) { if (!strcmp(g_opt[i].v, v)) return 0; snprintf(g_opt[i].v, sizeof(g_opt[i].v), "%s", v); return 1; }
+   if (g_nopt >= MAX_OPTS) return 0;
+   snprintf(g_opt[g_nopt].k, sizeof(g_opt[g_nopt].k), "%s", k);
+   snprintf(g_opt[g_nopt].v, sizeof(g_opt[g_nopt].v), "%s", v);
+   g_nopt++;
+   return 1;
+}
+static const char *opt_get(const char *k, const char *def)
+{
+   for (int i = 0; i < g_nopt; i++) if (!strcmp(g_opt[i].k, k)) return g_opt[i].v;
+   return def;
+}
+/* 191 타격 알림·이펙트·몸 번쩍 — 코어(zzzzzzzzzzzzzzz_hitfx)가 있으면 코어가 그리고(옵션 ngp_hit_*), 없으면 앱(callout.c·hitflash.c)이 예전처럼.
+   g_want_* = Java 가 마지막으로 바란 값(사무쇼2 판 + 설정). 옵션 파일엔 앱 열쇠(pocketcore_callout · _hitfx · _hitflash)만 있다 —
+   코어를 올리기 전에 거기서 ngp_hit_* 를 만들어 둔다(코어가 처음 읽는 값부터 맞게). 코어는 사무쇼2 롬에서만 일한다 */
+static int g_core_hits = 0, g_want_co = 0, g_want_fx = 0, g_want_fl = 0;
+/* 195 모양 — 라벨 0 큰 한글 도트 · 1 붓 한자 · 2 명패 · 3 먹 띠 / 이펙트 1 반투명 · 2 불투명 · 3 때린 몸 밑 / 크기 0 작게 · 1 크게(유저 「네 개 다 해 줘 바꿔 보게」·
+   「반투명 + 캐릭터 위나 안 투명이 낫겠노」·「큰 효과 작은 효과도」). 코어 옵션 값 이름 = 아래 표, 앱 옵션 파일 값도 같은 이름(옛 enabled·on 은 기본) */
+static int g_co_style = 0, g_fx_style = 1, g_fx_big = 1;   /* 197 기본 크게(유저 10-21 「195 크게 반투명이 좋다」) */
+static const char *const CO_STYLE_V[4] = { "pixel", "brush", "plaque", "inkband" };
+static const char *const FX_STYLE_V[4] = { "disabled", "translucent", "opaque", "under" };
+static int style_of(const char *v, const char *const *tab, int n, int def)
+{
+   for (int i = 0; i < n; i++) if (v && !strcmp(v, tab[i])) return i;
+   return def;
+}
+static void hits_opts_from_file(void)
+{
+   const char *co = opt_get("pocketcore_callout", "pixel"), *fx = opt_get("pocketcore_hitfx", "translucent");
+   opt_put("ngp_hit_callout", !strcmp(co, "disabled") ? "disabled" : CO_STYLE_V[style_of(co, CO_STYLE_V, 4, 0)]);
+   opt_put("ngp_hit_fx", !strcmp(fx, "off") ? "disabled" : FX_STYLE_V[style_of(fx, FX_STYLE_V + 1, 3, 0) + 1]);
+   opt_put("ngp_hit_fx_size", !strcmp(opt_get("pocketcore_hitfx_size", "big"), "small") ? "small" : "big");   /* 197 기본 크게 */
+   opt_put("ngp_hit_flash", "disabled");   /* 193 몸 번쩍 뺌(유저 「내가 넣는 번쩍 효과는 빼자」) — 옛 코어 옵션도 늘 끔 */
+}
+static void hits_route(void)
+{
+   int app = !g_core_hits;
+   callout_enable(app && g_want_co);
+   callout_fx_mode(app ? g_want_fx : FXM_OFF);
+   callout_fx_size(g_fx_big);                 /* 195 옛 코어로 앱이 그릴 때도 크기는 따름(반투명·밑은 코어만) */
+   callout_flash_enable(app && g_want_fl);
+}
+
 static void load_options(const char *path)
 {
    FILE *f = fopen(path, "r");
@@ -116,15 +272,18 @@ static void load_options(const char *path)
       eq = strchr(line, '=');
       if (!eq) continue;
       *eq = 0;
-      snprintf(g_opt[g_nopt].k, sizeof(g_opt[g_nopt].k), "%s", line);
-      snprintf(g_opt[g_nopt].v, sizeof(g_opt[g_nopt].v), "%s", eq + 1);
+      int at = g_nopt;
+      for (int i = 0; i < g_nopt; i++) if (!strcmp(g_opt[i].k, line)) { at = i; break; }   /* 같은 키 — 뒤 줄이 이긴다 */
+      snprintf(g_opt[at].k, sizeof(g_opt[at].k), "%s", line);
+      snprintf(g_opt[at].v, sizeof(g_opt[at].v), "%s", eq + 1);
       /* trim trailing whitespace/newline */
-      for (char *p = g_opt[g_nopt].v + strlen(g_opt[g_nopt].v) - 1;
-           p >= g_opt[g_nopt].v && (*p == '\n' || *p == '\r' || *p == ' '); --p) *p = 0;
-      g_nopt++;
+      for (char *p = g_opt[at].v + strlen(g_opt[at].v) - 1;
+           p >= g_opt[at].v && (*p == '\n' || *p == '\r' || *p == ' '); --p) *p = 0;
+      if (at == g_nopt) g_nopt++;
    }
    fclose(f);
    LOGI("loaded %d core options", g_nopt);
+   hits_opts_from_file();
 }
 
 /* ------------------------------------------------------------------ */
@@ -195,6 +354,9 @@ static bool cb_environment(unsigned cmd, void *data)
    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE:
       *(int *)data = 3; return true;
 
+   case RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE:
+      *(float *)data = panel_hz(); return true;
+
    case RETRO_ENVIRONMENT_GET_FASTFORWARDING:
       *(bool *)data = false; return true;
 
@@ -211,6 +373,40 @@ static void cb_video(const void *data, unsigned w, unsigned h, size_t pitch)
    if (!data || !w || !h) return;      /* frame dupe */
    ensure_fb(w, h);
    if (!g_fb) return;
+   /* 쪽지 — 코어가 이 그림(4배)에 붙여 준 것. 크기가 안 맞으면 없는 것으로 */
+   const uint8_t *ph = NULL;
+   unsigned phw = 0, phh = 0, php = 0;
+   if (c_fg_phase && g_pixfmt == RETRO_PIXEL_FORMAT_RGB565 && w >= 320) {
+      ph = c_fg_phase(&phw, &phh, &php);
+      if (ph && (phw != w || phh != h || php < w)) ph = NULL;
+   }
+   g_fb_ph = 0;
+   /* 쪽지가 없는 코어에서 업스케일러를 켰으면 사무쇼2 의 4배 그림(서기·동작 사이 그림을 ¼픽셀로 그린 640×608)을 1배로 — 칸마다 가운데 한 점.
+      업스케일러는 «도트 한 칸 = 텍셀 한 칸»이어야 돈다. 사이 그림은 ¼픽셀 대신 정수 픽셀로 반올림된다.
+      유저 2026-10-11 「업스케일러가 안 되네 — 업스케일러는 블렌더 레벨 필요 없어」. 쪽지가 있으면 4배 그대로 두고 셰이더가 화소마다 제 모눈으로 */
+   unsigned ds = 1;
+   /* 150: SVC 코어 보간도 4배 — 기술명 띠(최대 32줄)가 붙으면 세로가 (152+띠)·4 라 «152 의 배수»만 보면 못 알아봤다 */
+   if (g_d_up > 0 && !ph && g_pixfmt == RETRO_PIXEL_FORMAT_RGB565 && w >= 320 && w % 160 == 0 && h % (w / 160) == 0
+       && h / (w / 160) >= 152u && h / (w / 160) <= 184u)
+      ds = w / 160;
+   if (ds > 1) {
+      unsigned ow = w / ds, oh = h / ds;
+      uint8_t *d1 = g_fb;
+      g_fb_w = ow; g_fb_h = oh;
+      for (unsigned y = 0; y < oh; y++) {
+         const uint16_t *src = (const uint16_t *)((const uint8_t *)data + (y * ds + ds / 2) * pitch) + ds / 2;
+         for (unsigned x = 0; x < ow; x++) {
+            uint16_t p = src[x * ds];
+            unsigned r = (p >> 11) & 0x1f, g = (p >> 5) & 0x3f, b = p & 0x1f;
+            *d1++ = (uint8_t)((r << 3) | (r >> 2));
+            *d1++ = (uint8_t)((g << 2) | (g >> 4));
+            *d1++ = (uint8_t)((b << 3) | (b >> 2));
+            *d1++ = 0xff;
+         }
+      }
+      g_fb_dirty = 1;
+      return;
+   }
    g_fb_w = w; g_fb_h = h;
 
    uint8_t *dst = g_fb;
@@ -250,10 +446,18 @@ static void cb_video(const void *data, unsigned w, unsigned h, size_t pitch)
          }
       }
    }
+   if (ph) {
+      size_t n = (size_t)w * h;
+      if (n > g_ph_cap) { free(g_ph); g_ph = (uint8_t *)malloc(n); g_ph_cap = g_ph ? (unsigned)n : 0; }
+      if (g_ph) {
+         for (unsigned y = 0; y < h; y++) memcpy(g_ph + (size_t)y * w, ph + (size_t)y * php, w);
+         g_fb_ph = 1;
+      }
+   }
    g_fb_dirty = 1;
 }
 
-static size_t cb_audio_batch(const int16_t *data, size_t frames)
+static void ring_push(const int16_t *data, size_t frames)
 {
    uint32_t wr = g_wr;
    for (size_t i = 0; i < frames; i++) {
@@ -264,6 +468,83 @@ static size_t cb_audio_batch(const int16_t *data, size_t frames)
       wr = next;
    }
    g_wr = wr;
+}
+
+/* 176 음색 다듬기(sndfx.c — 저음 보강·고음 눅이기·좌우 넓힘·방 울림, 유저 「2 가 나은 방식이네」) · 178 세부 값(「조절해 보게 해 줘」).
+   179 배경음만(유저 「음색 다듬기 에러 심하면 배경음만 하던지」): 동봉 사무쇼2 코어(snd_noise 패치)가 잡음 칸(ch3)만 따로 주면(retro_ngp_snd_noise)
+   «소리 − 잡음»(사각파 셋 = 곡)에만 하고 잡음(대전 효과음 — 효과음은 대전 중 잡음 칸만 쓴다)은 그대로 더한다. 그래서 이제 코어 소리 콜백
+   (cb_audio_batch — retro_run 안, CORE_LOCK 아래)에서 늘림(drc) 앞에 돈다 — 소리 카드 콜백(실시간 스레드)은 고리에서 꺼내기만.
+   새 값은 UI 스레드(nativeSetSoundFx)가 다 만들어 g_fx_next 로 넘기고, 여기서 바꿔 끼우며 옛것을 푼다 */
+static sndfx_t *g_fx = NULL;                /* fx_apply 만 만진다(CORE_LOCK 아래) */
+static sndfx_t *_Atomic g_fx_next = NULL;   /* UI 스레드가 새로 만든 것 */
+static pthread_mutex_t g_fx_mx = PTHREAD_MUTEX_INITIALIZER;
+static sndfx_params g_fxb;                  /* 마지막으로 만든(올린) 것의 값·빠르기 — g_fx_mx 아래 */
+static int g_fxb_rate = 0, g_fxb_set = 0;
+static atomic_int g_fx_on = 1, g_fx_bgm = 1;   /* UI 스레드가 쓰고 fx_apply 가 읽는다 */
+static int g_fx_cur = 0;                    /* fx_apply 만 — 지난 묶음에 돌렸나(꺼졌다 켜질 때·무음 뒤엔 꼬리를 비우고 시작) */
+static const int16_t *(*c_snd_noise)(const int16_t *, unsigned) = NULL;   /* 코어의 잡음 칸(없으면 통째로) */
+static int16_t g_fx_buf[4096 * 2];
+static int16_t clamp16(int v) { return (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v); }
+static const int16_t *fx_apply(const int16_t *src, size_t n)
+{
+   sndfx_t *nx = atomic_exchange_explicit(&g_fx_next, NULL, memory_order_acq_rel);
+   const int16_t *nz;
+   size_t i;
+   if (nx) { sndfx_free(g_fx); g_fx = nx; }     /* 갓 만든 것(비어 있음) — 켜진 채면 꼬리만 끊긴다 */
+   if (!atomic_load_explicit(&g_fx_on, memory_order_relaxed) || !g_fx || n > 4096) { g_fx_cur = 0; return src; }
+   if (!g_fx_cur) { sndfx_reset(g_fx); g_fx_cur = 1; }
+   nz = atomic_load_explicit(&g_fx_bgm, memory_order_relaxed) && c_snd_noise ? c_snd_noise(src, (unsigned)n) : NULL;
+   if (nz) for (i = 0; i < n * 2; i++) g_fx_buf[i] = clamp16(src[i] - nz[i]);
+   else memcpy(g_fx_buf, src, n * 2 * sizeof(int16_t));
+   sndfx_run(g_fx, g_fx_buf, n);
+   if (nz) for (i = 0; i < n * 2; i++) g_fx_buf[i] = clamp16(g_fx_buf[i] + nz[i]);
+   return g_fx_buf;
+}
+
+static int g_audio_rate = 44100;            /* 지금 스트림 빠르기(audio_start) — 182: 딸깍 없애기 10ms 길이도 이것으로 */
+static int g_mute_drop = 0;                 /* 153: 소리를 버리던 중 — 풀리면 늘림(drc)을 새로(버린 앞 샘플과 잇지 않게) */
+/* 182: 게임 소리를 버리나 — 랭크 자동 진행(4배속, league_mute) 동안 옛 코어(snd_div 없음)만. 새 코어는 소리만 1/4 로 돌려(nativeFrame) 곡이 보통 빠르기로 난다.
+   메뉴 효과음(uisfx)은 늘 그대로(«결정» 이 4배속 들어갈 때 잘리지 않게 — mute 는 게임 소리만) */
+static inline int game_mute(void) { return league_mute && !c_snd_div; }
+/* 182 딸깍 없애기 — 코어가 멈췄다(덧판·창·걸쇠, 소리만 돌리기 없이) 다시 돌 때: 다시 난 첫 10ms 를 0 에서 키운다(멈춘 칩이 사각파 중간에서 이어 나와 «딸깍»).
+   멈출 때는 nativeFrame 이 음색 다듬기 울림 꼬리를 마저 내보낸다(꼬리 첫머리 = 마지막 소리 g_last_in 에서 0 으로 10ms 직선 — 마른 소리가 한 샘플에 0 으로 떨어지지 않게).
+   음색 다듬기가 꺼져 있으면 꼬리 없이 고리가 마르고 — 소리 카드 콜백이 마르기 전 10ms 를 줄인다(audio_cb). GL 스레드만(코어 소리 콜백·nativeFrame) */
+static int16_t g_last_in[2];                /* 마지막으로 받은 코어 소리(음색 다듬기 앞) */
+static int     g_in_ramp = 0, g_in_ramp_len = 441;   /* 다시 난 소리 키움 — 남은 프레임 · 길이(10ms) */
+static int16_t g_ramp_buf[4096 * 2];
+static volatile int g_pause_bgm = 0;   /* Java: 이 멈춤(설정 창)은 곡을 이어도 된다 */
+static int g_snd_div_cur = 1;          /* 지금 코어에 건 snd_div */
+static int g_frozen_prev = 0;          /* 지난 vsync 에 코어를 통째로 세웠나(소리도 없이) */
+static int g_tail_left = 0, g_tail_ramp = 0;   /* 182 멈춘 동안 음색 다듬기 울림 꼬리 — 남은 프레임 · 첫머리 직선 */
+static size_t cb_audio_batch(const int16_t *data, size_t frames)
+{
+   size_t done = 0;
+   if (game_mute()) { g_mute_drop = 1; g_fx_cur = 0; return frames; }   /* 153: 랭크 자동 진행(4배속) 동안 — 고리에 안 넣는다(배속 소리가 남아 뒤에 나오지 않게) · 179 풀리면 음색 다듬기 꼬리 없이 · 182 옛 코어만 */
+   if (!g_stream) { g_mute_drop = 1; return frames; }   /* 182: 소리 카드가 없다(onPause·썸네일 부팅) — 고리에 쌓아 두면 다시 열 때 지난 소리가 늦게(최대 0.37 s) 나온다 */
+   if (g_mute_drop) { g_mute_drop = 0; drc_reset(&g_drc); }
+   if (frames) { g_last_in[0] = data[(frames - 1) * 2]; g_last_in[1] = data[(frames - 1) * 2 + 1]; }
+   while (done < frames) {                       /* 큰 묶음은 나눠서(출력 칸 8192) */
+      size_t n = frames - done > 4096 ? 4096 : frames - done;
+      uint32_t fill = (g_wr - g_rd + ARING_FRAMES) % ARING_FRAMES;
+      unsigned cb = (unsigned)g_cb_frames, target = cb + 700;
+      if (target < 900) target = 900;
+      const int16_t *src = fx_apply(data + done * 2, n);  /* 176·178·179 음색 다듬기 — 코어가 준 자리 그대로 넘겨야 잡음 칸을 찾는다 */
+      if (g_in_ramp > 0) {                       /* 182: 멈췄다 다시 난 첫 10ms — 0 에서 키움(음색 다듬기 뒤: 꼬리는 이미 거의 0) */
+         size_t i;
+         for (i = 0; i < n; i++) {
+            int k = g_in_ramp > 0 ? g_in_ramp_len - g_in_ramp-- : g_in_ramp_len;
+            g_ramp_buf[i * 2]     = (int16_t)(src[i * 2] * k / g_in_ramp_len);
+            g_ramp_buf[i * 2 + 1] = (int16_t)(src[i * 2 + 1] * k / g_in_ramp_len);
+         }
+         src = g_ramp_buf;
+      }
+      if (g_turbo_audio) ring_push(src, n);   /* 배속 중엔 그대로(넘치면 버림 — 예전과 같다) */
+      else {
+         size_t w = drc_run(&g_drc, src, n, g_drc_out, 8192, drc_ratio(g_pace.drc_base, fill, target));
+         ring_push(g_drc_out, w);
+      }
+      done += n;
+   }
    return frames;
 }
 
@@ -279,28 +560,64 @@ static int16_t cb_input_state(unsigned port, unsigned device, unsigned index, un
 {
    (void)index;
    if (port != 0 || device != RETRO_DEVICE_JOYPAD || id > 15) return 0;
-   return (g_input >> id) & 1;
+   /* 가상 리그: 메뉴 자동 진입 중엔 그 입력, 게임 속 리그가 대신 받는 버튼(리그 대전 칸·상대 고르기의 A)은 게임에 안 준다.
+      연습 대전: 경기 중 Option(탭 = 메뉴 · 조합 = 리셋)·메뉴가 열린 동안의 버튼은 게임에 안 주고, 일시정지를 걸고 풀 Option·이야기 넘기는 A 는 더한다
+      컬러(look.c): 고르기 화면의 OPTION(컬러)·A·B·A+B(가르기 — A+B 는 베기 색)·컬러 만들기 창이 열린 동안의 모든 버튼은 게임에 안 주고, 가르기가 낸 결정의 A(검질 고르기 «뒤로»는 B)는 더한다 */
+   /* 157 덧판: 메뉴가 보이거나 멈춤(ov_hold) 중이면 게임 비트 전부(0xFFF — A·B·OPTION·방향·SELECT·SP 접기 1·9·10·11)를 막는 백스톱 */
+   int in = g_input, blk = league_in_block | practice_in_block | look_in_block | ov_in_block();
+   if (in & (1 << RETRO_DEVICE_ID_JOYPAD_START)) blk |= practice_opt_mask;   /* Option 과 같은 프레임의 방향·A·B(연습 경기 중) */
+   return ((league_ovr_on ? league_ovr_mask : ((in & ~blk) | league_in_or | practice_in_or | look_in_or)) >> id) & 1;
 }
 
 /* ------------------------------------------------------------------ */
 /* audio                                                               */
 /* ------------------------------------------------------------------ */
+/* 182: 메뉴 효과음을 받나·결정의 메아리를 끝까지 내나 — 덧판이 보이거나 멈춤 · 앱 카드(확인 카드 7 개·내 이름)·찾기 겹창(nativeSetAppMenu) ·
+   연습 메뉴(practice.c) · 랭크 자동 진행(찾기 겹창 뒤 4배속 — «결정»을 누른 그 소리가 끝까지) */
+static volatile int g_app_menu = 0;
+static int ui_menu_open(void) { return ov_active() || ov_hold() || g_app_menu || practice_menu_up || league_ff; }
+/* 182 딸깍 없애기(소리 카드 콜백 쪽) — 고리 샘플에 곱하는 크기(0..1, 샘플마다 1/10ms 씩만 바뀜):
+   · 코어가 멈춘 동안(g_core_frozen — nativeFrame) 고리에 남은 것이 10ms 아래면 남은 만큼으로 줄여 마지막 샘플에서 0(마르는 자리 «딸깍» 없음)
+   · 게임 소리를 버리는 동안(옛 코어 4배속) 0 으로 줄임 · 고리가 말랐다(언더런) 다시 차면 0 에서 키움
+   · 예상 못 한 언더런은 마지막 샘플에서 0 까지 10ms 직선(뚝 0 대신). 소리 카드 스레드만 만진다(audio_start 가 콜백 전 지움) */
+static volatile int g_core_frozen = 0;
+static float g_ac_gain = 0.f, g_ac_prev[2], g_ac_dec[2];
+static int   g_ac_decn = 0, g_ac_under = 1;
+static void declick_reset(void) { g_ac_gain = 0.f; g_ac_prev[0] = g_ac_prev[1] = 0.f; g_ac_decn = 0; g_ac_under = 1; }
 static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
                                               void *audioData, int32_t numFrames)
 {
    (void)s; (void)ud;
    int16_t *out = (int16_t *)audioData;
-   uint32_t rd = g_rd;
+   uint32_t rd = g_rd, wr = g_wr;
+   if (numFrames > g_cb_frames && numFrames < 8192) g_cb_frames = numFrames;
+   int mute = game_mute();             /* 153: 랭크 자동 진행이 찾기 겹창 뒤에서 고르기·이야기를 밟는 동안 — 고리에 남은 것도 무음으로 비운다(새 소리는 cb_audio_batch 가 버림) · 182 옛 코어만 */
+   int frozen = g_core_frozen, L = g_audio_rate / 100;
+   float step;
+   if (L < 1) L = 1;
+   step = 1.f / (float)L;
    for (int32_t i = 0; i < numFrames; i++) {
-      if (rd == g_wr) {                /* underrun: hold silence */
-         out[i * 2] = 0; out[i * 2 + 1] = 0;
-      } else {
-         out[i * 2]     = g_ring[rd * 2];
-         out[i * 2 + 1] = g_ring[rd * 2 + 1];
+      float o0 = 0.f, o1 = 0.f;
+      if (g_ac_decn > 0) { float k = (float)g_ac_decn-- / (float)(L + 1); o0 = g_ac_dec[0] * k; o1 = g_ac_dec[1] * k; }
+      if (rd != wr) {
+         uint32_t left = (wr - rd + ARING_FRAMES) % ARING_FRAMES;
+         float tgt = mute ? 0.f : (frozen && left < (uint32_t)L) ? (float)left / (float)L : 1.f;
+         if (g_ac_gain < tgt) { g_ac_gain += step; if (g_ac_gain > tgt) g_ac_gain = tgt; }
+         else if (g_ac_gain > tgt) { g_ac_gain -= step; if (g_ac_gain < tgt) g_ac_gain = tgt; }
+         o0 += g_ring[rd * 2] * g_ac_gain; o1 += g_ring[rd * 2 + 1] * g_ac_gain;
          rd = (rd + 1) % ARING_FRAMES;
+         g_ac_under = 0;
+      } else if (!g_ac_under) {        /* underrun — 마지막 샘플에서 0 까지 10ms(그 뒤 조용) · 다시 차면 0 에서 키움 */
+         g_ac_under = 1; g_ac_gain = 0.f;
+         g_ac_dec[0] = g_ac_prev[0]; g_ac_dec[1] = g_ac_prev[1]; g_ac_decn = L;
+         { float k = (float)g_ac_decn-- / (float)(L + 1); o0 = g_ac_dec[0] * k; o1 = g_ac_dec[1] * k; }
       }
+      g_ac_prev[0] = o0; g_ac_prev[1] = o1;
+      out[i * 2]     = (int16_t)(o0 > 32767.f ? 32767 : o0 < -32768.f ? -32768 : (int)lrintf(o0));
+      out[i * 2 + 1] = (int16_t)(o1 > 32767.f ? 32767 : o1 < -32768.f ? -32768 : (int)lrintf(o1));
    }
    g_rd = rd;
+   uisfx_mix(out, numFrames, 0, ui_menu_open());   /* 176: 덧판 메뉴 효과음 — 고리(게임 소리) 위에. 179: 음색 다듬기는 코어 소리 콜백(고리 앞)으로 옮겨 가 메뉴 소리엔 안 얹힘(«배경음만»과 같은 뜻 — 효과음은 원래대로). 코어가 멈춰 고리가 비어도 난다 · 메뉴가 사라지면 결정의 메아리는 안 냄 · 182 4배속 자동 진행에도 안 끔 */
    return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
 
@@ -308,7 +625,6 @@ static aaudio_data_callback_result_t audio_cb(AAudioStream *s, void *ud,
    AAudio 가 에러 콜백으로 알려 준다. 콜백 안에서는 그 스트림을 닫으면 안 되므로
    표시만 남기고, 프레임 루프(GL 스레드)가 새 스트림으로 다시 연다. */
 static volatile int g_audio_dead = 0;
-static int g_audio_rate = 44100;
 
 static void audio_err_cb(AAudioStream *s, void *ud, aaudio_result_t err)
 {
@@ -319,9 +635,14 @@ static void audio_err_cb(AAudioStream *s, void *ud, aaudio_result_t err)
 static void audio_start(int rate)
 {
    AAudioStreamBuilder *b = NULL;
+   pthread_mutex_lock(&g_audio_mx);
+   if (g_stream) { pthread_mutex_unlock(&g_audio_mx); return; }   /* 이미 열려 있다 — 두 번 열면 앞 스트림이 샌다 */
    g_audio_rate = rate;
    g_audio_dead = 0;
-   if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) return;
+   uisfx_reset(rate);                  /* 176: 콜백이 돌기 전 — 닫히기 전(onPause·끊김) 남은 효과음·요청은 버림 */
+   declick_reset();                    /* 182: 새 스트림은 0 에서 키워 시작 */
+   g_rd = g_wr;                        /* 182: 닫히기 전 남은 소리는 버림(콜백이 돌기 전 — 닫힌 스트림의 콜백은 끝났다) */
+   if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) { pthread_mutex_unlock(&g_audio_mx); return; }
    AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_I16);
    AAudioStreamBuilder_setChannelCount(b, 2);
    AAudioStreamBuilder_setSampleRate(b, rate);
@@ -332,14 +653,18 @@ static void audio_start(int rate)
       AAudioStream_requestStart(g_stream);
    AAudioStreamBuilder_delete(b);
    LOGI("audio started @%d Hz (%s)", rate, g_stream ? "ok" : "failed");
+   pthread_mutex_unlock(&g_audio_mx);
 }
 
 static void audio_stop(void)
 {
-   if (!g_stream) return;
-   AAudioStream_requestStop(g_stream);
-   AAudioStream_close(g_stream);
-   g_stream = NULL;
+   pthread_mutex_lock(&g_audio_mx);
+   if (g_stream) {
+      AAudioStream_requestStop(g_stream);
+      AAudioStream_close(g_stream);
+      g_stream = NULL;
+   }
+   pthread_mutex_unlock(&g_audio_mx);
 }
 
 /* ------------------------------------------------------------------ */
@@ -362,6 +687,76 @@ static GLuint compile(GLenum type, const char *src)
    return s;
 }
 
+static GLuint compile_ok(GLenum type, const char *src)
+{
+   GLuint sh = compile(type, src);
+   GLint ok = 0; glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+   if (!ok) { glDeleteShader(sh); return 0; }
+   return sh;
+}
+
+/* 업스케일러 k 의 프로그램 — 처음 쓸 때 만든다. 못 만들면(옛 GPU) 0 → 단순 셰이더로 그린다. */
+static disp_prog *disp_get(int k)
+{
+   if (k < 0 || k >= DISP_N_UP) k = 0;
+   disp_prog *d = &g_dp[k];
+   if (d->prog || d->failed) return d->prog ? d : NULL;
+   GLuint vs = compile_ok(GL_VERTEX_SHADER, VS), fs = compile_ok(GL_FRAGMENT_SHADER, FS_UP[k]);
+   if (!vs || !fs) { d->failed = 1; LOGE("display shader %d: compile failed", k); return NULL; }
+   GLuint pr = glCreateProgram();
+   glAttachShader(pr, vs); glAttachShader(pr, fs);
+   glLinkProgram(pr);
+   glDeleteShader(vs); glDeleteShader(fs);
+   GLint ok = 0; glGetProgramiv(pr, GL_LINK_STATUS, &ok);
+   if (!ok) {
+      char log[512]; glGetProgramInfoLog(pr, 512, NULL, log);
+      LOGE("display shader %d: link failed: %s", k, log);
+      glDeleteProgram(pr); d->failed = 1; return NULL;
+   }
+   d->prog = pr;
+   d->a_pos = glGetAttribLocation(pr, "aPos");   d->a_uv = glGetAttribLocation(pr, "aUV");
+   d->u_tex = glGetUniformLocation(pr, "uTex");  d->u_size = glGetUniformLocation(pr, "uSize");
+   d->u_out = glGetUniformLocation(pr, "uOut");  d->u_mix = glGetUniformLocation(pr, "uUpMix");
+   d->u_grid = glGetUniformLocation(pr, "uGrid"); d->u_scan = glGetUniformLocation(pr, "uScan");
+   d->u_color = glGetUniformLocation(pr, "uColor"); d->u_soft = glGetUniformLocation(pr, "uSoft");
+   d->u_sub = glGetUniformLocation(pr, "uSub");   d->u_phase = glGetUniformLocation(pr, "uPhase");
+   d->u_ph = glGetUniformLocation(pr, "uPh");
+   LOGI("display shader %d ready", k);
+   return d;
+}
+
+/* 잔상 — src(지금 화면에 낼 그림)를 누적에 섞어 g_gh_out 으로. 세기는 «60Hz 한 프레임에 이전 그림이 남는 몫»으로
+   정하고, 실제 vsync 간격만큼 거듭제곱해 120Hz 화면에서도 같은 길이로 남게 한다. */
+static const uint8_t *ghost_apply(const uint8_t *src, unsigned w, unsigned h)
+{
+   unsigned n = w * h * 4;
+   if (n > g_gh_cap) {
+      free(g_gh); free(g_gh_out);
+      g_gh = (uint16_t *)malloc(n * sizeof(uint16_t)); g_gh_out = (uint8_t *)malloc(n);
+      g_gh_cap = (g_gh && g_gh_out) ? n : 0; g_gh_valid = 0;
+      if (!g_gh_cap) return src;
+   }
+   if (!g_gh_valid || g_gh_w != w || g_gh_h != h) {
+      for (unsigned i = 0; i < n; i++) g_gh[i] = (uint16_t)(src[i] << 8);
+      g_gh_w = w; g_gh_h = h; g_gh_valid = 1;
+   }
+   double dv = (g_vsync_ema > 0.002 && g_vsync_ema < 0.1) ? g_vsync_ema : 1.0 / 60.0;
+   double k60 = g_d_ghost / 100.0 * 0.80;                   /* 100% = 60Hz 한 프레임에 80% 남음 */
+   double k = pow(k60, dv * 60.0);
+   int a = (int)((1.0 - k) * 65536.0);                       /* 새 그림이 들어오는 몫 */
+   for (unsigned i = 0; i < n; i += 4) {
+      for (int c = 0; c < 3; c++) {
+         int acc = g_gh[i + c];
+         acc += (int)(((int64_t)(((int)src[i + c] << 8) - acc) * a) >> 16);
+         if (acc < 0) acc = 0; else if (acc > 65535) acc = 65535;
+         g_gh[i + c] = (uint16_t)acc;
+         g_gh_out[i + c] = (uint8_t)((acc + 128) >> 8 > 255 ? 255 : (acc + 128) >> 8);
+      }
+      g_gh_out[i + 3] = 255;
+   }
+   return g_gh_out;
+}
+
 static void gl_setup(void)
 {
    GLuint vs = compile(GL_VERTEX_SHADER, VS);
@@ -375,65 +770,384 @@ static void gl_setup(void)
    u_tex = glGetUniformLocation(g_prog, "uTex");
 
    glGenTextures(1, &g_tex);
+   g_tex_w = g_tex_h = 0;
    glBindTexture(GL_TEXTURE_2D, g_tex);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glGenTextures(1, &g_tex_gh);
+   glBindTexture(GL_TEXTURE_2D, g_tex_gh);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glGenTextures(1, &g_tex_ph);
+   g_tph_w = g_tph_h = 0; g_tex_has_ph = 0;
+   glBindTexture(GL_TEXTURE_2D, g_tex_ph);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glGenTextures(1, &g_tex_ov);           /* 157 덧판 — 새 컨텍스트면 다음 합성 그림을 통째로 다시 올린다(덧판 상태는 ovplane 에 남음) */
+   g_tex_ov_w = g_tex_ov_h = 0;
+   glBindTexture(GL_TEXTURE_2D, g_tex_ov);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glGenTextures(1, &g_tex_ovph);         /* 160: 덧판 합성 그림의 쪽지(LUMINANCE) — 덧판이 그린 화소는 0(게임 칸 모눈), 나머지는 게임 쪽지를 같이 옮김 */
+   g_tovph_w = g_tovph_h = 0;
+   glBindTexture(GL_TEXTURE_2D, g_tex_ovph);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   memset(g_dp, 0, sizeof(g_dp));   /* 새 컨텍스트 — 예전 프로그램은 이미 사라졌다. 쓸 때 다시 만든다 */
+   g_co_prog = 0; g_co_tex = 0; g_co_failed = 0;   /* 182 타격 알림도 */
+   g_fxd_y1 = g_fxp_y1 = -1;                         /* 184 타격 이펙트 — 새 텍스처엔 안 들어 있음 */
+   g_gh_valid = 0;
+   g_fb_dirty = 1;
    glClearColor(0.f, 0.f, 0.f, 1.f);
 }
 
+/* 182 타격 알림 — 라벨은 게임 그림 위(업스케일러·필터 밖, 또렷하게). 미리 곱한 알파: 번쩍 = 흰색(a,a,a) 쪽으로 섞기, 사라짐 = 통째로 곱하기 */
+static const char *FS_CO =
+   "precision mediump float;varying vec2 vUV;uniform sampler2D uTex;uniform float uAlpha;uniform float uFlash;"
+   "void main(){vec4 c=texture2D(uTex,vUV);c.rgb=mix(c.rgb,vec3(c.a),uFlash);gl_FragColor=c*uAlpha;}";
+
+static int co_gl_ready(void)
+{
+   const uint8_t *rgba; int w, h, n, i;
+   uint8_t *pm;
+   if (g_co_prog && g_co_tex) return 1;
+   if (g_co_failed) return 0;
+   if (!callout_atlas(&rgba, &w, &h, NULL, NULL) || !rgba || w <= 0 || h <= 0) { g_co_failed = 1; return 0; }
+   GLuint vs = compile_ok(GL_VERTEX_SHADER, VS), fs = compile_ok(GL_FRAGMENT_SHADER, FS_CO);
+   if (!vs || !fs) { if (vs) glDeleteShader(vs); if (fs) glDeleteShader(fs); g_co_failed = 1; LOGE("callout shader: compile failed"); return 0; }
+   GLuint pr = glCreateProgram();
+   glAttachShader(pr, vs); glAttachShader(pr, fs);
+   glLinkProgram(pr);
+   glDeleteShader(vs); glDeleteShader(fs);
+   GLint ok = 0; glGetProgramiv(pr, GL_LINK_STATUS, &ok);
+   if (!ok) { glDeleteProgram(pr); g_co_failed = 1; LOGE("callout shader: link failed"); return 0; }
+   n = w * h;
+   pm = (uint8_t *)malloc((size_t)n * 4);
+   if (!pm) { glDeleteProgram(pr); g_co_failed = 1; return 0; }
+   for (i = 0; i < n; i++) {             /* 곧은 알파 → 미리 곱한 알파(선형 거르기에서 투명 화소의 색이 가장자리로 번지지 않게) */
+      unsigned a = rgba[i * 4 + 3];
+      pm[i * 4 + 0] = (uint8_t)((rgba[i * 4 + 0] * a + 127) / 255);
+      pm[i * 4 + 1] = (uint8_t)((rgba[i * 4 + 1] * a + 127) / 255);
+      pm[i * 4 + 2] = (uint8_t)((rgba[i * 4 + 2] * a + 127) / 255);
+      pm[i * 4 + 3] = (uint8_t)a;
+   }
+   GLuint tx = 0;
+   glGenTextures(1, &tx);
+   glActiveTexture(GL_TEXTURE0);
+   glBindTexture(GL_TEXTURE_2D, tx);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pm);
+   free(pm);
+   g_co_prog = pr; g_co_tex = tx; g_co_aw = w; g_co_ah = h;
+   g_co_apos = glGetAttribLocation(pr, "aPos");   g_co_auv = glGetAttribLocation(pr, "aUV");
+   g_co_utex = glGetUniformLocation(pr, "uTex");  g_co_ualpha = glGetUniformLocation(pr, "uAlpha");
+   g_co_uflash = glGetUniformLocation(pr, "uFlash");
+   LOGI("callout ready %dx%d", w, h);
+   return 1;
+}
+
+/* 184 타격 이펙트 — 게임 그림의 텍스처 줄에 합성. 이펙트가 덮는 줄 ∪ 지난번에 덮었던 줄을 깨끗한 그림(img · g_ph)에서 다시 떠 그 위에 그리고 그 줄만 올린다
+   (지난번 줄은 깨끗이 되돌아감). 잔상이면 색은 이번에 올릴 잔상 그림(shown)에 바로 그린다. 쪽지는 이펙트 화소 0(4배 모눈에 맞춰 그림) */
+static int fx_union(int a0, int a1, int b0, int b1, int *u0, int *u1)
+{
+   if (a1 < a0 && b1 < b0) return 0;
+   if (a1 < a0) { *u0 = b0; *u1 = b1; return 1; }
+   if (b1 < b0) { *u0 = a0; *u1 = a1; return 1; }
+   *u0 = a0 < b0 ? a0 : b0; *u1 = a1 > b1 ? a1 : b1; return 1;
+}
+static uint8_t *fx_buf(uint8_t **p, size_t *cap, size_t n)
+{
+   if (n > *cap) { uint8_t *q = (uint8_t *)realloc(*p, n); if (!q) return NULL; *p = q; *cap = n; }
+   return *p;
+}
+static void fx_composite(const uint8_t *img, uint8_t *ghost_out, unsigned iw, unsigned ih, int phase_on)
+{
+   int ox = 0, oy = 0, sub = 1, ty0 = 0, ty1 = -1, u0, u1;
+   if (callout_fx_mode_get() != FXM_OFF && ov_find_rect(iw, ih, &ox, &oy, &sub) && sub >= 1) {
+      int gy0, gy1;
+      if (callout_fx_span(&gy0, &gy1)) { ty0 = oy + gy0 * sub; ty1 = oy + (gy1 + 1) * sub - 1; }
+      if (ty1 > (int)ih - 1) ty1 = (int)ih - 1;
+   }
+   if (ghost_out) {                                         /* 잔상: 이번에 통째로 올릴 그림에 바로(누적엔 안 들어감) */
+      if (ty1 >= ty0) callout_fx_draw(ghost_out + (size_t)ty0 * iw * 4, NULL, ty0, ty1 - ty0 + 1, (int)iw, ox, oy, sub, ov_rgb);
+   } else if (fx_union(g_fxd_y0, g_fxd_y1, ty0, ty1, &u0, &u1)) {
+      size_t n = (size_t)(u1 - u0 + 1) * iw * 4;
+      uint8_t *b = fx_buf(&g_fxrow, &g_fxrow_cap, n);
+      if (b) {
+         memcpy(b, img + (size_t)u0 * iw * 4, n);
+         if (ty1 >= ty0) callout_fx_draw(b, NULL, u0, u1 - u0 + 1, (int)iw, ox, oy, sub, ov_rgb);
+         glBindTexture(GL_TEXTURE_2D, g_tex);
+         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, u0, iw, u1 - u0 + 1, GL_RGBA, GL_UNSIGNED_BYTE, b);
+         g_fxd_y0 = ty0; g_fxd_y1 = ty1;
+      }
+   }
+   if (phase_on && g_ph && g_tex_ph && fx_union(g_fxp_y0, g_fxp_y1, ty0, ty1, &u0, &u1)) {
+      size_t n = (size_t)(u1 - u0 + 1) * iw;
+      uint8_t *b = fx_buf(&g_fxph, &g_fxph_cap, n);
+      if (b) {
+         memcpy(b, g_ph + (size_t)u0 * iw, n);
+         if (ty1 >= ty0) callout_fx_draw(NULL, b, u0, u1 - u0 + 1, (int)iw, ox, oy, sub, ov_rgb);
+         glActiveTexture(GL_TEXTURE1);
+         glBindTexture(GL_TEXTURE_2D, g_tex_ph);
+         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, u0, iw, u1 - u0 + 1, GL_LUMINANCE, GL_UNSIGNED_BYTE, b);
+         glActiveTexture(GL_TEXTURE0);
+         g_fxp_y0 = ty0; g_fxp_y1 = ty1;
+      }
+   }
+}
+
+/* 뷰포트(vpx, vpy, dw, dh — glViewport 값)와 그림 칸 크기(lw × lh) 안에서 게임 사각형(160×152)을 찾아 그 좌표로 라벨을 그린다.
+   가장자리에서 밀려 들어오는 동안 게임 사각형 밖(기둥·띠)으로 나가지 않게 가위로 자른다 */
+static void co_draw(double now, int vpx, int vpy, int dw, int dh, int lw, int lh)
+{
+   static GLfloat pos[8], uv[8];
+   callout_t c[2 * CO_ROWS];
+   int n, i, gx0 = 0, gy0 = 0, sub = 1;
+   if (!callout_enabled() || lw <= 0 || lh <= 0 || dw <= 0 || dh <= 0) return;
+   n = callout_get(c, 2 * CO_ROWS, now);
+   if (n <= 0) return;
+   if (!ov_find_rect(g_fb_w, g_fb_h, &gx0, &gy0, &sub) || sub < 1) return;   /* 게임 사각형을 모르는 그림이면 안 그림 */
+   if (!co_gl_ready()) return;
+   float fx0 = (float)gx0 / sub, fy0 = (float)gy0 / sub;
+   float sx = (float)dw / lw, sy = (float)dh / lh;
+   glEnable(GL_SCISSOR_TEST);
+   glScissor(vpx + (int)(fx0 * sx + 0.5f), vpy + (int)((lh - fy0 - 152.f) * sy + 0.5f), (int)(160.f * sx + 0.5f), (int)(152.f * sy + 0.5f));
+   glEnable(GL_BLEND);
+   glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+   glUseProgram(g_co_prog);
+   glActiveTexture(GL_TEXTURE0);
+   glBindTexture(GL_TEXTURE_2D, g_co_tex);
+   glUniform1i(g_co_utex, 0);
+   glVertexAttribPointer(g_co_apos, 2, GL_FLOAT, GL_FALSE, 0, pos);
+   glVertexAttribPointer(g_co_auv, 2, GL_FLOAT, GL_FALSE, 0, uv);
+   glEnableVertexAttribArray(g_co_apos);
+   glEnableVertexAttribArray(g_co_auv);
+   for (i = 0; i < n; i++) {
+      float q[4], al = 0.f, fl = 0.f; int tr[4];
+      if (!callout_layout(&c[i], now, q, tr, &al, &fl) || al <= 0.f) continue;
+      float x0 = -1.f + 2.f * (fx0 + q[0]) / lw, x1 = -1.f + 2.f * (fx0 + q[0] + q[2]) / lw;
+      float yt = 1.f - 2.f * (fy0 + q[1]) / lh, yb = 1.f - 2.f * (fy0 + q[1] + q[3]) / lh;
+      float u0 = (float)tr[0] / g_co_aw, u1 = (float)(tr[0] + tr[2]) / g_co_aw;
+      float v0 = (float)tr[1] / g_co_ah, v1 = (float)(tr[1] + tr[3]) / g_co_ah;
+      pos[0] = x0; pos[1] = yb; pos[2] = x1; pos[3] = yb; pos[4] = x0; pos[5] = yt; pos[6] = x1; pos[7] = yt;   /* 게임 쿼드와 같은 차례(왼아래·오른아래·왼위·오른위) */
+      uv[0] = u0;  uv[1] = v1;  uv[2] = u1;  uv[3] = v1;  uv[4] = u0;  uv[5] = v0;  uv[6] = u1;  uv[7] = v0;
+      glUniform1f(g_co_ualpha, al);
+      glUniform1f(g_co_uflash, fl);
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+   }
+   glDisableVertexAttribArray(g_co_apos);
+   glDisableVertexAttribArray(g_co_auv);
+   glDisable(GL_BLEND);
+   glDisable(GL_SCISSOR_TEST);
+}
+
+static volatile int g_paused;           /* 아래(프레임 돌리기 앞)에서 정의 — 186 흔들림이 멈춤 중엔 안 흔들게 */
 static void gl_draw(void)
 {
    if (!g_fb || !g_fb_w) return;
+   const uint8_t *img = g_fb;
+   unsigned iw = g_fb_w, ih = g_fb_h;
+   int fresh = g_fb_dirty;                /* 157: 이번 vsync 에 새 그림이 왔나 — 덧판은 새 그림·잔상일 때만 다시 합성 */
 
+   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
    glBindTexture(GL_TEXTURE_2D, g_tex);
    if (g_fb_dirty) {
-      glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_fb_w, g_fb_h, 0,
-                   GL_RGBA, GL_UNSIGNED_BYTE, g_fb);
+      /* 서기 그리기(4배, 640×608) 는 한 장이 1.5MB — 크기가 같으면 텍스처를 다시 잡지 않고 덮기만 */
+      if (g_tex_w != g_fb_w || g_tex_h != g_fb_h) {
+         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, g_fb_w, g_fb_h, 0,
+                      GL_RGBA, GL_UNSIGNED_BYTE, g_fb);
+         g_tex_w = g_fb_w; g_tex_h = g_fb_h;
+      } else
+         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, g_fb_w, g_fb_h, GL_RGBA, GL_UNSIGNED_BYTE, g_fb);
       g_fb_dirty = 0;
+      g_tex_has_ph = 0;
+      g_fxd_y1 = g_fxp_y1 = -1;              /* 184: 통째로 다시 올림 — 이펙트 줄도 깨끗 */
+      if (g_fb_ph && g_ph && g_tex_ph) {        /* 쪽지 — 같은 크기의 한 바이트 텍스처(단위 1) */
+         glActiveTexture(GL_TEXTURE1);
+         glBindTexture(GL_TEXTURE_2D, g_tex_ph);
+         if (g_tph_w != g_fb_w || g_tph_h != g_fb_h) {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, g_fb_w, g_fb_h, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, g_ph);
+            g_tph_w = g_fb_w; g_tph_h = g_fb_h;
+         } else
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, g_fb_w, g_fb_h, GL_LUMINANCE, GL_UNSIGNED_BYTE, g_ph);
+         glActiveTexture(GL_TEXTURE0);
+         glBindTexture(GL_TEXTURE_2D, g_tex);
+         g_tex_has_ph = 1;
+      }
+      g_tph_tag = 0;
+      g_tex_tag = 0;
+      ov_tag_scan(img, iw, ih);           /* 157 post: 새 게임 그림 — HUD 이름표 자리에 게임이 무엇을 그렸나(날 그림으로) */
    }
 
    /* aspect-correct, integer-scaled viewport.
       기둥(사이드 아트) 프레임은 288폭이지만 **게임 몫은 160** — 크기는 게임 160폭으로 정하고 기둥은
       남는 옆자리에만 그린다(넘치면 잘린다). 288 전체를 화면 폭에 맞추면 게임이 반토막 나고 아래가
       텅 빈다는 제보(유저: 「양쪽에 붙이면 될 걸 표시영역을 아래로 늘리지 마라」). */
+   /* 서기 그리기(코어 패치 95)를 켜면 코어가 4배(640×608)로 내보낸다 — 화면 상자·정수배·필터는 «게임 칸»(160×152) 기준 */
+   int sub = (g_fb_w >= 320 && g_fb_w % 160 == 0 && g_fb_h % (g_fb_w / 160) == 0
+              && g_fb_h / (g_fb_w / 160) >= 152u && g_fb_h / (g_fb_w / 160) <= 184u) ? (int)(g_fb_w / 160) : 1;   /* 150: 띠가 붙은 4배(SVC 프레임 패치)도 */
+   int lw = (int)iw / sub, lh = (int)ih / sub;
    float ar = g_av.geometry.aspect_ratio > 0.f
-            ? g_av.geometry.aspect_ratio : (float)g_fb_w / (float)g_fb_h;
-   int game_w = (g_fb_w > 160 && g_fb_w <= 320) ? 160 : (int)g_fb_w;   /* NGP 게임 화면은 늘 160 */
-   int dw, dh;
+            ? g_av.geometry.aspect_ratio : (float)lw / (float)lh;
+   int game_w = (lw > 160 && lw <= 320) ? 160 : lw;   /* NGP 게임 화면은 늘 160 */
+   int dw, dh, vpx = 0, vpy = 0;
    if (g_integer_scale) {
       int s = g_vw / game_w;
-      int sy = g_vh / (int)g_fb_h;
+      int sy = g_vh / lh;
       if (sy < s) s = sy;
       if (s < 1) s = 1;
-      dw = (int)g_fb_w * s; dh = (int)g_fb_h * s;
+      dw = lw * s; dh = lh * s;
    } else {
       dh = g_vh; dw = (int)(g_vh * ar);
-      int game_dw = dh * game_w / (int)g_fb_h;
-      if (game_dw > g_vw) { dh = g_vw * (int)g_fb_h / game_w; dw = (int)(dh * ar); }
+      int game_dw = dh * game_w / lh;
+      if (game_dw > g_vw) { dh = g_vw * lh / game_w; dw = (int)(dh * ar); }
    }
    {  /* 위로 붙인다(유틸 줄 여백만 남김) — 가운데 두면 패드에 깔린다(제보) */
       int y0 = g_vh - dh - (int)(g_vh * 0.07f);
       if (g_vw > g_vh) y0 = (g_vh - dh) / 2;   /* 가로 화면(게임기)에선 세로 가운데 */
       if (y0 < 0) y0 = 0;
-      { static int ldw=-1, ldh=-1, lvw=-1; if (dw!=ldw||dh!=ldh||g_vw!=lvw) { LOGI("viewport %d x %d in %d x %d (fb %u x %u, game_w %d, int %d)", dw, dh, g_vw, g_vh, g_fb_w, g_fb_h, game_w, g_integer_scale); ldw=dw; ldh=dh; lvw=g_vw; } }
+      { static int ldw=-1, ldh=-1, lvw=-1; if (dw!=ldw||dh!=ldh||g_vw!=lvw) { LOGI("viewport %d x %d in %d x %d (img %u x %u, sub %d, game_w %d, int %d)", dw, dh, g_vw, g_vh, iw, ih, sub, game_w, g_integer_scale); ldw=dw; ldh=dh; lvw=g_vw; } }
       glViewport((g_vw - dw) / 2, y0, dw, dh);
+      vpx = (g_vw - dw) / 2; vpy = y0;
+      ov_viewport((g_vw - dw) / 2, y0, dw, dh, g_vh, g_fb_w, g_fb_h);   /* 157: 게임 칸 자리(터치)·게임 사각형 판정 */
    }
 
    static const GLfloat pos[] = { -1,-1,  1,-1, -1, 1,  1, 1 };
    static const GLfloat uv[]  = {  0, 1,  1, 1,  0, 0,  1, 0 };
 
-   glUseProgram(g_prog);
-   glUniform1i(u_tex, 0);
+   GLuint tex = g_tex, phtex = g_tex_ph;
+   int phon = g_tex_has_ph;                       /* 셰이더에 쪽지를 줄까(덧판이 쪽지를 못 만들면 끔 — 메뉴 글자를 게임 쪽지로 밀어 읽지 않게) */
+   const uint8_t *phs = g_tex_has_ph ? g_ph : NULL;   /* 160: g_tex 그림의 쪽지(g_ph 는 g_fb 와 같이만 바뀐다) */
+   const uint8_t *shown = img, *ob = NULL;
+   int ghost = g_d_ghost > 0, ch = 0;
+   if (ghost) shown = ghost_apply(img, iw, ih);   /* 잔상 — 화면에 낼 그림(중간 그림 포함)을 누적 */
+   else g_gh_valid = 0;
+   /* 157 덧판 — 잔상 뒤(메뉴엔 잔상이 안 끼게) 따로 버퍼에 합성해 따로 텍스처로. 바뀐 그림일 때만 다시 합성·올림(4배 한 장 1.5MB).
+      업스케일러·격자·스캔라인·색 셰이더는 합성 결과에 그대로 걸린다(게임 글자처럼). 게임 사각형을 못 찾으면 NULL — 그냥 그림 */
+   if (ov_active()) ob = ov_compose_ph(shown, phs, iw, ih, fresh || ghost, &ch);
+   if (!ob) fx_composite(img, ghost ? (uint8_t *)shown : NULL, iw, ih, g_tex_has_ph);   /* 184 타격 이펙트 — 게임 그림 안에(덧판 메뉴가 떠 있으면 안 그림) */
+   if (ob) {
+      glBindTexture(GL_TEXTURE_2D, g_tex_ov);
+      if (g_tex_ov_w != iw || g_tex_ov_h != ih) {
+         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, ob);
+         g_tex_ov_w = iw; g_tex_ov_h = ih;
+      } else if (ch) {           /* 바뀐 줄 범위만(쉬는 메뉴의 일렁임·까딱은 몇 줄 — 4배 한 장 1.5MB 를 vsync 마다 올리지 않게) */
+         int sy0 = 0, sy1 = (int)ih - 1;
+         ov_compose_span(&sy0, &sy1);
+         if (sy0 < 0) sy0 = 0;
+         if (sy1 > (int)ih - 1) sy1 = (int)ih - 1;
+         if (sy1 >= sy0)
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, sy0, iw, sy1 - sy0 + 1, GL_RGBA, GL_UNSIGNED_BYTE, ob + (size_t)sy0 * iw * 4);
+      }
+      tex = g_tex_ov;
+      const uint8_t *pb = phs ? ov_compose_phase() : NULL;   /* 160: 합성 쪽지 — 바뀐 줄 범위는 그림과 같다(ov_compose_span) */
+      phon = 0;
+      if (pb && g_tex_ovph) {
+         glActiveTexture(GL_TEXTURE1);
+         glBindTexture(GL_TEXTURE_2D, g_tex_ovph);
+         if (g_tovph_w != iw || g_tovph_h != ih) {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, iw, ih, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, pb);
+            g_tovph_w = iw; g_tovph_h = ih;
+         } else if (ch) {
+            int sy0 = 0, sy1 = (int)ih - 1;
+            ov_compose_span(&sy0, &sy1);
+            if (sy0 < 0) sy0 = 0;
+            if (sy1 > (int)ih - 1) sy1 = (int)ih - 1;
+            if (sy1 >= sy0)
+               glTexSubImage2D(GL_TEXTURE_2D, 0, 0, sy0, iw, sy1 - sy0 + 1, GL_LUMINANCE, GL_UNSIGNED_BYTE, pb + (size_t)sy0 * iw);
+         }
+         glActiveTexture(GL_TEXTURE0);
+         phtex = g_tex_ovph; phon = 1;
+      }
+   } else if (ghost) {            /* 잔상 그림은 따로 올린다(덧판이 그리면 그 안에 이미 들어 있어 안 올림) */
+      glBindTexture(GL_TEXTURE_2D, g_tex_gh);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, iw, ih, 0, GL_RGBA, GL_UNSIGNED_BYTE, shown);
+      tex = g_tex_gh;
+   }
+   if (!ob) {                     /* 157 post: HUD 이름표 — 메뉴가 안 보이면 그려 낼 게임 텍스처의 이름표 줄만 덧칠(4배 그림도 32줄) ·
+                                     잔상 텍스처는 vsync 마다 새로 올라오니 늘, 게임 텍스처는 서명이 바뀔 때만(숨길 땐 날 줄로 되돌림) */
+      uint32_t sig = ov_tag_sig();
+      int need = ghost ? sig != 0 : sig != g_tex_tag;
+      int phneed = phs && sig != g_tph_tag;        /* 160: 쪽지 텍스처의 이름표 줄 — 서명이 바뀔 때만(쪽지는 새 그림 때만 통째로 올라온다) */
+      int by = 0, bn = 0;
+      const uint8_t *pband = NULL;
+      const uint8_t *band = (need || phneed) ? ov_tag_band2(shown, phneed ? phs : NULL, iw, ih, &by, &bn, &pband) : NULL;
+      if (band && bn > 0 && by >= 0 && by + bn <= (int)ih) {
+         if (need) {
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, by, iw, bn, GL_RGBA, GL_UNSIGNED_BYTE, band);
+            if (!ghost) g_tex_tag = sig;
+         }
+         if (phneed && pband) {
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, g_tex_ph);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, by, iw, bn, GL_LUMINANCE, GL_UNSIGNED_BYTE, pband);
+            glActiveTexture(GL_TEXTURE0);
+            g_tph_tag = sig;
+         }
+      } else {
+         if (need && !ghost) g_tex_tag = sig;
+         if (phneed) g_tph_tag = sig;
+      }
+   }
+
+   /* 업스케일러는 «원래 화소 하나 = 텍셀 하나»를 읽어야 돈다 — 1배 그림이거나, 4배 그림이면 쪽지로 화소마다 제 모눈을 알 때 */
+   int up = (g_d_mix > 0 && (sub == 1 || g_tex_has_ph)) ? g_d_up : 0;
+   disp_prog *d = (up || g_d_grid || g_d_scan || g_d_color || g_d_soft) ? disp_get(up) : NULL;
+   GLint ap = a_pos, au = a_uv;
+   if (d) {
+      glUseProgram(d->prog);
+      glUniform1i(d->u_tex, 0);
+      glUniform1f(d->u_sub, (float)sub);                 /* 4배 그림이면 색은 텍셀 그대로(¼ px), 격자·스캔라인 줄만 게임 칸에 */
+      glUniform1f(d->u_phase, phon ? 1.f : 0.f);
+      glUniform1i(d->u_ph, 1);
+      glActiveTexture(GL_TEXTURE1);
+      glBindTexture(GL_TEXTURE_2D, phtex);
+      glUniform2f(d->u_size, (float)lw, (float)lh);      /* 격자·스캔라인·번짐은 게임 칸 기준 */
+      glUniform2f(d->u_out, (float)dw, (float)dh);
+      glUniform1f(d->u_mix, up ? g_d_mix / 100.f : 0.f);
+      glUniform1f(d->u_grid, g_d_grid / 100.f);
+      glUniform1f(d->u_scan, g_d_scan / 100.f);
+      glUniform1f(d->u_color, g_d_color / 100.f);
+      glUniform1f(d->u_soft, g_d_soft / 100.f);
+      ap = d->a_pos; au = d->a_uv;
+   } else {
+      glUseProgram(g_prog);
+      glUniform1i(u_tex, 0);
+   }
    glActiveTexture(GL_TEXTURE0);
-   glBindTexture(GL_TEXTURE_2D, g_tex);
-   glVertexAttribPointer(a_pos, 2, GL_FLOAT, GL_FALSE, 0, pos);
-   glVertexAttribPointer(a_uv,  2, GL_FLOAT, GL_FALSE, 0, uv);
-   glEnableVertexAttribArray(a_pos);
-   glEnableVertexAttribArray(a_uv);
-   glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+   glBindTexture(GL_TEXTURE_2D, tex);
+   glVertexAttribPointer(ap, 2, GL_FLOAT, GL_FALSE, 0, pos);
+   glVertexAttribPointer(au, 2, GL_FLOAT, GL_FALSE, 0, uv);
+   glEnableVertexAttribArray(ap);
+   glEnableVertexAttribArray(au);
+   {  /* 186 화면 흔들림 — 게임 그림(이펙트 합성 포함)만 뷰포트째 화면 px 정수로 옮긴다(셰이더는 텍스처 좌표만 써서 그림은 그대로).
+         라벨·터치 자리는 원래 뷰포트. 덧판 메뉴·멈춤 중엔 안 흔듦. 빈 가장자리는 이 vsync 의 glClear 검정 */
+      float gx = 0.f, gy = 0.f;
+      int shx = 0, shy = 0;
+      if (!ob && !g_paused && callout_shake(&gx, &gy)) {
+         shx = (int)lroundf(gx * (float)dw / (float)lw);
+         shy = (int)lroundf(gy * (float)dh / (float)lh);
+      }
+      if (shx || shy) glViewport(vpx + shx, vpy - shy, dw, dh);   /* GL 은 아래가 원점 — 게임 y(아래 +)는 빼기 */
+      glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+      if (shx || shy) glViewport(vpx, vpy, dw, dh);
+   }
+   if (!ob) co_draw(g_last_vsync, vpx, vpy, dw, dh, lw, lh);   /* 182 타격 알림 — 덧판 메뉴가 떠 있으면 안 그림 */
 }
 
 /* ------------------------------------------------------------------ */
@@ -501,6 +1215,18 @@ static int bind_core(void)
    *(void **)&c_serialize_size  = dlsym(g_lib, "retro_serialize_size");
    *(void **)&c_serialize       = dlsym(g_lib, "retro_serialize");
    *(void **)&c_unserialize     = dlsym(g_lib, "retro_unserialize");
+   *(void **)&c_charram         = dlsym(g_lib, "retro_ngp_charram");
+   *(void **)&c_scrollram       = dlsym(g_lib, "retro_ngp_scrollram");
+   *(void **)&c_palram          = dlsym(g_lib, "retro_ngp_palram");
+   *(void **)&c_spriteram       = dlsym(g_lib, "retro_ngp_spriteram");
+   c_palremap                   = dlsym(g_lib, "retro_ngp_palremap");
+   *(void **)&c_fg_state        = dlsym(g_lib, "retro_ngp_fg_state");
+   *(void **)&c_fg_phase        = dlsym(g_lib, "retro_ngp_fg_phase");   /* 없으면(옛 코어·다른 게임) 업스케일러는 예전처럼 1배로 줄여서 */
+   *(void **)&c_snd_noise       = dlsym(g_lib, "retro_ngp_snd_noise");  /* 179 음색 다듬기 «배경음만» — 없으면(SVC 코어·옛 코어) 통째로 */
+   *(void **)&c_sndonly         = dlsym(g_lib, "retro_ngp_sndonly_run");   /* 182 메뉴 중 배경음 — 없으면(SVC 코어·옛 코어) 멈춘 동안 예전처럼 조용 */
+   *(void **)&c_snd_div         = dlsym(g_lib, "retro_ngp_snd_div");       /* 182 4배속 자동 진행 소리 — 없으면 예전처럼 그동안 소리를 버림 */
+   *(void **)&c_shown_ram       = dlsym(g_lib, "retro_ngp_shown_ram");  /* 187 타격 알림·이펙트 — 없으면(옛 코어·SVC 코어) 실제 램 */
+   *(void **)&c_hit_caps        = dlsym(g_lib, "retro_ngp_hit_caps");   /* 191 코어가 타격 알림·이펙트·몸 번쩍 — 없으면(옛 코어·SVC 코어) 앱이 예전처럼 */
    return 1;
 }
 
@@ -523,19 +1249,46 @@ JNI(void, nativeSetOption)(JNIEnv *env, jclass cls, jstring jkey, jstring jval)
    char k[64], v[96]; int i;
    jstr(env, jkey, k, sizeof(k));
    jstr(env, jval, v, sizeof(v));
+   CORE_LOCK();                                   /* 코어가 retro_run 안에서 옵션 표를 읽는 중일 수 있다 */
    for (i = 0; i < g_nopt; i++)
-      if (!strcmp(g_opt[i].k, k)) { snprintf(g_opt[i].v, sizeof(g_opt[i].v), "%s", v); g_var_dirty = 1; return; }
+      if (!strcmp(g_opt[i].k, k)) { snprintf(g_opt[i].v, sizeof(g_opt[i].v), "%s", v); g_var_dirty = 1; CORE_UNLOCK(); return; }
    if (g_nopt < MAX_OPTS) {
       snprintf(g_opt[g_nopt].k, sizeof(g_opt[g_nopt].k), "%s", k);
       snprintf(g_opt[g_nopt].v, sizeof(g_opt[g_nopt].v), "%s", v);
       g_nopt++; g_var_dirty = 1;
    }
+   CORE_UNLOCK();
 }
 
-JNI(jint, nativeLoad)(JNIEnv *env, jclass cls, jstring jcore, jstring jrom,
-                      jstring jsys, jstring jsave, jstring jopts)
+/* 165 고침: 코어 안 화면·팔레트·스프라이트 램과 팔레트 바꿔 쓰기 함수를 허브·컬러(look·vpanel)·연습·VS 띠에 — 코어를 올린 직후와 상태 불러오기 앞(live 1),
+   올리기 시작할 때·내릴 때 dlclose 전(live 0 = NULL). 예전엔 nativeFrame 에서만 넣어서, 코어를 내리고 다시 올린 뒤 첫 프레임 전 nativeLoadState
+   (이어하기·옵션 적용·랭크 체크포인트)의 look_after_load 가 내린 코어의 retro_ngp_palremap 을 부르고 풀린 NGPGfx 를 읽었다(리뷰 — SIGSEGV) */
+static void core_ptrs(int live)
 {
-   (void)cls;
+   void *chr = live && c_charram ? c_charram() : NULL, *scr = live && c_scrollram ? c_scrollram() : NULL;
+   void *pal = live && c_palram ? c_palram() : NULL, *spr = live && c_spriteram ? c_spriteram() : NULL;
+   league_vram(chr, scr, pal);           /* look_vram(vpanel 칸·아이콘 · 컬러 팔레트)까지 */
+   league_spr(spr);
+   league_palremap_fn(live ? c_palremap : NULL);
+   practice_vram(chr, scr, pal, spr);
+}
+
+static jint load_locked(JNIEnv *env, jstring jcore, jstring jrom,
+                        jstring jsys, jstring jsave, jstring jopts)
+{
+   core_ptrs(0);                         /* 165 고침: 아래 무엇도 앞 코어(내렸으면 dlclose 된)의 램·함수를 만지지 않게 — 올린 뒤 core_ptrs(1) */
+   league_disarm();                      /* 새 게임은 무장 없이 시작 — 랭크전이면 Java 가 로드 뒤에 다시 무장한다 */
+   ov_clear(OV_CLR_ALL);                 /* 157 덧판: 코어 상태가 통째로 바뀜 — 메뉴·대본·멈춤·막기 모두(상태용 램 포인터는 올린 뒤 새로) */
+   ov_tag_clear();                       /* 157 post: HUD 이름표도(메뉴 닫기는 안 지움 — 여기 다섯 곳만) */
+   callout_reset(); hitflash_forget();                      /* 182 타격 알림도 같은 다섯 곳 */
+   callout_fx_pal(NULL);
+   ov_game_ram(NULL, 0);
+   league_hub(0, NULL, NULL);            /* 게임 속 리그도 끈 채로 — 허브로 켠 화면만 로드 뒤에 다시 켠다(앞 세션의 허브가 자유 플레이로 새지 않게) */
+   practice_forget();                    /* 연습 대전도 — 일반 세션이고 확인한 롬 판이면 Java 가 로드 뒤에 연습 허브를 켠다 */
+   league_practice_resume(NULL, 0);      /* 지난 판에서 기다리던 연습 경기 되돌리기는 버린다(이 판의 상태 불러오기가 다시 남긴다) */
+   look_enable(0); look_forget();        /* 컬러도 끈 채로 — 사쇼2 확인한 판이면 Java 가 로드 뒤에 켠다(다른 게임 램·팔레트에 손대지 않게) */
+   look_set_opp(-1, 0, -1, 0, 0, 0);     /* 177: 리그 상대 컬러도 — 리그 판이면 Java 가 경기마다 다시 넣는다(다른 게임·일반 판으로 새지 않게) */
+   cheat_reset_all();                    /* 치트도 모두 끈 채로 — 일반 세션이고 확인한 롬 판이면 Java 가 로드 뒤에 값을 넣는다(리그 판은 잠근다) */
    char core[512], opts[600];
    jstr(env, jcore, core, sizeof(core));
    jstr(env, jrom,  g_rom_path, sizeof(g_rom_path));
@@ -544,10 +1297,14 @@ JNI(jint, nativeLoad)(JNIEnv *env, jclass cls, jstring jcore, jstring jrom,
    jstr(env, jopts, opts, sizeof(opts));
 
    load_options(opts);
+   g_snd_div_cur = 1; g_pause_bgm = 0; g_frozen_prev = 0; g_core_frozen = 0; g_tail_left = 0; g_in_ramp = 0; g_app_menu = 0;   /* 182: 새 코어는 d 1 · 멈춤 표시 없음 */
+   practice_sfx_fn(uisfx_request);       /* 182: 연습 메뉴 효과음(practice.c — 커서·결정·뒤로) */
 
    g_lib = dlopen(core, RTLD_LAZY | RTLD_LOCAL);
    if (!g_lib) { LOGE("dlopen failed: %s", dlerror()); return -1; }
    if (!bind_core()) return -2;
+   g_core_hits = c_hit_caps ? c_hit_caps() : 0;   /* 191 코어가 그리면 앱 쪽 타격 알림·이펙트·몸 번쩍은 끈다(옵션은 load_options 가 이미 넣음) */
+   hits_route();
 
    c_set_environment(cb_environment);
    c_init();
@@ -583,7 +1340,11 @@ JNI(jint, nativeLoad)(JNIEnv *env, jclass cls, jstring jcore, jstring jrom,
    c_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
    sram_load();
    g_loaded = 1;
+   core_ptrs(1);                         /* 165 고침: 첫 프레임 전 불러오기·저장(이어하기 · 옵션 적용 · 체크포인트 · onPause 오토세이브)도 이 코어의 램으로 */
+   if (c_get_memory_data && c_get_memory_size)   /* 157 덧판 상태(게임 PAUSE 0x61D4 · 라운드 승수)용 시스템 램 — 포인터만(코어가 내려갈 때 거둠) */
+      ov_game_ram((const uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM), c_get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
 
+   pace_reset(&g_pace); drc_reset(&g_drc);   /* 150: 새 게임 — 박자 잠금·소리 늘림을 처음부터 */
    audio_start(g_av.timing.sample_rate > 0 ? (int)g_av.timing.sample_rate : 44100);
    LOGI("loaded %ux%u @%.2f fps, %.0f Hz",
         g_av.geometry.base_width, g_av.geometry.base_height,
@@ -591,9 +1352,30 @@ JNI(jint, nativeLoad)(JNIEnv *env, jclass cls, jstring jcore, jstring jrom,
    return 0;
 }
 
-JNI(void, nativeUnload)(JNIEnv *env, jclass cls)
+JNI(jint, nativeLoad)(JNIEnv *env, jclass cls, jstring jcore, jstring jrom,
+                      jstring jsys, jstring jsave, jstring jopts)
 {
-   (void)env; (void)cls;
+   (void)cls;
+   CORE_LOCK();
+   jint rc = load_locked(env, jcore, jrom, jsys, jsave, jopts);
+   CORE_UNLOCK();
+   return rc;
+}
+
+static void unload_locked(void)
+{
+   league_disarm();                      /* 코어가 내려가면 랭크전 무장은 무조건 끝 — 다음 게임으로 새지 않게 */
+   ov_clear(OV_CLR_ALL);                 /* 157 덧판 지움 · 상태용 램 포인터도 버림(코어가 내려감 — dlclose 뒤 읽지 않게) */
+   ov_tag_clear();
+   callout_reset(); hitflash_forget();
+   callout_fx_pal(NULL);                 /* 184: 내린 코어의 팔레트 램을 안 읽게(코어 잠금 안 — tick 도 잠금 안) */
+   ov_game_ram(NULL, 0);
+   league_hub(0, NULL, NULL);
+   practice_forget();
+   look_enable(0); look_forget();
+   look_set_opp(-1, 0, -1, 0, 0, 0);     /* 177: 리그 상대 컬러도 */
+   cheat_reset_all();                    /* 앞 세션의 치트 값·보관한 카드가 다음 게임으로 새지 않게 */
+   core_ptrs(0);                         /* 165 고침: dlclose 뒤 내린 코어의 바꿔 쓰기 함수·풀린 화면 램을 아무도 안 부르게(다음 코어를 올리기 전 불러오기·저장 포함) */
    if (!g_loaded) return;
    sram_save();
    audio_stop();
@@ -602,6 +1384,13 @@ JNI(void, nativeUnload)(JNIEnv *env, jclass cls)
    dlclose(g_lib);
    g_lib = NULL;
    g_loaded = 0;
+   g_core_hits = 0; c_hit_caps = NULL; hits_route();   /* 191 다음 코어가 정한다 */
+}
+
+JNI(void, nativeUnload)(JNIEnv *env, jclass cls)
+{
+   (void)env; (void)cls;
+   CORE_LOCK(); unload_locked(); CORE_UNLOCK();
 }
 
 JNI(void, nativeSurfaceCreated)(JNIEnv *env, jclass cls) { (void)env; (void)cls; gl_setup(); }
@@ -609,14 +1398,47 @@ JNI(void, nativeSurfaceCreated)(JNIEnv *env, jclass cls) { (void)env; (void)cls;
 JNI(void, nativeResize)(JNIEnv *env, jclass cls, jint w, jint h)
 { (void)env; (void)cls; g_vw = w; g_vh = h; LOGI("resize view %d x %d (fb %u x %u)", w, h, g_fb_w, g_fb_h); }
 
-static double g_next_t;   /* 다음 코어 프레임 마감 시각 */
 static int g_turbo = 0;   /* 배속(▶▶) 누르는 동안 4배 */
+static volatile int g_paused = 0;   /* 게임 안 「설정」 창이 떠 있는 동안 — 코어를 멈추고 마지막 그림만 그린다 */
 
 static double now_s(void)
 {
    struct timespec ts;
    clock_gettime(CLOCK_MONOTONIC, &ts);
    return (double)ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+
+/* 182 «메뉴 중 배경음 유지»(유저 고름) — 덧판 메뉴가 게임을 세운 동안(쉼·쉼 확인·서랍·대기 = ov_hold) · 게임 안 «설정» 창(168 — Java 가 그 멈춤만
+   nativeSetPauseBgm 로 표시) 동안 원작 PAUSE 처럼 곡을 잇는다: 메인 CPU 는 세운 채 소리 CPU(Z80 + 소리 칩)만 코어 fps 로(c_sndonly — retro_run 과 같은
+   박자·같은 소리 길: 음색 다듬기 → 늘림 → 고리). 결판 걸쇠(승리 대사 끝 — 게임이 원래 조용한 자리)·그 밖의 멈춤(불러오기 사이·카드만)은 예전처럼 세운다.
+   세운 동안 만든 체크포인트엔 Z80 만 앞선다 — 메인 CPU 쪽은 세운 순간 그대로(호스트 시험: 불러와 이어 돌림 = 바로 이어 돌림, 바이트까지). 옛 코어면 조용 */
+/* 182: 코어가 멈춘 동안 음색 다듬기(방 울림)의 꼬리를 마저 — 0 을 넣어 돌린 것을 고리에(고리를 «소리 카드 한 번 + 700» 까지만 채움).
+   첫머리 10ms 는 마지막 소리에서 0 으로 직선(마른 소리가 한 샘플에 0 으로 떨어지지 않게). 꼬리가 다 줄면(10ms 묶음 꼭대기 < 3) 그만 · 길어도 2 초.
+   음색 다듬기가 꺼져 있으면 할 일 없음(고리가 마르는 자리는 audio_cb 가 줄인다). CORE_LOCK 아래(fx_apply 는 코어 소리 콜백과 같은 잠금) */
+static void tail_feed(void)
+{
+   static int16_t z[512 * 2];
+   uint32_t fill = (g_wr - g_rd + ARING_FRAMES) % ARING_FRAMES;
+   unsigned cb = (unsigned)g_cb_frames, target = cb + 700;
+   int L = g_audio_rate / 100;
+   if (target < 900) target = 900;
+   if (L < 1) L = 1;
+   if (!atomic_load_explicit(&g_fx_on, memory_order_relaxed) || !g_fx || !g_fx_cur) { g_tail_left = 0; return; }
+   while (g_tail_left > 0 && fill < target) {
+      int n = (int)(target - fill), i, pk = 0;
+      const int16_t *o;
+      if (n > 512) n = 512;
+      if (n > g_tail_left) n = g_tail_left;
+      for (i = 0; i < n; i++) {
+         int k = g_tail_ramp > 0 ? --g_tail_ramp : 0;
+         z[i * 2] = (int16_t)(g_last_in[0] * k / L); z[i * 2 + 1] = (int16_t)(g_last_in[1] * k / L);
+      }
+      o = fx_apply(z, (size_t)n);
+      for (i = 0; i < n * 2; i++) { int v = o[i] < 0 ? -o[i] : o[i]; if (v > pk) pk = v; }
+      ring_push(o, (size_t)n);
+      fill += (uint32_t)n; g_tail_left -= n;
+      if (pk < 3 && g_tail_ramp == 0) g_tail_left = 0;
+   }
 }
 
 JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
@@ -630,20 +1452,122 @@ JNI(void, nativeFrame)(JNIEnv *env, jclass cls)
       audio_start(g_audio_rate);
    }
    /* 화면 vsync(60/120Hz)마다 불리지만, 코어는 게임 fps 로만 돌린다 —
-      120Hz 폰에서 두 배속으로 돌던 문제의 수정. 밀리면 최대 2프레임까지 따라잡고
-      그 이상 밀린 시계는 버린다(일시정지·백그라운드 복귀 폭주 방지). */
+      120Hz 폰에서 두 배속으로 돌던 문제의 수정. 150: 몇 번 돌릴지는 pace.c — 화면 vsync 수가 게임 프레임의 정수배면
+      «k 번에 한 번»을 세어(예전 «시계가 마감을 넘었나»는 깨어나는 때가 조금만 흔들려도 한 번 거르고 두 번 돌았다),
+      아니면 예전처럼 시계로(밀리면 최대 2프레임까지 따라잡고, 그 이상 밀린 시계는 버린다). */
    double fps = g_av.timing.fps > 1.0 ? g_av.timing.fps : 60.0;
-   double dt = 1.0 / fps, t = now_s();
-   int steps = 0, maxsteps = 2;
-   if (g_turbo) { dt *= 0.25; maxsteps = 6; }
-   if (g_next_t <= 0.0 || t - g_next_t > 0.25) g_next_t = t;
-   while (g_next_t <= t && steps < maxsteps) {
-      if (g_loaded) c_run();
-      g_next_t += dt; steps++;
+   double t = now_s();
+   int steps = 0, nsteps;
+   /* vsync 간격 실측 — 기기가 화면 주사율을 60/120 사이로 바꿔도 따라간다 */
+   if (g_last_vsync > 0.0) {
+      double iv = t - g_last_vsync;
+      if (iv > 0.002 && iv < 0.1)
+         g_vsync_ema = g_vsync_ema > 0.0 ? g_vsync_ema * 0.9 + iv * 0.1 : iv;
    }
+   g_last_vsync = t;
+   /* 182: 세우는 조건 그대로(hold) — 그중 덧판 메뉴 멈춤·설정 창 멈춤은 소리 CPU 만 돌린다(snd_hold). 결판 걸쇠는 늘 통째로 */
+   int hold = g_paused || !g_loaded || league_post_hold() || ov_hold();
+   int snd_hold = hold && g_loaded && c_sndonly && !league_post_hold() && (ov_hold() || (g_paused && g_pause_bgm));
+   int frozen = hold && !snd_hold && g_loaded;
+   g_turbo_audio = g_turbo && !snd_hold;
+   /* 153: 리그 결판 뒤 승리 대사가 끝난 프레임(0x5825)에 league.c 가 세운 걸쇠 — Java 의 멈춤 풀기(바 닫기·창 닫기)와 상관없이
+      리셋(nativeLeagueHubReturn)·새 무장·코어 내림 전까지 게임을 한 프레임도 더 돌리지 않는다(다음 장·이어하기 화면으로 안 감).
+      멈춤과 같게 마지막 진짜 프레임(g_fb)만 그린다 */
+   /* 153: 랭크 자동 진행(찾기 겹창 뒤 고르기·이야기, autopick flags 4)은 배속(▶▶)과 같은 4배 — 소리는 league_mute 로 버린다 */
+   /* 157: 덧판 메뉴 멈춤(ov_hold) — g_paused 와 따로(Java 가 바·창을 닫을 때 nativeSetPaused 로 덮어써도 안 풀린다) */
+   /* 182: 소리만 돌리는 동안도 박자(잠금·소리 늘림)는 이어서 — 멈춤으로 세지 않는다. 배속은 안 받는다(곡이 4배로 나지 않게) */
+   nsteps = pace_steps(&g_pace, t, fps, g_panel_hz_hint, (g_turbo || league_ff) && !snd_hold, hold && !snd_hold);
+   /* 182 딸깍 없애기: 통째로 세우기 시작 — 음색 다듬기 꼬리(첫머리는 마지막 소리에서 0 으로) · 다시 돌기 시작 — 첫 10ms 키움(늘림도 새로) */
+   if (frozen && !g_frozen_prev) { g_tail_left = g_audio_rate * 2; g_tail_ramp = g_audio_rate / 100; }
+   if (!frozen && g_frozen_prev) { g_tail_left = 0; g_tail_ramp = 0; g_in_ramp_len = g_audio_rate / 100 > 0 ? g_audio_rate / 100 : 1; g_in_ramp = g_in_ramp_len; drc_reset(&g_drc); }
+   g_frozen_prev = frozen; g_core_frozen = frozen;
+   if (frozen && g_tail_left > 0) { CORE_LOCK(); if (g_loaded) tail_feed(); CORE_UNLOCK(); }
+   while (snd_hold && steps < nsteps) {   /* 182: 소리 CPU 만 — 허브·연습·치트·덧판 셈은 안 돈다(게임이 멈춰 있다) */
+      CORE_LOCK();
+      if (g_loaded) c_sndonly(1);
+      CORE_UNLOCK();
+      steps++;
+   }
+   while (steps < nsteps) {
+      int stop = 0;
+      CORE_LOCK();                       /* retro_run 한 번 단위 — 그 사이에 UI 스레드의 저장이 끼어들 수 있게 */
+      if (g_loaded && c_snd_div) {        /* 182: 랭크 자동 진행(4배속) 동안 소리만 1/4 — 곡이 보통 빠르기·음높이(league_ff 는 허브가 프레임마다 다시 정한다) */
+         int want = league_ff ? 4 : 1;
+         if (want != g_snd_div_cur) { c_snd_div(want); g_snd_div_cur = want; }
+      }
+      if (g_loaded) {
+         /* 코어가 2배 출력(120Hz) 중이면 호출 두 번에 한 번은 «합성» — 에뮬레이션도 입력 읽기도 없다(코어 retro_run: fg_active && fg_phase == 1).
+            그때 허브·연습을 돌리면 프레임 셈이 두 배로 가고, 다음 프레임에 줄 입력(대신 누름)이 게임이 읽기 전에 바뀐다 — 진짜 프레임 뒤에만 돌린다 */
+         int synth = 0;
+         if (c_fg_state) { int fa = 0, fp = 0; unsigned ff = 0; c_fg_state(&fa, &fp, &ff); synth = fa && fp == 1; }
+         c_run();
+         /* 가상 리그 랭크전 — 진짜 프레임마다 대진 덮어쓰기·결판 감지(무장 안 했으면 바로 돌아온다) */
+         if (!synth && c_get_memory_data && c_get_memory_size) {
+            void *chr = c_charram ? c_charram() : NULL, *scr = c_scrollram ? c_scrollram() : NULL, *pal = c_palram ? c_palram() : NULL;
+            uint8_t *ram = (uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM);
+            size_t ramsz = c_get_memory_size(RETRO_MEMORY_SYSTEM_RAM);
+            int in = g_input;                    /* 이번 프레임 사용자 입력 — 허브·연습이 같은 값을 본다 */
+            hitflash_tick((uint8_t *)pal);      /* 186 COUNTER 몸 번쩍 — 다 됐으면(아직 우리 흰색이면) 몸 팔레트를 되돌린다. 무엇보다 먼저(허브·컬러가 되돌린 색을 보게) */
+            league_vram(chr, scr, pal);
+            league_spr(c_spriteram ? c_spriteram() : NULL);   /* 153: VS 띠가 스프라이트 타일과 겹치는지 보려고 */
+            league_palremap_fn(c_palremap);
+            league_tick_hub(ram, ramsz, in);
+            /* 컬러(모든 모드) — 허브가 고르기 화면 입력을 쓰는 동안(상대 선택·대신 누르기)엔 «바쁨»: 컬러는 손대지 않는다. 연습 «내 캐릭터 먼저»는
+               «쥠»(HOLD — 컬러·베기 색·A·B 가르기는 look, 결정은 허브). 허브 잠금은 league_hub_look_ctx 안에서 풀린 뒤 look 잠금을 잡는다(겹치지 않음).
+               베기 색(look → slash.c)도 여기 — 코어 바꿔 쓰기 표 + 프레임 뒤 보정. 합성 호출엔 안 돈다(표는 코어 안·상태 밖이라 런어헤드·숨은 프레임에도 그대로) */
+            look_set_opp_live(league_opp_live());   /* 177: 상대 컬러 게이트(랭크 경기 무장·승리 대사·걸쇠) — 리그 잠금을 풀고 난 뒤 look 잠금(겹치지 않음) */
+            look_tick(ram, ramsz, in, league_hub_look_ctx());
+            /* 연습 대전(허브가 연습 경기일 때만 일함) — 같은 잠금·같은 순서. 메뉴에서 나가기를 고르면 여기서 리셋하고 허브를 돌려보낸다 */
+            practice_vram(chr, scr, pal, c_spriteram ? c_spriteram() : NULL);
+            practice_tick(ram, ramsz, in);
+            /* 치트(일반 세션) — 가장 뒤. 리그 세션이면 아무것도 안 쓰고, 연습 대전 흐름이면 올카드·유가만 */
+            cheat_tick(ram, ramsz, in);
+            practice_view_post(ram);         /* 176 보기(치트 «대미지 미터») — 치트가 쓴 체력까지 지난 값으로 */
+            {  /* 182 타격 알림 · 184 이펙트 — 램 읽기만(Java 가 사무쇼2 판에서만 켬). t = 이 vsync 시각(그리기와 같은 시계).
+                  187: «보이는 프레임»의 램으로 — 런어헤드면 실제 N 이 아니라 코어가 숨겨 돌려 보여 준 N + ra 의 사본(retro_ngp_shown_ram).
+                  실제 램으로 보면 이펙트·흔들림·번쩍이 보이는 맞음보다 ra(기본 2) 프레임 늦었다(120Hz 4배 예측도 런어헤드가 같이 돈다).
+                  사본이 없으면(런어헤드 끔·옛 코어) 실제 램 = 보이는 프레임. 사본 ↔ 실제·앞선 수가 바뀌면 한 번 판정 없이(시간줄이 뛴다) */
+               int lead = 0; const uint8_t *spal = NULL;
+               const uint8_t *sram = c_shown_ram ? c_shown_ram(&lead, &spal) : NULL;
+               static int co_lead = -1;
+               if (!sram) lead = 0;
+               if (lead != co_lead) { callout_resync(); co_lead = lead; }
+               callout_fx_pal(spal ? spal : (const uint8_t *)pal);   /* 칼 궤적 색도 보이는 프레임 것 */
+               callout_tick(sram ? sram : ram, ramsz, t);
+            }
+            { int fs = callout_flash_take(); if (fs) { hitflash_start((uint8_t *)pal, fs - 1); look_flash_sync(); } }   /* 186 반격 맞음 → 맞은 몸 하얗게(팔레트 + 코어 표 — 런어헤드에서도) */
+            int ex = practice_take_exit();
+            if (ex) { c_reset(); league_practice_return(ex == 2); practice_forget(); look_forget(); cheat_forget(); callout_reset(); hitflash_forget(); }
+            stop = league_post_hold();       /* 153: 걸쇠가 이 진짜 프레임에 섰다(합성 호출에선 안 선다) */
+         }
+      }
+      CORE_UNLOCK();
+      steps++;
+      if (stop) break;                   /* 153: 이번 vsync 의 남은 스텝(따라잡기·배속·코어 합성)도 없이 — 이 프레임 그대로 */
+   }
+   /* 157 덧판: 스텝 루프 뒤(스텝 0 이어도 — 걸쇠·멈춤 중에도 연출이 돈다) · gl_draw 앞. 걸쇠가 이 vsync 에 섰으면 걸어 둔 대본이 지금 t=0 으로.
+      상태용 램 포인터(ov_game_ram)는 코어가 올라갈 때 한 번 주고 내려갈 때 거둔다(코어 안 고정 배열 — vsync 마다 코어 잠금을 잡지 않게) */
+   ov_tick(t, league_post_hold());
    glClear(GL_COLOR_BUFFER_BIT);
    gl_draw();
 }
+
+JNI(jfloat, nativePanelHz)(JNIEnv *env, jclass cls) { (void)env; (void)cls; return panel_hz(); }
+JNI(jdouble, nativeCoreFps)(JNIEnv *env, jclass cls) { (void)env; (void)cls; return g_av.timing.fps; }
+
+JNI(void, nativeSetPaused)(JNIEnv *env, jclass cls, jboolean on)
+{ (void)env; (void)cls; g_paused = on ? 1 : 0; }
+
+/* 182: 지금 멈춤(nativeSetPaused)이 곡을 이어도 되는 멈춤인가 — 게임 안 «설정» 창(168)만 Java 가 켠다(불러오기 사이·카드의 멈춤은 그대로 통째로) */
+JNI(void, nativeSetPauseBgm)(JNIEnv *env, jclass cls, jboolean on)
+{ (void)env; (void)cls; g_pause_bgm = on ? 1 : 0; }
+
+/* 182: 앱 화면 쪽 메뉴(확인 카드 7 개·내 이름 카드 · «상대 찾는 중/상대 발견!» 찾기 겹창)가 떠 있나 — 메뉴 효과음 문(nativeUiSfx)을 열고 결정의 메아리를 끝까지 */
+JNI(void, nativeSetAppMenu)(JNIEnv *env, jclass cls, jboolean on)
+{ (void)env; (void)cls; g_app_menu = on ? 1 : 0; }
+
+JNI(void, nativeSetPanelHz)(JNIEnv *env, jclass cls, jfloat hz)
+{ (void)env; (void)cls; g_panel_hz_hint = hz; }
 
 JNI(void, nativeSetInput)(JNIEnv *env, jclass cls, jint mask)
 { (void)env; (void)cls; g_input = mask; }
@@ -655,7 +1579,7 @@ JNI(void, nativeRunFrames)(JNIEnv *env, jclass cls, jint n)
 {
    (void)env; (void)cls;
    if (!g_loaded) return;
-   for (jint i = 0; i < n; i++) c_run();
+   for (jint i = 0; i < n; i++) { CORE_LOCK(); if (g_loaded) c_run(); CORE_UNLOCK(); }
 }
 
 /* 백그라운드에서 오디오 장치를 놓았다가 복귀 때 새로 연다 —
@@ -666,34 +1590,246 @@ JNI(void, nativeAudioPause)(JNIEnv *env, jclass cls)
 JNI(void, nativeAudioResume)(JNIEnv *env, jclass cls)
 { (void)env; (void)cls; if (g_loaded && !g_stream) audio_start(g_audio_rate); }
 
+/* 176: 덧판 메뉴 효과음(uisfx.c — 사무쇼2 메뉴 소리 합성) — kind 1 커서 · 2 결정 · 3 뒤로 · 0 줄여 끔. 아무 스레드.
+   메뉴가 보이거나(OVF_VISIBLE) 메뉴 멈춤(ov_hold) 중일 때만 받는다 — 메뉴가 없으면 소리도 없다. 소리는 오디오 콜백이 낸다(스트림이 닫혀 있으면 안 남)
+   182: 앱 카드·찾기 겹창이 떠 있을 때(nativeSetAppMenu)도 받는다 — 그 밖엔 여전히 버린다 */
+JNI(jboolean, nativeUiSfx)(JNIEnv *env, jclass cls, jint kind)
+{
+   (void)env; (void)cls;
+   if (kind != UISFX_STOP && !g_app_menu) {
+      int v[OV_NSTAT];
+      ov_status(v);
+      if (!(v[OVS_FLAGS] & (OVF_VISIBLE | OVF_HOLD))) return JNI_FALSE;
+   }
+   return uisfx_request(kind) ? JNI_TRUE : JNI_FALSE;
+}
+
+/* 176 음색 다듬기 켬/끔 · 178 세부 값(설정 0..100, 50 = 들어 보기 ②) · 179 배경음만(bgm) — 코어 소리 콜백이 다음 묶음부터 본다.
+   값이 바뀌었으면 여기(UI 스레드)서 새 fx 를 만들어 올린다(fx_apply 가 바꿔 끼운다) — 코어가 없을 때도(먼저 만들어 둔다) */
+JNI(void, nativeSetSoundFx)(JNIEnv *env, jclass cls, jboolean on, jint bass, jint treble, jint width, jint reverb, jint room, jboolean bgm)
+{
+   sndfx_params p;
+   int rate;
+   (void)env; (void)cls;
+   sndfx_from_pct(&p, bass, treble, width, reverb, room);
+   pthread_mutex_lock(&g_audio_mx); rate = g_audio_rate; pthread_mutex_unlock(&g_audio_mx);
+   pthread_mutex_lock(&g_fx_mx);
+   if (!g_fxb_set || g_fxb_rate != rate || g_fxb.bass_db != p.bass_db || g_fxb.treble_db != p.treble_db
+       || g_fxb.width != p.width || g_fxb.mix != p.mix || g_fxb.rt != p.rt) {
+      sndfx_t *nf = sndfx_new(rate, &p), *stale;
+      if (nf) {
+         stale = atomic_exchange_explicit(&g_fx_next, nf, memory_order_acq_rel);   /* 아직 안 가져간 앞엣것은 한 번도 안 쓰였다 */
+         sndfx_free(stale);
+         g_fxb = p; g_fxb_rate = rate; g_fxb_set = 1;
+      }
+   }
+   pthread_mutex_unlock(&g_fx_mx);
+   atomic_store_explicit(&g_fx_bgm, bgm ? 1 : 0, memory_order_relaxed);
+   atomic_store_explicit(&g_fx_on, on ? 1 : 0, memory_order_relaxed);
+}
+
+/* 182 타격 알림 켬/끔 — Java 가 사무쇼2 판에서만 켠다(다른 게임 램은 뜻이 다르다). 아무 스레드 */
+/* 191: 코어가 그리면(g_core_hits) 앱 쪽은 끈 채로 코어 옵션만 — 바뀐 값만 넣고 코어가 다음 프레임에 다시 읽는다 */
+static void hits_push(void)
+{
+   int ch = 0;
+   CORE_LOCK();
+   ch |= opt_put("ngp_hit_callout", g_want_co ? CO_STYLE_V[g_co_style & 3] : "disabled");
+   ch |= opt_put("ngp_hit_fx", g_want_fx ? FX_STYLE_V[g_fx_style >= 1 && g_fx_style <= 3 ? g_fx_style : 1] : "disabled");
+   ch |= opt_put("ngp_hit_fx_size", g_fx_big ? "big" : "small");
+   ch |= opt_put("ngp_hit_flash", "disabled");                         /* 193 몸 번쩍 뺌 */
+   if (ch) g_var_dirty = 1;
+   hits_route();
+   CORE_UNLOCK();
+}
+JNI(void, nativeSetCallouts)(JNIEnv *env, jclass cls, jboolean on)
+{ (void)env; (void)cls; g_want_co = on ? 1 : 0; hits_push(); }
+
+/* 195 라벨 모양(0 큰 한글 도트 · 1 붓 한자 · 2 명패 · 3 먹 띠) · 이펙트 그리는 법(1 반투명 · 2 불투명 · 3 때린 몸 밑) · 크기(0 작게 · 1 크게) — 켬/끔은 위 둘. 아무 스레드 */
+JNI(void, nativeSetHitStyle)(JNIEnv *env, jclass cls, jint label, jint fx, jint big)
+{
+   (void)env; (void)cls;
+   g_co_style = label >= 0 && label <= 3 ? label : 0;
+   g_fx_style = fx >= 1 && fx <= 3 ? fx : 1;
+   g_fx_big = big & 1;
+   hits_push();
+}
+
+/* 191 몸 번쩍(앞 강베기) — 이펙트와 따로. Java 가 사무쇼2 판에서만 켬. 아무 스레드 */
+JNI(void, nativeSetHitFlash)(JNIEnv *env, jclass cls, jboolean on)
+{ (void)env; (void)cls; (void)on; g_want_fl = 0; hits_push(); }   /* 193 몸 번쩍 뺌 — 늘 끔(옛 호출 그대로 받기만) */
+
+/* 191 이 판의 코어가 타격 알림·이펙트·몸 번쩍을 그리나(비트 1·2·4, 0 = 앱이 그림) */
+JNI(jint, nativeCoreHits)(JNIEnv *env, jclass cls)
+{ (void)env; (void)cls; return g_core_hits; }
+
+/* 182 타격 이펙트 — 0 끔 · 1 자동 · 2 불꽃 · 3 번개 · 4 섬광(FXM_*). Java 가 사무쇼2 판에서만 0 아닌 값. 아무 스레드 */
+JNI(void, nativeSetHitFx)(JNIEnv *env, jclass cls, jint mode)
+{ (void)env; (void)cls; g_want_fx = mode > 0 && mode < FXM_N ? mode : FXM_OFF; hits_push(); }
+
+/* 게임 속 리그: 결판 뒤 리셋하고 타이틀 «리그 대전»까지(rematch = 바로 다시 붙을 상대 캐릭터, −1 없음) */
+JNI(void, nativeLeagueHubReturn)(JNIEnv *env, jclass cls, jint rematch)
+{ (void)env; (void)cls; CORE_LOCK(); if (g_loaded) c_reset(); league_hub_return(rematch); look_forget(); cheat_forget(); ov_clear(OV_CLR_ALL); ov_tag_clear(); callout_reset(); hitflash_forget(); CORE_UNLOCK(); }
+
 JNI(void, nativeReset)(JNIEnv *env, jclass cls)
-{ (void)env; (void)cls; if (g_loaded) c_reset(); }
+{
+   (void)env; (void)cls;
+   CORE_LOCK();
+   if (g_loaded) c_reset();
+   practice_forget(); league_practice_title();   /* 연습 대전: 램이 새로 시작 — 고르던 것·경기를 잊고 타이틀 상태로(리그 허브는 그대로) */
+   league_post_clear();                          /* 153: 승리 대사 걸쇠도 푼다(리그 판은 리셋이 막혀 있어 방어용) */
+   look_forget();                                /* 컬러: 경기 컬러·세로 칸을 잊는다(기억·내 색은 그대로) */
+   cheat_forget();                               /* 치트: 보관한 카드는 되돌리지 않고 버린다(램이 새로 시작) */
+   ov_clear(OV_CLR_ALL);                         /* 157 덧판: 코어가 새로 시작 — 메뉴·멈춤·막기 지움 */
+   ov_tag_clear();
+   callout_reset(); hitflash_forget();
+   CORE_UNLOCK();
+}
 
 JNI(void, nativeSetIntegerScale)(JNIEnv *env, jclass cls, jboolean on)
 { (void)env; (void)cls; g_integer_scale = on ? 1 : 0; }
 
+/* 화면 표시 설정 — GL 스레드에서 부를 것(Java 는 queueEvent). up: 0 끔 · 1 샤프 · 2 Scale2x · 3 xBR · 4 OmniScale.
+   나머지는 세기 0..100. */
+JNI(void, nativeSetDisplay)(JNIEnv *env, jclass cls, jint up, jint mix, jint grid, jint scan,
+                            jint ghost, jint color, jint soft, jboolean integer)
+{
+   (void)env; (void)cls;
+#define PCT(v) ((v) < 0 ? 0 : (v) > 100 ? 100 : (int)(v))
+   g_d_up = (up >= 0 && up < DISP_N_UP) ? (int)up : 0;
+   g_d_mix = PCT(mix); g_d_grid = PCT(grid); g_d_scan = PCT(scan);
+   g_d_ghost = PCT(ghost); g_d_color = PCT(color); g_d_soft = PCT(soft);
+#undef PCT
+   g_integer_scale = integer ? 1 : 0;
+   LOGI("display up %d mix %d grid %d scan %d ghost %d color %d soft %d int %d",
+        g_d_up, g_d_mix, g_d_grid, g_d_scan, g_d_ghost, g_d_color, g_d_soft, g_integer_scale);
+}
+
 JNI(void, nativeSetTurbo)(JNIEnv *env, jclass cls, jboolean on)
 { (void)env; (void)cls; g_turbo = on ? 1 : 0; }
+
+/* 연습 경기 이어가기 — 상태 파일 옆 «<경로>.prac»: "PRC1" · 허브 크기 · 설정 크기 · 상태 크기 · 상태 FNV-1a · 허브 · 설정.
+   연습 경기(허브 H_MATCH) 중에 저장할 때만 쓰고, 아니면 지운다(옛 것이 다른 상태에 붙지 않게). 불러올 때 상태 크기·지문이 맞아야 쓴다. */
+#define PRAC_SIDE_MAX 4096
+static uint32_t fnv1a(const void *d, size_t n)
+{
+   const uint8_t *b = (const uint8_t *)d; uint32_t h = 2166136261u;
+   for (size_t i = 0; i < n; i++) { h ^= b[i]; h *= 16777619u; }
+   return h;
+}
+static size_t prac_side_make(uint8_t *side, const void *state, size_t sz)
+{
+   size_t hn = league_practice_blob(side + 20, PRAC_SIDE_MAX - 20);
+   if (!hn) return 0;
+   size_t pn = practice_settings_get(side + 20 + hn, PRAC_SIDE_MAX - 20 - hn);
+   if (!pn) return 0;
+   uint32_t v[4] = { (uint32_t)hn, (uint32_t)pn, (uint32_t)sz, fnv1a(state, sz) };
+   memcpy(side, "PRC1", 4); memcpy(side + 4, v, sizeof v);
+   return 20 + hn + pn;
+}
+static void prac_side_write(const char *p, const uint8_t *side, size_t sn)
+{
+   char q[620]; snprintf(q, sizeof q, "%s.prac", p);
+   if (!sn) { remove(q); return; }
+   FILE *f = fopen(q, "wb");
+   if (!f) return;
+   size_t wr = fwrite(side, 1, sn, f);
+   if (fclose(f) != 0 || wr != sn) remove(q);
+}
+static size_t prac_side_read(const char *p, uint8_t *side, const void *state, size_t sz)
+{
+   char q[620]; snprintf(q, sizeof q, "%s.prac", p);
+   FILE *f = fopen(q, "rb");
+   if (!f) return 0;
+   size_t n = fread(side, 1, PRAC_SIDE_MAX, f);
+   fclose(f);
+   uint32_t v[4];
+   if (n < 20 || memcmp(side, "PRC1", 4)) return 0;
+   memcpy(v, side + 4, sizeof v);
+   if ((size_t)20 + v[0] + v[1] != n || v[2] != (uint32_t)sz || v[3] != fnv1a(state, sz)) return 0;
+   return n;
+}
+static void prac_side_apply(const uint8_t *side, size_t sn)
+{
+   if (!sn) { league_practice_resume(NULL, 0); return; }
+   uint32_t v[4];
+   memcpy(v, side + 4, sizeof v);
+   practice_settings_set(side + 20 + v[0], v[1]);
+   league_practice_resume(side + 20, v[0]);
+}
+
+/* 경기 컬러 — 상태 파일 옆 «<경로>.look»: "LOK1" · 상태 크기 · 상태 FNV-1a · look 덩어리(16바이트 — [5] 경기 베기 색). 경기 컬러나 베기 색이 있을 때만 쓰고, 없으면 지운다.
+   불러올 때 크기·지문이 맞아야 쓴다(.prac 와 같은 규칙) — .look 없이 불러온 상태는 원래 색(저장 직전에 look_before_save 가 팔레트를 되돌려 둠) */
+#define LOOK_SIDE_MAX 64
+static size_t look_side_make(uint8_t *side, const void *state, size_t sz)
+{
+   size_t ln = look_blob(side + 12, LOOK_SIDE_MAX - 12);
+   if (!ln) return 0;
+   uint32_t v[2] = { (uint32_t)sz, fnv1a(state, sz) };
+   memcpy(side, "LOK1", 4); memcpy(side + 4, v, sizeof v);
+   return 12 + ln;
+}
+static void look_side_write(const char *p, const uint8_t *side, size_t sn)
+{
+   char q[620]; snprintf(q, sizeof q, "%s.look", p);
+   if (!sn) { remove(q); return; }
+   FILE *f = fopen(q, "wb");
+   if (!f) return;
+   size_t wr = fwrite(side, 1, sn, f);
+   if (fclose(f) != 0 || wr != sn) remove(q);
+}
+static size_t look_side_read(const char *p, uint8_t *side, const void *state, size_t sz)
+{
+   char q[620]; snprintf(q, sizeof q, "%s.look", p);
+   FILE *f = fopen(q, "rb");
+   if (!f) return 0;
+   size_t n = fread(side, 1, LOOK_SIDE_MAX, f);
+   fclose(f);
+   uint32_t v[2];
+   if (n < 12 || memcmp(side, "LOK1", 4)) return 0;
+   memcpy(v, side + 4, sizeof v);
+   if (v[0] != (uint32_t)sz || v[1] != fnv1a(state, sz)) return 0;
+   return n;
+}
 
 JNI(jint, nativeSaveState)(JNIEnv *env, jclass cls, jstring jpath)
 {
    (void)cls;
-   if (!g_loaded || !c_serialize_size) return -1;
+   CORE_LOCK();
+   if (!g_loaded || !c_serialize_size) { CORE_UNLOCK(); return -1; }
+   practice_before_save();               /* 연습 메뉴 창·대미지 숫자·«2P» 그림, 허브 머리말·세로 칸을 원래대로 — 저장된 상태에 우리 그림이 안 섞이게(다음 프레임에 다시 그린다) */
+   league_hub_before_save();
+   if (hitflash_active()) { hitflash_end(c_palram ? (uint8_t *)c_palram() : NULL); look_flash_sync(); }   /* 186 몸 번쩍 중이면 지금 되돌리고 끝(표의 흰색도) — 저장된 상태에 흰 몸이 안 들어가게(컬러보다 먼저) */
+   look_before_save();                   /* 컬러: 세로 칸·아이콘·몸 팔레트 0·베기 색 팔레트를 원래 색으로(저장 직후 look_after_save 가 다시) */
+   if (c_get_memory_data) cheat_before_save((uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM));   /* 올카드(이번만)로 8 을 쓴 소유 개수를 원래 값으로 — 저장된 상태에 8 이 안 실리게 */
    size_t sz = c_serialize_size();
-   if (!sz) return -1;
-   void *buf = malloc(sz);
-   if (!c_serialize(buf, sz)) { free(buf); return -1; }
+   void *buf = sz ? malloc(sz) : NULL;
+   int ok = buf && c_serialize(buf, sz);
+   look_after_save();                    /* 컬러: 되돌린 것을 바로 우리 것으로(다음 화면 한 프레임이 원래 색으로 안 나오게) */
+   if (c_get_memory_data) cheat_after_save((uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM));   /* before_save 가 돌려 둔 치트 값을 되씀 */
+   practice_after_save();                /* 연습 창·숫자·«2P»·176 보기 숫자를 바로 다시(다음 화면 한 장이 숫자 없이 나오지 않게 — 저장된 상태는 이미 원래대로) */
+   uint8_t side[PRAC_SIDE_MAX];          /* 연습 경기 중이면 허브·설정 — 같은 잠금 안에서(상태와 한 순간) */
+   size_t sn = ok ? prac_side_make(side, buf, sz) : 0;
+   uint8_t lside[LOOK_SIDE_MAX];         /* 경기 컬러 — 같은 잠금 안에서 */
+   size_t lsn = ok ? look_side_make(lside, buf, sz) : 0;
+   CORE_UNLOCK();
+   if (!ok) { free(buf); return -1; }
    char p[600]; jstr(env, jpath, p, sizeof(p));
    FILE *f = fopen(p, "wb");
    if (!f) { free(buf); return -1; }
-   fwrite(buf, 1, sz, f); fclose(f); free(buf);
-   return 0;
+   /* 쓰기·닫기 실패도 실패로 알린다 — 저장 공간이 모자라 잘린 파일을 «저장됨»으로 믿지 않게(가상 리그 체크포인트가 이 값을 본다) */
+   size_t wr = fwrite(buf, 1, sz, f);
+   int cl = fclose(f);
+   free(buf);
+   prac_side_write(p, side, sn);
+   look_side_write(p, lside, lsn);
+   return (wr == sz && cl == 0) ? 0 : -1;
 }
 
 JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
 {
    (void)cls;
-   if (!g_loaded || !c_unserialize) return -1;
+   if (!c_unserialize) return -1;
    char p[600]; jstr(env, jpath, p, sizeof(p));
    FILE *f = fopen(p, "rb");
    if (!f) return -1;
@@ -701,7 +1837,27 @@ JNI(jint, nativeLoadState)(JNIEnv *env, jclass cls, jstring jpath)
    void *buf = malloc((size_t)sz);
    if (fread(buf, 1, (size_t)sz, f) != (size_t)sz) { fclose(f); free(buf); return -1; }
    fclose(f);
-   int ok = c_unserialize(buf, (size_t)sz);
+   uint8_t side[PRAC_SIDE_MAX];
+   size_t sn = prac_side_read(p, side, buf, (size_t)sz);
+   uint8_t lside[LOOK_SIDE_MAX];
+   size_t lsn = look_side_read(p, lside, buf, (size_t)sz);
+   CORE_LOCK();
+   int ok = g_loaded && c_unserialize(buf, (size_t)sz);
+   if (ok) {
+      core_ptrs(1);                                  /* 165 고침: 아래 look_after_load 가 쓰는 화면 램·팔레트·바꿔 쓰기 함수 = 지금 코어 것(첫 프레임 전이어도) */
+      hitflash_forget();                             /* 186 몸 번쩍: 팔레트가 통째로 바뀜 — 아래 look_after_load 가 표를 새로 넣기 전에(번쩍을 안 얹게) */
+      practice_forget(); league_practice_title();   /* 연습 대전: 램·화면이 통째로 바뀜 — 지금 것은 되돌리지 않고 잊는다 */
+      prac_side_apply(side, sn);                     /* 연습 경기 중에 저장한 상태면 그 연습 경기로(아니면 기다리던 것도 버림) */
+      look_forget();                                /* 컬러: 화면 칸은 잊고, 경기 컬러는 .look 이 맞을 때만(아니면 버림) */
+      look_resume(lsn ? lside + 12 : NULL, lsn ? lsn - 12 : 0);
+      if (c_get_memory_data && c_get_memory_size)    /* 컬러: 불러온 램으로 바꿔 쓰기 표를 새로 넣고 지금 팔레트도(첫 프레임부터 경기 컬러·베기 색 — 끈 판이면 원래 색) */
+         look_after_load((const uint8_t *)c_get_memory_data(RETRO_MEMORY_SYSTEM_RAM), c_get_memory_size(RETRO_MEMORY_SYSTEM_RAM));
+      cheat_forget();                                /* 치트: 램이 통째로 바뀜 — 보관한 카드는 버리고 다음 프레임부터 새로 */
+      ov_clear(OV_CLR_ALL);                          /* 157 덧판: 코어 상태가 통째로 바뀜 */
+      ov_tag_clear();
+      callout_reset(); hitflash_forget();
+   }
+   CORE_UNLOCK();
    free(buf);
    return ok ? 0 : -1;
 }
@@ -717,4 +1873,4 @@ JNI(jobject, nativeFrameBuffer)(JNIEnv *env, jclass cls)
    return (*env)->NewDirectByteBuffer(env, g_fb, (jlong)(g_fb_w * g_fb_h * 4));
 }
 
-JNI(void, nativeSaveSram)(JNIEnv *env, jclass cls) { (void)env; (void)cls; if (g_loaded) sram_save(); }
+JNI(void, nativeSaveSram)(JNIEnv *env, jclass cls) { (void)env; (void)cls; CORE_LOCK(); if (g_loaded) sram_save(); CORE_UNLOCK(); }

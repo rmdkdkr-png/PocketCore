@@ -22,6 +22,12 @@ import java.net.URL;
  *  서버에는 version.json({"versionCode":..,"versionName":"..","apk":".."})과 APK 가 있다. */
 public final class Updater {
 
+    /* Legacito(com.dudu.legacito) 전용 색인 — 옛 PocketCore(1.x~4.04, dudu 키)는 version.json·cores.json 을 계속 본다.
+       옛 서명 키를 잃어(2026-10-10) 새 앱으로 갈라섰다. 같은 릴리즈 태그 app 에 이름만 다른 색인을 둔다.
+       legacito-cores.json 이 따로인 이유: 옛 cores.json 의 ss2 코어(3.71)는 프레임 생성이 없어, 받으면 동봉 코어를 덮어 기능이 사라진다. */
+    static final String VERSION_INDEX = "legacito-version.json";
+    static final String CORES_INDEX   = "legacito-cores.json";
+
     static String baseUrl() {
         String v = null;
         try { v = Settings2.readOpt("pocketcore_update_url"); } catch (Throwable ignored) { }
@@ -147,73 +153,87 @@ public final class Updater {
         } catch (Exception ignored) { /* 소식은 부가 정보 — 실패해도 조용히 */ }
     }
 
-    /** 코어·음성팩 동기화 — cores.json 을 보고 기기 ABI 에 맞는 코어를 **앱 내부
-     *  저장소**(files/cores/)에 받는다. sdcard 는 실행권이 없어(noexec) dlopen 이
-     *  안 되는 기기가 많다 — 그래서 내부다. 음성팩은 데이터라 PocketCore/system/ 에 둔다.
-     *  덕분에 코어만 바뀐 날은 APK 재설치(옆설치 경고) 없이 여기서 끝난다. */
+    /** 팩 동기화(런처 테마곡·사무쇼2 모션 캐시 같은 데이터) — legacito-cores.json 의 packs·packs_ext.
+     *  154 부터 코어(.so)는 받지 않는다(늘 APK 동봉 — 위 checkApk 154 설명). 이름은 옛 그대로. */
     private static void syncCores(Activity act, String base) {
         try {
-            byte[] jb = fetch(base + "/cores.json", 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
+            byte[] jb = fetch(base + "/" + CORES_INDEX, 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
             JSONObject root = new JSONObject(new String(jb, "UTF-8"));
             StringBuilder got = new StringBuilder();
 
-            JSONObject cores = root.optJSONObject("cores");
-            if (cores != null) {
-                String abi = android.os.Build.SUPPORTED_ABIS[0];
-                File dir = new File(act.getFilesDir(), "cores");
-                dir.mkdirs();
-                java.util.Iterator<String> it = cores.keys();
-                while (it.hasNext()) {
-                    String id = it.next();
-                    JSONObject e = cores.getJSONObject(id);
-                    boolean useTest = testLevel() && e.optJSONObject("test") != null;
-                    JSONObject use = useTest ? e.getJSONObject("test") : e;   /* 시험 레벨이면 시험 판 — 없으면 정식 */
-                    String ver = use.getString("ver") + (useTest ? "-test" : "");   /* .ver 표식 — 레벨을 바꾸면 다시 받게 */
-                    JSONObject abis = use.getJSONObject("abis");
-                    if (!abis.has(abi)) continue;
-                    File so = new File(dir, id + ".so");
-                    File verf = new File(dir, id + ".ver");
-                    if (so.exists() && ver.equals(readSmall(verf))) continue;
-                    File tmp = new File(dir, id + ".part");
-                    fetchToFile(abis.getString(abi), tmp, 60000);
-                    if (!looksLike(tmp, 0x7f, 'E', 'L', 'F')) { tmp.delete(); continue; }
-                    so.delete();
-                    if (!tmp.renameTo(so)) continue;
-                    writeSmall(verf, ver);
-                    if (got.length() > 0) got.append(" · ");
-                    got.append(e.optString("ko", id)).append(' ').append(use.getString("ver")).append(useTest ? " (시험)" : "");
-                }
-            }
-
+            /* 154: 코어(.so)는 더 받지 않는다 — 인터넷에서 받은 실행 코드를 dlopen 하는 모양이 Play 프로텍트의 «유해한 앱»(로더) 판정 거리라
+               (유저 「유해한앱이라고 안뜨게해줭」). 코어는 늘 APK 에 동봉된 것(새 코어는 새 APK 로). 예전에 받아 둔 것은 SelfUpdate.afterLaunch 가 지운다 */
             JSONObject packs = root.optJSONObject("packs");
             if (packs != null) {
                 java.util.Iterator<String> it = packs.keys();
+                while (it.hasNext()) syncPack(act, packs.getJSONObject(it.next()), got);
+            }
+            /* packs_ext — 110 이후 판만 읽는 팩(옛 판은 이 열쇠를 모른다). 항목마다 "min" = 받을 수 있는 가장 낮은 versionCode.
+               사무쇼2 모션 캐시(코어 패치 97)는 그걸 쓰는 코어가 든 판에서만 받게 — 정식 0.9 가 수십 MB 를 헛받지 않게 */
+            JSONObject ext = root.optJSONObject("packs_ext");
+            if (ext != null) {
+                long my = 0;
+                try { my = act.getPackageManager().getPackageInfo(act.getPackageName(), 0).getLongVersionCode(); }
+                catch (Throwable t) { try { my = act.getPackageManager().getPackageInfo(act.getPackageName(), 0).versionCode; } catch (Throwable ignored) { } }
+                java.util.Iterator<String> it = ext.keys();
                 while (it.hasNext()) {
-                    JSONObject e = packs.getJSONObject(it.next());
-                    String ver = e.getString("ver");
-                    File dst = new File(MainActivity.sysDir(), e.getString("file"));
-                    File verf = new File(dst.getPath() + ".ver");
-                    if (dst.exists() && ver.equals(readSmall(verf))) continue;
-                    long mb = e.optLong("size", 0) >> 20;
-                    toast(act, e.optString("ko", "팩") + " " + ver + " 내려받는 중…"
-                            + (mb > 0 ? " (" + mb + "MB)" : ""));
-                    File tmp = new File(dst.getPath() + ".part");
-                    fetchToFile(e.getString("url"), tmp, 600000);
-                    long want = e.optLong("size", 0);
-                    if (want > 0 && tmp.length() != want) { tmp.delete(); continue; }
-                    dst.delete();
-                    if (!tmp.renameTo(dst)) continue;
-                    writeSmall(verf, ver);
-                    if (got.length() > 0) got.append(" · ");
-                    got.append(e.optString("ko", "팩")).append(' ').append(ver);
+                    JSONObject e = ext.getJSONObject(it.next());
+                    if (my < e.optLong("min", Long.MAX_VALUE)) continue;
+                    syncPack(act, e, got);
                 }
             }
 
             if (got.length() > 0)
                 toast(act, "새로 받음: " + got + " — 게임을 다시 열면 적용됩니다");
         } catch (Exception e) {
-            toast(act, "코어 확인 실패: " + e.getClass().getSimpleName());
+            toast(act, "팩 확인 실패: " + e.getClass().getSimpleName());
         }
+    }
+
+    /** 런처가 켜질 때(앱이 최신일 때) 팩만 조용히 — 와이파이 같은 무제한 연결일 때만. 받을 게 없으면 아무 말도 안 한다.
+     *  113: 시험 판 사무쇼2 모션 캐시가 «업데이트 확인»을 한 번 더 눌러야 받혀, 받은 줄 모르고 «효과가 있는 거임?»(유저 2026-10-11) */
+    static void autoPacks(Activity act) {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) act.getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+            if (cm == null || cm.isActiveNetworkMetered()) return;
+            byte[] jb = fetch(baseUrl() + "/" + CORES_INDEX, 10000);
+            JSONObject root = new JSONObject(new String(jb, "UTF-8"));
+            StringBuilder got = new StringBuilder();
+            long my = 0;
+            try { my = act.getPackageManager().getPackageInfo(act.getPackageName(), 0).getLongVersionCode(); }
+            catch (Throwable t) { try { my = act.getPackageManager().getPackageInfo(act.getPackageName(), 0).versionCode; } catch (Throwable ignored) { } }
+            JSONObject ext = root.optJSONObject("packs_ext");
+            if (ext != null) {
+                java.util.Iterator<String> it = ext.keys();
+                while (it.hasNext()) {
+                    JSONObject e = ext.getJSONObject(it.next());
+                    if (my < e.optLong("min", Long.MAX_VALUE)) continue;
+                    syncPack(act, e, got);
+                }
+            }
+            if (got.length() > 0)
+                toast(act, "새로 받음: " + got + " — 게임을 다시 열면 적용됩니다");
+        } catch (Throwable ignored) { /* 조용히 — 다음에 업데이트 확인 때 받는다 */ }
+    }
+
+    /** 팩 하나 — 시스템 폴더에 file 로 받는다(같은 ver 면 건너뜀, size 가 다르면 버림). */
+    private static void syncPack(Activity act, JSONObject e, StringBuilder got) throws Exception {
+        String ver = e.getString("ver");
+        File dst = new File(MainActivity.sysDir(), e.getString("file"));
+        File verf = new File(dst.getPath() + ".ver");
+        if (dst.exists() && ver.equals(readSmall(verf))) return;
+        long mb = e.optLong("size", 0) >> 20;
+        toast(act, e.optString("ko", "팩") + " " + ver + " 내려받는 중…"
+                + (mb > 0 ? " (" + mb + "MB)" : ""));
+        File tmp = new File(dst.getPath() + ".part");
+        fetchToFile(e.getString("url"), tmp, 600000);
+        long want = e.optLong("size", 0);
+        if (want > 0 && tmp.length() != want) { tmp.delete(); return; }
+        dst.delete();
+        if (!tmp.renameTo(dst)) return;
+        writeSmall(verf, ver);
+        if (got.length() > 0) got.append(" · ");
+        got.append(e.optString("ko", "팩")).append(' ').append(ver);
     }
 
     /** 파일 머리 몇 바이트 대조 — 오류 페이지를 코어라고 저장하는 사고 방지. */
@@ -224,8 +244,8 @@ public final class Updater {
         } catch (Exception e) { return false; }
     }
 
-    /** 큰 파일용 스트리밍 다운로드 — 통째로 메모리에 안 올린다(음성팩은 수백 MB). */
-    private static void fetchToFile(String url, File out, int timeoutMs) throws Exception {
+    /** 큰 파일용 스트리밍 다운로드 — 통째로 메모리에 안 올린다(팩은 수십 MB). */
+    static void fetchToFile(String url, File out, int timeoutMs) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setConnectTimeout(15000); c.setReadTimeout(timeoutMs);
         InputStream in = new BufferedInputStream(c.getInputStream());
@@ -238,7 +258,7 @@ public final class Updater {
 
     /** 앱 새 판 확인. 설치·설정 화면으로 넘어가면 false, 이미 최신이면 true. */
     private static boolean checkApk(Activity act, String base) throws Exception {
-        byte[] jb = fetch(base + "/version.json", 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
+        byte[] jb = fetch(base + "/" + VERSION_INDEX, 10000);   /* 모바일 리다이렉트가 4초를 넘겨 SocketTimeout 나던 제보 */
         JSONObject j = new JSONObject(new String(jb, "UTF-8"));
         boolean useTest = testLevel() && j.optJSONObject("test") != null;
         if (useTest) j = j.getJSONObject("test");            /* 시험 레벨이면 시험 항목 — 없으면 정식 */
@@ -257,28 +277,81 @@ public final class Updater {
                 toast(act, "지금 깔린 것은 시험 판(v" + myName(act) + ")입니다 — 정식 v" + rn
                         + " 으로 되돌리려면 앱을 지우고 다시 설치하세요 (저장 파일은 남습니다)");
             else
-                toast(act, "앱은 최신 " + (testLevel() ? "시험 판" : "정식 판") + "입니다 (v" + rn + ")");
+                toast(act, "앱은 최신 " + (testLevel() ? "시험 판" : "정식 판") + "입니다 (v" + rn + " · 내부 " + my + ")");
             return true;
         }
-        toast(act, "v" + rn + " 다운로드 중…");
-        byte[] ab = fetch(base + "/" + Uri.encode(apk), 60000);
-        File out = new File(act.getCacheDir(), "update.apk");
-        FileOutputStream fo = new FileOutputStream(out);
-        fo.write(ab); fo.close();
-        if (!act.getPackageManager().canRequestPackageInstalls()) {
-            toast(act, "「이 출처 허용」을 켠 뒤 다시 눌러 주세요 (최초 1회)");
-            Intent p = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:" + act.getPackageName()));
-            p.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            act.startActivity(p);
-            return false;
+        /* 154: 앱이 APK 를 받아 직접 깔던 것(120~ PackageInstaller 세션 + APK 프로바이더)을 뺐다.
+           유저 2026-10-17 「유해한앱이라고 안뜨게해줭」 — 인터넷에서 APK·코어(.so)를 받아 스스로 깔고 실행하는 모양이 Play 프로텍트가
+           «유해한 앱»으로 보는 드로퍼·로더와 같다. 이제는 시스템 다운로드(DownloadManager)에 맡기고, 다 받으면 그 알림을 눌러
+           시스템 설치기로 깐다. 앱은 APK 를 열지도 깔지도 않는다(설치 출처 확인은 여전히 우리 앱 — 「이 출처 허용」은 120 부터 켜 둔 그것). */
+        final String url = base + "/" + Uri.encode(apk);
+        android.app.DownloadManager dm = (android.app.DownloadManager) act.getSystemService(android.content.Context.DOWNLOAD_SERVICE);
+        android.content.SharedPreferences pf = act.getSharedPreferences("selfupdate", android.content.Context.MODE_PRIVATE);
+        long prev = pf.getLong("dl_id", -1);
+        int prevCode = pf.getInt("dl_code", 0);
+        if (dm != null && prev >= 0) {
+            int st = downloadStatus(dm, prev);
+            if (prevCode == rc && st == android.app.DownloadManager.STATUS_SUCCESSFUL) {   /* 이미 받아 둠 — 다운로드 목록을 연다 */
+                toast(act, "내부 " + rc + " 는 이미 받아 뒀어요 — 다운로드 목록에서 눌러 설치하세요");
+                try {
+                    Intent v = new Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS);
+                    v.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    act.startActivity(v);
+                } catch (Throwable ignored) { }
+                return false;
+            }
+            if (prevCode == rc && (st == android.app.DownloadManager.STATUS_RUNNING || st == android.app.DownloadManager.STATUS_PENDING
+                    || st == android.app.DownloadManager.STATUS_PAUSED)) {
+                toast(act, "내부 " + rc + " 받는 중이에요 — 다 받으면 알림을 눌러 설치하세요");
+                return false;
+            }
+            if (prevCode != rc || st == android.app.DownloadManager.STATUS_FAILED) {
+                try { dm.remove(prev); } catch (Throwable ignored) { }   /* 옛 판·실패한 것은 지운다(파일도) */
+            }
         }
-        Intent i = new Intent(Intent.ACTION_VIEW);
-        i.setDataAndType(Uri.parse("content://com.dudu.pocketcore.apk/update.apk"),
-                "application/vnd.android.package-archive");
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-        act.startActivity(i);
+        try {
+            if (dm == null) throw new IllegalStateException("no DownloadManager");
+            android.app.DownloadManager.Request r = new android.app.DownloadManager.Request(Uri.parse(url));
+            r.setTitle("Legacito 새 판 · 내부 " + rc);
+            r.setDescription("다 받으면 이 알림을 눌러 설치하세요");
+            r.setMimeType("application/vnd.android.package-archive");
+            r.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            r.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, apk);
+            long id = dm.enqueue(r);
+            pf.edit().putLong("dl_id", id).putInt("dl_code", rc).apply();
+            toast(act, "내부 " + my + " → " + rc + " 받는 중 — 다 받으면 알림을 눌러 설치하세요\n(처음 한 번은 「이 출처 허용」을 켜야 해요)");
+        } catch (Throwable t) {
+            /* 시스템 다운로드를 못 쓰면(꺼 둠 등) 브라우저로 */
+            android.util.Log.w("Updater", "DownloadManager failed — browser", t);
+            toast(act, "브라우저로 받아요 — 다 받으면 눌러 설치하세요");
+            Intent v = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            v.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            act.startActivity(v);
+        }
         return false;
+    }
+
+    private static int downloadStatus(android.app.DownloadManager dm, long id) {
+        try (android.database.Cursor c = dm.query(new android.app.DownloadManager.Query().setFilterById(id))) {
+            if (c != null && c.moveToFirst())
+                return c.getInt(c.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS));
+        } catch (Throwable ignored) { }
+        return -1;
+    }
+
+    /** 조용한 확인 — 지금 배포 레벨의 새 판이 있으면 그 내부 번호, 없거나 못 닿으면 0. 아무것도 안 띄운다(런처 버튼 표시용). */
+    static int peekNewer(Activity act) {
+        try {
+            byte[] jb = fetch(baseUrl() + "/" + VERSION_INDEX, 8000);
+            JSONObject j = new JSONObject(new String(jb, "UTF-8"));
+            if (testLevel() && j.optJSONObject("test") != null) j = j.getJSONObject("test");
+            int rc = j.getInt("versionCode"), my;
+            try { my = (int) act.getPackageManager().getPackageInfo(act.getPackageName(), 0).getLongVersionCode(); }
+            catch (Throwable t) { my = act.getPackageManager().getPackageInfo(act.getPackageName(), 0).versionCode; }
+            return rc > my ? rc : 0;
+        } catch (Throwable e) {
+            return 0;
+        }
     }
 
     /** 색인만 받아 둔다 — 롬 스캔이 순정 판별(rom_md5)에 쓴다. 색인이 없는 기기에서 스캔이 직접 부른다.

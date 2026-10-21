@@ -1,0 +1,149 @@
+앱 방 코어 패치 zzzzzzzzz_fg_walkcycle — CPU 걷기에 원작 걸음 그림(유저 10-19 「게임 로직 문제란 말이지?」).
+원인: 사무쇼2 CPU 는 다가오거나 물러날 때 걸음 애니메이션의 «첫 장»에서 안 넘어간다 — 같은 캐릭터를 사람이 걸리면 3~4장(시키·아수라는
+①②③④③② 왕복)이 도는데, CPU 는 그 첫 장(서기와 거의 같은 그림)으로 몸만 밀려온다(샬럿 한 번에 72px · 리무루루 87px). 원작도 같다.
+그래서 (P, P) 걸음 그림(zzzzzzzz_fg_glide)에 사람이 걸을 때 나오는 진짜 걸음 장들을 넣고(팩 18차 — 27포즈 + 좌우 짝), 원작 걸음의 차례·한 장 길이·
+첫 바뀜 거리를 캐시 꼬리 걸음 표로 준다: 순환 표 꼬리(SS2L) 바로 앞 [항목×16]['SS2G'][u32 개수], 항목 = u64 포즈, u8 한 장 길이(px),
+u8 차례 수(2~6), u8 첫 바뀜 거리 h0(px, 0 = 1.5 장), u8 차례[1..5](1~3 = ②③④ — 차례[0] 은 늘 P). 168 코어는 이 덩어리를 모르고 지나간다.
+첫 장(P)은 h0 까지 그대로이고 그동안은 하던 대로. h0 = 사람이 그 포즈 한 장으로 가장 길게 간 거리(사람 걸음 14캐릭터 기록·봇 대전의 내 몸에서
+코어와 같은 셈으로 잼 — 아수라 13px · 주베이 17px 등) + 2, 최소 1.5 장. 1.5 장만으로는 아수라·한조·주베이를 사람이 걸을 때 다음 장이
+2~4 프레임 일찍 끼었다. CPU 는 첫 장에 묶여 h0 를 넘기니 그때부터 한 걸음마다. 걸음 장 중에 포즈가 바뀌면 그 장에서 바로 끊는다.
+걸음 표에 없는 (P, P) 는 걸음 그림으로 안 쓴다(168 은 모든 (P, P) 에 8px — 17차 자동 다리 중 갈포드·한조 두 포즈는 내 몸이 밀릴 때도
+15~17px 가 나와 뺌).
+호스트: 사람이 걷는 14캐릭터(CPU 멈춤) — 167 과 출력 같음(걸음 그림 0) · CPU 16판(76,800 출력) — 167 과 다른 641장 = 걸음 그림 640 +
+걸음 끝 바뀜 사이 그림 한 장 ½ 1, 내 몸 걸음 그림 0.
+
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index b6e8251..4b87092 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -1934,6 +1934,14 @@ static uint32_t mc_n = 0;
+ typedef struct { uint64_t sa, sb; uint16_t hold; } mc_loop_t;
+ static mc_loop_t *mc_lp = 0;
+ static uint32_t mc_ln = 0;
++/* zzzzzzzzz_fg_walkcycle: 걸음 표 — (P, P) 걸음 그림을 «원작 걸음 차례»로 돌리는 법. 순환 표 꼬리(SS2L) 바로 앞에
++   [항목 개수×16]['SS2G'][u32 개수] — 항목 = u64 포즈, u8 한 장 길이(px), u8 차례 수(2~6), u8 첫 바뀜 거리 h0(px, 0 = 1.5 장),
++   u8 차례[1..5](1~3 = ②③④ — 차례[0] 은 늘 P 라 적지 않고 그 자리에 h0). 포즈 오름차순.
++   h0 = 사람이 그 포즈 한 장으로 걷는 가장 긴 거리보다 조금 길게 — 사람 걸음(그 포즈가 한 장일 뿐인)에는 걸음 그림이 안 끼게.
++   옛 코어(168)는 순환 표 개수만큼만 읽어 이 덩어리를 모른다 */
++typedef struct { uint64_t sig; uint8_t step, n, h0, ord[6]; } mc_walk_t;
++static mc_walk_t *mc_wk = 0;
++static uint32_t mc_wn = 0;
+ static int      mc_on = 0;
+ #define MC_CN 16                    /* 99w: 8 → 16 */
+ static mc_ent   mc_c[MC_CN];
+@@ -1949,6 +1957,7 @@ void ss2fg_motion_close(void)
+    if (mc_f) fclose(mc_f);
+    mc_f = 0; free(mc_ix); mc_ix = 0; mc_n = 0;
+    free(mc_lp); mc_lp = 0; mc_ln = 0;
++   free(mc_wk); mc_wk = 0; mc_wn = 0;
+    for (i = 0; i < MC_CN; i++) { free(mc_c[i].buf); memset(&mc_c[i], 0, sizeof mc_c[i]); }
+ }
+ /* 반환: 바뀜 수(0 이상), 없거나 틀리면 -1 */
+@@ -1990,6 +1999,32 @@ int ss2fg_motion_open(const char *path)
+             }
+             free(lb);
+          }
++         {  /* zzzzzzzzz_fg_walkcycle: 걸음 표(있으면) — 꼬리 앞 8바이트 'SS2G' u32 개수, 그 앞에 항목 */
++            uint8_t g8[8];
++            long end;
++            if (!fseek(mc_f, 0, SEEK_END) && (end = ftell(mc_f)) > 20 + 16
++                && !fseek(mc_f, end - 20, SEEK_SET) && fread(g8, 1, 8, mc_f) == 8 && !memcmp(g8, "SS2G", 4))
++            {
++               uint32_t wn = mc_rd32(g8 + 4);
++               uint8_t *wb;
++               if (wn && wn < 100000u && end - 20 >= (long)wn * 16 && (wb = (uint8_t *)malloc((size_t)wn * 16)) != 0)
++               {
++                  if (!fseek(mc_f, end - 20 - (long)wn * 16, SEEK_SET) && fread(wb, 16, wn, mc_f) == wn && (mc_wk = (mc_walk_t *)malloc((size_t)wn * sizeof *mc_wk)) != 0)
++                  {
++                     for (i = 0; i < wn; i++)
++                     {
++                        int k, ok = 1;
++                        mc_wk[i].sig = mc_rd64(wb + i * 16); mc_wk[i].step = wb[i * 16 + 8]; mc_wk[i].n = wb[i * 16 + 9];
++                        mc_wk[i].h0 = wb[i * 16 + 10]; mc_wk[i].ord[0] = 0;
++                        for (k = 1; k < 6; k++) { mc_wk[i].ord[k] = wb[i * 16 + 10 + k]; if (mc_wk[i].ord[k] > 3) ok = 0; }
++                        if (mc_wk[i].n < 2 || mc_wk[i].n > 6 || mc_wk[i].step < 2 || mc_wk[i].step > 40 || !ok) mc_wk[i].n = 0;   /* 틀린 항목은 안 씀 */
++                     }
++                     mc_wn = wn;
++                  }
++                  free(wb);
++               }
++            }
++         }
+       }
+    }
+    return (int)n;
+@@ -2006,6 +2041,18 @@ static uint64_t mc_loop_next(uint64_t sa, unsigned *hold)
+    }
+    return 0;
+ }
++/* zzzzzzzzz_fg_walkcycle: 걸음 표에서 포즈 P — 없으면 0 */
++static const mc_walk_t *mc_walk_find(uint64_t sg)
++{
++   int lo = 0, hi = (int)mc_wn - 1;
++   while (lo <= hi)
++   {
++      int mid = (lo + hi) >> 1;
++      if (mc_wk[mid].sig == sg) return mc_wk[mid].n ? &mc_wk[mid] : 0;
++      if (mc_wk[mid].sig < sg) lo = mid + 1; else hi = mid - 1;
++   }
++   return 0;
++}
+ /* 99f: 캐시에 (sa, sb) 항목이 있나 — 색인만 본다(읽지 않음) */
+ static int mc_has(uint64_t sa, uint64_t sb)
+ {
+@@ -2289,11 +2336,10 @@ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+    샬럿 72px · 리무루루 87px · 나코루루 53px 등, 대시는 거의 모두 한 포즈로 22px — 봇 35판). 120Hz 로 몸을 옮기든 원작처럼 디디든
+    다리가 안 움직여 미끄러져 다가온다(유저 10-19 「나에게 다가올 때 문제」·「나코루루 시키 등」·「다시 그리는 방법이 있나」).
+    캐시에 «같은 포즈 → 같은 포즈»(P, P) 항목이 있으면 그 세 장(새로 그린 걸음 그림)을 간 거리로 돌려 그린다:
+-   P → ① → ② → ③ → P … 한 장에 GL_STEP px. 포즈가 바뀔 게 보이면(미리 돌린 D+1·D+2) 바뀜 사이 그림(mc_plan)에 맡긴다.
++   P → ① → ② → ③ → P … 한 장에 걸음 표의 길이(px). 첫 장 동안 포즈가 바뀔 게 보이면(미리 돌린 D+1·D+2) 바뀜 사이 그림(mc_plan)에 맡긴다.
+    세 장은 «앞으로(상대 쪽으로) 걷는» 차례로 그린다 — 상대에게서 멀어지면(뒷걸음) 거꾸로(P → ③ → ② → ① …) 돌려 뒤로 걷게.
+-   첫 걸음은 반 장(GL_STEP/2) 만에 — 짧게 다가와도(샬럿 한 번에 15px 등) 다리가 한 번은 움직이게.
+-   (P, P) 항목이 없으면 아무 일도 안 한다 */
+-#define GL_STEP 8
++   첫 장(P)은 걸음 표의 첫 바뀜 거리(h0)까지 그대로 — 원작 걸음과 같은 박자(zzzzzzzzz_fg_walkcycle).
++   (P, P) 항목이나 걸음 표 항목이 없으면 아무 일도 안 한다(표에 없는 자기 쌍은 걸음 그림으로 안 씀) */
+ static int      gl_mode = 1;                 /* 0 끔 · 1 켬(호스트 시험 SS2_GLIDE) */
+ static uint64_t gl_sig[2];                   /* 거리를 재는 포즈 */
+ static int      gl_dist[2];                  /* 그 포즈로 땅 위에서 간 거리(px) — 상대 쪽 +, 멀어지는 쪽 − */
+@@ -2317,7 +2363,7 @@ static void gl_observe(const ss2fg_frame *f, int p, uint64_t sg, unsigned realn)
+    }
+    gl_wx[p] = f->wx[p];
+ }
+-/* 반환: 1 = 걸음 그림을 계획함 · -1 = 걷는 중이지만 이번 장은 원래 포즈(다른 사이 그림도 안 씀) · 0 = 해당 없음 */
++/* 반환: 1 = 걸음 그림을 계획함 · 0 = 해당 없음(첫 장 포함 — 하던 대로 다른 사이 그림) */
+ static int gl_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_frame *f2, unsigned realn, int slot, int p)
+ {
+    uint8_t mm[64];
+@@ -2332,16 +2378,27 @@ static int gl_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+    {
+       const ss2fg_frame *g = k == 1 ? f1 : f2;
+       if (!g || !g->valid || g->mono || !g->body_ok || !body_mask(g, p, mm)) break;
+-      if (body_sig(g, mm) != id_cur[p]) return 0;             /* 곧 다른 포즈 — 바뀜 사이 그림으로 */
++      if (body_sig(g, mm) != id_cur[p]) break;   /* 곧 다른 포즈 — 첫 장(P)이면 바뀜 사이 그림, 걸음 장이면 그 장 그대로(바뀌면 끊김) */
+       if (g->wx[p] != f0->wx[p] && (g->st[p] & 0xE0) == 0x20) moving = 1;
+    }
+    if (gl_mv[p] && realn - gl_mv[p] <= 6u) moving = 1;      /* 걸음 사이 쉼(4 프레임)도 걷는 중 */
+    if (!moving) return 0;
+    {
+-      int q = gl_dist[p] + GL_STEP / 2;
+-      ph = (q >= 0 ? q / GL_STEP : -((-q + GL_STEP - 1) / GL_STEP)) & 3;   /* 내림 나눗셈 — 뒷걸음은 ③ ② ① */
++      /* zzzzzzzzz_fg_walkcycle: 걸음 표의 원작 걸음 한 장 길이·차례(나코루루 ①②③ · 시키 ①②③④③② 등). 표에 없으면 안 그림 */
++      const mc_walk_t *wk = mc_wn ? mc_walk_find(id_cur[p]) : 0;
++      int st, nn, d = gl_dist[p], ad = d < 0 ? -d : d, h0;
++      if (!wk) return 0;
++      st = wk->step; nn = wk->n; h0 = wk->h0 ? wk->h0 : st + st / 2;
++      /* 첫 장(P)은 h0 까지 — 원작 걸음도 첫 장을 한 걸음 보이고, 사람이 걸을 땐 거기서 다음 장으로 넘어간다. 그 포즈를
++         사람이 한 장으로 가장 길게 간 거리(포즈마다 다름: 아수라 13px · 주베이 17px 등 — 한 걸음 반을 넘는 것도 있었다)보다
++         길어야 걸음 장을 그린다 — 그 전에 그리면 사람 걸음에 다음 장이 몇 프레임 일찍 끼었다.
++         CPU 는 첫 장에 묶여 h0 를 넘기니 그때부터 한 걸음마다. 뒷걸음도 같은 길이로 거꾸로 */
++      k = ad < h0 ? 0 : 1 + (ad - h0) / st;
++      if (d < 0) k = -k;
++      k %= nn; if (k < 0) k += nn;
++      ph = wk->ord[k];
+    }
+-   if (!ph) { if (slot == 0) gl_stats[0]++; return -1; }
++   if (!ph) { if (slot == 0) gl_stats[0]++; return 0; }   /* 첫 장 동안은 하던 대로(사람 걸음의 다음 장 사이 그림 펴기를 막지 않게) */
+    if (!(e = mc_get(id_cur[p], id_cur[p]))) return 0;
+    A = id_find_pose(p, id_cur[p]);
+    if (!A || A->w != e->aw || A->h != e->ah || A->w != e->bw || A->h != e->bh || e->bdx || e->bdy) { mc_stats[3]++; return 0; }

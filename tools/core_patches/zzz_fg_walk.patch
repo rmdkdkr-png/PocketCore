@@ -1,0 +1,142 @@
+앱 방 코어 패치 zzz_fg_walk — 대전 중 걷는 몸도 «멀리 미리 보기»(99v, 그동안은 대전 밖·제자리만)로 다음 다리 포즈와 바뀌는 때를
+찾아, 첫 걸음부터 한 걸음 내내 다리 사이 그림을 ¼→½→¾ 로 편다.
+원작 걷기는 몸이 계속 가는데 다리 포즈는 14 프레임씩(앞으로 걷기 실측) 붙잡는다 — 30Hz 로 툭툭 갈 땐 걸음처럼 보였지만 120Hz 로 몸만
+매끄러우면 스케이트처럼 미끄러져 보였다(유저 2026-10-17 「앞으로 걸을 때 미끄러지는 듯 오는 문제는 여전히 존재」). 한 걸음 내내 펴기
+(99·99b·99k)는 다음 포즈를 알아야 하는데, 배운 순환은 같은 바뀜을 두 번씩 봐야 하고(걷기 두 바퀴 ≈ 2초 동안 없음) 캐시 순환 표엔
+없는 걷기가 많아, 짧은 걷기는 바뀌기 직전 2 프레임에만 사이 그림이 나왔다.
+걷는 몸 = 대전(241) · 선수 자세 서기(0x59C9+0x200p & 0xE0 == 0x20, 앱 practice.c 와 같은 주소) · 조작 가능(0x59CE+0x200p == 0) ·
+세계 x(물체 +0x38)가 2 프레임 안에 감 · y 그대로. 미리 보기는 지금 입력 그대로 돌리고, 세계 x 가 한 프레임 4 넘게 뛰거나 자세·조작·
+캐릭터·y 가 바뀌면 멈춘다. 입력이 바뀌면 버린다(그때는 미리 돌린 D+1·D+2 로 보던 대로).
+호스트: 앞으로 걷기 걸음마다 4번째 프레임부터 ¼·½·¾ (전: 마지막 2 프레임만), 뒤로 걷기·상대(P2) 걷기도. 봇 대전 7판 — 걷는 장면만
+다르고(다리가 걸음 내내 바뀜, 깨짐 없음) 나머지 같음. 미리 보기 칸은 하나라 둘이 같이 걸으면 P1 먼저.
+
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index a9471ed..b13a2fe 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -83,6 +83,7 @@ static void resolve_chain(ss2fg_frame *f)
+ #define FG_RAM_CAMX   0x176D
+ #define FG_RAM_SCR    0x01C0      /* 99s: 화면 번호 — 0 제목·2 캐릭터 고르기·4 검질 고르기·6 카드·8~ 판 시작 전 */
+ #define FG_RAM_OBJ    0x0E00
++#define FG_RAM_PL     0x1980      /* zzz_fg_walk: 선수 블록 P1(0x5980, P2 = +0x200) — 앱 practice.c 의 PB(p) 와 같은 주소 */
+ static const uint8_t *fg_ram = 0;
+ void ss2fg_set_ram(const uint8_t *ram) { fg_ram = ram; }
+ static int id_on;                 /* 서기 사이 그림(아래 «서기 자세») 켬 */
+@@ -125,6 +126,15 @@ static void capture_body(ss2fg_frame *f, const ss2fg_frame *pv)   /* pv = 직전
+    for (k = 0; k < 2; k++) f->ch_now[k] = fg_ram ? fg_ram[FG_RAM_OBJ + 0x40 * k + 0x3C] : 0;
+    f->pick = pv && pv->valid ? pv->pick_now : f->pick_now;
+    for (k = 0; k < 2; k++) f->ch[k] = pv && pv->valid ? pv->ch_now[k] : f->ch_now[k];
++   for (k = 0; k < 2; k++)
++   {  /* zzz_fg_walk */
++      f->wx_now[k] = fg_ram ? fg_ram[FG_RAM_OBJ + 0x40 * k + 0x38] : 0;
++      f->st_now[k] = fg_ram ? fg_ram[FG_RAM_PL + 0x200 * k + 0x49] : 0;
++      f->ct_now[k] = fg_ram ? fg_ram[FG_RAM_PL + 0x200 * k + 0x4E] : 0xFF;
++      f->wx[k] = pv && pv->valid ? pv->wx_now[k] : f->wx_now[k];
++      f->st[k] = pv && pv->valid ? pv->st_now[k] : f->st_now[k];
++      f->ct[k] = pv && pv->valid ? pv->ct_now[k] : f->ct_now[k];
++   }
+ }
+ 
+ void ss2fg_capture_end(const uint8_t *scroll, const uint8_t *chr, const uint8_t *spr,
+@@ -1482,6 +1492,8 @@ static struct {                   /* 99v: 멀리 미리 보기(대전 밖) */
+    uint64_t done_from[2];         /* 이 머묾은 이미 찾아봄 */
+    unsigned done_start[2];
+    ss2fg_frame last, fk;          /* 미리 본 마지막 캡처(다음에 이어 돌릴 때 «직전») · 뒤 포즈가 나온 캡처 */
++   int walk;                      /* zzz_fg_walk: 대전 중 걷는 몸 — 자리는 움직여도 되고(세계 x 가 한 프레임 4 안), 땅·서기·조작 가능일 동안 */
++   uint8_t lwx;                   /* zzz_fg_walk: 미리 본 마지막 세계 x */
+ } pb;
+ static unsigned   id_cht[2];         /* 99s: 그 번호가 바뀐 프레임 */
+ static int        id_ax[2], id_ay[2], id_still[2];
+@@ -2130,7 +2142,7 @@ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+          if (sg != id_cur[p]) { sb = sg; K = k; fk = g; seen34 = 1; break; }
+       }
+    }
+-   if (!K && !f0->fight && pb.found && pb.p == p && pb.from == id_cur[p] && pb.start == id_start[p] && pb.at > realn + 2u && pb.at - realn <= (unsigned)PB_MAX
++   if (!K && (!f0->fight || pb.walk) && pb.found && pb.p == p && pb.from == id_cur[p] && pb.start == id_start[p] && pb.at > realn + 2u && pb.at - realn <= (unsigned)PB_MAX
+        && body_mask(&pb.fk, p, mm))
+    {  /* 99v: 대전 밖 멀리 미리 보기로 찾은 뒤 포즈 — 바뀔 때까지의 실제 길이로 고르게(99o 와 같은 길) */
+       sb = pb.sb; K = (int)(pb.at - realn); fk = &pb.fk; seen34 = 1;
+@@ -2235,6 +2247,12 @@ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+ /* 99v: 멀리 미리 보기 */
+ static void probe_clear(void) { pb.on = pb.found = 0; pb.done_from[0] = pb.done_from[1] = 0; }
+ void ss2fg_probe_reset(void) { pb.on = pb.found = 0; }
++/* zzz_fg_walk: 몸 p 가 이 프레임 «걸을 수 있는» 상태인가 — 대전, 땅에 선 자세(앉기·공중 아님), 조작 가능(맞고 밀림·가드 경직 아님) */
++static int walk_ok(const ss2fg_frame *f, int p)
++{
++   return f && f->valid && f->fight && f->body_ok && (f->st[p] & 0xE0) == 0x20 && f->ct[p] == 0;
++}
++static int wx_step(uint8_t a, uint8_t b) { int d = (int8_t)(uint8_t)(b - a); return d < 0 ? -d : d; }
+ static void probe_check(const ss2fg_frame *f)
+ {
+    uint8_t mm[64];
+@@ -2242,15 +2260,21 @@ static void probe_check(const ss2fg_frame *f)
+    pb.pos++;
+    if (!pb.on || pb.found) return;
+    if (!f->valid || f->mono || !f->body_ok || !body_mask(f, pb.p, mm)) { pb.on = 0; return; }      /* 몸이 없어짐 */
+-   if (f->ob_x[pb.p] != pb.ax || f->ob_y[pb.p] != pb.ay || f->ch[pb.p] != pb.ch) { pb.on = 0; return; }   /* 움직이기 시작·캐릭터 바뀜 */
++   if (pb.walk)
++   {  /* zzz_fg_walk: 걷는 몸 — 자리는 가도 되지만 땅·선 자세·조작 가능·같은 캐릭터, 세계 x 는 한 프레임 4 안 */
++      if (f->ob_y[pb.p] != pb.ay || f->ch[pb.p] != pb.ch || !walk_ok(f, pb.p) || wx_step(pb.lwx, f->wx[pb.p]) > 4) { pb.on = 0; return; }
++      pb.lwx = f->wx[pb.p];
++   }
++   else if (f->ob_x[pb.p] != pb.ax || f->ob_y[pb.p] != pb.ay || f->ch[pb.p] != pb.ch) { pb.on = 0; return; }   /* 움직이기 시작·캐릭터 바뀜 */
+    s = body_sig(f, mm);
+    if (s != pb.from) { pb.found = 1; pb.on = 0; pb.sb = s; pb.at = pb.pos; pb.fk = *f; }
+ }
+ int ss2fg_probe_want(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_frame *f2, unsigned realn, int input)
+ {
+    int p;
+-   if (!id_on || !mc_on || !mc_f || !f0 || !f0->valid || f0->mono || !f0->body_ok || f0->fight) { pb.on = pb.found = 0; return 0; }
++   if (!id_on || !mc_on || !mc_f || !f0 || !f0->valid || f0->mono || !f0->body_ok) { pb.on = pb.found = 0; return 0; }
+    if ((pb.on || pb.found) && (input != pb.input || id_cur[pb.p] != pb.from || id_start[pb.p] != pb.start)) pb.on = pb.found = 0;
++   if ((pb.on || pb.found) && f0->fight && !pb.walk) pb.on = pb.found = 0;   /* 제자리 미리 보기는 대전 밖만(99v) */
+    if (pb.found) return 0;
+    if (pb.on)
+    {
+@@ -2260,16 +2284,28 @@ int ss2fg_probe_want(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_f
+    for (p = 0; p < 2; p++)
+    {
+       uint8_t mm[64];
+-      int k, same = 1;
+-      if (!id_cur[p] || !id_still[p] || f0->ob_x[p] != id_ax[p] || f0->ob_y[p] != id_ay[p]) continue;
++      int k, same = 1, walk = 0;
++      if (!id_cur[p]) continue;
+       if (pb.done_from[p] == id_cur[p] && pb.done_start[p] == id_start[p]) continue;
++      if (f0->fight)
++      {  /* zzz_fg_walk: 대전 중엔 걷는 몸만 — 원작 걷기는 몸이 프레임마다 1px 씩 가는데 다리 포즈는 14 프레임씩 붙잡아(앞으로 걷기 실측),
++            120Hz 로 몸만 매끄러우면 스케이트처럼 미끄러져 보였다(유저 2026-10-17 「앞으로 걸을 때 미끄러지는 듯 오는 문제는 여전히 존재」).
++            걸음 내내 다리 사이 그림을 펴려면(패치 99) 다음 포즈를 미리 알아야 하는데, 배운 순환은 두 바퀴를 봐야 하고 캐시 순환 표엔 없는 걷기가 많았다.
++            → 지금 입력 그대로 몰래 더 돌려 다음 다리 포즈와 바뀌는 때를 찾는다(대전 밖 99v 와 같은 길) */
++         if (!walk_ok(f0, p) || f0->ob_y[p] != id_ay[p]) continue;
++         walk = 1;
++      }
++      else if (!id_still[p] || f0->ob_x[p] != id_ax[p] || f0->ob_y[p] != id_ay[p]) continue;
+       for (k = 1; k <= 2 && same; k++)
+       {
+          const ss2fg_frame *g = k == 1 ? f1 : f2;
+-         if (!g || !g->valid || g->mono || !g->body_ok || !body_mask(g, p, mm) || g->ob_x[p] != id_ax[p] || g->ob_y[p] != id_ay[p]
+-             || body_sig(g, mm) != id_cur[p]) same = 0;
++         if (!g || !g->valid || g->mono || !g->body_ok || !body_mask(g, p, mm) || body_sig(g, mm) != id_cur[p]) same = 0;
++         else if (walk ? (g->ob_y[p] != id_ay[p] || !walk_ok(g, p) || wx_step(f0->wx[p], g->wx[p]) > 8)
++                       : (g->ob_x[p] != id_ax[p] || g->ob_y[p] != id_ay[p])) same = 0;
+       }
+       if (!same) continue;                                   /* 바뀜이 이미 보임 */
++      if (walk && f2->wx[p] == f0->wx[p]) continue;          /* 서 있음(숨쉬기는 서기 그리기) — 걷기는 2 프레임 안에 세계 x 가 간다 */
++      pb.walk = walk; pb.lwx = walk ? f2->wx[p] : 0;
+       pb.p = p; pb.from = id_cur[p]; pb.start = id_start[p]; pb.ax = id_ax[p]; pb.ay = id_ay[p]; pb.ch = f0->ch[p]; pb.input = input;
+       pb.done_from[p] = id_cur[p]; pb.done_start[p] = id_start[p];
+       pb.found = 0;
+diff --git a/src/ss2fg.h b/src/ss2fg.h
+index d5622ba..eba6b2c 100644
+--- a/src/ss2fg.h
++++ b/src/ss2fg.h
+@@ -61,6 +61,9 @@ typedef struct ss2fg_frame {
+    uint8_t fight, pad2;            /* 99r: 대전 모드(241) — 고르기 화면·판 시작 전(240)과 가른다 */
+    uint8_t pick_now, pick;         /* 99s: 고르기 화면 번호(모드 240 의 2 캐릭터·4 검질, 아니면 0) — 미리보기 몸 하나가 커서 따라 캐릭터를 갈아입는다 */
+    uint8_t ch_now[2], ch[2];       /* 99s: 몸 0·1 의 캐릭터 번호(물체 +0x3C — 고르기 화면에선 커서 번호×4) */
++   uint8_t wx_now[2], wx[2];       /* zzz_fg_walk: 몸 0·1 의 세계 x(물체 +0x38 — 카메라가 따라가도 걷기를 안다) */
++   uint8_t st_now[2], st[2];       /* zzz_fg_walk: 선수 자세(0x59C9+0x200p: 0x20 서기 · 0x40 앉기 · 0x80 공중 | 가드 0x10·0x08) */
++   uint8_t ct_now[2], ct[2];       /* zzz_fg_walk: 선수 조작(0x59CE+0x200p: 0 = 지금 움직일 수 있다 — 대시·점프·맞음·가드 경직·동작 중이면 0 아님) */
+ } ss2fg_frame;
+ 
+ /* ── 캡처 ── */

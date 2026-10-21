@@ -1,0 +1,416 @@
+앱 방 코어 패치 zzz_fg_phase — 프레임 패치 4배 그림(640×608)에 «쪽지»를 붙여 내보낸다: 4배 화소마다 그 화소를 낸 원래(1배) 화소의
+4×4 칸이 4배 모눈에서 몇 칸 비켜 시작하나(x 0..3 | y 0..3 << 2). retro_ngp_fg_phase(w, h, pitch) 로 앱이 video 콜백 안에서 가져가
+화면 필터(업스케일러·격자·스캔라인)를 화소마다 제 모눈으로 돌린다 — 전엔 게임 칸마다 가운데 한 점만 읽어(업스케일러는 1배로 줄여)
+¼·½ px 자리가 0 으로 반올림됐다(유저 2026-10-17 「필터를 켜면 그리 된다는 게 말이 되나」 → 「해봐」). 그림(색)은 그대로.
+적는 곳: 4배 내보내기(ss2fg_idle_compose_ph — 1배 줄 0 · ¼ px 옮긴 앞/뒤 플레인 -r) · 몸·이펙트 조각(id_build — 지금 포즈 0,
+서기 사이 그림 id_draw 블록 시작, 캐시 사이 그림 mc_draw 칸마다 -이동, 놓은 자리 sh4 더함 · 붙은 조각 r4). 호스트 3000 장: 같은 쪽지의
+같은 블록 안 색이 다른 곳 0.0009%(섞기 연출뿐).
+
+diff --git a/src/libretro.c b/src/libretro.c
+index 9706451..a68916a 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -897,6 +897,11 @@ static void pf_apply(uint16_t *buf, int scale, int pitch, int y0)
+    }
+ }
+ static uint16_t idle_out4[(FB_WIDTH * 4) * (FB_HEIGHT * 4)];
++/* zzz_fg_phase: 방금 내보낸 4배 그림의 화소마다 원래 모눈 어긋남(x | y << 2) — 앱이 retro_ngp_fg_phase 로 가져가
++   화면 필터(업스케일러·격자)를 화소마다 제 모눈으로 돌린다. 1배 그림을 내보낸 프레임엔 idle_ph_ok = 0 */
++static uint8_t idle_ph4[(FB_WIDTH * 4) * (FB_HEIGHT * 4)];
++static int idle_ph_ok = 0;
++static unsigned idle_ph_w = 0, idle_ph_h = 0;
+ static int fg_predict4(int ra)
+ {
+    int k, mp0, m01, m12, Ks, Ls, Kb, Lb, rel, extra = 0, p;
+@@ -1899,6 +1904,7 @@ void retro_run(void)
+       ss2comm_side(ss2_wide + SS2_SIDE_W + width, SS2_WIDE_W, SS2_SIDE_W, (int)height, 1);
+       if (ss2_paused)
+          ss2comm_overlay_draw(ss2_wide + SS2_SIDE_W, SS2_WIDE_W, (int)width, (int)height);
++      idle_ph_ok = 0;
+       video_cb(ss2_wide, SS2_SIDE_W * 2 + width, height, SS2_WIDE_W * 2);
+    }
+    else
+@@ -1907,15 +1913,17 @@ void retro_run(void)
+          ss2comm_overlay_draw((uint16_t *)surf->pixels, FB_WIDTH, (int)width, (int)height);
+       if (idle_opt && ss2comm_rom_is_ss2() && !hidden && width == FB_WIDTH && height == FB_HEIGHT)
+       {  /* 서기 사이 그림 — 4배로 늘리고 이번 출력의 조각을 붙여 640×608 로 */
+-         ss2fg_idle_compose(idle_out4, FB_WIDTH * 4, (const uint16_t *)surf->pixels, FB_WIDTH, (int)width, (int)height, idle_out_slot);
++         ss2fg_idle_compose_ph(idle_out4, idle_ph4, FB_WIDTH * 4, (const uint16_t *)surf->pixels, FB_WIDTH, (int)width, (int)height, idle_out_slot);
+          if (!ss2_paused) pf_apply(idle_out4, 4, FB_WIDTH * 4, 0);   /* 99n */
+          if (!ss2_paused) fl_apply(idle_out4, (int)width * 4, (int)height * 4, FB_WIDTH * 4);   /* 99l */
++         idle_ph_ok = 1; idle_ph_w = width * 4; idle_ph_h = height * 4;
+          video_cb(idle_out4, width * 4, height * 4, FB_WIDTH * 4 * 2);
+       }
+       else
+       {
+          if (!ss2_paused && !hidden) pf_apply((uint16_t *)surf->pixels, 1, FB_WIDTH, ss2comm_band_top() ? ss2comm_band_h() : 0);   /* 99n */
+          if (!ss2_paused && !hidden) fl_apply((uint16_t *)surf->pixels, (int)width, (int)height, FB_WIDTH);   /* 99l */
++         idle_ph_ok = 0;
+          video_cb(surf->pixels, width, height, FB_WIDTH * 2);
+       }
+    }
+@@ -2141,6 +2149,17 @@ void *retro_get_memory_data(unsigned type)
+    return NULL;
+ }
+ 
++/* zzz_fg_phase: 방금 video_cb 로 낸 그림이 4배(서기 사이 그림)면 화소마다의 원래 모눈 어긋남(x 0..3 | y 0..3 << 2, 피치 *pitch 바이트) —
++   앱이 video 콜백 안에서 부른다. 1배 그림이면 NULL */
++const uint8_t *retro_ngp_fg_phase(unsigned *w, unsigned *h, unsigned *pitch)
++{
++   if (!idle_ph_ok) return NULL;
++   if (w) *w = idle_ph_w;
++   if (h) *h = idle_ph_h;
++   if (pitch) *pitch = FB_WIDTH * 4;
++   return idle_ph4;
++}
++
+ /* debug export: 프레임 생성 배관 상태 (스모크 하네스용) */
+ void retro_ngp_fg_state(int *active, int *phase, unsigned *frames)
+ {
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index ceef38c..a9471ed 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -1443,7 +1443,9 @@ typedef struct { int on; id_pair *pr; int t256, ax, ay;
+                  int gx, gy, gw, gh, depth, first; /* 4배 조각 틀: 몸 자리 기준 왼쪽 위·크기(1배), 깊이, 첫 슬롯 */
+                  int sx4, sy4;                /* 캐시 사이 그림을 더 미는 양(4배 화소) — 포즈 자리 어긋남을 t 만큼 나눠 메운다(패치 99c) */
+                } id_req_t;
+-typedef struct { int on, x0, y0, w, h; uint16_t px[(ID_W * ID_S) * (ID_H * ID_S)]; } id_patch_t;
++typedef struct { int on, x0, y0, w, h; uint16_t px[(ID_W * ID_S) * (ID_H * ID_S)];
++                 uint8_t ph[(ID_W * ID_S) * (ID_H * ID_S)];   /* zzz_fg_phase: 화소마다 원래 모눈의 ¼ 어긋남(x | y << 2) */
++               } id_patch_t;
+ 
+ static id_pose    id_pose_c[2][ID_POSES];
+ static id_pair    id_pair_c[2][ID_PAIRS];
+@@ -1490,6 +1492,11 @@ static id_patch_t id_pt[2][ID_NR];
+ static int        id_slot = -1;              /* 지금 그리는 출력 칸(ss2fg_render2 가 본다) */
+ static uint16_t   id_tc[(ID_W * ID_S) * (ID_H * ID_S)];
+ static uint16_t   id_la[(ID_W * ID_S) * (ID_H * ID_S)], id_lb[(ID_W * ID_S) * (ID_H * ID_S)];
++/* zzz_fg_phase: 4배 그림 화소마다 «그 화소를 낸 원래(1배) 화소의 4×4 칸이 4배 모눈에서 몇 칸 비켜 시작하나»(x 0..3 | y 0..3 << 2).
++   앱 화면 필터(업스케일러·격자)가 화소마다 제 모눈으로 원래 화소를 읽어 ¼ px 자리를 안 잃게 — 1배로 줄이면 ¼·½ 이 0 으로 반올림됐다 */
++static uint8_t    id_tcp[(ID_W * ID_S) * (ID_H * ID_S)];
++static uint8_t    id_lap[(ID_W * ID_S) * (ID_H * ID_S)], id_lbp[(ID_W * ID_S) * (ID_H * ID_S)];
++#define PH4(x, y) ((uint8_t)(((x) & 3) | (((y) & 3) << 2)))
+ static int        id_stats[6];               /* 계기: [0] 배운 바뀜 [1] 계획 [2] 패치 [3] 미리 본 다른 포즈 [4] 이동표 [5] 그림 */
+ 
+ void ss2fg_set_idle(int on)
+@@ -1829,11 +1836,13 @@ static int id_rnd(int num)                     /* num / 256 반올림(음수 대
+ /* 사이 그림(4배 격자) — A 화소는 t·(A→B), B 화소는 (1−t)·(B→A) 만큼 옮겨 찍고, 반 넘으면 B 를 위로.
+    위 그림의 «틈»(좌우나 위아래 양쪽 한 도트 안에 위 그림이 있는 빈칸)만 아래 그림으로 메운다 — 새 자리로 간 큰 부분은
+    안 메워 두 번 보이지 않게 */
+-static void id_draw(const id_pair *pr, int t256, uint16_t *out)
++static void id_draw(const id_pair *pr, int t256, uint16_t *out, uint8_t *oph)
+ {
+    int W4 = pr->w * ID_S, H4 = pr->h * ID_S, x, y, n = W4 * H4, i;
+    uint16_t *top, *und;
++   const uint8_t *topp, *undp;
+    for (i = 0; i < n; i++) id_la[i] = id_lb[i] = ID_NONE;
++   memset(id_lap, 0, (size_t)n); memset(id_lbp, 0, (size_t)n);
+    for (y = 0; y < pr->h; y++)
+       for (x = 0; x < pr->w; x++)
+       {
+@@ -1842,21 +1851,25 @@ static void id_draw(const id_pair *pr, int t256, uint16_t *out)
+          {
+             X = x * ID_S + id_rnd(ID_S * pr->dax[q] * t256); Y = y * ID_S + id_rnd(ID_S * pr->day[q] * t256);
+             for (b = 0; b < ID_S; b++) for (a = 0; a < ID_S; a++)
+-               if (X + a >= 0 && Y + b >= 0 && X + a < W4 && Y + b < H4) id_la[(Y + b) * W4 + X + a] = pr->ca[q];
++               if (X + a >= 0 && Y + b >= 0 && X + a < W4 && Y + b < H4)
++               { id_la[(Y + b) * W4 + X + a] = pr->ca[q]; id_lap[(Y + b) * W4 + X + a] = PH4(X, Y); }
+          }
+          if (pr->cb[q] != ID_NONE)
+          {
+             X = x * ID_S - id_rnd(ID_S * pr->dbx[q] * (256 - t256)); Y = y * ID_S - id_rnd(ID_S * pr->dby[q] * (256 - t256));
+             for (b = 0; b < ID_S; b++) for (a = 0; a < ID_S; a++)
+-               if (X + a >= 0 && Y + b >= 0 && X + a < W4 && Y + b < H4) id_lb[(Y + b) * W4 + X + a] = pr->cb[q];
++               if (X + a >= 0 && Y + b >= 0 && X + a < W4 && Y + b < H4)
++               { id_lb[(Y + b) * W4 + X + a] = pr->cb[q]; id_lbp[(Y + b) * W4 + X + a] = PH4(X, Y); }
+          }
+       }
+    top = t256 < 128 ? id_la : id_lb; und = t256 < 128 ? id_lb : id_la;
++   topp = t256 < 128 ? id_lap : id_lbp; undp = t256 < 128 ? id_lbp : id_lap;
+    for (y = 0; y < H4; y++)
+       for (x = 0; x < W4; x++)
+       {
+          int o = y * W4 + x, k, l = 0, r = 0, u = 0, d = 0;
+          out[o] = top[o];
++         if (oph) oph[o] = topp[o];
+          if (top[o] != ID_NONE || und[o] == ID_NONE) continue;
+          for (k = 1; k <= ID_S; k++)
+          {
+@@ -1865,7 +1878,7 @@ static void id_draw(const id_pair *pr, int t256, uint16_t *out)
+             if (y - k >= 0 && top[o - k * W4] != ID_NONE) u = 1;
+             if (y + k < H4 && top[o + k * W4] != ID_NONE) d = 1;
+          }
+-         if ((l && r) || (u && d)) out[o] = und[o];
++         if ((l && r) || (u && d)) { out[o] = und[o]; if (oph) oph[o] = undp[o]; }
+       }
+ }
+ 
+@@ -2033,7 +2046,7 @@ static mc_ent *mc_get(uint64_t sa, uint64_t sb)
+ }
+ static int mc_fdiv(int a) { return a >= 0 ? a / ID_S : -((-a + ID_S - 1) / ID_S); }
+ /* 캐시 사이 그림(4배 틀) — 칸마다 저장된 이동으로 A 나 B 의 그림 화소(팔레트·색 번호)를 그대로 가져온다 */
+-static void mc_draw(const mc_ent *e, int ti, const id_pose *A, const id_pose *B, uint16_t *out)
++static void mc_draw(const mc_ent *e, int ti, const id_pose *A, const id_pose *B, uint16_t *out, uint8_t *oph)
+ {
+    int W4 = e->w * ID_S, x, y, a, b, idx = 0;
+    uint8_t cfx = 0, cfy = 0;                       /* 이동은 앞 칸과의 차로 저장 — 누적(mod 256) */
+@@ -2047,6 +2060,7 @@ static void mc_draw(const mc_ent *e, int ti, const id_pose *A, const id_pose *B,
+          if (!((reg[c >> 3] >> (c & 7)) & 1))
+          {
+             for (b = 0; b < ID_S; b++) for (a = 0; a < ID_S; a++) out[(y * ID_S + b) * W4 + x * ID_S + a] = ID_NONE;
++            if (oph) for (b = 0; b < ID_S; b++) memset(oph + (y * ID_S + b) * W4 + x * ID_S, 0, ID_S);
+             continue;
+          }
+          i = idx++;
+@@ -2063,6 +2077,8 @@ static void mc_draw(const mc_ent *e, int ti, const id_pose *A, const id_pose *B,
+                if (sx >= 0 && sy >= 0 && sx < P->w && sy < P->h) v = P->c[sy * P->w + sx];
+                out[(y * ID_S + b) * W4 + x * ID_S + a] = v;
+             }
++         if (oph)   /* 이 칸은 원래 화소 경계가 4배 X ≡ -fx (mod 4) 에 온다 */
++            for (b = 0; b < ID_S; b++) memset(oph + (y * ID_S + b) * W4 + x * ID_S, PH4(-fx, -fy), ID_S);
+       }
+ }
+ /* 몸 p 의 그림 왼쪽 위(몸 조각 최소 − 물체 자리) — 포즈 그림(id_capture)과 같은 셈. 몸이 없으면 0 */
+@@ -2440,6 +2456,7 @@ static const ss2fg_frame *fx_fp = 0;
+ static fx_req_t fx_rq[2][FX_N];
+ static id_pose  fx_pa[2][FX_N], fx_pb[2][FX_N];
+ static uint16_t fx_tc[FX_N][(ID_W * ID_S) * (ID_H * ID_S)];
++static uint8_t  fx_tcp[FX_N][(ID_W * ID_S) * (ID_H * ID_S)];   /* zzz_fg_phase */
+ static int      fx_st[4];                 /* QA: [0] 바뀜 [1] 캐시 있음 [2] 계획 [3] 그림 */
+ void ss2fg_fx_prev(const ss2fg_frame *fp) { fx_fp = fp; fx_g_realn = 0xFFFFFFFFu; }
+ static void fx_reset_slot(int slot) { int i; for (i = 0; i < FX_N; i++) fx_rq[slot][i].on = 0; }
+@@ -2947,9 +2964,10 @@ int ss2fg_flash_frame(const ss2fg_frame *f, uint16_t *c12)
+ }
+ 
+ /* 99i: 지금 포즈 그대로 4배로(사이 그림 없이 ¼ px 자리만 옮길 때) */
+-static void id_draw_self(const id_pose *P, uint16_t *out)
++static void id_draw_self(const id_pose *P, uint16_t *out, uint8_t *oph)
+ {
+    int W4 = P->w * ID_S, x, y, a, b;
++   if (oph) memset(oph, 0, (size_t)W4 * (size_t)(P->h * ID_S));   /* 지금 포즈 그대로 — 그림 안 모눈은 0, 자리 어긋남은 놓는 곳(sh4)에서 */
+    for (y = 0; y < P->h; y++)
+       for (x = 0; x < P->w; x++)
+       {
+@@ -2968,7 +2986,8 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+       예전엔 조각마다 자기 몸만 빼고 다른 몸은 1배 그림(사이 그림 없는 자리) 그대로 둬서, 두 몸이 겹치면
+       뒤에 붙인 조각이 앞 몸의 사이 그림을 덮어 그 부분만 사이 그림이 빠졌다(¼ px 몸 조각을 늘 그리면 자주 생김) */
+    static uint16_t id_tc2[(ID_W * ID_S) * (ID_H * ID_S)];
+-   struct { int on, W4, gh, ux0, uy0, sh4x, sh4y, x0, y0, x1, y1, depth, first, cur, r4x, r4y, an, ax0, ay0, ax1, ay1; const uint16_t *img; uint8_t m[64]; } dr[ID_NR];   /* 99w: 몸 둘 + 이펙트 */
++   static uint8_t  id_tc2p[(ID_W * ID_S) * (ID_H * ID_S)];   /* zzz_fg_phase */
++   struct { int on, W4, gh, ux0, uy0, sh4x, sh4y, x0, y0, x1, y1, depth, first, cur, r4x, r4y, an, ax0, ay0, ax1, ay1; const uint16_t *img; const uint8_t *iph; uint8_t m[64]; } dr[ID_NR];   /* 99w: 몸 둘 + 이펙트 */
+    id_req_t self[2];
+    uint8_t skip[64], zrow[256], szr[256], bm[2][64], am[2][64];
+    static uint16_t al_c[2][ID_W * ID_H];                      /* 99r: 붙은 조각만 그린 1배 그림(색·깊이·슬롯) */
+@@ -2988,6 +3007,7 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+    {
+       const id_req_t *rq = &id_rq[s][p];
+       uint16_t *img = p ? id_tc2 : id_tc;
++      uint8_t *iph = p ? id_tc2p : id_tcp;
+       int mvx = 0, mvy = 0, r4x = 0, r4y = 0;
+       if (!rq->on && !fg_ex_on[p]) continue;
+       if (!body_mask(base, p, dr[p].m)) continue;
+@@ -3077,10 +3097,10 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+          else memset(am[p], 0, sizeof am[p]);
+       }
+       if (rq->gw * ID_S * rq->gh * ID_S > (int)(sizeof id_tc / sizeof id_tc[0])) continue;
+-      if (rq->kind == 1) { mc_draw(rq->e, rq->ti, rq->A, rq->B, img); mc_stats[2]++; }
+-      else if (rq->kind == 2) id_draw_self(rq->A, img);
+-      else id_draw(rq->pr, rq->t256, img);
+-      dr[p].W4 = rq->gw * ID_S; dr[p].gh = rq->gh; dr[p].img = img;
++      if (rq->kind == 1) { mc_draw(rq->e, rq->ti, rq->A, rq->B, img, iph); mc_stats[2]++; }
++      else if (rq->kind == 2) id_draw_self(rq->A, img, iph);
++      else id_draw(rq->pr, rq->t256, img, iph);
++      dr[p].W4 = rq->gw * ID_S; dr[p].gh = rq->gh; dr[p].img = img; dr[p].iph = iph;
+       dr[p].ux0 = rq->ax + rq->gx + mvx; dr[p].uy0 = rq->ay + rq->gy + mvy;
+       dr[p].depth = rq->depth; dr[p].first = rq->first;
+       for (k = 0; k < 64 && !dr[p].m[k]; k++) ;
+@@ -3126,11 +3146,11 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+             }
+          if (!seen || !same) continue;
+          if (fq->gw * ID_S * fq->gh * ID_S > (int)(sizeof fx_tc[0] / sizeof fx_tc[0][0])) continue;
+-         mc_draw(fq->e, fq->ti, &fx_pa[s][i], &fx_pb[s][i], fx_tc[i]);
++         mc_draw(fq->e, fq->ti, &fx_pa[s][i], &fx_pb[s][i], fx_tc[i], fx_tcp[i]);
+          fx_st[3]++;
+          memcpy(dr[q].m, fq->m, 64);
+          for (k = 0; k < 64; k++) if (fq->m[k]) am[0][k] = am[1][k] = 0;   /* 몸에 붙은 조각이었으면 그쪽에서 뺀다 */
+-         dr[q].W4 = fq->gw * ID_S; dr[q].gh = fq->gh; dr[q].img = fx_tc[i];
++         dr[q].W4 = fq->gw * ID_S; dr[q].gh = fq->gh; dr[q].img = fx_tc[i]; dr[q].iph = fx_tcp[i];
+          dr[q].ux0 = fq->gx + mvx; dr[q].uy0 = fq->gy + mvy;
+          dr[q].depth = fq->depth; dr[q].first = fq->first; dr[q].cur = fq->first;
+          {
+@@ -3206,28 +3226,35 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+          int in_win = (y >= rb->winy) && (y < rb->winy + rb->winh);
+          int wx0 = rb->winx, wx1 = imin(rb->winx + rb->winw, SS2FG_W);
+          int spl = fg_sp[s].on && fg_sp[s].any[y];             /* 99j: 배경을 ¼ px 옮긴 줄 */
++         /* zzz_fg_phase: ¼ px 옮긴 플레인의 원래 화소 경계 — 플레인 화소 (X + r) >> 2 라 경계는 X ≡ -r (mod 4) */
++         uint8_t phF = spl ? PH4(-fg_sp[s].rfx[y], -fg_sp[s].rfy[y]) : 0, phB = spl ? PH4(-fg_sp[s].rbx[y], -fg_sp[s].rby[y]) : 0;
+          if (spl) { rl_sprz = szr; rl_sprc = scr; rl_sprs = ssr; }
+          render_line(base, to_scr, offx, offy, t_scr, y, scan);
+          rl_sprz = 0; rl_sprc = 0; rl_sprs = 0;
+          for (sy = 0; sy < ID_S; sy++)
+          {
+             uint16_t *dst = pt->px + ((y - y0) * ID_S + sy) * ((x1 - x0) * ID_S);
++            uint8_t *dph = pt->ph + ((y - y0) * ID_S + sy) * ((x1 - x0) * ID_S);
+             const uint16_t *tw[ID_NR];
++            const uint8_t *twp[ID_NR];
+             for (q = 0; q < ID_NR; q++)
+             {
+                int ty = (y - dr[q].uy0) * ID_S + sy - dr[q].sh4y;
+                tw[q] = (dr[q].on && ty >= 0 && ty < dr[q].gh * ID_S) ? dr[q].img + ty * dr[q].W4 : 0;
++               twp[q] = (tw[q] && dr[q].iph) ? dr[q].iph + ty * dr[q].W4 : 0;
+             }
+             for (x = x0; x < x1; x++)
+                for (sx = 0; sx < ID_S; sx++)
+                {
+                   uint16_t c = scan[x];
+                   int z = zrow[x], sl = srow[x], win = -1;
++                  uint8_t ph = 0;                                /* 1배 줄(몸 뺀 줄)은 4배 모눈 그대로 */
+                   if (spl && in_win && x >= wx0 && x < wx1)
+                   {  /* 99j: 몸 뺀 줄의 스프라이트 · ¼ px 옮긴 플레인 · 배경색 중 앞 */
+                      int zw;
+                      c = (uint16_t)sp_px(&fg_sp[s], y, sy, x * ID_S + sx, szr[x], scr[x], &zw);
+                      z = zw; sl = (zw > 0 && !(zw & 1)) ? ssr[x] : -1;
++                     ph = zw == ZD_FG_SCROLL ? phF : zw == ZD_BG_SCROLL ? phB : 0;
+                   }
+                   if (in_win && x >= wx0 && x < wx1)
+                      for (q = 0; q < ID_NR; q++)                 /* 두 몸 + 이펙트(99w) — 앞뒤는 우선순위, 같으면 앞 슬롯 */
+@@ -3243,8 +3270,10 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+                                     : (dr[q].depth > dr[win].depth || (dr[q].depth == dr[win].depth && dr[q].cur < dr[win].cur)))
+                         {
+                            uint16_t col = ld16(base->pal + ((v >> 2) << 3) + ((v & 3) << 1)) & 0x0FFF;
++                           int ip = twp[q] ? twp[q][tx] : 0;     /* 그림 안 모눈 + 놓은 자리(sh4) */
+                            c = rb->neg ? (uint16_t)~col : col;
+                            z = dr[q].depth; sl = dr[q].first; win = q;
++                           ph = PH4((ip & 3) + dr[q].sh4x, ((ip >> 2) & 3) + dr[q].sh4y);
+                         }
+                      }
+                   if (an_any && in_win && x >= wx0 && x < wx1)
+@@ -3262,9 +3291,10 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+                         es = al_s[q][o];
+                         if (win >= 0 && win < ID_NR) { wz = dr[win].depth; ws = dr[win].cur; }
+                         else { wz = z; ws = sl; }
+-                        if (ez > wz || (ez == wz && es < ws)) { c = al_c[q][o]; z = ez; sl = es; win = ID_NR + q; }
++                        if (ez > wz || (ez == wz && es < ws)) { c = al_c[q][o]; z = ez; sl = es; win = ID_NR + q; ph = PH4(dr[q].r4x, dr[q].r4y); }
+                      }
+                   *dst++ = (uint16_t)colormap[c & 4095];
++                  *dph++ = ph;
+                }
+          }
+       }
+@@ -3276,12 +3306,30 @@ static void id_build(const ss2fg_frame *base, const ss2fg_frame *to_scr, int t_s
+ 
+ /* 내보내기 — 원래 그림(16bpp)을 4배로 늘리고 출력 칸 slot 의 조각을 붙인다 */
+ void ss2fg_idle_compose(uint16_t *dst, int dpitch, const uint16_t *src, int spitch, int w, int h, int slot)
++{
++   ss2fg_idle_compose_ph(dst, 0, dpitch, src, spitch, w, h, slot);
++}
++
++/* sp_pick 와 같고, 이긴 쪽(0 = 스프라이트·배경색 · 1 = 앞 플레인 · 2 = 뒤 플레인)도 알려 준다 — 4배 화소의 원래 모눈(zzz_fg_phase) */
++static inline unsigned sp_pick_w(int zs, unsigned sc, unsigned f, unsigned b, unsigned back, int *wn)
++{
++   if (zs > ZD_FG_SCROLL) { *wn = 0; return sc; }
++   if (f != 0xFFFF) { *wn = 1; return f; }
++   if (zs > ZD_BG_SCROLL) { *wn = 0; return sc; }
++   if (b != 0xFFFF) { *wn = 2; return b; }
++   *wn = 0;
++   return zs > 0 ? sc : back;
++}
++
++/* zzz_fg_phase: ph 가 있으면 4배 화소마다 «원래 화소의 4×4 칸이 몇 칸 비켜 시작하나»(x | y << 2)도 적는다(피치는 dst 와 같다) */
++void ss2fg_idle_compose_ph(uint16_t *dst, uint8_t *ph, int dpitch, const uint16_t *src, int spitch, int w, int h, int slot)
+ {
+    int y, x, sy, p;
+    const fg_sp_t *sp = (slot == 0 || slot == 1) && fg_sp[slot].on && fg_sp_cmap && w == SS2FG_W && h == SS2FG_H ? &fg_sp[slot] : 0;
+    for (y = 0; y < h; y++)
+    {
+       uint16_t *row = dst + (size_t)(y * ID_S) * dpitch;
++      uint8_t *prow = ph ? ph + (size_t)(y * ID_S) * dpitch : 0;
+       const uint16_t *s = src + (size_t)y * spitch;
+       if (sp && sp->any[y])
+       {  /* 99j: 창 안은 4배 화소마다 스프라이트 · ¼ px 옮긴 플레인 · 배경색 중 앞, 창 밖은 그대로.
+@@ -3290,33 +3338,48 @@ void ss2fg_idle_compose(uint16_t *dst, int dpitch, const uint16_t *src, int spit
+          const uint16_t *SC = sp->sc[y], *SC2 = sp->sc2[y];
+          int wx0 = sp->wx0[y], wx1 = sp->wx1[y], rfx = sp->rfx[y], rbx = sp->rbx[y], pk = -1, pp = sp->pp[y];
+          unsigned back = sp->back[y];
++         uint8_t phF = PH4(-rfx, -sp->rfy[y]), phB = PH4(-rbx, -sp->rby[y]);
+          for (sy = 0; sy < ID_S; sy++)
+          {
+             uint16_t *r = row + (size_t)sy * dpitch;
++            uint8_t *pr = prow ? prow + (size_t)sy * dpitch : 0;
+             int ff = sy + sp->rfy[y] >= ID_S, fb = sy + sp->rby[y] >= ID_S, key = ff | (fb << 1);
+             const uint16_t *F = sp->pf[ff][y], *Bk = sp->pb[fb][y];
+-            if (key == pk) { memcpy(r, r - dpitch, (size_t)w * ID_S * sizeof(uint16_t)); continue; }
++            if (key == pk)
++            {
++               memcpy(r, r - dpitch, (size_t)w * ID_S * sizeof(uint16_t));
++               if (pr) memcpy(pr, pr - dpitch, (size_t)w * ID_S);
++               continue;
++            }
+             pk = key;
+             for (x = 0; x < w; x++)
+             {
+                uint16_t *o = r + x * ID_S;
+-               unsigned lf = 0x10000, lb = 0x10000, lo = 0;
++               unsigned lf = 0x10000, lb = 0x10000, lo = 0, lp = 0;
+                int i;
+-               if (x < wx0 || x >= wx1) { o[0] = o[1] = o[2] = o[3] = s[x]; continue; }
++               if (x < wx0 || x >= wx1)
++               {
++                  o[0] = o[1] = o[2] = o[3] = s[x];
++                  if (pr) pr[x * ID_S] = pr[x * ID_S + 1] = pr[x * ID_S + 2] = pr[x * ID_S + 3] = 0;
++                  continue;
++               }
+                for (i = 0; i < ID_S; i++)
+                {
+                   unsigned f = F[x + ((i + rfx) >> 2)], b = Bk[x + ((i + rbx) >> 2)];
+                   if (f != lf || b != lb)
+                   {
+-                     unsigned c = sp_pick(SZ[x], SC[x], f, b, back);
++                     int wn;
++                     unsigned c = sp_pick_w(SZ[x], SC[x], f, b, back, &wn);
+                      if (pp)
+                      {  /* 포즈 섞기 — 1배 그림처럼 두 판이 다른 곳만 섞는다 */
+                         unsigned c2 = sp_pick(SZ2[x], SC2[x], f, b, back);
+                         if (c2 != c) c = mix12((uint16_t)c, (uint16_t)c2, sp->ppa);
+                      }
+                      lo = (uint16_t)fg_sp_cmap[c & 4095]; lf = f; lb = b;
++                     lp = wn == 1 ? phF : wn == 2 ? phB : 0;
+                   }
+                   o[i] = (uint16_t)lo;
++                  if (pr) pr[x * ID_S + i] = (uint8_t)lp;
+                }
+             }
+          }
+@@ -3328,6 +3391,7 @@ void ss2fg_idle_compose(uint16_t *dst, int dpitch, const uint16_t *src, int spit
+          row[x * 4] = row[x * 4 + 1] = row[x * 4 + 2] = row[x * 4 + 3] = v;
+       }
+       for (sy = 1; sy < ID_S; sy++) memcpy(row + (size_t)sy * dpitch, row, (size_t)w * ID_S * sizeof(uint16_t));
++      if (prow) for (sy = 0; sy < ID_S; sy++) memset(prow + (size_t)sy * dpitch, 0, (size_t)w * ID_S);
+    }
+    if (slot < 0 || slot > 1) return;
+    for (p = 0; p < ID_NR; p++)   /* 99w: 몸 둘 + 이펙트 */
+@@ -3336,7 +3400,10 @@ void ss2fg_idle_compose(uint16_t *dst, int dpitch, const uint16_t *src, int spit
+       int pw = pt->w * ID_S, r;
+       if (!pt->on || pt->x0 + pt->w > w || pt->y0 + pt->h > h) continue;
+       for (r = 0; r < pt->h * ID_S; r++)
++      {
+          memcpy(dst + (size_t)(pt->y0 * ID_S + r) * dpitch + pt->x0 * ID_S, pt->px + (size_t)r * pw, (size_t)pw * sizeof(uint16_t));
++         if (ph) memcpy(ph + (size_t)(pt->y0 * ID_S + r) * dpitch + pt->x0 * ID_S, pt->ph + (size_t)r * pw, (size_t)pw);
++      }
+    }
+ }
+ 
+diff --git a/src/ss2fg.h b/src/ss2fg.h
+index aa9a49a..d5622ba 100644
+--- a/src/ss2fg.h
++++ b/src/ss2fg.h
+@@ -125,6 +125,8 @@ void ss2fg_probe_end(void);
+ int  ss2fg_probe_more(void);
+ void ss2fg_probe_reset(void);
+ void ss2fg_idle_compose(uint16_t *dst, int dpitch, const uint16_t *src, int spitch, int w, int h, int slot);
++/* zzz_fg_phase: 위와 같고, ph(피치 dpitch)에 4배 화소마다 «원래 화소의 4×4 칸이 4배 모눈에서 몇 칸 비켜 시작하나»(x 0..3 | y 0..3 << 2) */
++void ss2fg_idle_compose_ph(uint16_t *dst, uint8_t *ph, int dpitch, const uint16_t *src, int spitch, int w, int h, int slot);
+ /* 99j: 배경 스크롤 ¼ px — 실제 프레임마다 한 번(D-1·D·D+1·D+2). 반환 비트0·1 = τD·τD+½ 에 옮길 줄이 있음 */
+ int  ss2fg_scroll_plan(const ss2fg_frame *fp, const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_frame *f2, unsigned realn);
+ void ss2fg_scroll_stats(int *out4);  /* 시험용 계기 */

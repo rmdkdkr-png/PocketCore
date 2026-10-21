@@ -1,0 +1,279 @@
+diff --git a/src/libretro.c b/src/libretro.c
+index ee2d054..a3ad11c 100644
+--- a/src/libretro.c
++++ b/src/libretro.c
+@@ -411,6 +411,11 @@ static double (*fg_clock)(void) = NULL; /* 시험용 시계 주입 (retro_ngp_fg
+ #define FG_BLOCK_WAIT0   10.0
+ static uint8_t *fg_state = NULL;       /* 예측용 상태 버퍼 (MDFNSS 가 필요하면 늘린다) */
+ static uint32_t fg_state_cap = 0;
++static uint8_t input_buf;              /* 99v: 아래(입력)에서 정의 — 미리 보기가 입력 바뀜을 본다 */
++static uint8_t *fg_pb_state = NULL;    /* 99v: 멀리 미리 보기 상태(따로) */
++static uint32_t fg_pb_cap = 0, fg_pb_len = 0;
++static uint8_t  fg_pb_extras[8];
++static int      fg_pb_iline;
+ static int16_t  fg_scratch_snd[0x10000];
+ static void Emulate(EmulateSpecStruct *espec, int16_t *sound_buf);
+ extern int ngplink_active(void);
+@@ -616,6 +621,63 @@ static void fg_snap_load(int pops)
+    iline = fg_snap_iline;
+    while (pops-- > 0) ss2fg_capture_pop();
+ }
++/* 99v: 멀리 미리 보기 상태 뜨기·불러오기 — 숨은 프레임 중(가벼운 스냅샷 창 안)에서만 부른다 */
++static int fg_pb_save(void)
++{
++   StateMem st;
++   int ok, sk = fg_state_skip;
++   memset(&st, 0, sizeof st);
++   st.data     = fg_pb_state;
++   st.malloced = fg_pb_cap;
++   fg_state_skip = FG_SKIP_SND | FG_SKIP_FLASH;
++   ok = MDFNSS_SaveSM(&st, 0, 0, NULL, NULL, NULL);
++   fg_pb_state = st.data;
++   fg_pb_cap   = st.malloced;
++   fg_pb_len   = ok ? st.len : 0;
++   fg_state_skip = sk;
++   if (!ok) return 0;
++   ngp_mem_fg_extras(fg_pb_extras, 0);
++   fg_pb_iline = iline;
++   return 1;
++}
++static int fg_pb_load(void)
++{
++   StateMem st;
++   int sk = fg_state_skip;
++   if (!fg_pb_state || !fg_pb_len) return 0;
++   memset(&st, 0, sizeof st);
++   st.data     = fg_pb_state;
++   st.malloced = fg_pb_cap;
++   st.len      = fg_pb_len;
++   st.loc      = 0;
++   fg_state_skip = FG_SKIP_SND | FG_SKIP_FLASH;
++   MDFNSS_LoadSM(&st, 0, 0);
++   fg_state_skip = sk;
++   ngp_mem_fg_extras(fg_pb_extras, 1);
++   iline = fg_pb_iline;
++   return 1;
++}
++static void fg_hidden(int n, int keep);
++static uint16_t fg_pb_pix[FB_WIDTH * FB_HEIGHT];
++/* 99v: 대전 밖에서 제자리 몸이 오래 머물면 실제 프레임마다 4 프레임씩 더 몰래 돌려 다음 포즈가 나오는 때·그림을 찾아 둔다(다음 실제 프레임의 계획에 씀).
++   지금 숨은 프레임이 끝난 자리(D+2(+2))에서 시작해 따로 떠 둔 상태로 이어 간다. 그림 칸(surf)은 되돌려 놓는다 */
++static void fg_probe_step(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_frame *f2, int extra)
++{
++   int pk = ss2fg_probe_want(f0, f1, f2, fg_realn, (int)input_buf);
++   if (pk == 2)
++   {
++      if (fg_pb_save()) ss2fg_probe_started(fg_realn + 2u + (unsigned)extra, ss2fg_hist(0));
++      else pk = 0;
++   }
++   else if (pk == 1 && !fg_pb_load()) { ss2fg_probe_reset(); pk = 0; }
++   if (!pk) return;
++   memcpy(fg_pb_pix, surf->pixels, sizeof fg_pb_pix);
++   ss2fg_probe_begin();
++   fg_hidden(4, 0);
++   ss2fg_probe_end();
++   memcpy(surf->pixels, fg_pb_pix, sizeof fg_pb_pix);
++   if (ss2fg_probe_more() && !fg_pb_save()) ss2fg_probe_reset();
++}
+ static void fg_hidden(int n, int keep)
+ {
+    EmulateSpecStruct ps;
+@@ -934,6 +996,7 @@ static int fg_predict4(int ra)
+    ss2fg_body_override(0, 0, 0, 0); ss2fg_body_override(1, 0, 0, 0);
+    idle_out_slot = 0;                                  /* 이번 실제 호출은 τD(조각 칸 0) */
+ 
++   if (idle_opt && ss2comm_rom_is_ss2()) fg_probe_step(f0, f1, f2, extra);   /* 99v */
+    fg_snap_load(ra + 2 + extra);                       /* 숨은 프레임 캡처를 무른다 */
+    return 1;
+ }
+diff --git a/src/ss2fg.c b/src/ss2fg.c
+index 50be44c..2da955e 100644
+--- a/src/ss2fg.c
++++ b/src/ss2fg.c
+@@ -13,10 +13,14 @@
+    지난 프레임 몇 장을 쌓아 둔다(최근이 0번). 4배(게임 박자 맞춤) 예측은 N+1·N+2 를 미리 돌려 두 장을
+    쌓았다가 두 번 무른다. */
+ #define FG_RING 10                 /* 런어헤드 2 + 미리 4(느린 몸 박자) + 실제·앞 프레임이 다 들어가게 */
+-static ss2fg_frame fg_slot[FG_RING];
++static ss2fg_frame fg_slot[FG_RING + 2];   /* 99v: 뒤의 둘 = 멀리 미리 보기 전용(고리에 안 들어감) */
+ static int fg_hist[FG_RING] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };   /* fg_hist[0] = 마지막(현재), [1] = 그 앞 … (-1 = 없음) */
+ static int fg_build = 0;
+ static uint8_t fg_build_dirty;
++static int fg_pb_mode = 0, fg_pb_prev = -1, fg_pb_sbuild;   /* 99v: 멀리 미리 보기 중 — 캡처를 전용 칸에(고리 안 건드림) */
++static uint8_t fg_pb_sdirty;
++static void probe_check(const ss2fg_frame *f);
++static void probe_clear(void);
+ 
+ static int next_free(void)
+ {
+@@ -37,6 +41,8 @@ void ss2fg_reset(void)
+    for (k = 0; k < FG_RING; k++) fg_hist[k] = -1;
+    fg_build = 0;
+    fg_build_dirty = 0;
++   fg_pb_mode = 0; fg_pb_prev = -1;
++   probe_clear();   /* 99v */
+ }
+ 
+ void ss2fg_capture_line(int y, const ss2fg_regs *r)
+@@ -81,9 +87,8 @@ static const uint8_t *fg_ram = 0;
+ void ss2fg_set_ram(const uint8_t *ram) { fg_ram = ram; }
+ static int id_on;                 /* 서기 사이 그림(아래 «서기 자세») 켬 */
+ 
+-static void capture_body(ss2fg_frame *f)
++static void capture_body(ss2fg_frame *f, const ss2fg_frame *pv)   /* pv = 직전 캡처(99v: 멀리 미리 보기 중엔 그 앞 미리 보기 칸) */
+ {
+-   const ss2fg_frame *pv = fg_hist[0] >= 0 ? &fg_slot[fg_hist[0]] : 0;   /* 직전 캡처 */
+    int k, sel = 0;
+    f->now_ok = (uint8_t)(fg_ram && fg_ram[FG_RAM_MODE] == FG_RAM_FIGHT);
+    f->fight = f->now_ok;   /* 99r */
+@@ -127,7 +132,7 @@ void ss2fg_capture_end(const uint8_t *scroll, const uint8_t *chr, const uint8_t
+ {
+    ss2fg_frame *f = &fg_slot[fg_build];
+    int k;
+-   capture_body(f);
++   capture_body(f, fg_pb_mode ? (fg_pb_prev >= 0 ? &fg_slot[fg_pb_prev] : 0) : (fg_hist[0] >= 0 ? &fg_slot[fg_hist[0]] : 0));
+    memcpy(f->scroll, scroll, sizeof f->scroll);
+    memcpy(f->chr,    chr,    sizeof f->chr);
+    memcpy(f->spr,    spr,    sizeof f->spr);
+@@ -139,6 +144,15 @@ void ss2fg_capture_end(const uint8_t *scroll, const uint8_t *chr, const uint8_t
+    f->valid  = 1;
+    resolve_chain(f);
+ 
++   if (fg_pb_mode)
++   {  /* 99v: 멀리 미리 보기 — 전용 칸 둘을 번갈아, 고리는 그대로 */
++      fg_pb_prev = fg_build;
++      fg_build = fg_build == FG_RING ? FG_RING + 1 : FG_RING;
++      fg_build_dirty = 0;
++      memcpy(fg_slot[fg_build].line, f->line, sizeof f->line);
++      probe_check(f);
++      return;
++   }
+    for (k = FG_RING - 1; k > 0; k--) fg_hist[k] = fg_hist[k - 1];
+    fg_hist[0] = fg_build;
+    fg_build = next_free();
+@@ -1455,6 +1469,18 @@ static uint64_t   id_prev2[2];       /* 99t: 그 앞 포즈(id_prev 의 앞) */
+ #define ID_CHAINS 32
+ static uint64_t   id_chs[2][ID_CHAINS];   /* 99t: 제자리 짧은 머묾 줄기에 든 포즈 — 다시 시작하면 D+3·D+4 를 본다 */
+ static unsigned   id_chu[2][ID_CHAINS];
++#define PB_STEP 4                 /* 99v: 실제 프레임마다 더 돌릴 숨은 프레임 */
++#define PB_MAX  48                /* 99v: D 에서 이만큼 앞까지 */
++static struct {                   /* 99v: 멀리 미리 보기(대전 밖) */
++   int on, found, p, input;
++   uint64_t from, sb;             /* 머무는 포즈 · 찾은 뒤 포즈 */
++   unsigned start, pos, at;       /* 머무는 포즈 시작 · 미리 본 마지막 프레임 · 뒤 포즈가 처음 나온 프레임(실제 프레임 번호) */
++   int ax, ay;
++   uint8_t ch;
++   uint64_t done_from[2];         /* 이 머묾은 이미 찾아봄 */
++   unsigned done_start[2];
++   ss2fg_frame last, fk;          /* 미리 본 마지막 캡처(다음에 이어 돌릴 때 «직전») · 뒤 포즈가 나온 캡처 */
++} pb;
+ static unsigned   id_cht[2];         /* 99s: 그 번호가 바뀐 프레임 */
+ static int        id_ax[2], id_ay[2], id_still[2];
+ static id_req_t   id_rq[2][2];               /* [출력 칸: 0 = τD, 1 = τD+½][몸] */
+@@ -2085,6 +2111,11 @@ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+          if (sg != id_cur[p]) { sb = sg; K = k; fk = g; seen34 = 1; break; }
+       }
+    }
++   if (!K && !f0->fight && pb.found && pb.p == p && pb.from == id_cur[p] && pb.start == id_start[p] && pb.at > realn + 2u && pb.at - realn <= (unsigned)PB_MAX
++       && body_mask(&pb.fk, p, mm))
++   {  /* 99v: 대전 밖 멀리 미리 보기로 찾은 뒤 포즈 — 바뀔 때까지의 실제 길이로 고르게(99o 와 같은 길) */
++      sb = pb.sb; K = (int)(pb.at - realn); fk = &pb.fk; seen34 = 1;
++   }
+    if (f0->pick && (K ? (fk->ch[p] != f0->ch[p] || fk->ch_now[p] != f0->ch[p]) : f0->pick == 2)) return 0;   /* 99s: 고르기 화면 — 배운 바뀜(id_plan_learned)과 같다 */
+    /* 되풀이 동작(배운 순환 — 걷기 등): 다음 포즈를 미리 알면 사이 그림을 한 걸음 내내 고르게 편다(패치 99).
+       바뀌기 직전 2 프레임에만 몰면, 걷기는 몸은 120Hz 로 매끄럽게 가는데 다리는 6 프레임 멈춰 미끄러지듯 보였다
+@@ -2182,6 +2213,74 @@ static int mc_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_fra
+    return 1;
+ }
+ 
++/* 99v: 멀리 미리 보기 */
++static void probe_clear(void) { pb.on = pb.found = 0; pb.done_from[0] = pb.done_from[1] = 0; }
++void ss2fg_probe_reset(void) { pb.on = pb.found = 0; }
++static void probe_check(const ss2fg_frame *f)
++{
++   uint8_t mm[64];
++   uint64_t s;
++   pb.pos++;
++   if (!pb.on || pb.found) return;
++   if (!f->valid || f->mono || !f->body_ok || !body_mask(f, pb.p, mm)) { pb.on = 0; return; }      /* 몸이 없어짐 */
++   if (f->ob_x[pb.p] != pb.ax || f->ob_y[pb.p] != pb.ay || f->ch[pb.p] != pb.ch) { pb.on = 0; return; }   /* 움직이기 시작·캐릭터 바뀜 */
++   s = body_sig(f, mm);
++   if (s != pb.from) { pb.found = 1; pb.on = 0; pb.sb = s; pb.at = pb.pos; pb.fk = *f; }
++}
++int ss2fg_probe_want(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_frame *f2, unsigned realn, int input)
++{
++   int p;
++   if (!id_on || !mc_on || !mc_f || !f0 || !f0->valid || f0->mono || !f0->body_ok || f0->fight) { pb.on = pb.found = 0; return 0; }
++   if ((pb.on || pb.found) && (input != pb.input || id_cur[pb.p] != pb.from || id_start[pb.p] != pb.start)) pb.on = pb.found = 0;
++   if (pb.found) return 0;
++   if (pb.on)
++   {
++      if (pb.pos - realn >= (unsigned)PB_MAX) { pb.on = 0; return 0; }
++      return 1;
++   }
++   for (p = 0; p < 2; p++)
++   {
++      uint8_t mm[64];
++      int k, same = 1;
++      if (!id_cur[p] || !id_still[p] || f0->ob_x[p] != id_ax[p] || f0->ob_y[p] != id_ay[p]) continue;
++      if (pb.done_from[p] == id_cur[p] && pb.done_start[p] == id_start[p]) continue;
++      for (k = 1; k <= 2 && same; k++)
++      {
++         const ss2fg_frame *g = k == 1 ? f1 : f2;
++         if (!g || !g->valid || g->mono || !g->body_ok || !body_mask(g, p, mm) || g->ob_x[p] != id_ax[p] || g->ob_y[p] != id_ay[p]
++             || body_sig(g, mm) != id_cur[p]) same = 0;
++      }
++      if (!same) continue;                                   /* 바뀜이 이미 보임 */
++      pb.p = p; pb.from = id_cur[p]; pb.start = id_start[p]; pb.ax = id_ax[p]; pb.ay = id_ay[p]; pb.ch = f0->ch[p]; pb.input = input;
++      pb.done_from[p] = id_cur[p]; pb.done_start[p] = id_start[p];
++      pb.found = 0;
++      return 2;
++   }
++   return 0;
++}
++void ss2fg_probe_started(unsigned pos, const ss2fg_frame *last)
++{
++   if (!last || !last->valid) { pb.on = 0; return; }
++   pb.on = 1; pb.found = 0; pb.pos = pos; pb.last = *last;
++}
++void ss2fg_probe_begin(void)
++{
++   fg_pb_sbuild = fg_build; fg_pb_sdirty = fg_build_dirty;
++   fg_slot[FG_RING] = pb.last;
++   fg_pb_prev = FG_RING;
++   fg_build = FG_RING + 1;
++   memcpy(fg_slot[fg_build].line, pb.last.line, sizeof pb.last.line);
++   fg_build_dirty = 0;
++   fg_pb_mode = 1;
++}
++void ss2fg_probe_end(void)
++{
++   if (fg_pb_prev >= 0) pb.last = fg_slot[fg_pb_prev];
++   fg_pb_mode = 0; fg_pb_prev = -1;
++   fg_build = fg_pb_sbuild; fg_build_dirty = fg_pb_sdirty;
++}
++int ss2fg_probe_more(void) { return pb.on && !pb.found; }
++
+ /* 99t: 제자리 짧은 머묾 줄기 기억 */
+ static void id_chain_mark(int p, uint64_t s)
+ {
+diff --git a/src/ss2fg.h b/src/ss2fg.h
+index f3fad62..4087350 100644
+--- a/src/ss2fg.h
++++ b/src/ss2fg.h
+@@ -112,6 +112,15 @@ int  ss2fg_idle_plan(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_f
+ /* 99o: 제자리에서 3~5 프레임씩 포즈를 넘기는 줄기 중이라 2 프레임 더(D+3·D+4) 미리 보고 싶은가(관찰 뒤, 계획 전에) · 그 두 프레임을 계획에 준다(없으면 0) */
+ int  ss2fg_idle_want_far(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_frame *f2, unsigned realn);
+ void ss2fg_idle_far(const ss2fg_frame *f3, const ss2fg_frame *f4);
++/* 99v: 멀리 미리 보기(대전 밖) — want: 0 없음 · 1 이어서(떠 둔 상태를 불러 돌림) · 2 새로(지금 숨은 프레임 끝 자리를 떠 두고 돌림).
++   새로면 started(그 자리의 실제 프레임 번호, 그 자리 캡처) 뒤에, 돌리는 동안 begin/end 로 감싼다(캡처는 전용 칸으로).
++   more = 아직 못 찾아 다음에 이어 볼 것(떠 둔 상태를 새로 저장) */
++int  ss2fg_probe_want(const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_frame *f2, unsigned realn, int input);
++void ss2fg_probe_started(unsigned pos, const ss2fg_frame *last);
++void ss2fg_probe_begin(void);
++void ss2fg_probe_end(void);
++int  ss2fg_probe_more(void);
++void ss2fg_probe_reset(void);
+ void ss2fg_idle_compose(uint16_t *dst, int dpitch, const uint16_t *src, int spitch, int w, int h, int slot);
+ /* 99j: 배경 스크롤 ¼ px — 실제 프레임마다 한 번(D-1·D·D+1·D+2). 반환 비트0·1 = τD·τD+½ 에 옮길 줄이 있음 */
+ int  ss2fg_scroll_plan(const ss2fg_frame *fp, const ss2fg_frame *f0, const ss2fg_frame *f1, const ss2fg_frame *f2, unsigned realn);
