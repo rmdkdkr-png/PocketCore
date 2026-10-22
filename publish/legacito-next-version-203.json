@@ -1,0 +1,10 @@
+{
+  "versionCode": 203,
+  "versionName": "0.9",
+  "packageId": "com.dudu.legacito.next",
+  "apk": "legacito-next-203.apk",
+  "sha256": "64171ba22ab676a388d0c2228e2a269d2797033c124d07a00520516b9a92009e",
+  "bytes": 5774896,
+  "signingCertificateSHA256": "4b92871c65eb55b9519d9be059d1f877f3c63d0cf27b610b7c146d99b19df8d5",
+  "notes": "이름 입력칸 어두운 바탕·밝은 글씨로 수정. 글자 2·3번 제거, 작은 한글·영어 도트와 먹 베기 띠 유지. 업데이트 중단 시 재시도·브라우저 받기, 새 판 색인 캐시 갱신. 201 게임·이펙트·랭크 동작 유지."
+}
