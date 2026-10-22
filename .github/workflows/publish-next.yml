@@ -17,8 +17,8 @@ jobs:
           import json,hashlib,zipfile
           m=json.load(open('legacito-next-version.json'))
           assert m['packageId']=='com.dudu.legacito.next'
-          assert m['versionCode']==205
-          assert m['apk']=='legacito-next-205.apk'
+          assert m['versionCode']==206
+          assert m['apk']=='legacito-next-206.apk'
           assert hashlib.sha256(open(m['apk'],'rb').read()).hexdigest()==m['sha256']
           with zipfile.ZipFile(m['apk']) as z: assert z.testzip() is None
           PY
@@ -27,5 +27,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd publish
-          gh release upload app legacito-next-205.apk legacito-next-version-204.json -R "$GITHUB_REPOSITORY"
+          gh release upload app legacito-next-206.apk legacito-next-version-205.json -R "$GITHUB_REPOSITORY"
           gh release upload app legacito-next-version.json --clobber -R "$GITHUB_REPOSITORY"

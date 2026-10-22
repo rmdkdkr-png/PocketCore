@@ -1,0 +1,10 @@
+{
+  "versionCode": 205,
+  "versionName": "0.9",
+  "packageId": "com.dudu.legacito.next",
+  "apk": "legacito-next-205.apk",
+  "sha256": "611dd90c1257e09f6aa0a84bf6789c63a33aa450f34d1a6878303615a517f85d",
+  "bytes": 5787184,
+  "signingCertificateSHA256": "4b92871c65eb55b9519d9be059d1f877f3c63d0cf27b610b7c146d99b19df8d5",
+  "notes": "승패 뒤 게임 전체화면 점수 정산, 승급·강등·배치 완료 계급 연출 후 메뉴. 일반1.8초·계급3초·짧게0.8초. 버튼 건너뛰기와 입력 중복 방지. 204 리그 저장·점수·원본 ROM 정책 및 게임 코어·이펙트 유지."
+}
