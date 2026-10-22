@@ -1,10 +1,10 @@
 {
-  "versionCode": 209,
+  "versionCode": 210,
   "versionName": "0.9",
   "packageId": "com.dudu.legacito.next",
-  "apk": "legacito-next-209.apk",
-  "sha256": "d8e9dd84c7c67d8f3d120a83389c4774e69f535129046d9c3b95e184ab77af3e",
-  "bytes": 5799472,
+  "apk": "legacito-next-210.apk",
+  "sha256": "9615ade69a932f918ab3383ce07074d3ce36e3ce40b0cc3c1d73bd5ccaf17582",
+  "bytes": 5803568,
   "signingCertificateSHA256": "4b92871c65eb55b9519d9be059d1f877f3c63d0cf27b610b7c146d99b19df8d5",
-  "notes": "결과 점수·게이지 변화에 짧은 계수음, 승급·무쌍 달성에 상승음. 숫자 변화가 없으면 무음, 건너뛰기·닫기에서 즉시 정리. 208 게임영역 내 게이지·기존 점수규칙 유지."
+  "notes": "전투 중 기둥 아트·캐릭터 해설·심판 쿠로코를 각각 켬/끔. 설정 → 화면 → 게임 화면에서 선택, 기본 끔. 기존 중간 프레임·타격 이펙트 유지, 미터와 결과 화면은 실제 게임 영역에 맞춤."
 }
