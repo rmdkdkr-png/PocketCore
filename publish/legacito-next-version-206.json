@@ -1,0 +1,10 @@
+{
+  "versionCode": 206,
+  "versionName": "0.9",
+  "packageId": "com.dudu.legacito.next",
+  "apk": "legacito-next-206.apk",
+  "sha256": "0b93ed0e7dbdfb834fd7f00f0eba51a733d28fdaf81edda4d3bf87aa681e8b0b",
+  "bytes": 5791280,
+  "signingCertificateSHA256": "4b92871c65eb55b9519d9be059d1f877f3c63d0cf27b610b7c146d99b19df8d5",
+  "notes": "리그 무대 분위기 자동/원작. 기존 8무대의 색상 변형과 원작 밤/저녁 3장면을 경기 기록에 고정하고 이어하기 때 복원. 강등 위기 안내와 경기 컬러 이름 개선. 기존 결과 연출·이펙트·SVC 코어 유지."
+}
