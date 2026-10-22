@@ -1,0 +1,10 @@
+{
+  "versionCode": 204,
+  "versionName": "0.9",
+  "packageId": "com.dudu.legacito.next",
+  "apk": "legacito-next-204.apk",
+  "sha256": "b749729c6b2ad60fb852eaeddfb01e38a6e3b87017a6eb60ce3262a1730791f7",
+  "bytes": 5783088,
+  "signingCertificateSHA256": "4b92871c65eb55b9519d9be059d1f877f3c63d0cf27b610b7c146d99b19df8d5",
+  "notes": "리그 저장 후 나가기·바로 이어하기. 승패 점수 예고를 실제 정산과 통일. 원본 ROM 해시 확인 후 내부 사본에 패치 자동 적용(기존 수정 ROM은 원본 재선택 필요). 치트는 기록·점수 유지하고 표시만. 203 게임 코어·이펙트 유지."
+}
