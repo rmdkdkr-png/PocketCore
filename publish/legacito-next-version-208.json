@@ -1,0 +1,10 @@
+{
+  "versionCode": 208,
+  "versionName": "0.9",
+  "packageId": "com.dudu.legacito.next",
+  "apk": "legacito-next-208.apk",
+  "sha256": "b7f1869a84e64e068fd0893208a73f04c7eb2d6a8fbd25b6d21952e5d7f8cf74",
+  "bytes": 5795376,
+  "signingCertificateSHA256": "4b92871c65eb55b9519d9be059d1f877f3c63d0cf27b610b7c146d99b19df8d5",
+  "notes": "승패 결과 숫자와 함께 움직이는 점수 게이지. 실제 다음 계급 LP 기준·승급 채움·강등 감소·보호 시 정지. MR은 이번 경기 변화, 배치는 진행 경기 수로 표시. 게임 화면 안에서 기존 박자 유지. 207 영역 제한 포함."
+}
