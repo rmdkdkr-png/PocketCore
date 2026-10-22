@@ -27,5 +27,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd publish
-          gh release upload app legacito-next-210.apk legacito-next-version-208.json -R "$GITHUB_REPOSITORY"
+          gh release upload app legacito-next-210.apk legacito-next-version-209.json -R "$GITHUB_REPOSITORY"
           gh release upload app legacito-next-version.json --clobber -R "$GITHUB_REPOSITORY"
