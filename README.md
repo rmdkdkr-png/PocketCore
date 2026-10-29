@@ -1,3 +1,21 @@
+# 잔심 v21 (Android)
+
+**최신 공개판: 1.20 (21) · 2026-10-29**
+
+게임 중 상단 버튼 메뉴와 기존 OPTION 동작을 복원했습니다. v20의 색 선택·기술 배치·스테이지 도입 연출은 유지합니다.
+
+**[일반판 APK 받기](https://github.com/rmdkdkr-png/PocketCore/releases/download/app/zanshin-21.apk)** · **[라이트판 APK 받기](https://github.com/rmdkdkr-png/PocketCore/releases/download/app/zanshin-lite-21.apk)**
+
+[변경 내용·검수 범위·파일 해시](docs/releases/zanshin-21.md) · [v21 대응 소스와 개발자 노트](https://github.com/rmdkdkr-png/PocketCore/releases/download/app/zanshin-21-source.zip) · [전체 릴리스](https://github.com/rmdkdkr-png/PocketCore/releases/tag/app)
+
+사용 중인 판의 APK로 업데이트하세요. 일반판과 라이트판은 별도 앱입니다. 기존 앱 삭제나 데이터 초기화는 필요하지 않습니다. 실제 휴대폰·물리 게임패드 검수는 아직 포함하지 않았습니다.
+
+---
+
+## 기존 PocketCore 안내
+
+아래는 기존 PocketCore 프로젝트 안내입니다. 잔심 v21의 설치 파일과 대응 소스는 위 링크를 이용하세요.
+
 <div align="center">
 
 # 🕹 PocketCore
