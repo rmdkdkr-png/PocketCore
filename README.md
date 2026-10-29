@@ -1,5 +1,12 @@
 # 잔심 — NGP SS!2 커스텀 플레이어(Android)
 
+**바로 다운로드**
+
+- **[일반판 APK 다운로드 · 68.0 MB](https://github.com/rmdkdkr-png/PocketCore/releases/download/app/zanshin-21.apk)**
+- **[라이트판 APK 다운로드 · 6.2 MB](https://github.com/rmdkdkr-png/PocketCore/releases/download/app/zanshin-lite-21.apk)**
+
+---
+
 **한패 / 가상 랭크매치 / SP키 / 컬러 추가 / 스테이지 추가**
 
 안녕하세요. 네오지오 포켓 컬러용 **사무라이 쇼다운! 2**를 안드로이드에서 즐길 수 있도록 만든 커스텀 플레이어, **잔심을 공개합니다.**
